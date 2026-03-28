@@ -2,7 +2,10 @@
 :: Starts the FastAPI auth proxy.
 :: All settings are read from environment variables (set in .env / start_server.ps1).
 
-if "%API_KEYS%"==""        set API_KEYS=change-me
+if "%API_KEYS%"=="" (
+    echo [FAIL] API_KEYS is not set. Load .env via start_server.ps1 or set API_KEYS before running.
+    exit /b 1
+)
 if "%OLLAMA_BASE%"==""     set OLLAMA_BASE=http://localhost:11434
 if "%PROXY_PORT%"==""      set PROXY_PORT=8000
 if "%RATE_LIMIT_RPM%"==""  set RATE_LIMIT_RPM=60

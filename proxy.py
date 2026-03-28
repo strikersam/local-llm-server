@@ -8,11 +8,10 @@ and full streaming support. Exposes both:
 """
 
 import os
+import sys
 import json
 import time
-import asyncio
 import logging
-import secrets
 from collections import defaultdict
 from typing import AsyncIterator
 
@@ -29,6 +28,17 @@ RAW_KEYS       = os.environ.get("API_KEYS", "")
 VALID_API_KEYS = set(k.strip() for k in RAW_KEYS.split(",") if k.strip())
 RATE_LIMIT_RPM = int(os.environ.get("RATE_LIMIT_RPM", "60"))   # requests per minute per key
 LOG_LEVEL      = os.environ.get("LOG_LEVEL", "INFO")
+# Comma-separated origins, or * (default). Example: https://app.example.com,https://other.com
+_raw_cors = os.environ.get("CORS_ORIGINS", "*").strip()
+CORS_ORIGINS = [o.strip() for o in _raw_cors.split(",") if o.strip()] or ["*"]
+
+# Refuse example / default keys from .env templates (must not be used in production)
+WEAK_API_KEYS = frozenset({
+    "change-me",
+    "your-secret-key-here",
+    "YOUR_API_KEY",
+    "optional-second-key-for-another-device",
+})
 
 logging.basicConfig(
     level=getattr(logging, LOG_LEVEL),
@@ -38,6 +48,15 @@ log = logging.getLogger("qwen-proxy")
 
 if not VALID_API_KEYS:
     log.warning("⚠  No API_KEYS set — all requests will be REJECTED. Set API_KEYS env var.")
+else:
+    bad = VALID_API_KEYS & WEAK_API_KEYS
+    if bad:
+        log.error(
+            "Refusing to start: API_KEYS contains placeholder or default keys: %s. "
+            "Replace with secrets from openssl / PowerShell (see .env.example).",
+            ", ".join(sorted(bad)),
+        )
+        sys.exit(1)
 
 # ─── Rate limiter (in-memory, per key) ─────────────────────────────────────────
 
@@ -63,7 +82,7 @@ def verify_api_key(authorization: str = Header(...)) -> str:
         raise HTTPException(status_code=401, detail="Authorization header must be 'Bearer <key>'")
     key = authorization[7:].strip()
     if key not in VALID_API_KEYS:
-        log.warning("Rejected invalid API key: %s…", key[:8])
+        log.warning("Rejected request with invalid API key")
         raise HTTPException(status_code=403, detail="Invalid API key")
     check_rate_limit(key)
     return key
@@ -74,7 +93,7 @@ app = FastAPI(title="Qwen3-Coder Proxy", version="1.0.0", docs_url=None, redoc_u
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=CORS_ORIGINS,
     allow_methods=["*"],
     allow_headers=["*"],
 )

@@ -17,7 +17,7 @@ if ($content -match "https://[a-z0-9\-]+\.trycloudflare\.com") {
     Write-Host ""
     Write-Host " Use this in your client configs:" -ForegroundColor Cyan
     Write-Host "   API Base:  $url/v1" -ForegroundColor White
-    Write-Host "   API Key:   $($(Get-Content "$SCRIPT_DIR\.env") -match "^API_KEYS=" -replace "API_KEYS=",""  | Select-Object -First 1)" -ForegroundColor White
+    Write-Host "   API Key:   (use API_KEYS from your .env — not printed here)" -ForegroundColor White
     # Also copy to clipboard
     $url | Set-Clipboard
     Write-Host " (URL copied to clipboard)" -ForegroundColor Gray

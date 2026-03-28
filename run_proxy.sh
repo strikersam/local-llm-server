@@ -4,7 +4,10 @@
 
 set -e
 
-export API_KEYS="${API_KEYS:-change-me}"
+if [[ -z "${API_KEYS// }" ]]; then
+  echo "[FAIL] API_KEYS is not set. Source .env or export API_KEYS before running." >&2
+  exit 1
+fi
 export OLLAMA_BASE="${OLLAMA_BASE:-http://localhost:11434}"
 export PROXY_PORT="${PROXY_PORT:-8000}"
 export RATE_LIMIT_RPM="${RATE_LIMIT_RPM:-60}"
