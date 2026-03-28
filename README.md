@@ -274,23 +274,102 @@ GET /health
 
 ## Client Setup
 
-### Cursor IDE
+### Option 1 — Cursor IDE
 
-`Settings (Ctrl+,) → Models → OpenAI API Key section`:
+The quickest way to get coding assistance using your home PC models inside Cursor.
+
+1. Open Cursor → **Settings** (`Ctrl+,`) → **Models**
+2. Scroll to the **OpenAI API Key** section and toggle it **ON**
+3. Fill in the two fields:
 
 | Field | Value |
 |-------|-------|
-| API Key | Your key from `.env` |
-| Override Base URL | `https://your-tunnel-url/v1` |
+| **API Key** | Your key from `.env` (e.g. `jnRLv...`) |
+| **Override Base URL** | `https://your-tunnel-url/v1` |
 
-Type model names to add: `deepseek-r1:671b`, `deepseek-r1:32b`, `qwen3-coder:30b`
+4. Click **Verify** — Cursor confirms the connection
+5. In the model input box, type a model name and press **Enter** to add it:
+   - `deepseek-r1:671b` — best reasoning and complex tasks
+   - `deepseek-r1:32b` — faster, great for coding
+   - `qwen3-coder:30b` — optimised for code generation and tab autocomplete
 
-### VS Code — Continue Extension
+The selected model is now used for chat (`Ctrl+L`), inline edit (`Ctrl+K`), and Composer.
 
-Copy `client-configs/continue_config.json` to `~/.continue/config.json`.
-Replace `YOUR_TUNNEL_URL` and `YOUR_API_KEY`.
+> See `client-configs/cursor_settings.json` for a reference of these values.
 
-Models appear in the Continue sidebar dropdown automatically.
+---
+
+### Option 2 — Open WebUI (Browser Chat UI with model switcher)
+
+A full ChatGPT-style web interface with a dropdown to switch between all your local models. No IDE required — works in any browser on any device.
+
+**With Docker (recommended):**
+
+```bash
+docker run -d \
+  --name open-webui \
+  -p 3000:8080 \
+  -e OPENAI_API_BASE_URL=https://your-tunnel-url/v1 \
+  -e OPENAI_API_KEY=your-key \
+  ghcr.io/open-webui/open-webui:main
+```
+
+Then open **http://localhost:3000** in your browser.
+Create an account on first launch, then go to **Settings → Models** — your models (`deepseek-r1:671b`, `deepseek-r1:32b`, `qwen3-coder:30b`) appear automatically, pulled from the `/v1/models` endpoint.
+
+**Without Docker (pip):**
+
+```bash
+pip install open-webui
+export OPENAI_API_BASE_URL=https://your-tunnel-url/v1
+export OPENAI_API_KEY=your-key
+open-webui serve
+# Open http://localhost:8080
+```
+
+**Windows (PowerShell):**
+
+```powershell
+pip install open-webui
+$env:OPENAI_API_BASE_URL = "https://your-tunnel-url/v1"
+$env:OPENAI_API_KEY      = "your-key"
+open-webui serve
+# Open http://localhost:8080
+```
+
+> Open WebUI auto-discovers models — when you add a new model to your server it appears in the dropdown immediately without any config change.
+
+---
+
+### Option 3 — VS Code Continue Extension
+
+Adds an AI chat panel and tab autocomplete directly inside VS Code, with a model switcher in the sidebar.
+
+1. Install the **Continue** extension (`Ctrl+Shift+X` → search "Continue")
+2. Copy the config to your home directory:
+
+```bash
+# Linux / macOS
+cp client-configs/continue_config.json ~/.continue/config.json
+
+# Windows PowerShell
+Copy-Item client-configs\continue_config.json "$env:USERPROFILE\.continue\config.json"
+```
+
+3. Open the file and replace the two placeholders:
+
+```json
+"apiBase": "https://YOUR_TUNNEL_URL/v1",
+"apiKey": "YOUR_API_KEY"
+```
+
+4. Reload VS Code — models appear in the Continue sidebar dropdown.
+
+The provided config sets `qwen3-coder:30b` as the **tab autocomplete** model (fast, code-optimised) and offers all three models for chat. Add or remove models by editing the `models` array.
+
+> See `client-configs/continue_config.json` for the full ready-to-use config.
+
+---
 
 ### Aider
 
