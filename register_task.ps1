@@ -1,6 +1,8 @@
-# Register Qwen3-Coder as a Windows startup task (run once)
-$SRVDIR    = "C:\Users\swami\qwen-server"
-$TASK_NAME = "Qwen3-Coder-Server"
+# Register the LLM server as a Windows startup task (run once).
+# Uses $PSScriptRoot so it works regardless of where the repo is cloned.
+
+$SRVDIR    = $PSScriptRoot
+$TASK_NAME = "LocalLLMServer"
 
 Unregister-ScheduledTask -TaskName $TASK_NAME -Confirm:$false -ErrorAction SilentlyContinue
 
@@ -20,7 +22,8 @@ $principal = New-ScheduledTaskPrincipal `
 
 Register-ScheduledTask -TaskName $TASK_NAME -Action $action -Trigger $trigger `
     -Settings $settings -Principal $principal `
-    -Description "Auto-starts Qwen3-Coder server at login" | Out-Null
+    -Description "Auto-starts local LLM server (Ollama + auth proxy + Cloudflare tunnel) at login" | Out-Null
 
-Write-Host "[OK] Task registered: $TASK_NAME" -ForegroundColor Green
+Write-Host "[OK] Task '$TASK_NAME' registered." -ForegroundColor Green
+Write-Host "     Server will start automatically on next Windows login." -ForegroundColor Gray
 Get-ScheduledTask -TaskName $TASK_NAME | Select-Object TaskName, State

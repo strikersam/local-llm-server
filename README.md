@@ -1,145 +1,162 @@
 # Local LLM Remote Access Server
 
-Run powerful open-source AI models on your home PC and access them securely from **any device, anywhere in the world** — with the same API interface as OpenAI.
+Run powerful open-source AI models on your home PC and access them securely from **any device, anywhere in the world** — using the same API interface as OpenAI.
 
-No cloud costs. No data leaving your network unencrypted. Full control.
+No cloud costs. No data sent to third parties. Full control over your models.
 
 ---
 
 ## The Problem This Solves
 
-State-of-the-art LLMs like **DeepSeek-R1:671B**, **Qwen3-Coder:30B**, and **DeepSeek-R1:32B** are:
+State-of-the-art open-weight LLMs are:
 
-- **Free to download and run locally** (open weights)
-- **Expensive via cloud API** (pay-per-token)
-- **Powerful enough** to replace paid tiers of Claude, GPT-4, Copilot for most coding tasks
+- **Free to download and run locally** — DeepSeek-R1, Qwen3-Coder, Llama 3.3, etc.
+- **Expensive via cloud API** — pay per token, rate limited, usage tracked
+- **Powerful enough** to replace paid tiers of Copilot, Claude, GPT-4 for most coding tasks
 
-But running them locally only helps you *at your desk*. This project makes them available from **any laptop, tablet, or machine** — authenticated, rate-limited, and encrypted — as if they were a hosted API.
+But running them locally only helps you *at your desk*. This project makes them accessible from **any laptop, tablet, or machine** — authenticated, rate-limited, and encrypted via HTTPS — as if they were a hosted API.
 
 ---
 
 ## Architecture
 
 ```
-Your Home PC
-├── Ollama (model server)          localhost:11434
-│     └── Models stored on D:\aipc-models\
-│           ├── deepseek-r1:671b   (404 GB, Q4_K_M)
-│           ├── deepseek-r1:32b    (18.5 GB, Q4_K_M)
-│           └── qwen3-coder:30b    (17.3 GB, Q4_K_M)
+Your Home PC (always on)
+├── Ollama                         localhost:11434
+│     └── Model weights on fast storage (NVMe recommended for 671B)
+│           ├── deepseek-r1:671b   404 GB  Q4_K_M  ← reasoning, research
+│           ├── deepseek-r1:32b     18.5 GB Q4_K_M  ← fast reasoning, coding
+│           └── qwen3-coder:30b     17.3 GB Q4_K_M  ← code generation, completion
 │
-├── Auth Proxy (FastAPI)           localhost:8000
+├── Auth Proxy  (proxy.py)         localhost:8000
 │     ├── Bearer token authentication
-│     ├── Per-key rate limiting (60 req/min default)
-│     ├── CORS headers
-│     └── Full streaming support (SSE)
+│     ├── Per-key rate limiting (configurable req/min)
+│     ├── CORS headers for browser clients
+│     ├── Full streaming (SSE) support
+│     └── OpenAI-compatible /v1/* + Ollama native /api/* routes
 │
 └── Cloudflare Tunnel (cloudflared)
-      └── https://your-url.trycloudflare.com  <-- public HTTPS
-                    |
-          Any authenticated device
-          (Cursor, Continue, Aider, Python, curl)
+      └── https://your-name.trycloudflare.com   ← public HTTPS, no port forwarding
+                        │
+           Any authenticated machine
+           ┌─────────────────────────────┐
+           │  Cursor · Continue · Aider  │
+           │  Python SDK · curl · any    │
+           │  OpenAI-compatible client   │
+           └─────────────────────────────┘
 ```
 
 ### Why Each Component
 
-| Component | Role | Why This Choice |
-|-----------|------|----------------|
-| **Ollama** | Serves models via REST API | Best Windows GPU support, OpenAI-compatible `/v1` routes built in |
-| **FastAPI proxy** | Adds auth + rate limiting | Ollama has no auth — proxy sits in front and guards access |
-| **Cloudflare Tunnel** | Exposes local port to internet | No port forwarding, no static IP needed, free TLS, works behind NAT |
-| **Batch launchers** | Start processes with correct env vars | PowerShell `Start-Process` doesn't reliably inherit env vars; `.bat` files do |
-
----
-
-## Hardware Requirements
-
-| Component | Minimum | This Setup |
-|-----------|---------|------------|
-| RAM | 32 GB | 111.6 GB |
-| GPU VRAM | 8 GB | AMD Radeon 8060S (shared, ~57 GB) |
-| Storage | 500 GB free | 1 TB NVMe SSD (D: drive) |
-| OS | Windows 10+ | Windows 11 |
-| Internet | 10 Mbps up | — |
-
-**Note on the 671B model:** It requires ~404 GB storage and ~236 GB RAM to run fully in memory. With less RAM, Ollama uses memory-mapped I/O from the NVMe SSD. A Gen4 NVMe (like the Kioxia Exceria Plus G4 used here) makes this viable — responses in 30–60s rather than minutes.
+| Component | Role | Why |
+|-----------|------|-----|
+| **Ollama** | Serves models via REST API | Best cross-platform GPU support, built-in OpenAI-compatible `/v1` routes |
+| **FastAPI proxy** | Auth + rate limiting | Ollama has no authentication — proxy guards all access |
+| **Cloudflare Tunnel** | Public HTTPS endpoint | No port forwarding, no static IP, free TLS, works behind any NAT/firewall |
+| **Batch/Shell launchers** | Process startup | Ensures env vars (model path, API keys) are correctly inherited by child processes |
 
 ---
 
 ## Models
 
-| Model | Size | Best For |
-|-------|------|----------|
-| `deepseek-r1:671b` | 404 GB | Complex reasoning, math, research |
-| `deepseek-r1:32b` | 18.5 GB | Fast reasoning, coding |
-| `qwen3-coder:30b` | 17.3 GB | Code generation, completion, review |
+These are the models currently running in this setup:
 
-All use **Q4_K_M** quantization — the best balance of quality and size.
+| Model | Size | Quant | Parameters | Best For |
+|-------|------|-------|-----------|----------|
+| `deepseek-r1:671b` | 404 GB | Q4_K_M | 671B | Complex reasoning, math, research — matches o1 quality |
+| `deepseek-r1:32b` | 18.5 GB | Q4_K_M | 32.8B | Fast reasoning and coding, fits fully in RAM |
+| `qwen3-coder:30b` | 17.3 GB | Q4_K_M | 30.5B | Code generation, completion, review, tab autocomplete |
+
+> **Note on 671B:** Requires ~404 GB storage and ideally 236+ GB RAM to run fully in memory. With less RAM, Ollama uses memory-mapped I/O (mmap) from the NVMe SSD — responses in 30–90s on a Gen4 NVMe. The 32B distill from the same training run gives ~85% quality at 5% the size.
+
+All models expose identical API endpoints — switch between them by changing the `model` field in your request.
+
+---
+
+## Hardware Requirements
+
+| | Minimum | Recommended (for 671B) |
+|-|---------|----------------------|
+| **RAM** | 16 GB | 128+ GB |
+| **Storage** | 100 GB free | 500 GB+ NVMe SSD |
+| **GPU VRAM** | 8 GB | 24+ GB (or iGPU with shared RAM) |
+| **OS** | Windows 10 / macOS 12 / Ubuntu 20.04 | Any |
+| **Internet** | Any | 100 Mbps+ upload for best remote experience |
+
+The 32B and 30B models run comfortably on a modern gaming PC or MacBook Pro with 32+ GB RAM.
 
 ---
 
 ## Quick Start
 
-### Prerequisites
+### 1. Install Ollama
 
-- Windows 10/11 PC with 32+ GB RAM
-- [Intel AI PC app](https://www.intel.com/content/www/us/en/products/docs/processors/core-ultra/ai-pc.html) or [Ollama](https://ollama.com) installed
-- Python 3.10+
-- Internet connection
+```bash
+# macOS / Linux
+curl -fsSL https://ollama.com/install.sh | sh
 
-### 1. Clone the repo
+# Windows
+winget install Ollama.Ollama
+# or download from https://ollama.com
+```
 
-```powershell
+### 2. Clone this repo
+
+```bash
 git clone https://github.com/strikersam/local-llm-server.git
 cd local-llm-server
 ```
 
-### 2. Configure
+### 3. Configure
 
-```powershell
-Copy-Item .env.example .env
-notepad .env
+```bash
+cp .env.example .env
 ```
 
 Edit `.env`:
-- Set `API_KEYS` to a secure random string (your auth token)
-- Set `OLLAMA_MODELS` to your model storage path
-- Adjust `PROXY_PORT` and `RATE_LIMIT_RPM` if needed
 
-Generate a secure key (PowerShell):
-```powershell
-$rng = New-Object System.Security.Cryptography.RNGCryptoServiceProvider
-$bytes = New-Object byte[] 32; $rng.GetBytes($bytes)
-[Convert]::ToBase64String($bytes).Replace("+","-").Replace("/","_").TrimEnd("=")
+```env
+# Your secret auth token (generate one — see .env.example for instructions)
+API_KEYS=your-secret-key-here
+
+# Where to store model weights (needs lots of free space)
+# Windows: D:\ai-models   Linux: /mnt/data/ollama-models   macOS: /Volumes/Data/models
+OLLAMA_MODELS=/path/to/your/model/storage
 ```
 
-### 3. Install dependencies
+### 4. Download models
 
-```powershell
+```bash
+# Set model path first
+export OLLAMA_MODELS=/path/to/your/model/storage  # Linux/macOS
+# $env:OLLAMA_MODELS = "D:\ai-models"             # Windows
+
+ollama pull qwen3-coder:30b      # 17 GB — start here
+ollama pull deepseek-r1:32b      # 18 GB — fast reasoning
+ollama pull deepseek-r1:671b     # 404 GB — flagship, needs big storage
+```
+
+### 5. One-time setup
+
+```bash
+# Linux / macOS
+chmod +x *.sh
+./install.sh
+
+# Windows (PowerShell)
 Set-ExecutionPolicy -Scope CurrentUser -ExecutionPolicy RemoteSigned
 .\install.ps1
 ```
 
-This installs:
-- Python packages (FastAPI, uvicorn, httpx)
-- cloudflared (Cloudflare Tunnel client)
-- Optionally sets up a named tunnel for a permanent URL
+Installs Python dependencies and cloudflared.
 
-### 4. Download models
+### 6. Start the server
 
-Edit `pull_model.bat` with the model you want, then run it:
+```bash
+# Linux / macOS
+./start_server.sh
 
-```powershell
-# Example: pull DeepSeek-R1 32B
-$env:OLLAMA_MODELS = "D:\aipc-models"
-& "path\to\ollama.exe" pull deepseek-r1:32b
-```
-
-Or use the AIPC app's model browser to download models graphically.
-
-### 5. Start the server
-
-```powershell
+# Windows
 .\start_server.ps1
 ```
 
@@ -147,100 +164,117 @@ Output:
 ```
 [OK] Loaded .env
 [1/3] Starting Ollama...
-[OK] Ollama running (PID 1234)
+[OK] Ollama ready (PID 12345)
+     - deepseek-r1:671b (404.0 GB)
+     - deepseek-r1:32b (18.5 GB)
+     - qwen3-coder:30b (17.3 GB)
 [2/3] Starting Auth Proxy...
-[OK] Auth Proxy running on port 8000
+[OK] Auth Proxy running on port 8000 (PID 12346)
 [3/3] Starting Cloudflare Tunnel...
-[OK] Tunnel started
-  >>> Public URL: https://xxxx-yyyy-zzzz.trycloudflare.com <<<
+[OK] Tunnel started (PID 12347)
+
+  >>> Public URL: https://example-words-here.trycloudflare.com <<<
 ```
 
-### 6. Auto-start on boot
+### 7. Auto-start on boot
 
-```powershell
+```bash
+# Windows — registers a Task Scheduler job
 .\register_task.ps1
+
+# Linux — add to crontab
+(crontab -l 2>/dev/null; echo "@reboot cd $(pwd) && ./start_server.sh") | crontab -
+
+# macOS — create a launchd plist
+# (see docs/macos-autostart.md — coming soon)
 ```
 
-Registers a Windows Task Scheduler job that starts the server automatically every time you log in.
+### 8. Stop the server
 
-### 7. Stop the server
+```bash
+# Linux / macOS
+./stop_server.sh
 
-```powershell
+# Windows
 .\stop_server.ps1
 ```
 
 ---
 
-## Files
+## Repository Structure
 
 ```
 local-llm-server/
-├── proxy.py                    # FastAPI auth proxy (main server code)
-├── requirements.txt            # Python dependencies
-├── .env.example                # Config template (copy to .env)
+│
+├── proxy.py                  # FastAPI auth proxy — the core of this project
+├── requirements.txt          # Python dependencies
+├── .env.example              # Config template — copy to .env
 ├── .gitignore
 │
-├── start_server.ps1            # Start everything (Ollama + proxy + tunnel)
-├── stop_server.ps1             # Stop everything
-├── install.ps1                 # One-time setup (deps + cloudflared)
-├── register_task.ps1           # Register Windows auto-start task
-├── setup_autostart.ps1         # Alternative interactive auto-start setup
-├── get_tunnel_url.ps1          # Show + copy current public URL
+│── Linux / macOS
+├── start_server.sh           # Start everything
+├── stop_server.sh            # Stop everything
+├── install.sh                # One-time setup
+├── run_ollama.sh             # Ollama launcher
+├── run_proxy.sh              # Proxy launcher
+├── run_tunnel.sh             # Cloudflare tunnel launcher
+├── get_tunnel_url.sh         # Show current public URL
 │
-├── run_ollama.bat              # Starts Ollama with correct env vars
-├── run_proxy.bat               # Starts uvicorn proxy with correct env vars
-├── run_tunnel.bat              # Starts cloudflared tunnel
+│── Windows
+├── start_server.ps1          # Start everything
+├── stop_server.ps1           # Stop everything
+├── install.ps1               # One-time setup
+├── register_task.ps1         # Register auto-start (Task Scheduler)
+├── get_tunnel_url.ps1        # Show + copy current public URL
+├── run_ollama.bat            # Ollama launcher
+├── run_proxy.bat             # Proxy launcher
+├── run_tunnel.bat            # Cloudflare tunnel launcher
 │
 └── client-configs/
-    ├── continue_config.json    # VS Code Continue extension
-    ├── cursor_settings.json    # Cursor IDE
-    ├── aider_config.sh         # Aider CLI (Linux/macOS/WSL)
-    ├── aider_config.ps1        # Aider CLI (Windows)
-    ├── python_client_example.py
-    └── vscode_settings.json
+    ├── continue_config.json  # VS Code Continue extension
+    ├── cursor_settings.json  # Cursor IDE
+    ├── aider_config.sh       # Aider CLI (Linux/macOS/WSL)
+    ├── aider_config.ps1      # Aider CLI (Windows)
+    └── python_client_example.py
 ```
 
 ---
 
 ## API Reference
 
-The proxy exposes two route families — both require `Authorization: Bearer <key>`.
+All routes except `/health` require `Authorization: Bearer <your-key>`.
 
-### Ollama Native API
-
-```
-POST /api/generate          # Text generation
-POST /api/chat              # Chat completion
-GET  /api/tags              # List models
-POST /api/pull              # Pull a new model
-GET  /api/ps                # Show loaded models
-```
-
-### OpenAI-Compatible API
+### OpenAI-Compatible (works with any OpenAI SDK client)
 
 ```
-POST /v1/chat/completions   # Drop-in OpenAI replacement
-POST /v1/completions        # Legacy completions
-GET  /v1/models             # List models
-POST /v1/embeddings         # Embeddings
+POST /v1/chat/completions      # Chat — streaming and non-streaming
+POST /v1/completions           # Legacy text completion
+GET  /v1/models                # List available models
+POST /v1/embeddings            # Embeddings
 ```
 
-### Health Check (no auth required)
+### Ollama Native
+
+```
+POST /api/generate             # Text generation
+POST /api/chat                 # Chat
+GET  /api/tags                 # List models
+POST /api/pull                 # Pull a new model
+GET  /api/ps                   # Show currently loaded models
+```
+
+### Health (no auth)
 
 ```
 GET /health
-```
-
-Returns:
-```json
-{"status": "ok", "ollama": "http://localhost:11434", "models": ["deepseek-r1:671b", ...]}
+→ {"status": "ok", "models": ["deepseek-r1:671b", "deepseek-r1:32b", "qwen3-coder:30b"]}
 ```
 
 ---
 
 ## Client Setup
 
-### Cursor
+### Cursor IDE
 
 `Settings (Ctrl+,) → Models → OpenAI API Key section`:
 
@@ -249,26 +283,28 @@ Returns:
 | API Key | Your key from `.env` |
 | Override Base URL | `https://your-tunnel-url/v1` |
 
-Type model names manually: `deepseek-r1:671b`, `qwen3-coder:30b`, etc.
+Type model names to add: `deepseek-r1:671b`, `deepseek-r1:32b`, `qwen3-coder:30b`
 
 ### VS Code — Continue Extension
 
 Copy `client-configs/continue_config.json` to `~/.continue/config.json`.
 Replace `YOUR_TUNNEL_URL` and `YOUR_API_KEY`.
 
+Models appear in the Continue sidebar dropdown automatically.
+
 ### Aider
 
 ```bash
-# Linux/macOS
+# Linux / macOS / WSL
 source client-configs/aider_config.sh
 aider --model openai/deepseek-r1:671b
 
-# Windows
+# Windows PowerShell
 . .\client-configs\aider_config.ps1
 aider --model openai/deepseek-r1:671b
 ```
 
-### Python
+### Python (openai SDK)
 
 ```python
 from openai import OpenAI
@@ -278,9 +314,10 @@ client = OpenAI(
     api_key="your-key"
 )
 
+# Streaming
 stream = client.chat.completions.create(
     model="deepseek-r1:671b",
-    messages=[{"role": "user", "content": "Explain transformers"}],
+    messages=[{"role": "user", "content": "Explain how transformers work"}],
     stream=True,
 )
 for chunk in stream:
@@ -290,9 +327,20 @@ for chunk in stream:
 ### curl
 
 ```bash
+# List models
+curl https://your-tunnel-url/api/tags \
+  -H "Authorization: Bearer your-key"
+
+# Generate (streaming)
 curl https://your-tunnel-url/api/generate \
   -H "Authorization: Bearer your-key" \
-  -d '{"model":"deepseek-r1:671b","prompt":"Hello","stream":false}'
+  -d '{"model":"qwen3-coder:30b","prompt":"Write a binary search in Python","stream":true}'
+
+# Chat (OpenAI format)
+curl https://your-tunnel-url/v1/chat/completions \
+  -H "Authorization: Bearer your-key" \
+  -H "Content-Type: application/json" \
+  -d '{"model":"deepseek-r1:32b","messages":[{"role":"user","content":"Hello"}]}'
 ```
 
 ---
@@ -301,84 +349,97 @@ curl https://your-tunnel-url/api/generate \
 
 | Threat | Mitigation |
 |--------|-----------|
-| Unauthorized access | Bearer token auth on all `/api/*` and `/v1/*` routes |
-| Brute force | Rate limiting: 60 req/min per key (configurable) |
-| Man-in-the-middle | Cloudflare handles TLS — all traffic is HTTPS |
-| Direct Ollama access | Ollama binds to `127.0.0.1` only — not reachable externally |
-| Key leakage | One key per device — revoke by removing from `.env` |
+| Unauthorized access | Bearer token on all `/api/*` and `/v1/*` routes |
+| Brute force | Rate limiting per key (default 60 req/min, configurable) |
+| Man-in-the-middle | Cloudflare handles TLS — all traffic HTTPS end-to-end |
+| Direct Ollama exposure | Ollama binds to `127.0.0.1` only — unreachable from outside |
+| Key compromise | One key per device — revoke by removing from `API_KEYS` in `.env` |
 
-**Never commit `.env`** — it's in `.gitignore`. Use `.env.example` as the template.
+**Never commit `.env`** — it is listed in `.gitignore`. Use `.env.example` as the template.
 
 ---
 
-## Adding New Models
+## Adding More Models
 
-Any model pulled into `OLLAMA_MODELS` appears instantly on the API — no restart needed:
+Any model pulled into `OLLAMA_MODELS` appears on the API immediately — no restart needed:
 
-```powershell
-$env:OLLAMA_MODELS = "D:\aipc-models"
-& "C:\path\to\ollama.exe" pull llama3.3:70b
-```
-
-Then use `llama3.3:70b` as the model name in any client.
-
-Check what's available:
 ```bash
-curl https://your-tunnel-url/api/tags \
-  -H "Authorization: Bearer your-key"
+# Set model path
+export OLLAMA_MODELS=/your/model/path
+
+# Pull any Ollama-compatible model
+ollama pull llama3.3:70b
+ollama pull gemma3:27b
+ollama pull phi4
 ```
+
+Then use the model name directly in any client request.
 
 ---
 
-## Permanent Public URL (Optional)
+## Permanent URL (Optional)
 
-By default, the quick tunnel URL changes on every restart. For a permanent URL:
+The default quick-tunnel URL changes on every server restart. For a permanent URL:
 
-1. Create a free Cloudflare account at cloudflare.com
-2. Add your domain to Cloudflare (or use a free `.workers.dev` subdomain)
-3. Run `.\install.ps1` and choose option `2` (Named Tunnel)
-4. Your URL becomes permanent and survives restarts
+1. Create a free account at [cloudflare.com](https://cloudflare.com)
+2. Run `./install.sh` (Linux/macOS) or `.\install.ps1` (Windows) and choose option **2 — Named Tunnel**
+3. Optionally route a custom domain (e.g. `llm.yourdomain.com`) to the tunnel
+
+Named tunnel URLs survive restarts and can be tied to a domain you own.
 
 ---
 
 ## Troubleshooting
 
 **Ollama won't start**
-```powershell
-Get-Content .\logs\ollama-err.log | Select-Object -Last 20
+```bash
+tail -20 logs/ollama-err.log
 ```
 
 **Proxy not reachable**
-```powershell
-Get-Content .\logs\proxy-err.log | Select-Object -Last 20
-Invoke-WebRequest http://localhost:8000/health
+```bash
+tail -20 logs/proxy-err.log
+curl http://localhost:8000/health
 ```
 
-**Tunnel URL not showing**
-```powershell
-.\get_tunnel_url.ps1
-# or
-Get-Content .\logs\tunnel-err.log | Select-String "trycloudflare"
+**Can't find tunnel URL**
+```bash
+./get_tunnel_url.sh        # Linux/macOS
+.\get_tunnel_url.ps1       # Windows
 ```
 
-**Model response very slow (671B)**
-This is expected if the model doesn't fit entirely in RAM. Responses come from NVMe mmap. A Gen4 NVMe gives the best experience. The 32B model runs fully in RAM and responds much faster.
+**403 Forbidden from remote machine**
+Your API key doesn't match `API_KEYS` in `.env`. Keys are case-sensitive.
 
-**403 Forbidden**
-Your API key is wrong or not set in `.env`. Check `API_KEYS` in `.env` matches what you're sending.
+**671B responses are slow**
+Expected when model doesn't fit fully in RAM — Ollama pages from NVMe via mmap. A Gen4 NVMe gives the best experience (~30–90s per response). The 32B model runs entirely in RAM and is much faster.
+
+**Model still shows as downloading**
+Check progress: the partial blob file size vs expected total. Restart the pull if interrupted — Ollama resumes from where it left off.
 
 ---
 
-## Why Not Just Use the Cloud API?
+## Recommended Models by Hardware
+
+| RAM | Recommended Models |
+|-----|--------------------|
+| 16 GB | `qwen3-coder:7b`, `deepseek-r1:7b` |
+| 32 GB | `qwen3-coder:30b`, `deepseek-r1:32b` |
+| 64 GB | `llama3.3:70b`, `qwen3:32b` |
+| 128 GB+ | `deepseek-r1:671b` (via mmap), all of the above simultaneously |
+
+---
+
+## Why Not Just Use the Cloud?
 
 | | Cloud API | This Setup |
 |--|-----------|-----------|
 | Cost | Pay per token | Free after hardware |
 | Privacy | Data sent to provider | Stays on your machine |
-| Speed | Fast (dedicated infra) | Depends on hardware |
-| Model choice | Limited to what they offer | Any open-weight model |
-| Availability | 99.9% SLA | Depends on your PC being on |
-| 671B model | Very expensive | Free |
+| Rate limits | Enforced by provider | You control them |
+| Model choice | Provider's catalogue only | Any open-weight model |
+| 671B model access | Very expensive | Free |
+| Offline use | No | Yes |
 
 ---
 
@@ -390,8 +451,8 @@ MIT — use freely, modify freely, no warranty.
 
 ## Acknowledgements
 
-- [Ollama](https://ollama.com) — local model serving
+- [Ollama](https://ollama.com) — local model serving made simple
 - [DeepSeek](https://deepseek.com) — open-weight R1 models
-- [Qwen](https://qwenlm.github.io) — open-weight Qwen3-Coder
+- [Qwen / Alibaba Cloud](https://qwenlm.github.io) — Qwen3-Coder
 - [Cloudflare Tunnel](https://developers.cloudflare.com/cloudflare-one/connections/connect-apps) — free secure tunneling
-- [FastAPI](https://fastapi.tiangolo.com) — proxy framework
+- [FastAPI](https://fastapi.tiangolo.com) — async Python web framework
