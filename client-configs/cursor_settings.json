@@ -1,0 +1,18 @@
+{
+  "_setup": [
+    "In Cursor: Settings (Ctrl+,) -> Models -> scroll to bottom",
+    "1. Toggle ON 'OpenAI API Key'",
+    "2. Paste your API key (from .env) into the API Key field",
+    "3. Paste your tunnel URL + /v1 into 'Override OpenAI Base URL'",
+    "4. Click Verify — model list auto-populates",
+    "5. Type any model name below and press Enter to add it"
+  ],
+  "openai_api_key": "YOUR_API_KEY",
+  "openai_base_url": "https://YOUR_TUNNEL_URL/v1",
+  "models": [
+    "deepseek-r1:671b",
+    "deepseek-r1:32b",
+    "qwen3-coder:30b"
+  ],
+  "_note": "Tunnel URL changes on server restart. Run get_tunnel_url.ps1 to get the current one."
+}

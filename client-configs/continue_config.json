@@ -1,0 +1,53 @@
+{
+  "_setup": [
+    "1. Copy this file to ~/.continue/config.json on any machine you want to use",
+    "2. Replace YOUR_TUNNEL_URL with the output of get_tunnel_url.ps1 on your home PC",
+    "3. Replace YOUR_API_KEY with one of the keys from your .env file",
+    "4. Reload VS Code — models appear in the Continue sidebar dropdown"
+  ],
+  "models": [
+    {
+      "title": "DeepSeek-R1 671B (Home PC)",
+      "provider": "openai",
+      "model": "deepseek-r1:671b",
+      "apiBase": "https://YOUR_TUNNEL_URL/v1",
+      "apiKey": "YOUR_API_KEY"
+    },
+    {
+      "title": "DeepSeek-R1 32B (Home PC)",
+      "provider": "openai",
+      "model": "deepseek-r1:32b",
+      "apiBase": "https://YOUR_TUNNEL_URL/v1",
+      "apiKey": "YOUR_API_KEY"
+    },
+    {
+      "title": "Qwen3-Coder 30B (Home PC)",
+      "provider": "openai",
+      "model": "qwen3-coder:30b",
+      "apiBase": "https://YOUR_TUNNEL_URL/v1",
+      "apiKey": "YOUR_API_KEY"
+    }
+  ],
+  "tabAutocompleteModel": {
+    "title": "Qwen3-Coder 30B (autocomplete)",
+    "provider": "openai",
+    "model": "qwen3-coder:30b",
+    "apiBase": "https://YOUR_TUNNEL_URL/v1",
+    "apiKey": "YOUR_API_KEY"
+  },
+  "contextProviders": [
+    { "name": "code" },
+    { "name": "docs" },
+    { "name": "diff" },
+    { "name": "terminal" },
+    { "name": "problems" },
+    { "name": "folder" },
+    { "name": "codebase" }
+  ],
+  "slashCommands": [
+    { "name": "edit",    "description": "Edit selected code" },
+    { "name": "comment", "description": "Write comments for the selected code" },
+    { "name": "share",   "description": "Export the current chat session to markdown" },
+    { "name": "cmd",     "description": "Generate a shell command" }
+  ]
+}

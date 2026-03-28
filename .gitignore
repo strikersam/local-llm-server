@@ -1,0 +1,23 @@
+# Secrets — never commit
+.env
+
+# Runtime state
+server.pids
+logs/
+*.pid
+*.log
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+venv/
+
+# Windows
+Thumbs.db
+Desktop.ini
+
+# Temp download scripts (contain machine-specific paths, not needed in repo)
+pull_671b.bat
+flowy_copy.db

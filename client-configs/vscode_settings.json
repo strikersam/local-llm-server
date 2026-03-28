@@ -1,0 +1,11 @@
+{
+  "_comment": "Add to VS Code settings.json (File → Preferences → Settings → Open settings.json)",
+  "_instructions": [
+    "For Continue extension: copy continue_config.json to ~/.continue/config.json",
+    "For generic OpenAI extension: paste the settings below into settings.json",
+    "Replace YOUR-TUNNEL-URL with the actual URL from start_server.ps1 output"
+  ],
+  "openai.apiKey": "jnRLvIu9M2kaQFJjhXK3y05kb_BWhOZtGRv7hLDJ8KI",
+  "openai.organization": "",
+  "openai.baseUrl": "https://YOUR-TUNNEL-URL.trycloudflare.com/v1"
+}
