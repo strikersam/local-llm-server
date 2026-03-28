@@ -61,15 +61,38 @@ Your Home PC (always on)
 
 These are the models currently running in this setup:
 
-| Model | Size | Quant | Parameters | Best For |
-|-------|------|-------|-----------|----------|
-| `deepseek-r1:671b` | 404 GB | Q4_K_M | 671B | Complex reasoning, math, research — matches o1 quality |
-| `deepseek-r1:32b` | 18.5 GB | Q4_K_M | 32.8B | Fast reasoning and coding, fits fully in RAM |
-| `qwen3-coder:30b` | 17.3 GB | Q4_K_M | 30.5B | Code generation, completion, review, tab autocomplete |
+| Model | Size | Quant | Parameters | Primary use case |
+|-------|------|-------|------------|------------------|
+| `deepseek-r1:671b` | 404 GB | Q4_K_M | 671B | **Hard research, multi-step math, long-chain reasoning, “think like a flagship”** tasks where latency and hardware cost are acceptable — not for quick chat or IDE latency-sensitive loops. |
+| `deepseek-r1:32b` | 18.5 GB | Q4_K_M | 32.8B | **Fast reasoning and coding**: architecture decisions, debugging, refactors, and agent-style work when you need R1-style thinking without 671B storage or RAM. |
+| `qwen3-coder:30b` | 17.3 GB | Q4_K_M | 30.5B | **IDE-first work**: code generation, completion, review, tab autocomplete, and repo-aware edits — optimised for programming over general chat. |
 
 > **Note on 671B:** Requires ~404 GB storage and ideally 236+ GB RAM to run fully in memory. With less RAM, Ollama uses memory-mapped I/O (mmap) from the NVMe SSD — responses in 30–90s on a Gen4 NVMe. The 32B distill from the same training run gives ~85% quality at 5% the size.
 
 All models expose identical API endpoints — switch between them by changing the `model` field in your request.
+
+### Running on modest hardware (local models + this setup)
+
+If you prefer to run models **locally** on a laptop, mini PC, or older desktop, use **smaller** pulls from the same Ollama workflow — the proxy and tunnel work unchanged. Pick a tier that fits **unified RAM** (Mac) or **RAM + VRAM** (PC); see **[docs/device-compatibility.md](docs/device-compatibility.md)** for example devices (e.g. Apple Silicon with **~20 GB** unified memory vs. discrete-GPU PCs) and a fuller compatibility matrix.
+
+**Apple Silicon (e.g. MacBook Pro with M-series, 16–24 GB unified)** — one pool for CPU, GPU, and weights; favour **one** large model at a time or 7B-class models for headroom:
+
+| Model | ~Size (Q4 family) | Primary use case |
+|-------|-------------------|------------------|
+| `qwen3-coder:7b` | ~4–5 GB | Daily coding assistance, short chats, completion when 30B does not fit. |
+| `deepseek-r1:7b` | ~4–5 GB | Lightweight reasoning and coding on low-memory machines. |
+| `qwen3-coder:30b` / `deepseek-r1:32b` | ~17–19 GB each | Strong quality **only if** you can dedicate most RAM to a single loaded model (see doc). |
+
+**Windows / Linux with a discrete NVIDIA GPU** — match **VRAM** to model size for GPU offload; if VRAM is tight, use smaller tags or fewer GPU layers and keep the rest on CPU/RAM:
+
+| Model | ~Size (typical Q4) | Primary use case |
+|-------|--------------------|------------------|
+| `qwen3-coder:7b` | ~4–5 GB | Budget GPUs (e.g. 6–8 GB VRAM), or CPU fallback. |
+| `deepseek-r1:7b` | ~4–5 GB | Same — fast reasoning relative to size. |
+| `qwen3-coder:30b` | ~17–19 GB | **12–24 GB VRAM** class cards when using GPU-heavy offload. |
+| `deepseek-r1:32b` | ~18–19 GB | Strong reasoning on **16–24 GB VRAM** or split offload. |
+
+For more profiles (CPU-only, 8 GB total, home server vs. laptop) and RAM tier shortcuts, use **[docs/device-compatibility.md](docs/device-compatibility.md)**.
 
 ---
 
@@ -84,6 +107,8 @@ All models expose identical API endpoints — switch between them by changing th
 | **Internet** | Any | 100 Mbps+ upload for best remote experience |
 
 The 32B and 30B models run comfortably on a modern gaming PC or MacBook Pro with 32+ GB RAM.
+
+For **lower-spec or laptop-class machines** (e.g. Apple Silicon with **16–20 GB** unified memory, or PCs with limited VRAM), see **[docs/device-compatibility.md](docs/device-compatibility.md)** and the **Running on modest hardware** subsection under [Models](#models).
 
 ---
 
@@ -210,6 +235,8 @@ local-llm-server/
 ├── requirements.txt          # Python dependencies
 ├── .env.example              # Config template — copy to .env
 ├── .gitignore
+├── docs/
+│   └── device-compatibility.md  # Device / RAM / model pairing guide
 │
 │── Linux / macOS
 ├── start_server.sh           # Start everything
@@ -500,8 +527,10 @@ Check progress: the partial blob file size vs expected total. Restart the pull i
 
 ## Recommended Models by Hardware
 
-| RAM | Recommended Models |
-|-----|--------------------|
+Quick RAM tiers (details and example machines — **Mac M-series vs PC**, CPU-only, etc. — are in **[docs/device-compatibility.md](docs/device-compatibility.md)**):
+
+| Approx. RAM | Recommended models |
+|-------------|-------------------|
 | 16 GB | `qwen3-coder:7b`, `deepseek-r1:7b` |
 | 32 GB | `qwen3-coder:30b`, `deepseek-r1:32b` |
 | 64 GB | `llama3.3:70b`, `qwen3:32b` |
