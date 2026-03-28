@@ -6,6 +6,20 @@ No cloud costs. No data sent to third parties. Full control over your models.
 
 ---
 
+## Recent Changes
+
+The project now includes a fuller multi-user setup on top of the original auth proxy:
+
+- **Persistent JSON key store** via `KEYS_FILE`, with one generated API key per user
+- **Per-user metadata** stored as `email`, `department`, and stable `key_id`
+- **Admin API + browser UI** for creating, rotating, editing, and revoking user keys
+- **Langfuse tracing** for chat requests, including department tags and estimated commercial-equivalent cost/savings metadata
+- **Default coding system prompt injection** for IDE clients such as local Codex / Zed / Continue
+
+If you are upgrading from the older README, the biggest change is that `API_KEYS` is now the legacy bootstrap path. For team use, `KEYS_FILE` + `ADMIN_SECRET` is the recommended setup.
+
+---
+
 ## The Problem This Solves
 
 State-of-the-art open-weight LLMs are:
@@ -141,13 +155,44 @@ cp .env.example .env
 Edit `.env`:
 
 ```env
-# Your secret auth token (generate one — see .env.example for instructions)
+# Legacy fallback key(s). Optional once KEYS_FILE is in use.
 API_KEYS=your-secret-key-here
+
+# Recommended for team / multi-user setups
+KEYS_FILE=keys.json
+ADMIN_SECRET=generate-a-long-random-secret-here
 
 # Where to store model weights (needs lots of free space)
 # Windows: D:\ai-models   Linux: /mnt/data/ollama-models   macOS: /Volumes/Data/models
 OLLAMA_MODELS=/path/to/your/model/storage
+
+# Optional Langfuse tracing
+LANGFUSE_PUBLIC_KEY=pk-lf-...
+LANGFUSE_SECRET_KEY=sk-lf-...
+LANGFUSE_BASE_URL=https://cloud.langfuse.com
 ```
+
+Recommended secret generation:
+
+```bash
+# Legacy API key (Linux/macOS)
+openssl rand -base64 32 | tr '+/' '-_' | tr -d '='
+
+# Admin secret
+python -c "import secrets; print(secrets.token_urlsafe(32))"
+```
+
+```powershell
+# Legacy API key (Windows PowerShell)
+$rng = New-Object System.Security.Cryptography.RNGCryptoServiceProvider
+$bytes = New-Object byte[] 32; $rng.GetBytes($bytes)
+[Convert]::ToBase64String($bytes).Replace('+','-').Replace('/','_').TrimEnd('=')
+
+# Admin secret
+python -c "import secrets; print(secrets.token_urlsafe(32))"
+```
+
+`KEYS_FILE` stores only SHA-256 hashes plus metadata. Plaintext user tokens are shown once when created, then never stored in recoverable form.
 
 ### 4. Download models
 
@@ -200,6 +245,13 @@ Output:
 
   >>> Public URL: https://example-words-here.trycloudflare.com <<<
 ```
+
+If `ADMIN_SECRET` is configured, the proxy also enables:
+
+- `POST /admin/keys` for scripted user provisioning
+- `http://localhost:8000/admin/ui/login` for the browser admin UI
+
+If `LANGFUSE_PUBLIC_KEY` and `LANGFUSE_SECRET_KEY` are configured, chat traffic is also traced to Langfuse.
 
 ### 7. Auto-start on boot
 
@@ -267,6 +319,153 @@ local-llm-server/
 
 ---
 
+## User Management
+
+For personal use, you can still set one or more comma-separated values in `API_KEYS`.
+
+For a team or shared server, use:
+
+- `KEYS_FILE=keys.json`
+- `ADMIN_SECRET=<strong random secret>`
+
+That unlocks persistent user records with:
+
+- `email`: shown as the Langfuse `user_id`
+- `department`: your seat / cost-center / team allocation label
+- `key_id`: stable identifier for rotation and audit logs
+
+### Create a user key from the CLI
+
+```bash
+python generate_api_key.py --email alice@company.com --department engineering
+```
+
+Example output:
+
+```text
+Key created. Distribute this secret once (it cannot be shown again):
+sk-qwen-...
+
+key_id:      kid_abc123def456
+email:       alice@company.com
+department:  engineering
+stored in:   /absolute/path/to/keys.json
+```
+
+The proxy auto-reloads the JSON file on the next request, so you usually do not need to restart after adding or rotating keys.
+
+### Create a user key via the Admin API
+
+Enable `ADMIN_SECRET` and send:
+
+```bash
+curl http://localhost:8000/admin/keys \
+  -H "Content-Type: application/json" \
+  -H "X-Admin-Secret: your-admin-secret" \
+  -d '{"email":"alice@company.com","department":"engineering"}'
+```
+
+You can also use `Authorization: Bearer <ADMIN_SECRET>` instead of `X-Admin-Secret`.
+
+Response:
+
+```json
+{
+  "api_key": "sk-qwen-...",
+  "key_id": "kid_abc123def456",
+  "email": "alice@company.com",
+  "department": "engineering",
+  "created": "2026-03-28T12:34:56Z"
+}
+```
+
+### Browser Admin UI
+
+With `ADMIN_SECRET` enabled, open:
+
+```text
+http://localhost:8000/admin/ui/login
+```
+
+After login, the admin dashboard lets you:
+
+- create a user with `email` + `department`
+- edit department allocation or email metadata later
+- rotate a user token while keeping the same `key_id`
+- revoke/delete a user key
+- run a Langfuse connectivity diagnostic
+
+### Department Allocation
+
+`department` is a free-text label stored with each key. Use it for whatever internal grouping you need, for example:
+
+- `engineering`
+- `design`
+- `research`
+- `contractors`
+- `customer-support`
+
+That value travels with each authenticated chat request and is attached to Langfuse metadata and tags, making it useful for spendback/showback, seat allocation, or simple reporting by team.
+
+---
+
+## Langfuse Setup
+
+Langfuse is optional, but it is the easiest way to see who is using which model and estimate what the same traffic would have cost on a commercial API.
+
+### 1. Configure credentials
+
+Create a project in [Langfuse Cloud](https://cloud.langfuse.com) or use your self-hosted instance, then set:
+
+```env
+LANGFUSE_PUBLIC_KEY=pk-lf-...
+LANGFUSE_SECRET_KEY=sk-lf-...
+LANGFUSE_BASE_URL=https://cloud.langfuse.com
+```
+
+`LANGFUSE_HOST` is also accepted as an alias for `LANGFUSE_BASE_URL`.
+
+Optional tuning:
+
+```env
+# Force REST ingestion if the Python SDK has trouble in your environment
+LANGFUSE_USE_HTTP_ONLY=true
+
+# Flush SDK events more aggressively
+LANGFUSE_FLUSH_AT=1
+
+# Optional custom commercial-equivalent pricing map
+# COMMERCIAL_EQUIVALENT_PRICES_FILE=pricing.json
+# COMMERCIAL_EQUIVALENT_PRICES_JSON={"my-local-model:tag":{"commercial_name":"GPT-4.1","input_per_million_usd":2,"output_per_million_usd":8}}
+```
+
+### 2. What gets recorded
+
+For authenticated chat requests, the proxy records:
+
+- Langfuse `user_id` = the key's `email`
+- metadata `department` = the user's department allocation
+- metadata `key_id` when the request used a stored key
+- tags like `dept:engineering`
+- model name
+- prompt/completion token counts
+- estimated commercial-equivalent USD and estimated savings metadata
+
+Legacy `API_KEYS` still work, but those requests appear as `email=unknown` and `department=legacy`, so `KEYS_FILE` is strongly recommended if you care about observability.
+
+### 3. Test the connection
+
+Use the browser admin UI and click the Langfuse diagnostic action, or verify the credentials manually by starting the proxy and watching for successful traces after a chat request.
+
+If traces are missing:
+
+- confirm both Langfuse keys are set
+- verify `LANGFUSE_BASE_URL` points to the correct cloud or self-hosted instance
+- try `LANGFUSE_USE_HTTP_ONLY=true`
+- check proxy logs for SDK fallback or HTTP errors
+
+---
+
 ## API Reference
 
 All routes except `/health` require `Authorization: Bearer <your-key>`.
@@ -295,6 +494,16 @@ GET  /api/ps                   # Show currently loaded models
 ```
 GET /health
 → {"status": "ok", "models": ["deepseek-r1:671b", "deepseek-r1:32b", "qwen3-coder:30b"]}
+```
+
+### Admin API
+
+Available only when `ADMIN_SECRET` is set:
+
+```
+POST /admin/keys              # Create one user key with email + department
+GET  /admin/ui/login          # Browser login page for admin dashboard
+GET  /admin/ui/               # Browser dashboard (session after login)
 ```
 
 ---
@@ -395,6 +604,12 @@ Copy-Item client-configs\continue_config.json "$env:USERPROFILE\.continue\config
 The provided config sets `qwen3-coder:30b` as the **tab autocomplete** model (fast, code-optimised) and offers all three models for chat. Add or remove models by editing the `models` array.
 
 > See `client-configs/continue_config.json` for the full ready-to-use config.
+
+---
+
+### Option 4 - Zed
+
+`client-configs/zed_settings.json` contains a starting point for Zed's assistant configuration against this proxy. Replace the placeholder base URL and API key with your tunnel URL and a user key from `KEYS_FILE` or `API_KEYS`.
 
 ---
 
