@@ -1,0 +1,110 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>{% block title %}Admin{% endblock %} · Qwen proxy</title>
+  <style>
+    :root {
+      --bg: #0f1419;
+      --card: #1a2332;
+      --text: #e7ecf3;
+      --muted: #8b9cb3;
+      --accent: #3d8bfd;
+      --danger: #f85149;
+      --ok: #3fb950;
+      --border: #30363d;
+    }
+    * { box-sizing: border-box; }
+    body {
+      font-family: ui-sans-serif, system-ui, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      margin: 0;
+      line-height: 1.5;
+      min-height: 100vh;
+    }
+    header {
+      padding: 1rem 1.5rem;
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 1rem;
+    }
+    header a { color: var(--accent); text-decoration: none; }
+    main { padding: 1.5rem; max-width: 1100px; margin: 0 auto; }
+    h1 { font-size: 1.35rem; font-weight: 600; margin: 0 0 0.5rem; }
+    .muted { color: var(--muted); font-size: 0.9rem; margin: 0 0 1rem; }
+    .error { color: var(--danger); }
+    .ok { color: var(--ok); }
+    .card {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 1rem 1.25rem;
+      margin-bottom: 1.25rem;
+    }
+    label { display: block; font-size: 0.85rem; color: var(--muted); margin-bottom: 0.35rem; }
+    input[type="text"], input[type="password"], input[type="email"] {
+      width: 100%; max-width: 420px;
+      padding: 0.5rem 0.65rem;
+      border-radius: 6px;
+      border: 1px solid var(--border);
+      background: var(--bg);
+      color: var(--text);
+      margin-bottom: 0.75rem;
+    }
+    button, .btn {
+      display: inline-block;
+      padding: 0.45rem 0.9rem;
+      border-radius: 6px;
+      border: none;
+      background: var(--accent);
+      color: #fff;
+      font-weight: 500;
+      cursor: pointer;
+      font-size: 0.9rem;
+      text-decoration: none;
+    }
+    button.danger { background: var(--danger); }
+    button.small { padding: 0.25rem 0.55rem; font-size: 0.8rem; }
+    table { width: 100%; border-collapse: collapse; font-size: 0.9rem; }
+    th, td { text-align: left; padding: 0.5rem 0.6rem; border-bottom: 1px solid var(--border); vertical-align: top; }
+    th { color: var(--muted); font-weight: 500; }
+    code, .mono { font-family: ui-monospace, monospace; font-size: 0.82rem; }
+    .token-box {
+      background: var(--bg);
+      border: 1px solid var(--ok);
+      padding: 0.75rem;
+      border-radius: 6px;
+      word-break: break-all;
+      margin: 0.5rem 0;
+    }
+    .row-actions { display: flex; flex-wrap: wrap; gap: 0.35rem; align-items: center; }
+    .inline-form { display: inline; }
+    .chips { display: flex; flex-wrap: wrap; gap: 0.35rem; margin: 0.5rem 0; }
+    .chip {
+      background: var(--card);
+      border: 1px solid var(--border);
+      padding: 0.2rem 0.5rem;
+      border-radius: 999px;
+      font-size: 0.8rem;
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <span><strong>Qwen proxy</strong> admin</span>
+    <nav>
+      {% if request.session.get('admin_ok') %}
+      <a href="/admin/ui/">Users</a>
+      · <a href="/admin/ui/logout">Log out</a>
+      {% endif %}
+    </nav>
+  </header>
+  <main>
+    {% block content %}{% endblock %}
+  </main>
+</body>
+</html>

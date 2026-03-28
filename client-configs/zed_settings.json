@@ -1,0 +1,54 @@
+{
+  "_setup": [
+    "1. Save this as %APPDATA%\\\\Zed\\\\settings.json or merge it into your existing Zed settings",
+    "2. Set a user environment variable named OPENAI_API_KEY to one of the API_KEYS from .env",
+    "3. Restart Zed and open the Agent panel",
+    "4. Pick one of the Home models from the model dropdown"
+  ],
+  "language_models": {
+    "openai": {
+      "api_url": "https://YOUR_TUNNEL_URL/v1",
+      "available_models": [
+        {
+          "name": "qwen3-coder:30b",
+          "display_name": "Home Qwen3-Coder 30B",
+          "max_tokens": 262144,
+          "max_completion_tokens": 8192,
+          "capabilities": {
+            "tools": false,
+            "images": false,
+            "parallel_tool_calls": false,
+            "prompt_cache_key": false,
+            "chat_completions": true
+          }
+        },
+        {
+          "name": "deepseek-r1:32b",
+          "display_name": "Home DeepSeek-R1 32B",
+          "max_tokens": 131072,
+          "max_completion_tokens": 8192,
+          "capabilities": {
+            "tools": false,
+            "images": false,
+            "parallel_tool_calls": false,
+            "prompt_cache_key": false,
+            "chat_completions": true
+          }
+        },
+        {
+          "name": "deepseek-r1:671b",
+          "display_name": "Home DeepSeek-R1 671B",
+          "max_tokens": 163840,
+          "max_completion_tokens": 8192,
+          "capabilities": {
+            "tools": true,
+            "images": false,
+            "parallel_tool_calls": false,
+            "prompt_cache_key": false,
+            "chat_completions": true
+          }
+        }
+      ]
+    }
+  }
+}

@@ -1,0 +1,14 @@
+{% extends "admin/base.html" %}
+{% block title %}Admin login{% endblock %}
+{% block content %}
+<h1>Admin login</h1>
+<p class="muted">Enter the same secret as <code>ADMIN_SECRET</code> in your <code>.env</code> file.</p>
+{% if error %}
+<p class="error">{{ error }}</p>
+{% endif %}
+<form method="post" action="/admin/ui/login" class="card">
+  <label>Admin secret</label>
+  <input type="password" name="admin_password" autocomplete="current-password" required />
+  <button type="submit">Sign in</button>
+</form>
+{% endblock %}

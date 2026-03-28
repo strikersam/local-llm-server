@@ -1,5 +1,6 @@
 # Secrets — never commit
 .env
+keys.json
 
 # Runtime state
 server.pids

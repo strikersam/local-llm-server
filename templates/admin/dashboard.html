@@ -1,0 +1,101 @@
+{% extends "admin/base.html" %}
+{% block title %}Users & keys{% endblock %}
+{% block content %}
+<h1>User API keys</h1>
+<p class="muted">Stored in <code>KEYS_FILE</code> (hashed). Legacy keys in <code>API_KEYS</code> are not listed here.</p>
+
+{% if flash %}
+<div class="card">
+  <p>{{ flash }}</p>
+  {% if flash_key %}
+  <p class="muted">New Bearer token:</p>
+  <div class="token-box mono">{{ flash_key }}</div>
+  <p class="muted">Save it now; the server cannot show it again.</p>
+  {% endif %}
+</div>
+{% endif %}
+
+{% if langfuse_diag %}
+<div class="card">
+  <h2 style="margin-top:0;font-size:1rem;">Langfuse connection</h2>
+  {% if langfuse_diag.ok %}
+  <p class="ok">{{ langfuse_diag.message }}</p>
+  {% else %}
+  <p class="error">{{ langfuse_diag.message }}</p>
+  <p class="muted">Check <code>LANGFUSE_PUBLIC_KEY</code>, <code>LANGFUSE_SECRET_KEY</code>, and <code>LANGFUSE_BASE_URL</code> (EU vs US cloud). Set <code>LANGFUSE_USE_HTTP_ONLY=true</code> to skip the Python SDK. Set <code>LANGFUSE_FLUSH_AT=1</code> for faster SDK flushes.</p>
+  {% endif %}
+</div>
+{% endif %}
+
+<div class="card">
+  <h2 style="margin-top:0;font-size:1rem;">Langfuse</h2>
+  <p class="muted">Test API credentials against your Langfuse host.</p>
+  <form method="post" action="/admin/ui/diag/langfuse">
+    <button type="submit">Run connection test</button>
+  </form>
+</div>
+
+{% if not keys_file_ok %}
+<div class="card error">
+  <strong>KEYS_FILE</strong> is not set on the server. Set it in <code>.env</code> and restart the proxy.
+</div>
+{% else %}
+
+{% if dept_counts %}
+<p class="muted">By department:</p>
+<div class="chips">
+  {% for d, n in dept_counts.items() %}
+  <span class="chip">{{ d }} · {{ n }}</span>
+  {% endfor %}
+</div>
+{% endif %}
+
+<div class="card">
+  <h2 style="margin-top:0;font-size:1rem;">Create user</h2>
+  <form method="post" action="/admin/ui/users/create">
+    <label>Email (Langfuse <code>user_id</code>)</label>
+    <input type="email" name="email" required placeholder="user@company.com" />
+    <label>Department / seat</label>
+    <input type="text" name="department" required placeholder="engineering" />
+    <button type="submit">Create API key</button>
+  </form>
+</div>
+
+<div class="card">
+  <h2 style="margin-top:0;font-size:1rem;">Existing keys</h2>
+  {% if not records %}
+  <p class="muted">No keys yet. Create one above.</p>
+  {% else %}
+  {% for r in records %}
+  <div style="border-bottom:1px solid var(--border);padding:0.85rem 0;margin-bottom:0.5rem;">
+    <p style="margin:0 0 0.35rem;"><code>{{ r.key_id }}</code> <span class="muted">· {{ r.created }}</span></p>
+    <form method="post" action="/admin/ui/users/update" style="margin:0;">
+      <input type="hidden" name="key_id" value="{{ r.key_id }}" />
+      <div style="display:flex;flex-wrap:wrap;gap:0.65rem;align-items:flex-end;">
+        <div>
+          <label>Email</label>
+          <input type="email" name="email" value="{{ r.email }}" required />
+        </div>
+        <div>
+          <label>Department</label>
+          <input type="text" name="department" value="{{ r.department }}" required />
+        </div>
+        <button type="submit" class="small">Save</button>
+      </div>
+    </form>
+    <div class="row-actions" style="margin-top:0.65rem;">
+      <form method="post" action="/admin/ui/users/rotate" class="inline-form" onsubmit="return confirm('Rotate token? Old Bearer key stops working.');">
+        <input type="hidden" name="key_id" value="{{ r.key_id }}" />
+        <button type="submit" class="small">Rotate token</button>
+      </form>
+      <form method="post" action="/admin/ui/users/delete" class="inline-form" onsubmit="return confirm('Revoke this key?');">
+        <input type="hidden" name="key_id" value="{{ r.key_id }}" />
+        <button type="submit" class="small danger">Revoke</button>
+      </form>
+    </div>
+  </div>
+  {% endfor %}
+  {% endif %}
+</div>
+{% endif %}
+{% endblock %}
