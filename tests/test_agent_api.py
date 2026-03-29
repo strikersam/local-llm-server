@@ -1,6 +1,8 @@
 from fastapi.testclient import TestClient
 
 import proxy
+from admin_auth import AdminIdentity
+from key_store import KeyStore
 
 
 def test_openai_chat_completions_exact_output_short_circuits(monkeypatch):
@@ -125,3 +127,87 @@ def test_agent_run_returns_structured_failure(monkeypatch):
     assert "planner backend unavailable" in resp.json()["result"]["summary"]
 
     proxy.app.dependency_overrides.clear()
+
+
+def test_admin_api_login_status_and_control(monkeypatch):
+    monkeypatch.setattr(
+        proxy.ADMIN_AUTH,
+        "authenticate",
+        lambda username, password: AdminIdentity(username=username or "swami", auth_source="windows"),
+    )
+    monkeypatch.setattr(
+        proxy.SERVICE_MANAGER,
+        "get_status",
+        lambda: {
+            "services": {
+                "ollama": {"name": "ollama", "running": True, "pid": 101, "detail": "http://localhost:11434/api/tags"},
+                "proxy": {"name": "proxy", "running": True, "pid": 202, "detail": "http://localhost:8000/health"},
+                "tunnel": {"name": "tunnel", "running": True, "pid": 303, "detail": "https://demo.trycloudflare.com"},
+            },
+            "public_url": "https://demo.trycloudflare.com",
+            "pid_file_present": True,
+            "timestamp": 123,
+        },
+    )
+    monkeypatch.setattr(
+        proxy.SERVICE_MANAGER,
+        "control",
+        lambda action, target, current_proxy_pid=None: {"ok": True, "message": f"{action}:{target}"},
+    )
+
+    client = TestClient(proxy.app)
+    login = client.post("/admin/api/login", json={"username": "swami", "password": "secret"})
+    assert login.status_code == 200
+    token = login.json()["token"]
+
+    status = client.get("/admin/api/status", headers={"Authorization": f"Bearer {token}"})
+    assert status.status_code == 200
+    assert status.json()["public_url"] == "https://demo.trycloudflare.com"
+    assert status.json()["admin"]["username"] == "swami"
+
+    control = client.post(
+        "/admin/api/control",
+        headers={"Authorization": f"Bearer {token}"},
+        json={"action": "restart", "target": "tunnel"},
+    )
+    assert control.status_code == 200
+    assert control.json()["message"] == "restart:tunnel"
+
+
+def test_admin_api_user_crud(monkeypatch, tmp_path):
+    store = KeyStore(tmp_path / "keys.json")
+    monkeypatch.setattr(proxy, "KEY_STORE", store)
+
+    session = proxy.ADMIN_AUTH.sessions.create(AdminIdentity(username="swami", auth_source="windows"))
+    auth_header = {"Authorization": f"Bearer {session.token}"}
+    client = TestClient(proxy.app)
+
+    create = client.post(
+        "/admin/api/users",
+        headers=auth_header,
+        json={"email": "alice@example.com", "department": "engineering"},
+    )
+    assert create.status_code == 200
+    payload = create.json()
+    key_id = payload["record"]["key_id"]
+    assert payload["api_key"].startswith("sk-qwen-")
+
+    listing = client.get("/admin/api/users", headers=auth_header)
+    assert listing.status_code == 200
+    assert listing.json()["count"] == 1
+
+    update = client.patch(
+        f"/admin/api/users/{key_id}",
+        headers=auth_header,
+        json={"email": "alice@company.com", "department": "research"},
+    )
+    assert update.status_code == 200
+    assert update.json()["record"]["department"] == "research"
+
+    rotate = client.post(f"/admin/api/users/{key_id}/rotate", headers=auth_header)
+    assert rotate.status_code == 200
+    assert rotate.json()["api_key"].startswith("sk-qwen-")
+
+    delete = client.delete(f"/admin/api/users/{key_id}", headers=auth_header)
+    assert delete.status_code == 200
+    assert delete.json()["ok"] is True

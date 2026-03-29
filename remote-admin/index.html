@@ -1,0 +1,85 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Local LLM Remote Admin</title>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <main class="shell">
+      <section class="panel hero">
+        <p class="eyebrow">Remote Control Plane</p>
+        <h1>Manage your local model box from anywhere</h1>
+        <p class="lede">This static frontend talks to the Windows host through the new admin JSON API. Point it at the public tunnel URL, sign in, then start or stop services and manage API keys.</p>
+      </section>
+
+      <section class="panel" id="login-panel">
+        <h2>Connect to backend</h2>
+        <form id="login-form">
+          <label for="backend">Backend URL</label>
+          <input id="backend" name="backend" placeholder="https://your-tunnel.trycloudflare.com" required />
+          <label for="username">Username</label>
+          <input id="username" name="username" placeholder="swami or HOSTNAME\swami" />
+          <label for="password">Password</label>
+          <input id="password" name="password" type="password" required />
+          <button type="submit">Sign in</button>
+        </form>
+        <p class="hint">The backend endpoint is <code>/admin/api/*</code> on the tunneled proxy server.</p>
+        <p id="login-error" class="error hidden"></p>
+      </section>
+
+      <section class="panel hidden" id="dashboard-panel">
+        <div class="toolbar">
+          <div>
+            <p class="eyebrow">Connected</p>
+            <h2 id="whoami">Admin</h2>
+          </div>
+          <div class="toolbar-actions">
+            <button class="secondary" id="refresh-btn" type="button">Refresh</button>
+            <button class="danger" id="logout-btn" type="button">Log out</button>
+          </div>
+        </div>
+
+        <div class="grid">
+          <section class="subpanel">
+            <div class="subhead">
+              <h3>Services</h3>
+              <p id="public-url" class="hint"></p>
+            </div>
+            <div id="services"></div>
+            <div class="stack-actions">
+              <button data-control="start:stack" type="button">Start stack</button>
+              <button data-control="stop:stack" type="button" class="danger">Stop stack</button>
+            </div>
+          </section>
+
+          <section class="subpanel">
+            <div class="subhead">
+              <h3>Create user key</h3>
+              <p class="hint">Generated tokens are shown once.</p>
+            </div>
+            <form id="create-user-form">
+              <label for="email">Email</label>
+              <input id="email" name="email" type="email" required />
+              <label for="department">Department</label>
+              <input id="department" name="department" required />
+              <button type="submit">Create API key</button>
+            </form>
+            <pre id="new-token" class="hidden"></pre>
+          </section>
+        </div>
+
+        <section class="subpanel" style="margin-top: 1rem;">
+          <div class="subhead">
+            <h3>User keys</h3>
+            <p class="hint">Edit metadata, rotate, or revoke.</p>
+          </div>
+          <div id="users"></div>
+        </section>
+      </section>
+    </main>
+
+    <script src="./main.js" type="module"></script>
+  </body>
+</html>

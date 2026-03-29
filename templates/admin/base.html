@@ -3,103 +3,210 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>{% block title %}Admin{% endblock %} · Qwen proxy</title>
+  <title>{% block title %}Admin{% endblock %} | Local LLM Server</title>
   <style>
     :root {
-      --bg: #0f1419;
-      --card: #1a2332;
-      --text: #e7ecf3;
-      --muted: #8b9cb3;
-      --accent: #3d8bfd;
-      --danger: #f85149;
-      --ok: #3fb950;
-      --border: #30363d;
+      --bg: #f4efe6;
+      --paper: rgba(255, 249, 240, 0.86);
+      --card: rgba(255, 252, 247, 0.92);
+      --ink: #1d1f20;
+      --muted: #6e6459;
+      --accent: #0b6e4f;
+      --accent-strong: #084c39;
+      --warn: #a63a1d;
+      --ok: #0a7d3b;
+      --border: rgba(38, 30, 19, 0.12);
+      --shadow: 0 18px 48px rgba(46, 31, 11, 0.12);
     }
     * { box-sizing: border-box; }
     body {
-      font-family: ui-sans-serif, system-ui, sans-serif;
-      background: var(--bg);
-      color: var(--text);
       margin: 0;
-      line-height: 1.5;
+      color: var(--ink);
+      font-family: "Segoe UI", "Aptos", system-ui, sans-serif;
+      background:
+        radial-gradient(circle at top left, rgba(11, 110, 79, 0.18), transparent 28%),
+        radial-gradient(circle at bottom right, rgba(224, 132, 59, 0.18), transparent 32%),
+        linear-gradient(135deg, #efe5d5 0%, #f7f1e8 46%, #f0e6d8 100%);
       min-height: 100vh;
     }
     header {
-      padding: 1rem 1.5rem;
+      position: sticky;
+      top: 0;
+      z-index: 10;
+      backdrop-filter: blur(14px);
+      background: rgba(244, 239, 230, 0.78);
       border-bottom: 1px solid var(--border);
+      padding: 1rem 1.5rem;
       display: flex;
-      align-items: center;
       justify-content: space-between;
+      align-items: center;
       gap: 1rem;
     }
-    header a { color: var(--accent); text-decoration: none; }
-    main { padding: 1.5rem; max-width: 1100px; margin: 0 auto; }
-    h1 { font-size: 1.35rem; font-weight: 600; margin: 0 0 0.5rem; }
-    .muted { color: var(--muted); font-size: 0.9rem; margin: 0 0 1rem; }
-    .error { color: var(--danger); }
-    .ok { color: var(--ok); }
+    header a {
+      color: var(--accent-strong);
+      text-decoration: none;
+      font-weight: 600;
+    }
+    .brand { display: flex; flex-direction: column; gap: 0.12rem; }
+    .brand strong {
+      font-size: 1rem;
+      letter-spacing: 0.02em;
+      text-transform: uppercase;
+    }
+    .brand span {
+      color: var(--muted);
+      font-size: 0.88rem;
+    }
+    main {
+      max-width: 1200px;
+      margin: 0 auto;
+      padding: 1.5rem;
+    }
+    h1, h2, h3 { margin: 0 0 0.55rem; }
+    h1 { font-size: 1.85rem; }
+    h2 { font-size: 1.05rem; }
+    p { margin: 0 0 1rem; }
+    .muted { color: var(--muted); }
+    .grid {
+      display: grid;
+      gap: 1rem;
+      grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+    }
+    .grid-wide {
+      display: grid;
+      gap: 1rem;
+      grid-template-columns: minmax(0, 1.4fr) minmax(320px, 0.8fr);
+    }
     .card {
       background: var(--card);
       border: 1px solid var(--border);
-      border-radius: 8px;
-      padding: 1rem 1.25rem;
-      margin-bottom: 1.25rem;
+      border-radius: 22px;
+      padding: 1.1rem 1.15rem;
+      box-shadow: var(--shadow);
     }
-    label { display: block; font-size: 0.85rem; color: var(--muted); margin-bottom: 0.35rem; }
+    .hero {
+      background:
+        linear-gradient(140deg, rgba(11, 110, 79, 0.16), rgba(255, 255, 255, 0.65)),
+        var(--paper);
+    }
+    label {
+      display: block;
+      font-size: 0.86rem;
+      color: var(--muted);
+      margin-bottom: 0.35rem;
+    }
     input[type="text"], input[type="password"], input[type="email"] {
-      width: 100%; max-width: 420px;
-      padding: 0.5rem 0.65rem;
-      border-radius: 6px;
+      width: 100%;
+      border-radius: 12px;
       border: 1px solid var(--border);
-      background: var(--bg);
-      color: var(--text);
-      margin-bottom: 0.75rem;
+      background: rgba(255, 255, 255, 0.92);
+      color: var(--ink);
+      padding: 0.75rem 0.85rem;
+      margin-bottom: 0.8rem;
+      font: inherit;
     }
     button, .btn {
-      display: inline-block;
-      padding: 0.45rem 0.9rem;
-      border-radius: 6px;
+      appearance: none;
       border: none;
-      background: var(--accent);
-      color: #fff;
-      font-weight: 500;
-      cursor: pointer;
-      font-size: 0.9rem;
-      text-decoration: none;
-    }
-    button.danger { background: var(--danger); }
-    button.small { padding: 0.25rem 0.55rem; font-size: 0.8rem; }
-    table { width: 100%; border-collapse: collapse; font-size: 0.9rem; }
-    th, td { text-align: left; padding: 0.5rem 0.6rem; border-bottom: 1px solid var(--border); vertical-align: top; }
-    th { color: var(--muted); font-weight: 500; }
-    code, .mono { font-family: ui-monospace, monospace; font-size: 0.82rem; }
-    .token-box {
-      background: var(--bg);
-      border: 1px solid var(--ok);
-      padding: 0.75rem;
-      border-radius: 6px;
-      word-break: break-all;
-      margin: 0.5rem 0;
-    }
-    .row-actions { display: flex; flex-wrap: wrap; gap: 0.35rem; align-items: center; }
-    .inline-form { display: inline; }
-    .chips { display: flex; flex-wrap: wrap; gap: 0.35rem; margin: 0.5rem 0; }
-    .chip {
-      background: var(--card);
-      border: 1px solid var(--border);
-      padding: 0.2rem 0.5rem;
       border-radius: 999px;
-      font-size: 0.8rem;
+      background: var(--accent);
+      color: white;
+      padding: 0.65rem 1rem;
+      font: inherit;
+      font-weight: 600;
+      cursor: pointer;
+      text-decoration: none;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 0.4rem;
+    }
+    button.alt, .btn.alt { background: #d1c3af; color: var(--ink); }
+    button.danger { background: var(--warn); }
+    button.small { padding: 0.42rem 0.76rem; font-size: 0.88rem; }
+    .token-box, pre {
+      background: #161616;
+      color: #f5f3ef;
+      border-radius: 16px;
+      padding: 0.9rem;
+      overflow-x: auto;
+      font-family: ui-monospace, "Cascadia Code", monospace;
+      font-size: 0.86rem;
+    }
+    .ok { color: var(--ok); }
+    .error { color: var(--warn); }
+    .chips {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.45rem;
+    }
+    .chip {
+      padding: 0.35rem 0.7rem;
+      border-radius: 999px;
+      border: 1px solid var(--border);
+      background: rgba(255,255,255,0.8);
+      font-size: 0.84rem;
+    }
+    .service-row, .user-row {
+      padding: 0.95rem 0;
+      border-top: 1px solid var(--border);
+    }
+    .service-row:first-of-type, .user-row:first-of-type { border-top: none; padding-top: 0; }
+    .service-meta {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.75rem;
+      align-items: center;
+      margin: 0.45rem 0 0.75rem;
+      color: var(--muted);
+      font-size: 0.9rem;
+    }
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.35rem;
+      border-radius: 999px;
+      padding: 0.25rem 0.65rem;
+      background: rgba(255,255,255,0.85);
+      border: 1px solid var(--border);
+    }
+    .badge::before {
+      content: "";
+      width: 0.55rem;
+      height: 0.55rem;
+      border-radius: 50%;
+      background: #b6ada1;
+    }
+    .badge.up::before { background: var(--ok); }
+    .badge.down::before { background: var(--warn); }
+    .row-actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.45rem;
+      align-items: center;
+    }
+    .inline-form { display: inline-flex; gap: 0.45rem; align-items: center; }
+    .stack {
+      display: flex;
+      flex-direction: column;
+      gap: 1rem;
+    }
+    @media (max-width: 900px) {
+      .grid-wide { grid-template-columns: 1fr; }
     }
   </style>
 </head>
 <body>
   <header>
-    <span><strong>Qwen proxy</strong> admin</span>
+    <div class="brand">
+      <strong>Local LLM Server</strong>
+      <span>Admin control plane</span>
+    </div>
     <nav>
       {% if request.session.get('admin_ok') %}
-      <a href="/admin/ui/">Users</a>
-      · <a href="/admin/ui/logout">Log out</a>
+      <a href="/admin/ui/">Dashboard</a>
+      <span class="muted"> | </span>
+      <a href="/admin/ui/logout">Log out</a>
       {% endif %}
     </nav>
   </header>
