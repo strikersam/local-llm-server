@@ -32,12 +32,14 @@ from fastapi.responses import StreamingResponse, JSONResponse
 
 from starlette.middleware.sessions import SessionMiddleware
 
+from admin_auth import AdminAuthManager, AdminIdentity
 from admin_gui import register_admin_gui
 from agent_loop import AgentRunner
 from agent_models import AgentRunRequest, AgentSessionCreateRequest
 from agent_state import AgentSessionStore
 from chat_handlers import handle_ollama_native_chat, handle_openai_chat_completions
 from key_store import issue_new_api_key, load_key_store
+from service_manager import WindowsServiceManager
 
 # ─── Config ────────────────────────────────────────────────────────────────────
 
@@ -115,6 +117,9 @@ elif ADMIN_SECRET:
         "Admin: POST /admin/keys (API) and browser UI at /admin/ui/login (session after login)",
     )
 
+ADMIN_AUTH = AdminAuthManager(ADMIN_SECRET)
+SERVICE_MANAGER = WindowsServiceManager(Path(__file__).resolve().parent)
+
 # ─── Auth context ──────────────────────────────────────────────────────────────
 
 @dataclass(frozen=True)
@@ -176,6 +181,21 @@ class AdminCreateKeyBody(BaseModel):
     department: str = Field(..., min_length=1, max_length=128)
 
 
+class AdminLoginBody(BaseModel):
+    username: str = Field(default="", max_length=320)
+    password: str = Field(..., min_length=1, max_length=512)
+
+
+class AdminControlBody(BaseModel):
+    action: str = Field(..., pattern="^(start|stop|restart)$")
+    target: str = Field(..., pattern="^(ollama|proxy|tunnel|stack)$")
+
+
+class AdminUpdateKeyBody(BaseModel):
+    email: str = Field(..., min_length=3, max_length=320)
+    department: str = Field(..., min_length=1, max_length=128)
+
+
 def _require_admin(x_admin_secret: str | None, authorization: str | None) -> None:
     if not ADMIN_SECRET:
         raise HTTPException(status_code=404, detail="Not Found")
@@ -184,6 +204,23 @@ def _require_admin(x_admin_secret: str | None, authorization: str | None) -> Non
         got = authorization[7:].strip()
     if got != ADMIN_SECRET:
         raise HTTPException(status_code=401, detail="Unauthorized")
+
+
+def _get_admin_identity_from_request(
+    request: Request,
+    authorization: str | None = Header(default=None),
+) -> AdminIdentity:
+    token = ""
+    if authorization and authorization.startswith("Bearer "):
+        token = authorization[7:].strip()
+    session = ADMIN_AUTH.sessions.get(token) if token else None
+    if session:
+        return session.identity
+    if request.session.get("admin_ok"):
+        username = str(request.session.get("admin_user") or "admin")
+        source = str(request.session.get("admin_auth_source") or "session")
+        return AdminIdentity(username=username, auth_source=source)
+    raise HTTPException(status_code=401, detail="Unauthorized")
 
 # ─── App ────────────────────────────────────────────────────────────────────────
 
@@ -196,8 +233,9 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-if ADMIN_SECRET:
-    _session_secret = hashlib.sha256(f"qwen-admin-session:{ADMIN_SECRET}".encode()).hexdigest()
+if ADMIN_AUTH.enabled:
+    _session_seed = ADMIN_SECRET or os.environ.get("COMPUTERNAME") or str(Path(__file__).resolve())
+    _session_secret = hashlib.sha256(f"qwen-admin-session:{_session_seed}".encode()).hexdigest()
     app.add_middleware(
         SessionMiddleware,
         secret_key=_session_secret,
@@ -206,7 +244,7 @@ if ADMIN_SECRET:
         same_site="lax",
     )
 
-register_admin_gui(app, KEY_STORE, ADMIN_SECRET)
+register_admin_gui(app, KEY_STORE, ADMIN_AUTH, SERVICE_MANAGER)
 AGENT_RUNNER = AgentRunner(ollama_base=OLLAMA_BASE, workspace_root=Path(__file__).resolve().parent)
 AGENT_SESSIONS = AgentSessionStore()
 
@@ -230,6 +268,142 @@ async def admin_create_key(
         "email": rec.email,
         "department": rec.department,
         "created": rec.created,
+    }
+
+
+@app.post("/admin/api/login")
+async def admin_login(body: AdminLoginBody):
+    if not ADMIN_AUTH.enabled:
+        raise HTTPException(status_code=404, detail="Admin login is not enabled")
+    identity = ADMIN_AUTH.authenticate(body.username, body.password)
+    if not identity:
+        raise HTTPException(status_code=401, detail="Invalid admin credentials")
+    session = ADMIN_AUTH.sessions.create(identity)
+    return {
+        "token": session.token,
+        "username": identity.username,
+        "auth_source": identity.auth_source,
+        "expires_in": ADMIN_AUTH.sessions.ttl_seconds,
+        "supports_windows_auth": ADMIN_AUTH.supports_windows_auth,
+    }
+
+
+@app.post("/admin/api/logout")
+async def admin_logout(
+    request: Request,
+    authorization: str | None = Header(default=None),
+    admin: AdminIdentity = Depends(_get_admin_identity_from_request),
+):
+    if authorization and authorization.startswith("Bearer "):
+        ADMIN_AUTH.sessions.revoke(authorization[7:].strip())
+    request.session.clear()
+    return {"ok": True, "username": admin.username}
+
+
+@app.get("/admin/api/status")
+async def admin_status(admin: AdminIdentity = Depends(_get_admin_identity_from_request)):
+    status = SERVICE_MANAGER.get_status()
+    status["admin"] = {"username": admin.username, "auth_source": admin.auth_source}
+    return status
+
+
+@app.post("/admin/api/control")
+async def admin_control(
+    body: AdminControlBody,
+    admin: AdminIdentity = Depends(_get_admin_identity_from_request),
+):
+    try:
+        result = SERVICE_MANAGER.control(body.action, body.target, current_proxy_pid=os.getpid())
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    result["admin"] = {"username": admin.username}
+    return result
+
+
+@app.get("/admin/api/users")
+async def admin_list_users(admin: AdminIdentity = Depends(_get_admin_identity_from_request)):
+    if not KEY_STORE.is_configured():
+        raise HTTPException(status_code=503, detail="KEYS_FILE is not set on the server")
+    records = [
+        {
+            "key_id": rec.key_id,
+            "email": rec.email,
+            "department": rec.department,
+            "created": rec.created,
+        }
+        for rec in KEY_STORE.list_records()
+    ]
+    return {"records": records, "count": len(records), "admin": {"username": admin.username}}
+
+
+@app.post("/admin/api/users")
+async def admin_create_user(
+    body: AdminCreateKeyBody,
+    admin: AdminIdentity = Depends(_get_admin_identity_from_request),
+):
+    if not KEY_STORE.is_configured():
+        raise HTTPException(status_code=503, detail="KEYS_FILE is not set on the server")
+    plain, rec = issue_new_api_key(KEY_STORE, body.email.strip(), body.department.strip())
+    return {
+        "api_key": plain,
+        "record": {
+            "key_id": rec.key_id,
+            "email": rec.email,
+            "department": rec.department,
+            "created": rec.created,
+        },
+        "admin": {"username": admin.username},
+    }
+
+
+@app.patch("/admin/api/users/{key_id}")
+async def admin_update_user(
+    key_id: str,
+    body: AdminUpdateKeyBody,
+    admin: AdminIdentity = Depends(_get_admin_identity_from_request),
+):
+    rec = KEY_STORE.update_metadata(key_id, body.email, body.department)
+    if not rec:
+        raise HTTPException(status_code=404, detail="Unknown key_id")
+    return {
+        "record": {
+            "key_id": rec.key_id,
+            "email": rec.email,
+            "department": rec.department,
+            "created": rec.created,
+        },
+        "admin": {"username": admin.username},
+    }
+
+
+@app.delete("/admin/api/users/{key_id}")
+async def admin_delete_user(
+    key_id: str,
+    admin: AdminIdentity = Depends(_get_admin_identity_from_request),
+):
+    if not KEY_STORE.delete_by_key_id(key_id):
+        raise HTTPException(status_code=404, detail="Unknown key_id")
+    return {"ok": True, "key_id": key_id, "admin": {"username": admin.username}}
+
+
+@app.post("/admin/api/users/{key_id}/rotate")
+async def admin_rotate_user(
+    key_id: str,
+    admin: AdminIdentity = Depends(_get_admin_identity_from_request),
+):
+    out = KEY_STORE.rotate_plain(key_id)
+    if not out:
+        raise HTTPException(status_code=404, detail="Unknown key_id")
+    plain, rec = out
+    return {
+        "api_key": plain,
+        "record": {
+            "key_id": rec.key_id,
+            "email": rec.email,
+            "department": rec.department,
+            "created": rec.created,
+        },
+        "admin": {"username": admin.username},
     }
 
 
@@ -450,7 +624,8 @@ async def root():
             "agent_run":      "POST /agent/run        (Bearer auth)",
         },
         "docs": "Set Authorization: Bearer <your-key> on all /api/* and /v1/* requests",
-        "admin_ui": "GET /admin/ui/login (requires ADMIN_SECRET in .env)",
+        "admin_ui": "GET /admin/ui/login (Windows credentials if enabled, otherwise admin secret)",
+        "admin_api": "POST /admin/api/login then call /admin/api/status, /admin/api/control, /admin/api/users",
     }
 
 # ─── Entry point ────────────────────────────────────────────────────────────────

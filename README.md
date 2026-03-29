@@ -10,7 +10,7 @@ No cloud costs. No data sent to third parties. Full control over your models.
 
 - OpenAI-compatible local model access through `/v1/*`
 - Authenticated Ollama passthrough through `/api/*`
-- Multi-user key management with an admin UI
+- Multi-user key management with a local admin UI and remote admin API
 - Optional Langfuse tracing
 - A local-first coding agent API for planner -> executor -> verifier runs
 
@@ -177,6 +177,9 @@ API_KEYS=your-secret-key-here
 # Recommended for team / multi-user setups
 KEYS_FILE=keys.json
 ADMIN_SECRET=generate-a-long-random-secret-here
+ADMIN_WINDOWS_AUTH=true
+# Optional allow-list for admin UI/API logins, e.g. HOSTNAME\swami,swami
+# ADMIN_WINDOWS_ALLOWED_USERS=
 
 # Where to store model weights (needs lots of free space)
 # Windows: D:\ai-models   Linux: /mnt/data/ollama-models   macOS: /Volumes/Data/models
@@ -262,10 +265,11 @@ Output:
   >>> Public URL: https://example-words-here.trycloudflare.com <<<
 ```
 
-If `ADMIN_SECRET` is configured, the proxy also enables:
+If `ADMIN_SECRET` or `ADMIN_WINDOWS_AUTH=true` is configured, the proxy also enables:
 
 - `POST /admin/keys` for scripted user provisioning
 - `http://localhost:8000/admin/ui/login` for the browser admin UI
+- `POST /admin/api/login` plus `/admin/api/status`, `/admin/api/control`, and `/admin/api/users` for a remote frontend
 
 If `LANGFUSE_PUBLIC_KEY` and `LANGFUSE_SECRET_KEY` are configured, chat traffic is also traced to Langfuse.
 
@@ -400,19 +404,42 @@ Response:
 
 ### Browser Admin UI
 
-With `ADMIN_SECRET` enabled, open:
+Open:
 
 ```text
 http://localhost:8000/admin/ui/login
 ```
 
+If `ADMIN_WINDOWS_AUTH=true` on Windows, sign in with a Windows username and password for this machine. If Windows auth is disabled, the server falls back to the configured `ADMIN_SECRET`.
+
 After login, the admin dashboard lets you:
 
+- start, stop, or restart Ollama, the proxy, and the tunnel
 - create a user with `email` + `department`
 - edit department allocation or email metadata later
 - rotate a user token while keeping the same `key_id`
 - revoke/delete a user key
 - run a Langfuse connectivity diagnostic
+
+Stopping the proxy or tunnel from the remote dashboard will disconnect the current remote session until the service comes back.
+
+### Remote Admin Frontend (Vercel)
+
+The repo also ships a static frontend in `remote-admin/` that talks to the JSON admin API. To deploy it on Vercel:
+
+1. Import this repository into Vercel.
+2. Set the project root directory to `remote-admin`.
+3. Deploy as a static site.
+4. In the deployed UI, enter your current tunnel URL and log in with the same admin credentials you use locally.
+
+The remote frontend calls:
+
+- `POST /admin/api/login`
+- `GET /admin/api/status`
+- `POST /admin/api/control`
+- `GET/POST/PATCH/DELETE /admin/api/users`
+
+For basic uptime monitoring, point Uptime Kuma, Better Stack, or a similar monitor at `/health`.
 
 ### Department Allocation
 
@@ -517,12 +544,16 @@ GET /health
 
 ### Admin API
 
-Available only when `ADMIN_SECRET` is set:
+Available when admin auth is enabled (`ADMIN_SECRET` and/or `ADMIN_WINDOWS_AUTH=true`):
 
 ```
 POST /admin/keys              # Create one user key with email + department
 GET  /admin/ui/login          # Browser login page for admin dashboard
 GET  /admin/ui/               # Browser dashboard (session after login)
+POST /admin/api/login         # Exchange admin credentials for a bearer token
+GET  /admin/api/status        # Service state + current tunnel URL
+POST /admin/api/control       # Start/stop/restart ollama|proxy|tunnel|stack
+GET  /admin/api/users         # List user API keys
 ```
 
 ---

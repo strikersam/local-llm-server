@@ -1,14 +1,34 @@
 {% extends "admin/base.html" %}
-{% block title %}Admin login{% endblock %}
+{% block title %}Sign In{% endblock %}
 {% block content %}
-<h1>Admin login</h1>
-<p class="muted">Enter the same secret as <code>ADMIN_SECRET</code> in your <code>.env</code> file.</p>
-{% if error %}
-<p class="error">{{ error }}</p>
-{% endif %}
-<form method="post" action="/admin/ui/login" class="card">
-  <label>Admin secret</label>
-  <input type="password" name="admin_password" autocomplete="current-password" required />
-  <button type="submit">Sign in</button>
-</form>
+<div class="grid-wide">
+  <section class="card hero">
+    <h1>Sign in to the control plane</h1>
+    <p class="muted">Use your Windows username and password for this machine. The same backend also exposes a JSON admin API that the remote Vercel frontend can use.</p>
+    <div class="chips">
+      <span class="chip">Service controls</span>
+      <span class="chip">User management</span>
+      <span class="chip">Remote status</span>
+    </div>
+    {% if supports_windows_auth %}
+    <p class="muted" style="margin-top:1rem;">Accepted examples: <code>swami</code>, <code>HOSTNAME\swami</code>, or your domain-style username if this machine is domain-joined.</p>
+    {% else %}
+    <p class="muted" style="margin-top:1rem;">Windows auth is disabled, so the server falls back to the configured admin secret as the password.</p>
+    {% endif %}
+  </section>
+
+  <section class="card">
+    <h2>Admin login</h2>
+    {% if error %}
+    <p class="error">{{ error }}</p>
+    {% endif %}
+    <form method="post" action="/admin/ui/login">
+      <label>Username</label>
+      <input type="text" name="username" placeholder="swami or HOSTNAME\\swami" />
+      <label>Password</label>
+      <input type="password" name="password" required />
+      <button type="submit">Sign in</button>
+    </form>
+  </section>
+</div>
 {% endblock %}

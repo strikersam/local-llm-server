@@ -1,101 +1,143 @@
 {% extends "admin/base.html" %}
-{% block title %}Users & keys{% endblock %}
+{% block title %}Dashboard{% endblock %}
 {% block content %}
-<h1>User API keys</h1>
-<p class="muted">Stored in <code>KEYS_FILE</code> (hashed). Legacy keys in <code>API_KEYS</code> are not listed here.</p>
-
-{% if flash %}
-<div class="card">
-  <p>{{ flash }}</p>
+<section class="card hero" style="margin-bottom:1rem;">
+  <h1>Admin dashboard</h1>
+  <p class="muted">Signed in as <strong>{{ admin_user }}</strong>. Manage the local stack, rotate client keys, and test observability from one place.</p>
+  {% if flash %}
+  <p class="ok">{{ flash }}</p>
+  {% endif %}
   {% if flash_key %}
-  <p class="muted">New Bearer token:</p>
-  <div class="token-box mono">{{ flash_key }}</div>
-  <p class="muted">Save it now; the server cannot show it again.</p>
+  <p class="muted">New bearer token:</p>
+  <div class="token-box">{{ flash_key }}</div>
+  <p class="muted">Copy it now. The server only shows it once.</p>
   {% endif %}
-</div>
-{% endif %}
+</section>
 
-{% if langfuse_diag %}
-<div class="card">
-  <h2 style="margin-top:0;font-size:1rem;">Langfuse connection</h2>
-  {% if langfuse_diag.ok %}
-  <p class="ok">{{ langfuse_diag.message }}</p>
-  {% else %}
-  <p class="error">{{ langfuse_diag.message }}</p>
-  <p class="muted">Check <code>LANGFUSE_PUBLIC_KEY</code>, <code>LANGFUSE_SECRET_KEY</code>, and <code>LANGFUSE_BASE_URL</code> (EU vs US cloud). Set <code>LANGFUSE_USE_HTTP_ONLY=true</code> to skip the Python SDK. Set <code>LANGFUSE_FLUSH_AT=1</code> for faster SDK flushes.</p>
-  {% endif %}
-</div>
-{% endif %}
+<div class="grid-wide">
+  <div class="stack">
+    <section class="card">
+      <h2>Service controls</h2>
+      <p class="muted">These buttons control the processes on this Windows host. Stopping the proxy or tunnel will disconnect the current remote session.</p>
 
-<div class="card">
-  <h2 style="margin-top:0;font-size:1rem;">Langfuse</h2>
-  <p class="muted">Test API credentials against your Langfuse host.</p>
-  <form method="post" action="/admin/ui/diag/langfuse">
-    <button type="submit">Run connection test</button>
-  </form>
-</div>
+      <div class="row-actions" style="margin-bottom:1rem;">
+        <form method="post" action="/admin/ui/control" class="inline-form">
+          <input type="hidden" name="target" value="stack" />
+          <input type="hidden" name="action" value="start" />
+          <button type="submit">Start stack</button>
+        </form>
+        <form method="post" action="/admin/ui/control" class="inline-form" onsubmit="return confirm('Stop the whole stack? Remote API access will drop once the proxy stops.');">
+          <input type="hidden" name="target" value="stack" />
+          <input type="hidden" name="action" value="stop" />
+          <button type="submit" class="danger">Stop stack</button>
+        </form>
+      </div>
 
-{% if not keys_file_ok %}
-<div class="card error">
-  <strong>KEYS_FILE</strong> is not set on the server. Set it in <code>.env</code> and restart the proxy.
-</div>
-{% else %}
+      {% for service_name, state in services.services.items() %}
+      <div class="service-row">
+        <h3 style="text-transform:capitalize;">{{ service_name }}</h3>
+        <div class="service-meta">
+          <span class="badge {{ 'up' if state.running else 'down' }}">{{ 'Running' if state.running else 'Stopped' }}</span>
+          {% if state.pid %}
+          <span>PID {{ state.pid }}</span>
+          {% endif %}
+          {% if state.detail %}
+          <span>{{ state.detail }}</span>
+          {% endif %}
+        </div>
+        <div class="row-actions">
+          <form method="post" action="/admin/ui/control" class="inline-form">
+            <input type="hidden" name="target" value="{{ service_name }}" />
+            <input type="hidden" name="action" value="start" />
+            <button type="submit" class="small">Start</button>
+          </form>
+          <form method="post" action="/admin/ui/control" class="inline-form" onsubmit="return confirm('Stop {{ service_name }}?');">
+            <input type="hidden" name="target" value="{{ service_name }}" />
+            <input type="hidden" name="action" value="stop" />
+            <button type="submit" class="small {% if service_name != 'ollama' %}danger{% endif %}">Stop</button>
+          </form>
+          <form method="post" action="/admin/ui/control" class="inline-form">
+            <input type="hidden" name="target" value="{{ service_name }}" />
+            <input type="hidden" name="action" value="restart" />
+            <button type="submit" class="small alt">Restart</button>
+          </form>
+        </div>
+      </div>
+      {% endfor %}
 
-{% if dept_counts %}
-<p class="muted">By department:</p>
-<div class="chips">
-  {% for d, n in dept_counts.items() %}
-  <span class="chip">{{ d }} · {{ n }}</span>
-  {% endfor %}
-</div>
-{% endif %}
+      {% if services.public_url %}
+      <div class="service-row">
+        <h3>Public URL</h3>
+        <div class="token-box">{{ services.public_url }}</div>
+        <p class="muted">Use this base host for Continue, Zed, or the remote Vercel admin frontend.</p>
+      </div>
+      {% endif %}
+    </section>
 
-<div class="card">
-  <h2 style="margin-top:0;font-size:1rem;">Create user</h2>
-  <form method="post" action="/admin/ui/users/create">
-    <label>Email (Langfuse <code>user_id</code>)</label>
-    <input type="email" name="email" required placeholder="user@company.com" />
-    <label>Department / seat</label>
-    <input type="text" name="department" required placeholder="engineering" />
-    <button type="submit">Create API key</button>
-  </form>
-</div>
-
-<div class="card">
-  <h2 style="margin-top:0;font-size:1rem;">Existing keys</h2>
-  {% if not records %}
-  <p class="muted">No keys yet. Create one above.</p>
-  {% else %}
-  {% for r in records %}
-  <div style="border-bottom:1px solid var(--border);padding:0.85rem 0;margin-bottom:0.5rem;">
-    <p style="margin:0 0 0.35rem;"><code>{{ r.key_id }}</code> <span class="muted">· {{ r.created }}</span></p>
-    <form method="post" action="/admin/ui/users/update" style="margin:0;">
-      <input type="hidden" name="key_id" value="{{ r.key_id }}" />
-      <div style="display:flex;flex-wrap:wrap;gap:0.65rem;align-items:flex-end;">
-        <div>
+    <section class="card">
+      <h2>Existing keys</h2>
+      {% if not keys_file_ok %}
+      <p class="error"><code>KEYS_FILE</code> is not configured on the server. Set it in <code>.env</code> and restart.</p>
+      {% elif not records %}
+      <p class="muted">No API keys yet. Create one from the right-hand panel.</p>
+      {% else %}
+      {% for r in records %}
+      <div class="user-row">
+        <p style="margin-bottom:0.45rem;"><strong>{{ r.email }}</strong> <span class="muted">· {{ r.department }} · {{ r.key_id }} · {{ r.created }}</span></p>
+        <form method="post" action="/admin/ui/users/update">
+          <input type="hidden" name="key_id" value="{{ r.key_id }}" />
           <label>Email</label>
           <input type="email" name="email" value="{{ r.email }}" required />
-        </div>
-        <div>
           <label>Department</label>
           <input type="text" name="department" value="{{ r.department }}" required />
-        </div>
-        <button type="submit" class="small">Save</button>
+          <div class="row-actions">
+            <button type="submit" class="small">Save</button>
+            <button type="submit" class="small alt" formaction="/admin/ui/users/rotate" onclick="return confirm('Rotate this API key? The old token will stop working.');">Rotate</button>
+            <button type="submit" class="small danger" formaction="/admin/ui/users/delete" onclick="return confirm('Delete this API key?');">Delete</button>
+          </div>
+        </form>
       </div>
-    </form>
-    <div class="row-actions" style="margin-top:0.65rem;">
-      <form method="post" action="/admin/ui/users/rotate" class="inline-form" onsubmit="return confirm('Rotate token? Old Bearer key stops working.');">
-        <input type="hidden" name="key_id" value="{{ r.key_id }}" />
-        <button type="submit" class="small">Rotate token</button>
-      </form>
-      <form method="post" action="/admin/ui/users/delete" class="inline-form" onsubmit="return confirm('Revoke this key?');">
-        <input type="hidden" name="key_id" value="{{ r.key_id }}" />
-        <button type="submit" class="small danger">Revoke</button>
-      </form>
-    </div>
+      {% endfor %}
+      {% endif %}
+    </section>
   </div>
-  {% endfor %}
-  {% endif %}
+
+  <div class="stack">
+    <section class="card">
+      <h2>Create user key</h2>
+      <p class="muted">Per-user keys are stored hashed on disk and work better than the legacy shared <code>API_KEYS</code> path.</p>
+      <form method="post" action="/admin/ui/users/create">
+        <label>Email</label>
+        <input type="email" name="email" placeholder="user@company.com" required />
+        <label>Department or seat</label>
+        <input type="text" name="department" placeholder="engineering" required />
+        <button type="submit">Create API key</button>
+      </form>
+    </section>
+
+    <section class="card">
+      <h2>Departments</h2>
+      {% if dept_counts %}
+      <div class="chips">
+        {% for d, n in dept_counts.items() %}
+        <span class="chip">{{ d }} · {{ n }}</span>
+        {% endfor %}
+      </div>
+      {% else %}
+      <p class="muted">No department data yet.</p>
+      {% endif %}
+    </section>
+
+    <section class="card">
+      <h2>Langfuse diagnostic</h2>
+      <p class="muted">Check whether the configured Langfuse credentials can be reached from this machine.</p>
+      <form method="post" action="/admin/ui/diag/langfuse">
+        <button type="submit">Run connection test</button>
+      </form>
+      {% if langfuse_diag %}
+      <p class="{{ 'ok' if langfuse_diag.ok else 'error' }}" style="margin-top:0.9rem;">{{ langfuse_diag.message }}</p>
+      {% endif %}
+    </section>
+  </div>
 </div>
-{% endif %}
 {% endblock %}
