@@ -328,7 +328,8 @@ local-llm-server/
 ├── run_tunnel.bat            # Cloudflare tunnel launcher
 │
 └── client-configs/
-    ├── continue_config.json  # VS Code Continue extension
+    ├── continue_config.json  # Legacy Continue config for older installs
+    ├── continue_config.yaml  # Recommended Continue config
     ├── cursor_settings.json  # Cursor IDE
     ├── aider_config.sh       # Aider CLI (Linux/macOS/WSL)
     ├── aider_config.ps1      # Aider CLI (Windows)
@@ -600,28 +601,45 @@ open-webui serve
 Adds an AI chat panel and tab autocomplete directly inside VS Code, with a model switcher in the sidebar.
 
 1. Install the **Continue** extension (`Ctrl+Shift+X` → search "Continue")
-2. Copy the config to your home directory:
+2. Use the recommended proxy settings in `.env` before exposing the server to Continue:
+
+```env
+PROXY_DEFAULT_SYSTEM_PROMPT_ENABLED=false
+PROXY_STRIP_THINK_TAGS=true
+PROXY_DEFAULT_MAX_TOKENS=1200
+```
+
+This avoids prompt-stacking with Continue's own rules, strips leaked `<think>` blocks from models that expose them, and adds a conservative fallback limit when a client omits `max_tokens`.
+
+3. Copy the recommended YAML config to your home directory:
 
 ```bash
 # Linux / macOS
-cp client-configs/continue_config.json ~/.continue/config.json
+cp client-configs/continue_config.yaml ~/.continue/config.yaml
 
 # Windows PowerShell
-Copy-Item client-configs\continue_config.json "$env:USERPROFILE\.continue\config.json"
+Copy-Item client-configs\continue_config.yaml "$env:USERPROFILE\.continue\config.yaml"
 ```
 
-3. Open the file and replace the two placeholders:
+If you are on an older Continue build that still expects `config.json`, use `client-configs/continue_config.json` instead.
 
-```json
-"apiBase": "https://YOUR_TUNNEL_URL/v1",
-"apiKey": "YOUR_API_KEY"
+4. Open the file and replace the two placeholders:
+
+```yaml
+apiBase: https://YOUR_TUNNEL_URL/v1
+apiKey: YOUR_API_KEY
 ```
 
-4. Reload VS Code — models appear in the Continue sidebar dropdown.
+5. Reload VS Code — models appear in the Continue sidebar dropdown.
 
-The provided config sets `qwen3-coder:30b` as the **tab autocomplete** model (fast, code-optimised) and offers all three models for chat. Add or remove models by editing the `models` array.
+Recommended behavior for accuracy and reliability:
 
-> See `client-configs/continue_config.json` for the full ready-to-use config.
+- Keep `qwen3-coder:30b` as the primary Continue model for chat, edit, apply, summarize, and autocomplete.
+- Use `deepseek-r1:32b` only as an optional manual chat profile when you want extra reasoning and accept slower, less format-disciplined responses.
+- Keep Continue context lean: `code`, `diff`, and `folder` are usually enough. Adding `docs`, `terminal`, `problems`, or `codebase` increases prompt size and can reduce determinism.
+- Start sensitive evals or tricky refactors in a fresh Continue chat so prior prompt state does not leak into the task.
+
+> See `client-configs/continue_config.yaml` for the recommended setup and `client-configs/continue_config.json` for legacy compatibility.
 
 ---
 

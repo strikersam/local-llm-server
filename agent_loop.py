@@ -167,7 +167,9 @@ class AgentRunner:
                     continue
 
                 out_path, new_content = parsed
+                new_content = self._clean_generated_file_content(new_content)
                 syntax_issues = self._local_syntax_check(out_path, new_content)
+                syntax_issues.extend(self._local_safety_check(out_path, new_content))
                 verification = await self._chat_json(
                     DEFAULT_VERIFIER_MODEL if not requested_model else requested_model,
                     build_verification_prompt(
@@ -205,6 +207,16 @@ class AgentRunner:
                     "issues": ["Executor did not produce an applicable file update."],
                     "changed_files": changed_files,
                 }
+
+        step_review_issues = self._review_step_result(step=step, changed_files=changed_files)
+        if step_review_issues:
+            return {
+                "step_id": step["id"],
+                "description": step["description"],
+                "status": "failed",
+                "issues": step_review_issues,
+                "changed_files": changed_files,
+            }
 
         return {
             "step_id": step["id"],
@@ -277,6 +289,14 @@ class AgentRunner:
             content = (existing + ("\n" if existing else "") + content).rstrip("\n") + "\n"
         return path, content
 
+    def _clean_generated_file_content(self, content: str) -> str:
+        cleaned = content.replace("\r\n", "\n")
+        cleaned = re.sub(r"^\s*[A-Za-z0-9_+-]+\s*\n", "", cleaned, count=1)
+        cleaned = cleaned.strip("\n")
+        if cleaned and not cleaned.endswith("\n"):
+            cleaned += "\n"
+        return cleaned
+
     def _local_syntax_check(self, path: str, content: str) -> list[str]:
         issues: list[str] = []
         if path.endswith(".py"):
@@ -284,6 +304,52 @@ class AgentRunner:
                 ast.parse(content)
             except SyntaxError as exc:
                 issues.append(f"Python syntax error: {exc.msg} at line {exc.lineno}")
+        return issues
+
+    def _local_safety_check(self, path: str, content: str) -> list[str]:
+        issues: list[str] = []
+        if not path.endswith(".py"):
+            return issues
+
+        lowered = content.lower()
+        if "jwt" in lowered or "oauth2" in lowered or "authentication" in lowered:
+            if re.search(r"SECRET_KEY\s*=\s*[\"'][^\"']+[\"']", content):
+                issues.append("Auth/JWT code hardcodes SECRET_KEY instead of reading configuration from the environment.")
+            if "fake_users_db" in lowered:
+                issues.append("Auth/JWT code introduces fake in-memory users, which is not a safe default for real authentication work.")
+        return issues
+
+    def _review_step_result(self, *, step: dict[str, Any], changed_files: list[str]) -> list[str]:
+        issues: list[str] = []
+        desc = str(step.get("description", "")).lower()
+        changed_set = {path.replace("\\", "/").lower() for path in changed_files}
+
+        if "across this module" in desc and len(changed_files) < 2:
+            issues.append("Module-wide change touched too few files to be complete.")
+
+        if "shared logger utility" in desc:
+            has_logger_utility = any(
+                path.endswith(("logger.py", "logging_utils.py", "logger_util.py"))
+                for path in changed_set
+            )
+            if not has_logger_utility:
+                issues.append("Shared logger utility was requested but no logger utility file was created or updated.")
+            if len(changed_files) < 2:
+                issues.append("Logging task changed too few files to count as a module-wide update.")
+
+        if "jwt" in desc or "authentication" in desc:
+            if not any(path.endswith(("requirements.txt", "pyproject.toml", "poetry.lock")) for path in changed_set):
+                issues.append("Auth task did not update dependency metadata for JWT/auth packages.")
+
+            hardcoded_secret = False
+            for path in changed_files:
+                content = self._safe_read(path)
+                if re.search(r"SECRET_KEY\s*=\s*[\"'][^\"']+[\"']", content):
+                    hardcoded_secret = True
+                    break
+            if hardcoded_secret:
+                issues.append("Auth task still contains a hardcoded SECRET_KEY.")
+
         return issues
 
     def _safe_read(self, path: str) -> str:
