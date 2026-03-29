@@ -15,6 +15,9 @@
 
 - README now separates the quick-start story from detailed release notes.
 - Agent failures from local model backends are surfaced as structured API responses instead of uncaught exceptions.
+- Continue setup is now documented with a recommended YAML config, lean context providers, and proxy settings that avoid prompt stacking.
+- The proxy now supports exact-output short-circuiting, streamed exact-output responses, optional `<think>` stripping, and a safer fallback max-token cap.
+- The agent loop now cleans sloppy generated file output and rejects incomplete shared-utility changes plus unsafe JWT/auth patterns like hardcoded secrets.
 
 ### Notes
 

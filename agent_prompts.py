@@ -29,7 +29,9 @@ def build_planning_prompt(instruction: str, history: list[dict[str, str]]) -> li
                 "- Each step touches limited files.\n"
                 "- No execution.\n"
                 "- Prefer existing files when possible.\n"
-                "- If a new file is needed, include the intended path."
+                "- If a new file is needed, include the intended path.\n"
+                "- For module-wide tasks, include every file that must change for the result to work.\n"
+                "- If the task asks for a shared utility, include a create step or include the utility file in the edit step."
             ),
         },
         {
@@ -64,7 +66,8 @@ def build_tool_prompt(
                 "- Use one tool per response.\n"
                 "- Prefer targeted reads.\n"
                 "- Stop once you have enough context.\n"
-                f"- Remaining tool calls: {remaining_calls}."
+                f"- Remaining tool calls: {remaining_calls}.\n"
+                "- For multi-file tasks, inspect enough files to avoid partial updates."
             ),
         },
         {
@@ -103,7 +106,10 @@ def build_execution_prompt(
                 "- Always return a full file.\n"
                 "- No explanations.\n"
                 "- No markdown outside the required format.\n"
-                "- The FILE path must be the target file unless the step clearly needs a new file."
+                "- The FILE path must be the target file unless the step clearly needs a new file.\n"
+                "- Do not echo the language name before the file contents.\n"
+                "- If asked for a shared utility, create or update that utility instead of duplicating logic across files.\n"
+                "- For authentication or JWT changes, avoid hardcoded secrets and prefer configuration via environment variables."
             ),
         },
         {
@@ -136,7 +142,9 @@ def build_verification_prompt(
                 "Check:\n"
                 "- syntax correctness\n"
                 "- logical consistency\n"
-                "- does it satisfy the goal?\n\n"
+                "- does it satisfy the goal?\n"
+                "- for multi-file tasks, is this change consistent with the rest of the module?\n"
+                "- for auth/JWT tasks, are there obvious security smells like hardcoded secrets?\n\n"
                 "Return ONLY JSON:\n"
                 '{ "status": "pass | fail", "issues": [] }'
             ),

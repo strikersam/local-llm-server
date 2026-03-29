@@ -1,31 +1,34 @@
 {
   "_setup": [
-    "1. Copy this file to ~/.continue/config.json on any machine you want to use",
-    "2. Replace YOUR_TUNNEL_URL with the output of get_tunnel_url.ps1 on your home PC",
-    "3. Replace YOUR_API_KEY with one of the keys from your .env file",
-    "4. Reload VS Code — models appear in the Continue sidebar dropdown"
+    "Legacy Continue config for older installs that still use config.json",
+    "Prefer client-configs/continue_config.yaml on current Continue versions",
+    "Replace YOUR_TUNNEL_URL with the output of get_tunnel_url.ps1 on your home PC",
+    "Replace YOUR_API_KEY with one of the keys from your .env file"
   ],
   "models": [
     {
-      "title": "DeepSeek-R1 671B (Home PC)",
-      "provider": "openai",
-      "model": "deepseek-r1:671b",
-      "apiBase": "https://YOUR_TUNNEL_URL/v1",
-      "apiKey": "YOUR_API_KEY"
-    },
-    {
-      "title": "DeepSeek-R1 32B (Home PC)",
-      "provider": "openai",
-      "model": "deepseek-r1:32b",
-      "apiBase": "https://YOUR_TUNNEL_URL/v1",
-      "apiKey": "YOUR_API_KEY"
-    },
-    {
-      "title": "Qwen3-Coder 30B (Home PC)",
+      "title": "Qwen3-Coder 30B (Recommended)",
       "provider": "openai",
       "model": "qwen3-coder:30b",
       "apiBase": "https://YOUR_TUNNEL_URL/v1",
-      "apiKey": "YOUR_API_KEY"
+      "apiKey": "YOUR_API_KEY",
+      "systemMessage": "Answer directly. Do not reveal reasoning. For code tasks, inspect the provided context before answering.",
+      "completionOptions": {
+        "temperature": 0.2,
+        "maxTokens": 1200
+      }
+    },
+    {
+      "title": "DeepSeek-R1 32B (Optional reasoning profile)",
+      "provider": "openai",
+      "model": "deepseek-r1:32b",
+      "apiBase": "https://YOUR_TUNNEL_URL/v1",
+      "apiKey": "YOUR_API_KEY",
+      "systemMessage": "Answer directly. Do not reveal reasoning.",
+      "completionOptions": {
+        "temperature": 0.2,
+        "maxTokens": 1200
+      }
     }
   ],
   "tabAutocompleteModel": {
@@ -37,12 +40,8 @@
   },
   "contextProviders": [
     { "name": "code" },
-    { "name": "docs" },
     { "name": "diff" },
-    { "name": "terminal" },
-    { "name": "problems" },
-    { "name": "folder" },
-    { "name": "codebase" }
+    { "name": "folder" }
   ],
   "slashCommands": [
     { "name": "edit",    "description": "Edit selected code" },

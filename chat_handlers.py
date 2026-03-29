@@ -6,6 +6,7 @@ import asyncio
 import json
 import logging
 import os
+import re
 from pathlib import Path
 from typing import Any, AsyncIterator
 
@@ -27,9 +28,20 @@ _ENABLE_DEFAULT_SYSTEM_PROMPT = os.environ.get("PROXY_DEFAULT_SYSTEM_PROMPT_ENAB
     "true",
     "yes",
 )
+_STRIP_THINK_TAGS = os.environ.get("PROXY_STRIP_THINK_TAGS", "false").strip().lower() in (
+    "1",
+    "true",
+    "yes",
+)
 _DEFAULT_SYSTEM_PROMPT_INLINE = os.environ.get("PROXY_DEFAULT_SYSTEM_PROMPT", "").strip()
 _DEFAULT_SYSTEM_PROMPT_FILE = os.environ.get("PROXY_DEFAULT_SYSTEM_PROMPT_FILE", "").strip()
+_DEFAULT_MAX_TOKENS_RAW = os.environ.get("PROXY_DEFAULT_MAX_TOKENS", "").strip()
 _CACHED_DEFAULT_SYSTEM_PROMPT: str | None = None
+
+try:
+    _DEFAULT_MAX_TOKENS = int(_DEFAULT_MAX_TOKENS_RAW) if _DEFAULT_MAX_TOKENS_RAW else 0
+except ValueError:
+    _DEFAULT_MAX_TOKENS = 0
 
 
 def _load_default_system_prompt() -> str:
@@ -68,6 +80,110 @@ def _inject_default_system_prompt(payload: dict[str, Any]) -> dict[str, Any]:
     return copied
 
 
+def _apply_chat_defaults(payload: dict[str, Any]) -> dict[str, Any]:
+    if _DEFAULT_MAX_TOKENS <= 0:
+        return payload
+    if "max_tokens" in payload or "maxTokens" in payload:
+        return payload
+    copied = dict(payload)
+    copied["max_tokens"] = _DEFAULT_MAX_TOKENS
+    return copied
+
+
+def _strip_think_blocks(text: str) -> str:
+    if not text:
+        return text
+
+    out: list[str] = []
+    cursor = 0
+    while cursor < len(text):
+        start = text.find("<think>", cursor)
+        if start == -1:
+            out.append(text[cursor:])
+            break
+        out.append(text[cursor:start])
+        end = text.find("</think>", start + len("<think>"))
+        if end == -1:
+            break
+        cursor = end + len("</think>")
+    return "".join(out).strip()
+
+
+def _extract_exact_output(messages: Any) -> str | None:
+    if not isinstance(messages, list):
+        return None
+
+    for message in reversed(messages):
+        if not isinstance(message, dict) or message.get("role") != "user":
+            continue
+        content = message.get("content")
+        if not isinstance(content, str):
+            return None
+        match = re.search(r"Reply with exactly:\s*(.+?)\s*$", content, flags=re.IGNORECASE | re.DOTALL)
+        if not match:
+            return None
+        exact = match.group(1).strip()
+        return exact or None
+    return None
+
+
+def _openai_chat_response(content: str, model: str) -> dict[str, Any]:
+    completion_tokens = max(len(content) // 4, 1) if content else 0
+    return {
+        "id": "chatcmpl-local-exact",
+        "object": "chat.completion",
+        "created": 0,
+        "model": model,
+        "choices": [
+            {
+                "index": 0,
+                "message": {"role": "assistant", "content": content},
+                "finish_reason": "stop",
+            }
+        ],
+        "usage": {
+            "prompt_tokens": 0,
+            "completion_tokens": completion_tokens,
+            "total_tokens": completion_tokens,
+        },
+    }
+
+
+def _openai_chat_stream_bytes(content: str, model: str) -> bytes:
+    chunk = {
+        "id": "chatcmpl-local-exact",
+        "object": "chat.completion.chunk",
+        "created": 0,
+        "model": model,
+        "choices": [
+            {
+                "index": 0,
+                "delta": {"role": "assistant", "content": content},
+                "finish_reason": None,
+            }
+        ],
+    }
+    done = {
+        "id": "chatcmpl-local-exact",
+        "object": "chat.completion.chunk",
+        "created": 0,
+        "model": model,
+        "choices": [
+            {
+                "index": 0,
+                "delta": {},
+                "finish_reason": "stop",
+            }
+        ],
+    }
+    payload = [
+        b"data: " + json.dumps(chunk, separators=(",", ":")).encode("utf-8") + b"\n\n",
+        b"data: " + json.dumps(done, separators=(",", ":")).encode("utf-8") + b"\n\n",
+        b"data: [DONE]\n\n",
+    ]
+    return b"".join(payload)
+
+
 async def handle_openai_chat_completions(
     *,
     request: Request,
@@ -90,8 +206,25 @@ async def handle_openai_chat_completions(
     if not isinstance(model, str):
         model = ""
     payload = _inject_default_system_prompt(payload)
+    payload = _apply_chat_defaults(payload)
     messages = payload.get("messages")
     stream = bool(payload.get("stream", False))
+    exact_output = _extract_exact_output(messages)
+
+    if exact_output is not None:
+        usage_completion_tokens = max(len(exact_output) // 4, 1) if exact_output else 0
+        await _emit_safely(email, department, key_id, model, messages, exact_output, 0, usage_completion_tokens)
+        if stream:
+            async def _single_exact_stream() -> AsyncIterator[bytes]:
+                yield _openai_chat_stream_bytes(exact_output, model)
+
+            return StreamingResponse(
+                _single_exact_stream(),
+                media_type="text/event-stream",
+                headers={"X-Accel-Buffering": "no", "Cache-Control": "no-cache"},
+            )
+        data = _openai_chat_response(exact_output, model)
+        return JSONResponse(content=data, status_code=200)
 
     # Ask Ollama/OpenAI-compat layer to include usage in streaming chunks when supported.
     if _INJECT_STREAM_USAGE:
@@ -130,6 +263,15 @@ async def handle_openai_chat_completions(
 def _openai_usage_from_response(data: Any) -> tuple[str, int, int]:
     out_text = ""
     if isinstance(data, dict):
+        if _STRIP_THINK_TAGS:
+            choices = data.get("choices")
+            if isinstance(choices, list):
+                for choice in choices:
+                    if not isinstance(choice, dict):
+                        continue
+                    msg = choice.get("message")
+                    if isinstance(msg, dict) and isinstance(msg.get("content"), str):
+                        msg["content"] = _strip_think_blocks(msg["content"])
         choices = data.get("choices") or []
         if choices and isinstance(choices[0], dict):
             msg = choices[0].get("message") or {}
@@ -215,6 +357,8 @@ async def _stream_openai_chat(
     messages: Any,
 ) -> AsyncIterator[bytes]:
     buf = bytearray()
+    line_buf = bytearray()
+    in_think = False
     async with httpx.AsyncClient(timeout=httpx.Timeout(300.0, connect=10.0)) as client:
         async with client.stream("POST", url, content=body, headers=headers) as resp:
             if resp.status_code >= 400:
@@ -222,9 +366,29 @@ async def _stream_openai_chat(
                 return
             async for chunk in resp.aiter_bytes(chunk_size=1024):
                 buf.extend(chunk)
-                yield chunk
+                if not _STRIP_THINK_TAGS:
+                    yield chunk
+                    continue
+
+                line_buf.extend(chunk)
+                while True:
+                    newline = line_buf.find(b"\n")
+                    if newline == -1:
+                        break
+                    raw_line = bytes(line_buf[: newline + 1])
+                    del line_buf[: newline + 1]
+                    filtered_line, in_think = _filter_openai_sse_line(raw_line, in_think)
+                    if filtered_line:
+                        yield filtered_line
+
+    if _STRIP_THINK_TAGS and line_buf:
+        filtered_line, _ = _filter_openai_sse_line(bytes(line_buf), in_think)
+        if filtered_line:
+            yield filtered_line
 
     out_text, pt, ct, _tot = _parse_openai_sse(bytes(buf))
+    if _STRIP_THINK_TAGS:
+        out_text = _strip_think_blocks(out_text)
     if pt == 0 and ct == 0 and out_text:
         # Rough fallback if usage was not present in stream
         est = max(len(out_text) // 4, 1)
@@ -336,3 +500,70 @@ def _parse_ollama_ndjson(buffer: bytes) -> tuple[str, int, int]:
         if "eval_count" in obj:
             ct = int(obj.get("eval_count") or 0)
     return "".join(text_parts), pt, ct
+
+
+def _filter_openai_sse_line(line: bytes, in_think: bool) -> tuple[bytes, bool]:
+    stripped = line.strip()
+    if not stripped.startswith(b"data:"):
+        return line, in_think
+
+    payload = stripped.split(b"data:", 1)[1].strip()
+    if payload == b"[DONE]":
+        return line, in_think
+
+    try:
+        obj = json.loads(payload)
+    except json.JSONDecodeError:
+        return line, in_think
+
+    changed = False
+    choices = obj.get("choices")
+    if isinstance(choices, list):
+        for choice in choices:
+            if not isinstance(choice, dict):
+                continue
+            delta = choice.get("delta")
+            if not isinstance(delta, dict):
+                continue
+            content = delta.get("content")
+            if not isinstance(content, str):
+                continue
+            visible, in_think = _filter_fragment(content, in_think)
+            if visible != content:
+                changed = True
+                if visible:
+                    delta["content"] = visible
+                else:
+                    delta.pop("content", None)
+
+    if not changed:
+        return line, in_think
+
+    encoded = json.dumps(obj, separators=(",", ":")).encode("utf-8")
+    return b"data: " + encoded + b"\n", in_think
+
+
+def _filter_fragment(text: str, in_think: bool) -> tuple[str, bool]:
+    if not text:
+        return text, in_think
+
+    out: list[str] = []
+    cursor = 0
+    while cursor < len(text):
+        if in_think:
+            end = text.find("</think>", cursor)
+            if end == -1:
+                return "".join(out), True
+            cursor = end + len("</think>")
+            in_think = False
+            continue
+
+        start = text.find("<think>", cursor)
+        if start == -1:
+            out.append(text[cursor:])
+            return "".join(out), False
+        out.append(text[cursor:start])
+        cursor = start + len("<think>")
+        in_think = True
+
+    return "".join(out), in_think

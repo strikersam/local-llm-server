@@ -1,7 +1,8 @@
 {
-  "_comment": "Add to VS Code settings.json (File → Preferences → Settings → Open settings.json)",
+  "_comment": "Add to VS Code settings.json (File > Preferences > Settings > Open settings.json)",
   "_instructions": [
-    "For Continue extension: copy continue_config.json to ~/.continue/config.json",
+    "For Continue extension on current versions: copy continue_config.yaml to ~/.continue/config.yaml",
+    "For older Continue installs: copy continue_config.json to ~/.continue/config.json",
     "For generic OpenAI extension: paste the settings below into settings.json",
     "Replace YOUR-TUNNEL-URL with the actual URL from start_server.ps1 output"
   ],

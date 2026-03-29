@@ -1,0 +1,44 @@
+name: Home PC Continue (Recommended)
+version: 1.0.0
+schema: v1
+
+models:
+  - name: Qwen3-Coder 30B
+    provider: openai
+    model: qwen3-coder:30b
+    apiBase: https://YOUR_TUNNEL_URL/v1
+    apiKey: YOUR_API_KEY
+    roles:
+      - chat
+      - edit
+      - apply
+      - autocomplete
+      - summarize
+    systemMessage: Answer directly. Do not reveal reasoning. For code tasks, inspect the provided context before answering.
+    completionOptions:
+      temperature: 0.2
+      maxTokens: 1200
+
+  - name: DeepSeek-R1 32B (Optional reasoning profile)
+    provider: openai
+    model: deepseek-r1:32b
+    apiBase: https://YOUR_TUNNEL_URL/v1
+    apiKey: YOUR_API_KEY
+    roles:
+      - chat
+    systemMessage: Answer directly. Do not reveal reasoning.
+    completionOptions:
+      temperature: 0.2
+      maxTokens: 1200
+
+tabAutocompleteModel:
+  name: Qwen3-Coder 30B Autocomplete
+  provider: openai
+  model: qwen3-coder:30b
+  apiBase: https://YOUR_TUNNEL_URL/v1
+  apiKey: YOUR_API_KEY
+
+context:
+  - provider: code
+  - provider: diff
+  - provider: folder
