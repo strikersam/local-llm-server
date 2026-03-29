@@ -6,17 +6,17 @@ No cloud costs. No data sent to third parties. Full control over your models.
 
 ---
 
-## Recent Changes
+## What You Get
 
-The project now includes a fuller multi-user setup on top of the original auth proxy:
+- OpenAI-compatible local model access through `/v1/*`
+- Authenticated Ollama passthrough through `/api/*`
+- Multi-user key management with an admin UI
+- Optional Langfuse tracing
+- A local-first coding agent API for planner -> executor -> verifier runs
 
-- **Persistent JSON key store** via `KEYS_FILE`, with one generated API key per user
-- **Per-user metadata** stored as `email`, `department`, and stable `key_id`
-- **Admin API + browser UI** for creating, rotating, editing, and revoking user keys
-- **Langfuse tracing** for chat requests, including department tags and estimated commercial-equivalent cost/savings metadata
-- **Default coding system prompt injection** for IDE clients such as local Codex / Zed / Continue
+If you are upgrading from an older version, `API_KEYS` is now the legacy bootstrap path. For team use, `KEYS_FILE` + `ADMIN_SECRET` is the recommended setup.
 
-If you are upgrading from the older README, the biggest change is that `API_KEYS` is now the legacy bootstrap path. For team use, `KEYS_FILE` + `ADMIN_SECRET` is the recommended setup.
+Detailed release notes live in [docs/changelog.md](docs/changelog.md).
 
 ---
 
@@ -59,6 +59,22 @@ Your Home PC (always on)
            │  OpenAI-compatible client   │
            └─────────────────────────────┘
 ```
+
+### Agent API
+
+The repo now also exposes an authenticated coding-agent layer on top of the proxy:
+
+- `POST /agent/sessions` creates a session with conversation history
+- `POST /agent/sessions/{id}/run` runs a planner -> executor -> verifier loop
+- `POST /agent/run` performs a one-off run without managing a session yourself
+- `POST /agent/sessions/{id}/rollback-last-commit` reverts the last agent-created git commit when `auto_commit` was enabled
+
+The loop is intentionally strict:
+
+- Planner returns JSON only, maximum 5 steps
+- Executor inspects the repo through explicit tools: `read_file`, `list_files`, `search_code`
+- Code writes happen as full-file replacements via `apply_diff`
+- Verifier returns `pass|fail` JSON and feeds issues back into a bounded retry loop
 
 ### Why Each Component
 
@@ -252,6 +268,8 @@ If `ADMIN_SECRET` is configured, the proxy also enables:
 - `http://localhost:8000/admin/ui/login` for the browser admin UI
 
 If `LANGFUSE_PUBLIC_KEY` and `LANGFUSE_SECRET_KEY` are configured, chat traffic is also traced to Langfuse.
+
+If `AGENT_PLANNER_MODEL`, `AGENT_EXECUTOR_MODEL`, and `AGENT_VERIFIER_MODEL` are configured, `/agent/*` uses those local models by default.
 
 ### 7. Auto-start on boot
 
@@ -663,6 +681,52 @@ curl https://your-tunnel-url/v1/chat/completions \
   -H "Content-Type: application/json" \
   -d '{"model":"deepseek-r1:32b","messages":[{"role":"user","content":"Hello"}]}'
 ```
+
+### Coding Agent API
+
+Create a session:
+
+```bash
+curl https://your-tunnel-url/agent/sessions \
+  -H "Authorization: Bearer your-key" \
+  -H "Content-Type: application/json" \
+  -d '{"title":"Refactor auth flow"}'
+```
+
+Run a task:
+
+```bash
+curl https://your-tunnel-url/agent/run \
+  -H "Authorization: Bearer your-key" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "instruction":"Add a healthcheck note to the README and keep the wording concise",
+    "auto_commit": false,
+    "max_steps": 3
+  }'
+```
+
+The response includes:
+
+- the generated plan
+- per-step status
+- changed files
+- any commit hashes created during the run
+- a short summary suitable for UI display
+
+### Tests
+
+Run the lightweight automated checks from the repo root:
+
+```bash
+pytest
+```
+
+The tests cover:
+
+- workspace tool behavior
+- mocked planner/executor/verifier loop behavior
+- session and failure handling in the `/agent/*` API
 
 ---
 

@@ -13,6 +13,8 @@ import json
 import time
 import logging
 import hashlib
+import subprocess
+from pathlib import Path
 
 from dotenv import load_dotenv
 
@@ -31,6 +33,9 @@ from fastapi.responses import StreamingResponse, JSONResponse
 from starlette.middleware.sessions import SessionMiddleware
 
 from admin_gui import register_admin_gui
+from agent_loop import AgentRunner
+from agent_models import AgentRunRequest, AgentSessionCreateRequest
+from agent_state import AgentSessionStore
 from chat_handlers import handle_ollama_native_chat, handle_openai_chat_completions
 from key_store import issue_new_api_key, load_key_store
 
@@ -202,6 +207,8 @@ if ADMIN_SECRET:
     )
 
 register_admin_gui(app, KEY_STORE, ADMIN_SECRET)
+AGENT_RUNNER = AgentRunner(ollama_base=OLLAMA_BASE, workspace_root=Path(__file__).resolve().parent)
+AGENT_SESSIONS = AgentSessionStore()
 
 # ─── Health (no auth) ──────────────────────────────────────────────────────────
 
@@ -235,6 +242,121 @@ async def health():
     except Exception as e:
         return JSONResponse({"status": "ollama_down", "error": str(e)}, status_code=503)
     return {"status": "ok", "ollama": OLLAMA_BASE, "models": models}
+
+
+@app.post("/agent/sessions")
+async def create_agent_session(
+    body: AgentSessionCreateRequest,
+    auth: AuthContext = Depends(verify_api_key),
+):
+    title = body.title or f"Session for {auth.email}"
+    return AGENT_SESSIONS.create(title=title)
+
+
+@app.get("/agent/sessions/{session_id}")
+async def get_agent_session(session_id: str, auth: AuthContext = Depends(verify_api_key)):
+    session = AGENT_SESSIONS.get(session_id)
+    if session is None:
+        raise HTTPException(status_code=404, detail="Unknown session")
+    return session
+
+
+@app.post("/agent/sessions/{session_id}/run")
+async def run_agent_task(
+    session_id: str,
+    body: AgentRunRequest,
+    auth: AuthContext = Depends(verify_api_key),
+):
+    session = AGENT_SESSIONS.get(session_id)
+    if session is None:
+        raise HTTPException(status_code=404, detail="Unknown session")
+
+    AGENT_SESSIONS.append_message(session_id, "user", body.instruction)
+    history = [item.model_dump() for item in (AGENT_SESSIONS.get(session_id) or session).history]
+    try:
+        result = await AGENT_RUNNER.run(
+            instruction=body.instruction,
+            history=history,
+            requested_model=body.model,
+            auto_commit=body.auto_commit,
+            max_steps=body.max_steps,
+        )
+    except Exception as exc:
+        log.exception("Agent run failed")
+        result = {
+            "goal": body.instruction,
+            "plan": None,
+            "steps": [],
+            "commits": [],
+            "summary": f"Agent run failed: {exc}",
+            "status": "failed",
+        }
+    AGENT_SESSIONS.append_message(session_id, "assistant", result["summary"])
+    updated = AGENT_SESSIONS.update_result(
+        session_id,
+        plan=result["plan"] or {"goal": body.instruction, "steps": []},
+        result=result,
+    )
+    return {"session": updated, "result": result}
+
+
+@app.post("/agent/run")
+async def run_agent_once(body: AgentRunRequest, auth: AuthContext = Depends(verify_api_key)):
+    temp = AGENT_SESSIONS.create(title=f"One-off run for {auth.email}")
+    AGENT_SESSIONS.append_message(temp.session_id, "user", body.instruction)
+    history = [item.model_dump() for item in (AGENT_SESSIONS.get(temp.session_id) or temp).history]
+    try:
+        result = await AGENT_RUNNER.run(
+            instruction=body.instruction,
+            history=history,
+            requested_model=body.model,
+            auto_commit=body.auto_commit,
+            max_steps=body.max_steps,
+        )
+    except Exception as exc:
+        log.exception("Agent one-off run failed")
+        result = {
+            "goal": body.instruction,
+            "plan": None,
+            "steps": [],
+            "commits": [],
+            "summary": f"Agent run failed: {exc}",
+            "status": "failed",
+        }
+    AGENT_SESSIONS.append_message(temp.session_id, "assistant", result["summary"])
+    updated = AGENT_SESSIONS.update_result(
+        temp.session_id,
+        plan=result["plan"] or {"goal": body.instruction, "steps": []},
+        result=result,
+    )
+    return {"session": updated, "result": result}
+
+
+@app.post("/agent/sessions/{session_id}/rollback-last-commit")
+async def rollback_agent_commit(session_id: str, auth: AuthContext = Depends(verify_api_key)):
+    session = AGENT_SESSIONS.get(session_id)
+    if session is None:
+        raise HTTPException(status_code=404, detail="Unknown session")
+    last_result = session.last_result or {}
+    commits = last_result.get("commits") or []
+    if not commits:
+        raise HTTPException(status_code=400, detail="No agent commit available to roll back")
+    target = commits[-1]
+    try:
+        proc = subprocess.run(
+            ["git", "revert", "--no-edit", target],
+            cwd=Path(__file__).resolve().parent,
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+    except subprocess.CalledProcessError as exc:
+        raise HTTPException(
+            status_code=500,
+            detail=(exc.stderr or exc.stdout or "git revert failed").strip(),
+        ) from exc
+    AGENT_SESSIONS.append_message(session_id, "system", f"Rolled back commit {target}")
+    return {"status": "ok", "reverted_commit": target, "git_output": proc.stdout.strip()}
 
 # ─── Streaming proxy helper ─────────────────────────────────────────────────────
 
@@ -324,6 +446,8 @@ async def root():
             "health":         "GET  /health          (no auth)",
             "ollama_api":     "ANY  /api/*            (Bearer auth)",
             "openai_compat":  "ANY  /v1/*             (Bearer auth)",
+            "agent_sessions": "POST /agent/sessions   (Bearer auth)",
+            "agent_run":      "POST /agent/run        (Bearer auth)",
         },
         "docs": "Set Authorization: Bearer <your-key> on all /api/* and /v1/* requests",
         "admin_ui": "GET /admin/ui/login (requires ADMIN_SECRET in .env)",
