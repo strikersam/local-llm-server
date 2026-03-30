@@ -1,0 +1,37 @@
+#!/usr/bin/env sh
+# prepare-commit-msg — remind committers to update docs/changelog.md
+#
+# Install:
+#   git config core.hooksPath .githooks
+#
+# This hook checks whether any staged Python/config/doc changes are present
+# without a matching update to docs/changelog.md, and prepends a reminder
+# to the commit message if so.
+
+CHANGELOG="docs/changelog.md"
+COMMIT_MSG_FILE="$1"
+COMMIT_SOURCE="$2"
+
+# Skip for merge commits, amend, rebase, etc.
+if [ "$COMMIT_SOURCE" = "merge" ] || [ "$COMMIT_SOURCE" = "squash" ] || [ "$COMMIT_SOURCE" = "commit" ]; then
+    exit 0
+fi
+
+# Check if changelog was staged
+CHANGELOG_STAGED=$(git diff --cached --name-only | grep -c "^docs/changelog\.md$" 2>/dev/null || echo "0")
+
+# Check if any meaningful code/config was staged
+CODE_STAGED=$(git diff --cached --name-only | grep -cE '\.(py|sh|ps1|bat|yaml|yml|json|toml|env\.example|md)$' 2>/dev/null || echo "0")
+
+if [ "$CODE_STAGED" -gt 0 ] && [ "$CHANGELOG_STAGED" -eq 0 ]; then
+    # Prepend reminder to commit message
+    REMINDER="# REMINDER: No docs/changelog.md update detected.
+# If this commit adds a feature, fixes a bug, or changes behaviour,
+# add an entry under [Unreleased] in docs/changelog.md before merging.
+# (This message is auto-prepended by .githooks/prepare-commit-msg)
+#
+"
+    printf '%s\n' "$REMINDER" | cat - "$COMMIT_MSG_FILE" > /tmp/commit_msg_tmp && mv /tmp/commit_msg_tmp "$COMMIT_MSG_FILE"
+fi
+
+exit 0

@@ -150,6 +150,7 @@ def _emit_langfuse_http(
             "input": prompt_tokens,
             "output": completion_tokens,
             "total": prompt_tokens + completion_tokens,
+            "unit": "TOKENS",
         },
     }
 
@@ -214,16 +215,42 @@ def emit_chat_observation(
     output_text: str,
     prompt_tokens: int,
     completion_tokens: int,
+    latency_ms: int = 0,
+    ttft_ms: int = 0,
 ) -> None:
-    """Record one generation in Langfuse (SDK first, then REST fallback)."""
+    """Record one generation in Langfuse (SDK first, then REST fallback).
+
+    Args:
+        latency_ms:  Total wall-clock time from request receipt to last byte (ms).
+        ttft_ms:     Time to first token (ms). 0 if not measured.
+    """
     if not _langfuse_enabled():
         return
     cost_usd, eq = estimate_commercial_equivalent_usd(model, prompt_tokens, completion_tokens)
+
+    # Real infrastructure cost (electricity + amortised hardware)
+    infra_meta: dict[str, Any] = {}
+    if latency_ms > 0:
+        try:
+            from infra_cost import compute_request_cost
+            infra = compute_request_cost(latency_ms)
+            infra_meta = infra.as_dict()
+        except Exception:
+            pass
+
+    tokens_per_sec = 0.0
+    if latency_ms > 0 and completion_tokens > 0:
+        tokens_per_sec = round(completion_tokens / (latency_ms / 1000.0), 2)
+
     meta: dict[str, Any] = {
         "department": department,
         "local_model": model,
         "estimated_commercial_equivalent_usd": round(cost_usd, 6),
         "estimated_savings_vs_commercial_usd": round(cost_usd, 6),
+        "latency_ms": latency_ms,
+        "ttft_ms": ttft_ms,
+        "tokens_per_sec": tokens_per_sec,
+        **infra_meta,
     }
     if key_id:
         meta["key_id"] = key_id

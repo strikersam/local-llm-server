@@ -34,10 +34,11 @@ from starlette.middleware.sessions import SessionMiddleware
 
 from admin_auth import AdminAuthManager, AdminIdentity
 from admin_gui import register_admin_gui
-from agent_loop import AgentRunner
-from agent_models import AgentRunRequest, AgentSessionCreateRequest
-from agent_state import AgentSessionStore
+from agent.loop import AgentRunner
+from agent.models import AgentRunRequest, AgentSessionCreateRequest
+from agent.state import AgentSessionStore
 from chat_handlers import handle_ollama_native_chat, handle_openai_chat_completions
+from handlers.anthropic_compat import handle_anthropic_messages
 from key_store import issue_new_api_key, load_key_store
 from service_manager import WindowsServiceManager
 
@@ -149,10 +150,27 @@ def check_rate_limit(api_key: str) -> None:
 
 # ─── Auth dependency ────────────────────────────────────────────────────────────
 
-def verify_api_key(authorization: str = Header(...)) -> AuthContext:
-    if not authorization.startswith("Bearer "):
-        raise HTTPException(status_code=401, detail="Authorization header must be 'Bearer <key>'")
-    key = authorization[7:].strip()
+def verify_api_key(
+    request: Request,
+    authorization: str | None = Header(default=None),
+    x_api_key: str | None = Header(default=None, alias="x-api-key"),
+) -> AuthContext:
+    """Accept both Authorization: Bearer <key> (standard) and x-api-key: <key> (Claude Code)."""
+    key = ""
+    if x_api_key:
+        key = x_api_key.strip()
+    elif authorization:
+        if authorization.startswith("Bearer "):
+            key = authorization[7:].strip()
+        else:
+            key = authorization.strip()
+
+    if not key:
+        raise HTTPException(
+            status_code=401,
+            detail="Missing API key. Set Authorization: Bearer <key> or x-api-key: <key>",
+        )
+
     rec = KEY_STORE.lookup_plain_key(key)
     if rec:
         check_rate_limit(key)
@@ -580,6 +598,45 @@ async def proxy_request(request: Request, target_path: str):
             content=resp.json() if resp.headers.get("content-type", "").startswith("application/json") else resp.text,
             status_code=resp.status_code,
         )
+
+# ─── Anthropic Messages API (/v1/messages) ─────────────────────────────────────
+# Enables Claude Code CLI (set ANTHROPIC_BASE_URL=https://your-tunnel-url)
+
+@app.post("/v1/messages")
+async def anthropic_messages(request: Request, auth: AuthContext = Depends(verify_api_key)):
+    """Anthropic Messages API — translates to Ollama OpenAI-compat internally."""
+    return await handle_anthropic_messages(
+        request=request,
+        ollama_base=OLLAMA_BASE,
+        email=auth.email,
+        department=auth.department,
+        key_id=auth.key_id,
+    )
+
+
+@app.get("/v1/models")
+async def list_models_openai(auth: AuthContext = Depends(verify_api_key)):
+    """List available models — includes both local Ollama models and Claude name aliases."""
+    from handlers.anthropic_compat import _build_model_map
+    try:
+        async with httpx.AsyncClient(timeout=5) as client:
+            r = await client.get(f"{OLLAMA_BASE}/api/tags")
+        ollama_models = [m["name"] for m in r.json().get("models", [])]
+    except Exception:
+        ollama_models = []
+
+    model_map = _build_model_map()
+    claude_aliases = [
+        {"id": claude_name, "object": "model", "owned_by": "local-via-" + local_name}
+        for claude_name, local_name in model_map.items()
+        if claude_name != "*"
+    ]
+    local_entries = [
+        {"id": name, "object": "model", "owned_by": "ollama"}
+        for name in ollama_models
+    ]
+    return {"object": "list", "data": local_entries + claude_aliases}
+
 
 # ─── Ollama native routes (/api/*) ─────────────────────────────────────────────
 
