@@ -1,6 +1,6 @@
 from pathlib import Path
 
-from agent_tools import WorkspaceTools
+from agent.tools import WorkspaceTools
 
 
 def test_workspace_tools_list_read_search_and_apply_diff(tmp_path: Path):

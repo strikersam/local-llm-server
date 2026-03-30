@@ -24,3 +24,6 @@ Thumbs.db
 Desktop.ini
 .idea/
 .vscode/
+
+# Claude Code session state (not part of the project)
+.claude/

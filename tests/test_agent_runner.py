@@ -1,7 +1,7 @@
 import asyncio
 from pathlib import Path
 
-from agent_loop import AgentRunner
+from agent.loop import AgentRunner
 
 
 def test_agent_runner_applies_a_change_with_mocked_model(tmp_path: Path):

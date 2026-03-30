@@ -8,6 +8,29 @@
 
 ## [Unreleased]
 
+## [2.0.1] — 2026-03-31
+
+### Fixed
+- Live `.env`: `PROXY_DEFAULT_MAX_TOKENS` corrected from `1200` to `8192`. The old value
+  truncated virtually every Claude Code code-generation response.
+- Live `.env`: Added missing `AGENT_PLANNER_MODEL`, `AGENT_EXECUTOR_MODEL`,
+  `AGENT_VERIFIER_MODEL`, `CORS_ORIGINS`, `ADMIN_WINDOWS_AUTH` explicitly so runtime
+  configuration is self-documenting and not silently depending on code defaults.
+- Live `.env`: Added `INFRA_*` defaults calibrated for Intel AI PC (Arc iGPU: 40W active,
+  8W idle, 25W system overhead) so infrastructure cost model runs out of the box.
+
+### Changed
+- `generate_api_key.py` (root) converted to a backward-compat shim delegating to
+  `scripts/generate_api_key.py`. Old invocation path still works.
+- `tests/test_agent_runner.py` and `tests/test_agent_tools.py`: updated imports from
+  flat shims (`agent_loop`, `agent_tools`) to canonical package paths (`agent.loop`,
+  `agent.tools`). All 12 tests pass.
+
+### Chores
+- `.gitignore`: added `.claude/` to exclude Claude Code session state from version control.
+
+---
+
 ## [2.0.0] — 2026-03-30
 
 ### Added — Claude Code Compatibility (Critical)
