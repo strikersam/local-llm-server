@@ -89,15 +89,32 @@ The loop is intentionally strict:
 
 ## Models
 
-These are the models currently running in this setup:
+### Default coding stack (recommended for 32 GB+ RAM)
 
-| Model | Size | Quant | Parameters | Primary use case |
-|-------|------|-------|------------|------------------|
-| `deepseek-r1:671b` | 404 GB | Q4_K_M | 671B | **Hard research, multi-step math, long-chain reasoning, “think like a flagship”** tasks where latency and hardware cost are acceptable — not for quick chat or IDE latency-sensitive loops. |
-| `deepseek-r1:32b` | 18.5 GB | Q4_K_M | 32.8B | **Fast reasoning and coding**: architecture decisions, debugging, refactors, and agent-style work when you need R1-style thinking without 671B storage or RAM. |
-| `qwen3-coder:30b` | 17.3 GB | Q4_K_M | 30.5B | **IDE-first work**: code generation, completion, review, tab autocomplete, and repo-aware edits — optimised for programming over general chat. |
+Two models loaded simultaneously — planner/verifier on one, executor on the other:
 
-> **Note on 671B:** Requires ~404 GB storage and ideally 236+ GB RAM to run fully in memory. With less RAM, Ollama uses memory-mapped I/O (mmap) from the NVMe SSD — responses in 30–90s on a Gen4 NVMe. The 32B distill from the same training run gives ~85% quality at 5% the size.
+| Model | Size | Role | Closed equivalent (2026) |
+|-------|------|------|--------------------------|
+| `qwen3-coder:30b` | 17.3 GB | **Executor** — IDE coding, completion, review, repo-aware edits | Claude Sonnet 4.6 class (80–90% practical match) |
+| `deepseek-r1:32b` | 18.5 GB | **Planner + Verifier** — reasoning, architecture, debugging | Claude Opus 4.6 class (75–85% practical match) |
+| `deepseek-r1:671b` | 404 GB | **Flagship** (optional) — hard research, multi-step math | Claude Opus 4.6 / GPT-5.x class |
+
+> Both 30B models fit comfortably in 128 GB RAM simultaneously and can be loaded at the same time without eviction.
+
+> **Note on 671B:** Requires ~404 GB storage and ideally 236+ GB RAM to run fully in memory. With less RAM, Ollama uses memory-mapped I/O (mmap) from the NVMe SSD — responses in 30–90s on a Gen4 NVMe. The 32B gives ~85% quality at 5% the size.
+
+### 2026 open model equivalence map
+
+Open models are now competitive **in slices**, not universally. Benchmarks ≠ real-world agent reliability.
+
+| Closed model tier | Closest open model(s) | Practical match |
+|-------------------|-----------------------|-----------------|
+| Claude Opus 4.6 | DeepSeek-R1, GLM-5 | 75–85% |
+| Claude Sonnet 4.6 | **qwen3-coder:30b**, DeepSeek V3.2 | 80–90% |
+| Claude Haiku | Mistral 7B, Gemma 3, Llama 3 8B | 85–95% |
+| GPT-5.x | No true equivalent yet | 70–85% |
+
+Mental shortcut: **Opus → DeepSeek-R1 · Sonnet → Qwen3-Coder · Haiku → 7B class**
 
 All models expose identical API endpoints — switch between them by changing the `model` field in your request.
 
@@ -215,14 +232,24 @@ python -c "import secrets; print(secrets.token_urlsafe(32))"
 
 ### 4. Download models
 
+**Windows (recommended — pulls to `D:\aipc-models` automatically):**
+
+```powershell
+.\download_models.ps1                  # coding stack: qwen3-coder:30b + deepseek-r1:32b (~36 GB)
+.\download_models.ps1 -Lightweight     # 7B tier only (~10 GB, for low-RAM machines)
+.\download_models.ps1 -IncludeFlagship # also pulls deepseek-r1:671b (~404 GB extra)
+```
+
+**Manual pull (any OS):**
+
 ```bash
 # Set model path first
-export OLLAMA_MODELS=/path/to/your/model/storage  # Linux/macOS
-# $env:OLLAMA_MODELS = "D:\ai-models"             # Windows
+$env:OLLAMA_MODELS = "D:\aipc-models"              # Windows PowerShell
+# export OLLAMA_MODELS=/mnt/data/ollama-models      # Linux/macOS
 
-ollama pull qwen3-coder:30b      # 17 GB — start here
-ollama pull deepseek-r1:32b      # 18 GB — fast reasoning
-ollama pull deepseek-r1:671b     # 404 GB — flagship, needs big storage
+ollama pull qwen3-coder:30b      # 17 GB — executor, IDE coding (Sonnet class)
+ollama pull deepseek-r1:32b      # 18.5 GB — planner/verifier (Opus class)
+ollama pull deepseek-r1:671b     # 404 GB — flagship, needs large storage
 ```
 
 ### 5. One-time setup
@@ -888,7 +915,7 @@ MIT — use freely, modify freely, no warranty.
 ## Acknowledgements
 
 - [Ollama](https://ollama.com) — local model serving made simple
-- [DeepSeek](https://deepseek.com) — open-weight R1 models
-- [Qwen / Alibaba Cloud](https://qwenlm.github.io) — Qwen3-Coder
+- [DeepSeek](https://deepseek.com) — open-weight R1 models (Opus-class reasoning)
+- [Qwen / Alibaba Cloud](https://qwenlm.github.io) — Qwen3-Coder (Sonnet-class coding)
 - [Cloudflare Tunnel](https://developers.cloudflare.com/cloudflare-one/connections/connect-apps) — free secure tunneling
 - [FastAPI](https://fastapi.tiangolo.com) — async Python web framework

@@ -8,6 +8,28 @@
 
 ## [Unreleased]
 
+### Added
+- `download_models.ps1` — one-command model pull to `D:\aipc-models`. Supports three
+  modes: default coding stack (`qwen3-coder:30b` + `deepseek-r1:32b`, ~36 GB),
+  `-Lightweight` (7B tier, ~10 GB), and `-IncludeFlagship` (also pulls `deepseek-r1:671b`).
+  Checks free disk space, resolves the Ollama binary from `.env`, and prints a
+  ready-to-paste `.env` snippet on completion.
+
+### Changed
+- `handlers/anthropic_compat.py`: added `claude-opus-4-6`, `claude-sonnet-4-6`, and
+  `claude-haiku-4-5-20251001` to `_BUILTIN_MODEL_MAP` (Claude 4.6 model IDs released
+  post-August 2025).
+- `commercial_equivalent.py`: updated 2026 equivalence map — `qwen3-coder:30b` now
+  references Claude Sonnet 4.6 class ($3/$15 per M tokens); `deepseek-r1:32b`/`:671b`
+  retain DeepSeek R1 API pricing ($0.55/$2.19); added `qwen3-coder:7b` (Haiku class)
+  and `qwen2.5-coder:32b` (GPT-4.1-mini class).
+- `.env.example`: `OLLAMA_MODELS` default changed from `D:\ai-models` → `D:\aipc-models`
+  (matches actual configured path). `MODEL_MAP` example extended to include Claude 4.6
+  model IDs (`claude-sonnet-4-6`, `claude-opus-4-6`, `claude-haiku-4-5-20251001`).
+- `README.md`: Models section rewritten with 2026 open-vs-closed equivalence table and
+  "default coding stack" framing. Quick Start step 4 updated to lead with
+  `download_models.ps1` and corrected model storage path to `D:\aipc-models`.
+
 ## [2.0.1] — 2026-03-31
 
 ### Fixed

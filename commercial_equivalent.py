@@ -24,21 +24,46 @@ class CommercialEquivalent:
 
 def _load_from_env() -> dict[str, CommercialEquivalent]:
     defaults: dict[str, CommercialEquivalent] = {
-        # Reference cloud SKUs (update when vendors change pricing).
-        "deepseek-r1:671b": CommercialEquivalent(
-            commercial_name="DeepSeek R1 (API)",
-            input_per_million_usd=0.55,
-            output_per_million_usd=2.19,
-        ),
-        "deepseek-r1:32b": CommercialEquivalent(
-            commercial_name="DeepSeek R1 (API)",
-            input_per_million_usd=0.55,
-            output_per_million_usd=2.19,
-        ),
+        # ── Reference cloud SKUs — 2026 equivalence map ──────────────────────────
+        # Open model → closest closed equivalent for savings estimation.
+        # Pricing: DeepSeek API (deepseek.com), Anthropic API (anthropic.com).
+        # Update when vendors change pricing.
+
+        # Executor / coding specialist  →  Claude Sonnet 4.6 class
+        # (practical match: 80–90% on SWE-bench, coding, and daily driver tasks)
         "qwen3-coder:30b": CommercialEquivalent(
-            commercial_name="Qwen3-Coder / GPT-4.1 class (reference)",
-            input_per_million_usd=2.0,
-            output_per_million_usd=8.0,
+            commercial_name="Claude Sonnet 4.6 / GPT-4.1 class (reference)",
+            input_per_million_usd=3.0,
+            output_per_million_usd=15.0,
+        ),
+
+        # Planner / reasoning specialist  →  DeepSeek R1 API (official)
+        # (R1 API is itself cheap; savings vs Claude Opus 4.6 are much larger)
+        "deepseek-r1:32b": CommercialEquivalent(
+            commercial_name="DeepSeek R1 API / Claude Opus 4.6 class (reference)",
+            input_per_million_usd=0.55,
+            output_per_million_usd=2.19,
+        ),
+
+        # Heavy flagship (404 GB)  →  DeepSeek R1 API full scale
+        "deepseek-r1:671b": CommercialEquivalent(
+            commercial_name="DeepSeek R1 API (full) / Claude Opus 4.6 class",
+            input_per_million_usd=0.55,
+            output_per_million_usd=2.19,
+        ),
+
+        # Lightweight / fallback  →  Claude Haiku class
+        "qwen3-coder:7b": CommercialEquivalent(
+            commercial_name="Claude Haiku 4.5 class (reference)",
+            input_per_million_usd=0.80,
+            output_per_million_usd=4.0,
+        ),
+
+        # Optional 32B Qwen2.5-Coder pull  →  GPT-4.1-mini class
+        "qwen2.5-coder:32b": CommercialEquivalent(
+            commercial_name="GPT-4.1-mini / Claude Sonnet 4.6 class (reference)",
+            input_per_million_usd=0.40,
+            output_per_million_usd=1.60,
         ),
     }
 

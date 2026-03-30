@@ -42,7 +42,11 @@ log = logging.getLogger("qwen-proxy")
 # ─── Model name mapping ────────────────────────────────────────────────────────
 
 _BUILTIN_MODEL_MAP: dict[str, str] = {
-    # Claude 4 family → best available local models
+    # Claude 4.6 family (current — 2026)
+    "claude-opus-4-6":            "deepseek-r1:32b",
+    "claude-sonnet-4-6":          "qwen3-coder:30b",
+    "claude-haiku-4-5-20251001":  "qwen3-coder:30b",
+    # Claude 4.5 family
     "claude-opus-4-5":            "deepseek-r1:32b",
     "claude-opus-4":              "deepseek-r1:32b",
     "claude-sonnet-4-5":          "qwen3-coder:30b",
