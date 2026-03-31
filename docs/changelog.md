@@ -66,6 +66,17 @@
   model issues (not found, truncation, think tags, slow responses, eviction), Claude
   Code specifics, admin dashboard, Langfuse, Telegram, agent API, network/tunnel,
   and performance. Each section includes diagnostic commands and fix table.
+- `docs/screenshots/` (new directory — 12 screenshots): live browser screenshots of the
+  admin UI (login, dashboard, key-creation flash, Langfuse diagnostic, tunnel URL) and
+  representative mockups for Langfuse (traces list, trace detail with all metadata fields,
+  cost analysis dashboard) and Telegram bot (full command exchange: /status, /cost,
+  /models, /restart, /agent with approval workflow). Captured with Playwright headless
+  Chromium. Screenshots wired into admin-dashboard.md, langfuse-observability.md, and
+  telegram-bot.md with captions and field-level interpretation.
+- `scripts/gen_screenshots.py` (new): Playwright script that regenerates all mockup
+  screenshots from HTML templates — run after UI changes to keep docs in sync.
+- `README.md`: screenshot gallery table added (admin dashboard, Langfuse traces, cost
+  dashboard, Telegram bot).
 
 ### Changed
 - `handlers/anthropic_compat.py`: added `claude-opus-4-6`, `claude-sonnet-4-6`, and

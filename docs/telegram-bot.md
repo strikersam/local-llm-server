@@ -360,23 +360,14 @@ sudo systemctl enable --now qwen-telegram
 
 ### What to expect in Telegram
 
-> **Note:** No screenshots are currently committed to the repository.
-> The following describes expected visual output.
+![Telegram bot command exchange](screenshots/telegram-bot-commands.png)
 
-**`/status` response** — Shows a text block with each service (ollama, proxy, tunnel) with a running/stopped indicator and the current tunnel URL when available.
+The screenshot above shows a full command exchange:
 
-**`/models` response** — Lists model names and sizes currently loaded in Ollama memory (from `ollama ps`).
+1. **`/status`** — green dot for running services, red for stopped, with loaded model names
+2. **`/cost`** — displays configured wattage values and projected daily cost (electricity + hardware amortization)
+3. **`/models`** — lists all models currently loaded in Ollama with their sizes
+4. **`/restart tunnel`** — restarts the tunnel service and reports the new URL
+5. **`/agent` + approval** — the two-step confirmation flow: bot echoes the task and waits for "yes"
 
-**`/cost` response** — Shows the configured wattage values and a simple daily cost estimate based on assumed active/idle hours.
-
-**`/keycreate` confirmation** — Two-message exchange: the bot first echoes the action and asks for "yes", then replies with the key's truncated token and key_id.
-
-### Missing screenshots to capture
-
-The following screenshots would improve this documentation:
-
-1. `/status` output on mobile (Telegram iOS/Android)
-2. `/cost` output showing the cost projection
-3. BotFather bot creation flow (the `/newbot` conversation)
-4. @userinfobot ID lookup
-5. An approval confirmation exchange (`/agent` → "yes" → result)
+> **Note:** The BotFather bot creation flow and @userinfobot ID lookup are Telegram-native interactions that cannot be screenshotted here. Follow the steps in [Step 1](#step-1--create-a-telegram-bot) and [Step 2](#step-2--find-your-telegram-user-id) above.

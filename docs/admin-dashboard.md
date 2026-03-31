@@ -272,31 +272,34 @@ You can also use `X-Admin-Secret: <ADMIN_SECRET>` as a stateless alternative to 
 
 ## Screenshots
 
-> **Note:** No screenshots are currently committed to the repository.
-> The following is a textual description of each dashboard view.
+### Login page
 
-### Missing screenshots to capture
+![Admin login page](screenshots/admin-login.png)
 
-These screenshots would significantly improve this guide:
+The login form accepts Windows credentials (`ADMIN_WINDOWS_AUTH=true`) or the `ADMIN_SECRET` value as the password. The left panel explains the three feature areas the dashboard covers.
 
-1. **Login page** (`/admin/ui/login`) — the username/password form
-2. **Dashboard — healthy state** — all services green, keys listed, department chips visible
-3. **Dashboard — key creation flash** — the one-time token display in the banner
-4. **Dashboard — service stopped state** — a service showing red "Stopped" badge
-5. **Dashboard — Langfuse diagnostic success** — green "Connection OK" message
-6. **Dashboard — Langfuse diagnostic failure** — red error message
-7. **Remote admin frontend on Vercel** — the hosted UI showing the same controls
+---
 
-### Where to put screenshots
+### Dashboard — healthy state
 
-Once captured, screenshots should be saved to `docs/screenshots/` and referenced in this document:
+![Admin dashboard healthy](screenshots/admin-dashboard-healthy.png)
 
-```
-docs/screenshots/admin-login.png
-docs/screenshots/admin-dashboard-healthy.png
-docs/screenshots/admin-key-created.png
-docs/screenshots/admin-service-stopped.png
-docs/screenshots/admin-langfuse-ok.png
-docs/screenshots/admin-langfuse-fail.png
-docs/screenshots/remote-admin-vercel.png
-```
+All services green. The **Public URL** section shows the active Cloudflare tunnel URL. The **Departments** chip shows the current seat allocation. The **Existing keys** section lists all provisioned users.
+
+---
+
+### Dashboard — key created (one-time token flash)
+
+![Admin key created](screenshots/admin-key-created.png)
+
+After clicking **Create API key**, a flash banner appears at the top with the new bearer token. This is the **only time the token is shown** — copy it immediately. The key record (email, department, key_id) is added to the Existing keys section.
+
+---
+
+### Dashboard — Langfuse diagnostic
+
+![Admin Langfuse diagnostic](screenshots/admin-langfuse-diagnostic.png)
+
+After clicking **Run connection test**, the result appears below the button. The green message confirms the Langfuse credentials are valid and the endpoint is reachable. A red message indicates a connection failure with the HTTP error code.
+
+> **Note:** The remote admin frontend (Vercel) screenshot is not yet captured — it requires a live Vercel deployment.

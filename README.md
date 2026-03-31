@@ -531,6 +531,17 @@ qwen-server/
 
 ---
 
+## Screenshots
+
+| | |
+|--|--|
+| ![Admin dashboard](docs/screenshots/admin-dashboard-healthy.png) | ![Langfuse traces](docs/screenshots/langfuse-traces-list.png) |
+| **Admin dashboard** — service controls, key management, tunnel URL | **Langfuse traces** — per-user requests with latency and savings |
+| ![Langfuse cost](docs/screenshots/langfuse-cost-dashboard.png) | ![Telegram bot](docs/screenshots/telegram-bot-commands.png) |
+| **Langfuse cost dashboard** — commercial-equivalent savings by model/user | **Telegram bot** — `/status`, `/cost`, `/models`, `/agent` with approval |
+
+---
+
 ## Why Not Just Use the Cloud?
 
 | | Cloud API | This Setup |

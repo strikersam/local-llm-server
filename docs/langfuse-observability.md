@@ -293,24 +293,44 @@ Model storage costs (`INFRA_MODEL_STORAGE_GB`, `INFRA_STORAGE_USD_GB_MO`) are co
 
 ## Screenshots
 
-> **Note:** No Langfuse screenshots are currently committed to the repository.
-> The following describes expected Langfuse views.
+### Traces list view
 
-### Missing screenshots to capture
+![Langfuse traces list](screenshots/langfuse-traces-list.png)
 
-1. **Traces list view** — showing multiple requests with user_id and latency columns
-2. **Single trace detail** — expanded Generation record showing all metadata fields
-3. **Cost dashboard** — Langfuse cost aggregation over time by model
-4. **Department tag filter** — traces filtered by `dept:engineering`
-5. **Admin UI Langfuse diagnostic** — success and failure state
+The traces list shows every authenticated chat request. Columns: user email, department tag, model, token counts (input/output), latency, commercial-equivalent cost (what it would have cost on the reference cloud API), and savings. The `dept:engineering` filter tag is active in this view.
 
-### Where to put screenshots
+**Reading the columns:**
+- **Equiv. Cost** — what this request would have cost using the mapped commercial API (Claude Sonnet 4.6, DeepSeek R1, etc.)
+- **Savings** — equivalent cost minus actual infrastructure cost; green = you saved money vs the cloud
+- **Latency** — total request duration from first byte to last
 
-```
-docs/screenshots/langfuse-traces-list.png
-docs/screenshots/langfuse-trace-detail.png
-docs/screenshots/langfuse-cost-dashboard.png
-docs/screenshots/langfuse-department-filter.png
-docs/screenshots/admin-langfuse-diagnostic-ok.png
-docs/screenshots/admin-langfuse-diagnostic-fail.png
-```
+---
+
+### Trace detail — metadata view
+
+![Langfuse trace detail](screenshots/langfuse-trace-detail.png)
+
+Clicking a trace shows the full Generation record. The right panel shows all metadata fields: department, model, `latency_ms`, `ttft_ms` (time-to-first-token), `tokens_per_sec`, `estimated_commercial_equivalent_usd`, `estimated_savings_vs_commercial_usd`, `infra_electricity_usd`, `infra_hardware_usd`, and `infra_energy_kwh`.
+
+The left panel shows the input messages (truncated at 48KB) and the model's output.
+
+---
+
+### Cost analysis dashboard
+
+![Langfuse cost dashboard](screenshots/langfuse-cost-dashboard.png)
+
+The cost dashboard aggregates commercial-equivalent savings over time. Top metrics: total equivalent API cost, actual infrastructure cost, total savings (and savings rate), and total request count.
+
+**Charts shown:**
+- **Equiv. cost by model** — which local models generated the most equivalent value
+- **Requests by department** — donut chart of seat allocation
+- **Equiv. cost by user** — per-user consumption ranked by value
+
+This view makes the "what would this have cost on the cloud?" story concrete and visible.
+
+---
+
+### Langfuse diagnostic (admin UI)
+
+For the admin UI Langfuse diagnostic screenshot, see [docs/admin-dashboard.md](admin-dashboard.md#dashboard--langfuse-diagnostic).
