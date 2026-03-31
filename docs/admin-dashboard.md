@@ -1,0 +1,302 @@
+# Admin Dashboard Guide
+
+The admin dashboard is a browser-based management interface for the local LLM server. It lets you manage the stack, users, and observability from one place — without touching the command line.
+
+---
+
+## Accessing the Dashboard
+
+```
+http://localhost:8000/admin/ui/login
+```
+
+Or remotely via your tunnel URL:
+
+```
+https://your-tunnel-url.trycloudflare.com/admin/ui/login
+```
+
+> The admin UI is only available when `ADMIN_SECRET` is set in `.env` or `ADMIN_WINDOWS_AUTH=true` on Windows.
+
+---
+
+## Login Screen
+
+**URL:** `/admin/ui/login`
+
+The login form has two fields: **Username** and **Password**.
+
+**Authentication modes:**
+
+| Mode | Config | Behavior |
+|------|--------|----------|
+| **Windows credentials** | `ADMIN_WINDOWS_AUTH=true` | Use your Windows machine username and password. Works with local accounts and domain accounts. |
+| **Secret-based** | `ADMIN_SECRET=<value>` | Use any username and the `ADMIN_SECRET` as password. |
+
+**Optional allow-list:**
+
+If `ADMIN_WINDOWS_ALLOWED_USERS` is set (e.g. `HOSTNAME\swami,swami`), only those Windows usernames can log in via Windows auth. Empty = all Windows users on this machine are allowed.
+
+Sessions last 12 hours and are tracked in memory. Restarting the proxy invalidates all sessions.
+
+---
+
+## Dashboard Layout
+
+After login, the dashboard has two columns:
+
+**Left column:**
+- Service controls
+- Existing API keys
+
+**Right column:**
+- Create user key
+- Department summary
+- Langfuse diagnostic
+
+---
+
+## Section: Service Controls
+
+**Location:** Left column, top
+
+Shows the running state of each service and provides start/stop/restart buttons.
+
+### Stack controls
+
+Two buttons at the top:
+
+- **Start stack** — starts Ollama, proxy, and tunnel in sequence
+- **Stop stack** — stops all three services (confirmation dialog shown first)
+
+> Warning: clicking "Stop stack" from a remote browser session will disconnect you when the proxy stops. The page will fail to respond after the action completes.
+
+### Per-service controls
+
+For each service (ollama, proxy, tunnel):
+
+| Field | Description |
+|-------|-------------|
+| **Name** | Service identifier (ollama / proxy / tunnel) |
+| **Status badge** | Green "Running" or grey "Stopped" |
+| **PID** | Process ID of the running service (shown when running) |
+| **Detail** | Extra info — e.g. the tunnel URL for the tunnel service |
+| **Start / Stop / Restart** | Buttons for individual service control |
+
+**Expected behavior:**
+
+- Stopping Ollama does not affect the proxy — requests will get 502 errors until Ollama restarts
+- Stopping the proxy drops all active API connections; the tunnel keeps running but has nothing to proxy to
+- Stopping the tunnel drops all remote access; local `http://localhost:8000` still works
+- Restarting a service takes 2–5 seconds; the dashboard auto-shows the new state after submit
+
+**Abnormal states to watch for:**
+
+- Service shows "Running" but PID is stale — Ollama crashed after startup; restart it
+- Tunnel shows "Running" but no URL appears — the tunnel process started but hasn't connected yet; wait 5s and refresh
+- Proxy shows "Stopped" unexpectedly — check `logs/proxy-err.log` for a Python error or port conflict
+
+### Public URL display
+
+If the tunnel is running, its current public HTTPS URL appears in a copy-able box below the service rows. Use this URL for:
+
+- Continue, Cursor, Zed, Aider client configuration
+- The remote Vercel admin frontend
+- Claude Code `ANTHROPIC_BASE_URL`
+
+> The URL changes on every server restart (quick-tunnel behavior). Use a named tunnel for a permanent URL — see the [Permanent URL section in README](../README.md#permanent-url-optional).
+
+---
+
+## Section: Existing Keys
+
+**Location:** Left column, below service controls
+
+Lists all API keys stored in `KEYS_FILE` (configured as `KEYS_FILE=keys.json` in `.env`).
+
+**Displayed for each key:**
+
+| Field | Description |
+|-------|-------------|
+| **Email** | The user's email address (shown as Langfuse `user_id`) |
+| **Department** | Seat / team allocation label |
+| **key_id** | Stable identifier (format: `kid_xxxxxxxx`) — does not change on rotation |
+| **Created** | ISO timestamp of key creation |
+
+**Actions per key:**
+
+- **Save** — update email or department metadata inline without revoking the token
+- **Rotate** — generate a new bearer token while keeping the same `key_id`. Old token immediately stops working. New token is shown once in the dashboard flash banner at the top.
+- **Delete** — permanently remove the key record. The user cannot authenticate after deletion.
+
+**Error states:**
+
+- If `KEYS_FILE` is not configured in `.env`, the section shows: *"`KEYS_FILE` is not configured on the server."* — Add the config and restart.
+- If no keys exist yet, the section shows: *"No API keys yet."*
+
+---
+
+## Section: Create User Key
+
+**Location:** Right column, top
+
+A two-field form for issuing new user API keys:
+
+| Field | Description |
+|-------|-------------|
+| **Email** | User's email address — becomes the Langfuse `user_id` for this key |
+| **Department** | Free-text team/seat label — used for Langfuse tagging and cost allocation |
+
+After clicking **Create API key**:
+
+1. A new key record is written to `keys.json`
+2. The bearer token is shown **once** in the flash banner at the top of the dashboard (green box)
+3. The token cannot be retrieved again — copy it immediately and give it to the user
+
+```
+New bearer token:
+sk-qwen-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+Copy it now. The server only shows it once.
+```
+
+> If you miss the token, click **Rotate** on the key record to generate a new one.
+
+---
+
+## Section: Departments
+
+**Location:** Right column, middle
+
+A summary chip for each unique department label currently in use, with the count of keys per department:
+
+```
+engineering · 3    design · 1    research · 2
+```
+
+This gives a quick headcount view of who has access and how allocations are distributed. Departments are free-text labels — any value entered in the "Create user key" form appears here.
+
+This view mirrors what appears in Langfuse traces as `dept:` tags, making it easy to cross-reference usage with seat allocation.
+
+---
+
+## Section: Langfuse Diagnostic
+
+**Location:** Right column, bottom
+
+A single button: **Run connection test**
+
+Clicking it tests whether the configured Langfuse credentials can reach the Langfuse API:
+
+**Success:**
+```
+✅ Langfuse connection OK — project: My Project
+```
+
+**Failure:**
+```
+❌ Langfuse connection failed: 401 Unauthorized
+```
+
+**Common failure reasons:**
+
+| Error | Cause |
+|-------|-------|
+| `401 Unauthorized` | Wrong `LANGFUSE_PUBLIC_KEY` or `LANGFUSE_SECRET_KEY` |
+| `Connection refused` | Wrong `LANGFUSE_BASE_URL` (for self-hosted) |
+| `DNS resolution failed` | Network issue or self-hosted URL is unreachable |
+
+> If credentials are not configured, the button returns a "not configured" message rather than running a test.
+
+---
+
+## Remote Admin Frontend (Vercel)
+
+The repo ships a static frontend in `remote-admin/` that calls the JSON admin API. This lets you access admin functions from a hosted URL without exposing the browser to your home IP.
+
+**Setup:**
+
+1. Push the repo to GitHub
+2. Import into [Vercel](https://vercel.com) — set root directory to `remote-admin`
+3. Deploy as a static site (no server functions needed)
+4. Open the deployed URL
+5. Enter your current tunnel URL and admin credentials
+
+**Supported actions via remote frontend:**
+
+| Endpoint | Action |
+|----------|--------|
+| `POST /admin/api/login` | Authenticate → get session token |
+| `GET /admin/api/status` | Service health + current tunnel URL |
+| `POST /admin/api/control` | Start / stop / restart services |
+| `GET /admin/api/users` | List API key records |
+| `POST /admin/api/users` | Create a new key |
+| `PATCH /admin/api/users/{key_id}` | Update email / department |
+| `DELETE /admin/api/users/{key_id}` | Revoke key |
+| `POST /admin/api/users/{key_id}/rotate` | Rotate token |
+
+**Limitation:** The remote frontend needs the current tunnel URL, which changes on every restart. For permanent remote access, use a named Cloudflare tunnel.
+
+---
+
+## Admin API (Programmatic Access)
+
+All dashboard actions have corresponding JSON API endpoints for automation:
+
+```bash
+# Authenticate
+curl -X POST http://localhost:8000/admin/api/login \
+  -H "Content-Type: application/json" \
+  -d '{"username":"admin","password":"your-admin-secret"}'
+# → {"token": "sess_xxxxxxxx", "expires_in": 43200}
+
+# Get status
+curl http://localhost:8000/admin/api/status \
+  -H "Authorization: Bearer sess_xxxxxxxx"
+
+# Control a service
+curl -X POST http://localhost:8000/admin/api/control \
+  -H "Authorization: Bearer sess_xxxxxxxx" \
+  -H "Content-Type: application/json" \
+  -d '{"target":"proxy","action":"restart"}'
+
+# Create a key
+curl -X POST http://localhost:8000/admin/api/users \
+  -H "Authorization: Bearer sess_xxxxxxxx" \
+  -H "Content-Type: application/json" \
+  -d '{"email":"bob@co.com","department":"engineering"}'
+```
+
+You can also use `X-Admin-Secret: <ADMIN_SECRET>` as a stateless alternative to session tokens for API calls.
+
+---
+
+## Screenshots
+
+> **Note:** No screenshots are currently committed to the repository.
+> The following is a textual description of each dashboard view.
+
+### Missing screenshots to capture
+
+These screenshots would significantly improve this guide:
+
+1. **Login page** (`/admin/ui/login`) — the username/password form
+2. **Dashboard — healthy state** — all services green, keys listed, department chips visible
+3. **Dashboard — key creation flash** — the one-time token display in the banner
+4. **Dashboard — service stopped state** — a service showing red "Stopped" badge
+5. **Dashboard — Langfuse diagnostic success** — green "Connection OK" message
+6. **Dashboard — Langfuse diagnostic failure** — red error message
+7. **Remote admin frontend on Vercel** — the hosted UI showing the same controls
+
+### Where to put screenshots
+
+Once captured, screenshots should be saved to `docs/screenshots/` and referenced in this document:
+
+```
+docs/screenshots/admin-login.png
+docs/screenshots/admin-dashboard-healthy.png
+docs/screenshots/admin-key-created.png
+docs/screenshots/admin-service-stopped.png
+docs/screenshots/admin-langfuse-ok.png
+docs/screenshots/admin-langfuse-fail.png
+docs/screenshots/remote-admin-vercel.png
+```

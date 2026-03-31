@@ -14,6 +14,58 @@
   `-Lightweight` (7B tier, ~10 GB), and `-IncludeFlagship` (also pulls `deepseek-r1:671b`).
   Checks free disk space, resolves the Ollama binary from `.env`, and prints a
   ready-to-paste `.env` snippet on completion.
+- `download_models.ps1 -Extended` — pulls `frob/minimax-m2.5:230b-a10b-q4_K_M` (138 GB),
+  the only model from the MiMo-V2-Pro / Step 3.5 Flash / DeepSeek V3.2 / MiniMax M2.x /
+  GLM-5 Turbo set that has local GGUF weights available via Ollama today (2026-03-31).
+- `download_models.ps1 -CloudProxy` — pulls Ollama cloud-proxy stubs for
+  `deepseek-v3.2:cloud`, `minimax-m2.7:cloud`, and `glm-5:cloud`. These route requests
+  to vendor APIs; no weights are stored locally — vendor API keys are required.
+- `commercial_equivalent.py`: added 2026 equivalence entries for `frob/minimax-m2.5`,
+  `deepseek-v3.2:cloud`, `minimax-m2.7:cloud`, and `glm-5:cloud` with vendor API pricing.
+- `.env.example`: documented `MODEL_MAP` entries for the new extended and cloud-proxy
+  models; added availability notes for MiMo-V2-Pro (proprietary) and Step 3.5 Flash
+  (open-source Apache 2.0 but not yet in Ollama — HuggingFace GGUF download path noted).
+
+### Documentation (complete rewrite — v2.2 docs initiative)
+- `README.md`: full rewrite — added documentation navigation table, new model tables
+  (extended local + cloud-proxy + not-yet-available), cleaner architecture diagram,
+  updated quick start with `-Extended` and `-CloudProxy` flags, concise client setup
+  section, full repo structure. MiniMax acknowledgement added.
+- `docs/claude-code-setup.md` (new): end-to-end guide for using Claude Code CLI and
+  the Anthropic Python SDK against local models. Covers architecture, prerequisites,
+  env var setup, model name mapping table and customisation, required proxy config,
+  context window limitations, step-by-step verification, common failure cases.
+- `docs/telegram-bot.md` (new): complete Telegram bot setup guide. Covers @BotFather
+  bot creation, @userinfobot ID lookup, `.env` config, authorization model (two tiers),
+  full command reference with example output, approval workflow, rate limiting,
+  security considerations, running as a service (Windows Task Scheduler + Linux
+  systemd), and a list of missing screenshots to capture.
+- `docs/admin-dashboard.md` (new): section-by-section dashboard walkthrough. Covers
+  login modes (Windows credentials vs secret), service controls (stack + per-service
+  with expected/abnormal states), public URL display, key management (create/rotate/
+  delete), department summary chips, Langfuse diagnostic, remote admin frontend
+  (Vercel), and admin API reference. Screenshots inventory included.
+- `docs/features.md` (new): structured reference for all 16 implemented features.
+  For each: what it does, why it exists, how to enable/configure, limitations.
+  Covers OpenAI proxy, Ollama passthrough, Anthropic compat, key management, rate
+  limiting, system prompt injection, think-tag stripping, infra cost tracking,
+  commercial savings estimation, Langfuse, agent API, admin UI, Telegram, tunnel,
+  CORS, streaming.
+- `docs/langfuse-observability.md` (new): complete observability guide. Covers setup,
+  full trace structure with all metadata fields, field-by-field explanations (perf,
+  savings, infra cost), exact cost formulas with worked example, Langfuse dashboard
+  navigation (traces view, department filtering, cost dashboard, performance trends),
+  custom pricing JSON format, what is NOT traced, and four instrumentation gap
+  recommendations with specific fixes.
+- `docs/configuration-reference.md` (new): exhaustive `.env` reference — every variable
+  in every section (auth, server, proxy behavior, Anthropic compat, agent, Langfuse,
+  infra cost, Telegram, model storage). Includes preset examples for Intel AI PC,
+  RTX 4090, and Mac Studio, and four ready-to-paste minimal config blocks.
+- `docs/troubleshooting.md` (new): structured troubleshooting guide organized by
+  problem domain: startup failures (proxy, Ollama, tunnel), auth issues (401/403/429),
+  model issues (not found, truncation, think tags, slow responses, eviction), Claude
+  Code specifics, admin dashboard, Langfuse, Telegram, agent API, network/tunnel,
+  and performance. Each section includes diagnostic commands and fix table.
 
 ### Changed
 - `handlers/anthropic_compat.py`: added `claude-opus-4-6`, `claude-sonnet-4-6`, and

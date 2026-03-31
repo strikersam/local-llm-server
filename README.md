@@ -1,161 +1,137 @@
 # Local LLM Remote Access Server
 
-Run powerful open-source AI models on your home PC and access them securely from **any device, anywhere in the world** — using the same API interface as OpenAI.
+Run powerful open-source AI models on your home PC and access them securely from **any device, anywhere** — using the same API interface as OpenAI or Anthropic.
 
 No cloud costs. No data sent to third parties. Full control over your models.
 
 ---
 
-## What You Get
+## Documentation
 
-- OpenAI-compatible local model access through `/v1/*`
-- Authenticated Ollama passthrough through `/api/*`
-- Multi-user key management with a local admin UI and remote admin API
-- Optional Langfuse tracing
-- A local-first coding agent API for planner -> executor -> verifier runs
-
-If you are upgrading from an older version, `API_KEYS` is now the legacy bootstrap path. For team use, `KEYS_FILE` + `ADMIN_SECRET` is the recommended setup.
-
-Detailed release notes live in [docs/changelog.md](docs/changelog.md).
+| Guide | What it covers |
+|-------|---------------|
+| [Quick Start](#quick-start) | Get running in 10 minutes |
+| [Claude Code + Qwen Setup](docs/claude-code-setup.md) | Use Claude Code CLI against local models |
+| [Telegram Bot Setup](docs/telegram-bot.md) | Remote control from your phone |
+| [Admin Dashboard Guide](docs/admin-dashboard.md) | Browser UI walkthrough |
+| [Feature Guide](docs/features.md) | Every feature explained |
+| [Langfuse Observability](docs/langfuse-observability.md) | Traces, cost metrics, dashboards |
+| [Configuration Reference](docs/configuration-reference.md) | Every `.env` variable |
+| [Troubleshooting](docs/troubleshooting.md) | Common problems and fixes |
+| [Device Compatibility](docs/device-compatibility.md) | RAM/VRAM guide by hardware tier |
+| [Changelog](docs/changelog.md) | Release history |
 
 ---
 
-## The Problem This Solves
+## What You Get
 
-State-of-the-art open-weight LLMs are:
-
-- **Free to download and run locally** — DeepSeek-R1, Qwen3-Coder, Llama 3.3, etc.
-- **Expensive via cloud API** — pay per token, rate limited, usage tracked
-- **Powerful enough** to replace paid tiers of Copilot, Claude, GPT-4 for most coding tasks
-
-But running them locally only helps you *at your desk*. This project makes them accessible from **any laptop, tablet, or machine** — authenticated, rate-limited, and encrypted via HTTPS — as if they were a hosted API.
+- **OpenAI-compatible API** — `/v1/chat/completions`, `/v1/models`, `/v1/embeddings`
+- **Anthropic API compatibility** — `/v1/messages` for Claude Code CLI and Anthropic SDK
+- **Ollama native passthrough** — `/api/chat`, `/api/generate`, `/api/tags`
+- **Multi-user key management** — per-user email/department, stored hashed, rotatable
+- **Browser admin UI** — service control, key management, Langfuse diagnostics
+- **Remote admin API** — JSON endpoints for programmatic management (+ Vercel frontend)
+- **Telegram bot** — `/status`, `/models`, `/cost`, service control from Telegram
+- **Coding agent API** — planner → executor → verifier loop for autonomous code tasks
+- **Langfuse observability** — per-request traces with latency, cost, and department tags
+- **Infrastructure cost tracking** — true electricity + hardware amortization per request
+- **Commercial savings estimation** — "what would this have cost on Claude/OpenAI?"
+- **Cloudflare tunnel** — public HTTPS URL, no port forwarding, no static IP required
 
 ---
 
 ## Architecture
 
 ```
-Your Home PC (always on)
-├── Ollama                         localhost:11434
-│     └── Model weights on fast storage (NVMe recommended for 671B)
-│           ├── deepseek-r1:671b   404 GB  Q4_K_M  ← reasoning, research
-│           ├── deepseek-r1:32b     18.5 GB Q4_K_M  ← fast reasoning, coding
-│           └── qwen3-coder:30b     17.3 GB Q4_K_M  ← code generation, completion
-│
-├── Auth Proxy  (proxy.py)         localhost:8000
-│     ├── Bearer token authentication
-│     ├── Per-key rate limiting (configurable req/min)
-│     ├── CORS headers for browser clients
-│     ├── Full streaming (SSE) support
-│     └── OpenAI-compatible /v1/* + Ollama native /api/* routes
-│
-└── Cloudflare Tunnel (cloudflared)
-      └── https://your-name.trycloudflare.com   ← public HTTPS, no port forwarding
-                        │
-           Any authenticated machine
-           ┌─────────────────────────────┐
-           │  Cursor · Continue · Aider  │
-           │  Python SDK · curl · any    │
-           │  OpenAI-compatible client   │
-           └─────────────────────────────┘
+Internet
+    │
+    ▼
+[Cloudflare Tunnel]   https://xxx.trycloudflare.com (or named tunnel)
+    │
+    ▼
+[FastAPI Proxy]       localhost:8000
+    │  ├─ Bearer token auth + per-key rate limiting
+    │  ├─ Anthropic /v1/messages  ← Claude Code, Anthropic SDK
+    │  ├─ OpenAI   /v1/*          ← Cursor, Continue, Aider, Python SDK
+    │  ├─ Ollama   /api/*         ← Ollama-native clients
+    │  ├─ Agent    /agent/*       ← planner/executor/verifier loop
+    │  ├─ Admin    /admin/*       ← browser UI + remote API
+    │  └─ Langfuse tracing + infra cost metadata on every chat request
+    │
+    ▼
+[Ollama]              localhost:11434
+    │
+    ▼
+[Model weights]       D:\aipc-models  (or OLLAMA_MODELS path)
 ```
 
-### Agent API
+**Also runs alongside:**
 
-The repo now also exposes an authenticated coding-agent layer on top of the proxy:
-
-- `POST /agent/sessions` creates a session with conversation history
-- `POST /agent/sessions/{id}/run` runs a planner -> executor -> verifier loop
-- `POST /agent/run` performs a one-off run without managing a session yourself
-- `POST /agent/sessions/{id}/rollback-last-commit` reverts the last agent-created git commit when `auto_commit` was enabled
-
-The loop is intentionally strict:
-
-- Planner returns JSON only, maximum 5 steps
-- Executor inspects the repo through explicit tools: `read_file`, `list_files`, `search_code`
-- Code writes happen as full-file replacements via `apply_diff`
-- Verifier returns `pass|fail` JSON and feeds issues back into a bounded retry loop
-
-### Why Each Component
-
-| Component | Role | Why |
-|-----------|------|-----|
-| **Ollama** | Serves models via REST API | Best cross-platform GPU support, built-in OpenAI-compatible `/v1` routes |
-| **FastAPI proxy** | Auth + rate limiting | Ollama has no authentication — proxy guards all access |
-| **Cloudflare Tunnel** | Public HTTPS endpoint | No port forwarding, no static IP, free TLS, works behind any NAT/firewall |
-| **Batch/Shell launchers** | Process startup | Ensures env vars (model path, API keys) are correctly inherited by child processes |
+- **Telegram bot** (`telegram_bot.py`) — connects to proxy via localhost admin API
+- **Remote admin frontend** (`remote-admin/`) — static site deployable to Vercel
 
 ---
 
 ## Models
 
-### Default coding stack (recommended for 32 GB+ RAM)
+### Default coding stack
 
-Two models loaded simultaneously — planner/verifier on one, executor on the other:
+Two models run simultaneously — planner/verifier and executor in parallel:
 
-| Model | Size | Role | Closed equivalent (2026) |
-|-------|------|------|--------------------------|
-| `qwen3-coder:30b` | 17.3 GB | **Executor** — IDE coding, completion, review, repo-aware edits | Claude Sonnet 4.6 class (80–90% practical match) |
-| `deepseek-r1:32b` | 18.5 GB | **Planner + Verifier** — reasoning, architecture, debugging | Claude Opus 4.6 class (75–85% practical match) |
-| `deepseek-r1:671b` | 404 GB | **Flagship** (optional) — hard research, multi-step math | Claude Opus 4.6 / GPT-5.x class |
+| Model | Size | Role | Equivalent (2026) |
+|-------|------|------|-------------------|
+| `qwen3-coder:30b` | 17 GB | Executor — IDE coding, completion, review | Claude Sonnet 4.6 class |
+| `deepseek-r1:32b` | 18.5 GB | Planner + Verifier — reasoning, architecture | Claude Opus 4.6 class |
+| `deepseek-r1:671b` | 404 GB | Flagship (optional) — hard research, math | Claude Opus 4.6 / GPT-5 class |
 
-> Both 30B models fit comfortably in 128 GB RAM simultaneously and can be loaded at the same time without eviction.
+Both 30B models fit in 128 GB RAM simultaneously. The 671B requires ~404 GB storage; use mmap from Gen4 NVMe if it exceeds RAM.
 
-> **Note on 671B:** Requires ~404 GB storage and ideally 236+ GB RAM to run fully in memory. With less RAM, Ollama uses memory-mapped I/O (mmap) from the NVMe SSD — responses in 30–90s on a Gen4 NVMe. The 32B gives ~85% quality at 5% the size.
+### Extended local models (download with `-Extended` flag)
+
+| Model | Pull tag | Size | Notes |
+|-------|----------|------|-------|
+| MiniMax M2.5 | `frob/minimax-m2.5:230b-a10b-q4_K_M` | 138 GB | 229B MoE (10B active), 192K ctx, community GGUF |
+
+### Cloud-proxy models (download with `-CloudProxy` flag)
+
+These pull an Ollama stub that routes requests to the vendor's cloud API. **No local weights are stored.** A vendor API key must be configured in Ollama.
+
+| Model | Pull tag | Vendor | Notes |
+|-------|----------|--------|-------|
+| DeepSeek V3.2 | `deepseek-v3.2:cloud` | DeepSeek | 685B MoE, MIT license, 160K ctx |
+| MiniMax M2.7 | `minimax-m2.7:cloud` | MiniMax | Local weights not yet released |
+| GLM-5 | `glm-5:cloud` | Z.ai | 744B MoE (40B active), Apache 2.0 weights on HuggingFace but not in Ollama |
+
+### Not yet locally runnable (as of 2026-03-31)
+
+| Model | Reason |
+|-------|--------|
+| **MiMo-V2-Pro** (Xiaomi) | Proprietary — weights not released |
+| **Step 3.5 Flash** (stepfun) | Apache 2.0, available on HuggingFace (111 GB Q4), but not in Ollama library yet. Download via: `huggingface-cli download stepfun-ai/Step-3.5-Flash-GGUF` |
 
 ### 2026 open model equivalence map
 
-Open models are now competitive **in slices**, not universally. Benchmarks ≠ real-world agent reliability.
-
-| Closed model tier | Closest open model(s) | Practical match |
-|-------------------|-----------------------|-----------------|
+| Closed tier | Best open match | Practical match |
+|------------|-----------------|-----------------|
 | Claude Opus 4.6 | DeepSeek-R1, GLM-5 | 75–85% |
 | Claude Sonnet 4.6 | **qwen3-coder:30b**, DeepSeek V3.2 | 80–90% |
+| GPT-4.1-mini | qwen2.5-coder:32b, MiniMax M2.5 | 80–90% |
 | Claude Haiku | Mistral 7B, Gemma 3, Llama 3 8B | 85–95% |
-| GPT-5.x | No true equivalent yet | 70–85% |
 
 Mental shortcut: **Opus → DeepSeek-R1 · Sonnet → Qwen3-Coder · Haiku → 7B class**
-
-All models expose identical API endpoints — switch between them by changing the `model` field in your request.
-
-### Running on modest hardware (local models + this setup)
-
-If you prefer to run models **locally** on a laptop, mini PC, or older desktop, use **smaller** pulls from the same Ollama workflow — the proxy and tunnel work unchanged. Pick a tier that fits **unified RAM** (Mac) or **RAM + VRAM** (PC); see **[docs/device-compatibility.md](docs/device-compatibility.md)** for example devices (e.g. Apple Silicon with **~20 GB** unified memory vs. discrete-GPU PCs) and a fuller compatibility matrix.
-
-**Apple Silicon (e.g. MacBook Pro with M-series, 16–24 GB unified)** — one pool for CPU, GPU, and weights; favour **one** large model at a time or 7B-class models for headroom:
-
-| Model | ~Size (Q4 family) | Primary use case |
-|-------|-------------------|------------------|
-| `qwen3-coder:7b` | ~4–5 GB | Daily coding assistance, short chats, completion when 30B does not fit. |
-| `deepseek-r1:7b` | ~4–5 GB | Lightweight reasoning and coding on low-memory machines. |
-| `qwen3-coder:30b` / `deepseek-r1:32b` | ~17–19 GB each | Strong quality **only if** you can dedicate most RAM to a single loaded model (see doc). |
-
-**Windows / Linux with a discrete NVIDIA GPU** — match **VRAM** to model size for GPU offload; if VRAM is tight, use smaller tags or fewer GPU layers and keep the rest on CPU/RAM:
-
-| Model | ~Size (typical Q4) | Primary use case |
-|-------|--------------------|------------------|
-| `qwen3-coder:7b` | ~4–5 GB | Budget GPUs (e.g. 6–8 GB VRAM), or CPU fallback. |
-| `deepseek-r1:7b` | ~4–5 GB | Same — fast reasoning relative to size. |
-| `qwen3-coder:30b` | ~17–19 GB | **12–24 GB VRAM** class cards when using GPU-heavy offload. |
-| `deepseek-r1:32b` | ~18–19 GB | Strong reasoning on **16–24 GB VRAM** or split offload. |
-
-For more profiles (CPU-only, 8 GB total, home server vs. laptop) and RAM tier shortcuts, use **[docs/device-compatibility.md](docs/device-compatibility.md)**.
 
 ---
 
 ## Hardware Requirements
 
-| | Minimum | Recommended (for 671B) |
-|-|---------|----------------------|
+| | Minimum | Recommended |
+|-|---------|-------------|
 | **RAM** | 16 GB | 128+ GB |
-| **Storage** | 100 GB free | 500 GB+ NVMe SSD |
+| **Storage** | 50 GB free | 500 GB+ NVMe SSD |
 | **GPU VRAM** | 8 GB | 24+ GB (or iGPU with shared RAM) |
 | **OS** | Windows 10 / macOS 12 / Ubuntu 20.04 | Any |
-| **Internet** | Any | 100 Mbps+ upload for best remote experience |
 
-The 32B and 30B models run comfortably on a modern gaming PC or MacBook Pro with 32+ GB RAM.
-
-For **lower-spec or laptop-class machines** (e.g. Apple Silicon with **16–20 GB** unified memory, or PCs with limited VRAM), see **[docs/device-compatibility.md](docs/device-compatibility.md)** and the **Running on modest hardware** subsection under [Models](#models).
+For detailed per-device guidance (Apple Silicon, NVIDIA tiers, Intel Arc, CPU-only), see [docs/device-compatibility.md](docs/device-compatibility.md).
 
 ---
 
@@ -169,326 +145,215 @@ curl -fsSL https://ollama.com/install.sh | sh
 
 # Windows
 winget install Ollama.Ollama
-# or download from https://ollama.com
 ```
 
-### 2. Clone this repo
+### 2. Clone and configure
 
 ```bash
 git clone https://github.com/strikersam/local-llm-server.git
 cd local-llm-server
-```
-
-### 3. Configure
-
-```bash
 cp .env.example .env
 ```
 
-Edit `.env`:
+Edit `.env` — minimum required:
 
 ```env
-# Legacy fallback key(s). Optional once KEYS_FILE is in use.
 API_KEYS=your-secret-key-here
+OLLAMA_MODELS=D:\aipc-models       # Windows — adjust path for your OS
+PROXY_DEFAULT_MAX_TOKENS=8192
+PROXY_STRIP_THINK_TAGS=true
+```
 
-# Recommended for team / multi-user setups
+For team use, also add:
+
+```env
 KEYS_FILE=keys.json
-ADMIN_SECRET=generate-a-long-random-secret-here
-ADMIN_WINDOWS_AUTH=true
-# Optional allow-list for admin UI/API logins, e.g. HOSTNAME\swami,swami
-# ADMIN_WINDOWS_ALLOWED_USERS=
-
-# Where to store model weights (needs lots of free space)
-# Windows: D:\ai-models   Linux: /mnt/data/ollama-models   macOS: /Volumes/Data/models
-OLLAMA_MODELS=/path/to/your/model/storage
-
-# Optional Langfuse tracing
-LANGFUSE_PUBLIC_KEY=pk-lf-...
-LANGFUSE_SECRET_KEY=sk-lf-...
-LANGFUSE_BASE_URL=https://cloud.langfuse.com
+ADMIN_SECRET=<python -c "import secrets; print(secrets.token_urlsafe(32))">
 ```
 
-Recommended secret generation:
-
-```bash
-# Legacy API key (Linux/macOS)
-openssl rand -base64 32 | tr '+/' '-_' | tr -d '='
-
-# Admin secret
-python -c "import secrets; print(secrets.token_urlsafe(32))"
-```
+### 3. Download models
 
 ```powershell
-# Legacy API key (Windows PowerShell)
-$rng = New-Object System.Security.Cryptography.RNGCryptoServiceProvider
-$bytes = New-Object byte[] 32; $rng.GetBytes($bytes)
-[Convert]::ToBase64String($bytes).Replace('+','-').Replace('/','_').TrimEnd('=')
-
-# Admin secret
-python -c "import secrets; print(secrets.token_urlsafe(32))"
+# Windows — pulls to D:\aipc-models automatically
+.\download_models.ps1                    # default coding stack (~36 GB)
+.\download_models.ps1 -Lightweight       # 7B tier only (~10 GB)
+.\download_models.ps1 -IncludeFlagship   # also pulls deepseek-r1:671b (~404 GB)
+.\download_models.ps1 -Extended          # also pulls MiniMax M2.5 (~138 GB)
+.\download_models.ps1 -CloudProxy        # cloud-proxy stubs (no local weights)
 ```
 
-`KEYS_FILE` stores only SHA-256 hashes plus metadata. Plaintext user tokens are shown once when created, then never stored in recoverable form.
-
-### 4. Download models
-
-**Windows (recommended — pulls to `D:\aipc-models` automatically):**
-
-```powershell
-.\download_models.ps1                  # coding stack: qwen3-coder:30b + deepseek-r1:32b (~36 GB)
-.\download_models.ps1 -Lightweight     # 7B tier only (~10 GB, for low-RAM machines)
-.\download_models.ps1 -IncludeFlagship # also pulls deepseek-r1:671b (~404 GB extra)
-```
-
-**Manual pull (any OS):**
+Manual pull (any OS):
 
 ```bash
-# Set model path first
-$env:OLLAMA_MODELS = "D:\aipc-models"              # Windows PowerShell
-# export OLLAMA_MODELS=/mnt/data/ollama-models      # Linux/macOS
-
-ollama pull qwen3-coder:30b      # 17 GB — executor, IDE coding (Sonnet class)
-ollama pull deepseek-r1:32b      # 18.5 GB — planner/verifier (Opus class)
-ollama pull deepseek-r1:671b     # 404 GB — flagship, needs large storage
+ollama pull qwen3-coder:30b
+ollama pull deepseek-r1:32b
 ```
 
-### 5. One-time setup
+### 4. One-time setup
 
 ```bash
 # Linux / macOS
-chmod +x *.sh
-./install.sh
+chmod +x *.sh && ./install.sh
 
-# Windows (PowerShell)
-Set-ExecutionPolicy -Scope CurrentUser -ExecutionPolicy RemoteSigned
+# Windows
 .\install.ps1
 ```
 
-Installs Python dependencies and cloudflared.
-
-### 6. Start the server
+### 5. Start
 
 ```bash
-# Linux / macOS
-./start_server.sh
-
-# Windows
-.\start_server.ps1
+./start_server.sh      # Linux/macOS
+.\start_server.ps1     # Windows
 ```
 
 Output:
-```
-[OK] Loaded .env
-[1/3] Starting Ollama...
-[OK] Ollama ready (PID 12345)
-     - deepseek-r1:671b (404.0 GB)
-     - deepseek-r1:32b (18.5 GB)
-     - qwen3-coder:30b (17.3 GB)
-[2/3] Starting Auth Proxy...
-[OK] Auth Proxy running on port 8000 (PID 12346)
-[3/3] Starting Cloudflare Tunnel...
-[OK] Tunnel started (PID 12347)
 
-  >>> Public URL: https://example-words-here.trycloudflare.com <<<
+```
+[1/3] Starting Ollama...     ✓ Ready (qwen3-coder:30b, deepseek-r1:32b)
+[2/3] Starting Proxy...      ✓ Port 8000
+[3/3] Starting Tunnel...     ✓ https://example-words.trycloudflare.com
 ```
 
-If `ADMIN_SECRET` or `ADMIN_WINDOWS_AUTH=true` is configured, the proxy also enables:
-
-- `POST /admin/keys` for scripted user provisioning
-- `http://localhost:8000/admin/ui/login` for the browser admin UI
-- `POST /admin/api/login` plus `/admin/api/status`, `/admin/api/control`, and `/admin/api/users` for a remote frontend
-
-If `LANGFUSE_PUBLIC_KEY` and `LANGFUSE_SECRET_KEY` are configured, chat traffic is also traced to Langfuse.
-
-If `AGENT_PLANNER_MODEL`, `AGENT_EXECUTOR_MODEL`, and `AGENT_VERIFIER_MODEL` are configured, `/agent/*` uses those local models by default.
-
-### 7. Auto-start on boot
+### 6. Use it
 
 ```bash
-# Windows — registers a Task Scheduler job
-.\register_task.ps1
+# OpenAI-compatible
+curl https://your-tunnel-url/v1/chat/completions \
+  -H "Authorization: Bearer your-key" \
+  -H "Content-Type: application/json" \
+  -d '{"model":"qwen3-coder:30b","messages":[{"role":"user","content":"Hello"}]}'
 
-# Linux — add to crontab
-(crontab -l 2>/dev/null; echo "@reboot cd $(pwd) && ./start_server.sh") | crontab -
-
-# macOS — create a launchd plist
-# (see docs/macos-autostart.md — coming soon)
+# Claude Code CLI
+export ANTHROPIC_BASE_URL=https://your-tunnel-url
+export ANTHROPIC_API_KEY=your-key
+claude
 ```
 
-### 8. Stop the server
-
-```bash
-# Linux / macOS
-./stop_server.sh
-
-# Windows
-.\stop_server.ps1
-```
-
----
-
-## Repository Structure
-
-```
-local-llm-server/
-│
-├── proxy.py                  # FastAPI auth proxy — the core of this project
-├── requirements.txt          # Python dependencies
-├── .env.example              # Config template — copy to .env
-├── .gitignore
-├── docs/
-│   └── device-compatibility.md  # Device / RAM / model pairing guide
-│
-│── Linux / macOS
-├── start_server.sh           # Start everything
-├── stop_server.sh            # Stop everything
-├── install.sh                # One-time setup
-├── run_ollama.sh             # Ollama launcher
-├── run_proxy.sh              # Proxy launcher
-├── run_tunnel.sh             # Cloudflare tunnel launcher
-├── get_tunnel_url.sh         # Show current public URL
-│
-│── Windows
-├── start_server.ps1          # Start everything
-├── stop_server.ps1           # Stop everything
-├── install.ps1               # One-time setup
-├── register_task.ps1         # Register auto-start (Task Scheduler)
-├── get_tunnel_url.ps1        # Show + copy current public URL
-├── run_ollama.bat            # Ollama launcher
-├── run_proxy.bat             # Proxy launcher
-├── run_tunnel.bat            # Cloudflare tunnel launcher
-│
-└── client-configs/
-    ├── continue_config.json  # Legacy Continue config for older installs
-    ├── continue_config.yaml  # Recommended Continue config
-    ├── cursor_settings.json  # Cursor IDE
-    ├── aider_config.sh       # Aider CLI (Linux/macOS/WSL)
-    ├── aider_config.ps1      # Aider CLI (Windows)
-    └── python_client_example.py
-```
+Full Claude Code setup: [docs/claude-code-setup.md](docs/claude-code-setup.md)
 
 ---
 
 ## User Management
 
-For personal use, you can still set one or more comma-separated values in `API_KEYS`.
+**Personal use:**
 
-For a team or shared server, use:
+```env
+API_KEYS=your-key-here
+```
 
-- `KEYS_FILE=keys.json`
-- `ADMIN_SECRET=<strong random secret>`
-
-That unlocks persistent user records with:
-
-- `email`: shown as the Langfuse `user_id`
-- `department`: your seat / cost-center / team allocation label
-- `key_id`: stable identifier for rotation and audit logs
-
-### Create a user key from the CLI
+**Team use** (enables Langfuse per-user tracking and the admin UI):
 
 ```bash
+# Create a user key
 python generate_api_key.py --email alice@company.com --department engineering
-```
 
-Example output:
-
-```text
-Key created. Distribute this secret once (it cannot be shown again):
-sk-qwen-...
-
-key_id:      kid_abc123def456
-email:       alice@company.com
-department:  engineering
-stored in:   /absolute/path/to/keys.json
-```
-
-The proxy auto-reloads the JSON file on the next request, so you usually do not need to restart after adding or rotating keys.
-
-### Create a user key via the Admin API
-
-Enable `ADMIN_SECRET` and send:
-
-```bash
+# Or via admin API
 curl http://localhost:8000/admin/keys \
-  -H "Content-Type: application/json" \
   -H "X-Admin-Secret: your-admin-secret" \
+  -H "Content-Type: application/json" \
   -d '{"email":"alice@company.com","department":"engineering"}'
 ```
 
-You can also use `Authorization: Bearer <ADMIN_SECRET>` instead of `X-Admin-Secret`.
+**Browser admin UI:**
 
-Response:
-
-```json
-{
-  "api_key": "sk-qwen-...",
-  "key_id": "kid_abc123def456",
-  "email": "alice@company.com",
-  "department": "engineering",
-  "created": "2026-03-28T12:34:56Z"
-}
 ```
-
-### Browser Admin UI
-
-Open:
-
-```text
 http://localhost:8000/admin/ui/login
 ```
 
-If `ADMIN_WINDOWS_AUTH=true` on Windows, sign in with a Windows username and password for this machine. If Windows auth is disabled, the server falls back to the configured `ADMIN_SECRET`.
+Full admin dashboard documentation: [docs/admin-dashboard.md](docs/admin-dashboard.md)
 
-After login, the admin dashboard lets you:
+---
 
-- start, stop, or restart Ollama, the proxy, and the tunnel
-- create a user with `email` + `department`
-- edit department allocation or email metadata later
-- rotate a user token while keeping the same `key_id`
-- revoke/delete a user key
-- run a Langfuse connectivity diagnostic
+## Client Setup
 
-Stopping the proxy or tunnel from the remote dashboard will disconnect the current remote session until the service comes back.
+### Cursor IDE
 
-### Remote Admin Frontend (Vercel)
+1. Settings → Models → OpenAI API Key section
+2. API Key: your proxy key
+3. Override Base URL: `https://your-tunnel-url/v1`
+4. Add model names: `qwen3-coder:30b`, `deepseek-r1:32b`
 
-The repo also ships a static frontend in `remote-admin/` that talks to the JSON admin API. To deploy it on Vercel:
+See `client-configs/cursor_settings.json`.
 
-1. Import this repository into Vercel.
-2. Set the project root directory to `remote-admin`.
-3. Deploy as a static site.
-4. In the deployed UI, enter your current tunnel URL and log in with the same admin credentials you use locally.
+### VS Code Continue Extension
 
-The remote frontend calls:
+```bash
+cp client-configs/continue_config.yaml ~/.continue/config.yaml
+# Edit: replace YOUR_TUNNEL_URL and YOUR_API_KEY
+```
 
-- `POST /admin/api/login`
-- `GET /admin/api/status`
-- `POST /admin/api/control`
-- `GET/POST/PATCH/DELETE /admin/api/users`
+Recommended `.env` settings for Continue:
 
-For basic uptime monitoring, point Uptime Kuma, Better Stack, or a similar monitor at `/health`.
+```env
+PROXY_DEFAULT_SYSTEM_PROMPT_ENABLED=false
+PROXY_STRIP_THINK_TAGS=true
+```
 
-### Department Allocation
+### Claude Code CLI
 
-`department` is a free-text label stored with each key. Use it for whatever internal grouping you need, for example:
+```bash
+export ANTHROPIC_BASE_URL=https://your-tunnel-url
+export ANTHROPIC_API_KEY=your-key
+claude
+```
 
-- `engineering`
-- `design`
-- `research`
-- `contractors`
-- `customer-support`
+Full guide: [docs/claude-code-setup.md](docs/claude-code-setup.md)
 
-That value travels with each authenticated chat request and is attached to Langfuse metadata and tags, making it useful for spendback/showback, seat allocation, or simple reporting by team.
+### Aider
+
+```bash
+source client-configs/aider_config.sh    # Linux/macOS
+. .\client-configs\aider_config.ps1      # Windows PowerShell
+aider --model openai/qwen3-coder:30b
+```
+
+### Open WebUI
+
+```bash
+docker run -d -p 3000:8080 \
+  -e OPENAI_API_BASE_URL=https://your-tunnel-url/v1 \
+  -e OPENAI_API_KEY=your-key \
+  ghcr.io/open-webui/open-webui:main
+# Open http://localhost:3000
+```
+
+### Python SDK
+
+```python
+from openai import OpenAI
+client = OpenAI(base_url="https://your-tunnel-url/v1", api_key="your-key")
+response = client.chat.completions.create(
+    model="qwen3-coder:30b",
+    messages=[{"role": "user", "content": "Hello"}]
+)
+```
+
+---
+
+## Coding Agent API
+
+```bash
+# One-off run
+curl https://your-tunnel-url/agent/run \
+  -H "Authorization: Bearer your-key" \
+  -H "Content-Type: application/json" \
+  -d '{"instruction":"Add a docstring to main()","auto_commit":false,"max_steps":3}'
+
+# With session (maintains history)
+curl https://your-tunnel-url/agent/sessions \
+  -H "Authorization: Bearer your-key" \
+  -H "Content-Type: application/json" \
+  -d '{"title":"Auth refactor"}'
+# → {"session_id": "sess_xyz"}
+
+curl https://your-tunnel-url/agent/sessions/sess_xyz/run \
+  -H "Authorization: Bearer your-key" \
+  -d '{"instruction":"Add rate limiting to POST /admin/keys"}'
+```
 
 ---
 
 ## Langfuse Setup
-
-Langfuse is optional, but it is the easiest way to see who is using which model and estimate what the same traffic would have cost on a commercial API.
-
-### 1. Configure credentials
-
-Create a project in [Langfuse Cloud](https://cloud.langfuse.com) or use your self-hosted instance, then set:
 
 ```env
 LANGFUSE_PUBLIC_KEY=pk-lf-...
@@ -496,313 +361,62 @@ LANGFUSE_SECRET_KEY=sk-lf-...
 LANGFUSE_BASE_URL=https://cloud.langfuse.com
 ```
 
-`LANGFUSE_HOST` is also accepted as an alias for `LANGFUSE_BASE_URL`.
+Every chat request is traced with: user identity, model, token counts, latency, time-to-first-token, infrastructure electricity cost, hardware amortization, and commercial-equivalent savings.
 
-Optional tuning:
+Full observability guide: [docs/langfuse-observability.md](docs/langfuse-observability.md)
+
+---
+
+## Telegram Bot
 
 ```env
-# Force REST ingestion if the Python SDK has trouble in your environment
-LANGFUSE_USE_HTTP_ONLY=true
-
-# Flush SDK events more aggressively
-LANGFUSE_FLUSH_AT=1
-
-# Optional custom commercial-equivalent pricing map
-# COMMERCIAL_EQUIVALENT_PRICES_FILE=pricing.json
-# COMMERCIAL_EQUIVALENT_PRICES_JSON={"my-local-model:tag":{"commercial_name":"GPT-4.1","input_per_million_usd":2,"output_per_million_usd":8}}
+TELEGRAM_BOT_TOKEN=your-bot-token
+TELEGRAM_ALLOWED_USER_IDS=12345678
+TELEGRAM_ADMIN_USER_IDS=12345678
+TELEGRAM_PROXY_API_KEY=your-admin-secret
 ```
 
-### 2. What gets recorded
+```bash
+python telegram_bot.py
+```
 
-For authenticated chat requests, the proxy records:
+Commands: `/status`, `/models`, `/cost`, `/start|stop|restart <service>`, `/keylist`, `/keycreate`, `/agent`
 
-- Langfuse `user_id` = the key's `email`
-- metadata `department` = the user's department allocation
-- metadata `key_id` when the request used a stored key
-- tags like `dept:engineering`
-- model name
-- prompt/completion token counts
-- estimated commercial-equivalent USD and estimated savings metadata
-
-Legacy `API_KEYS` still work, but those requests appear as `email=unknown` and `department=legacy`, so `KEYS_FILE` is strongly recommended if you care about observability.
-
-### 3. Test the connection
-
-Use the browser admin UI and click the Langfuse diagnostic action, or verify the credentials manually by starting the proxy and watching for successful traces after a chat request.
-
-If traces are missing:
-
-- confirm both Langfuse keys are set
-- verify `LANGFUSE_BASE_URL` points to the correct cloud or self-hosted instance
-- try `LANGFUSE_USE_HTTP_ONLY=true`
-- check proxy logs for SDK fallback or HTTP errors
+Full setup guide: [docs/telegram-bot.md](docs/telegram-bot.md)
 
 ---
 
 ## API Reference
 
-All routes except `/health` require `Authorization: Bearer <your-key>`.
-
-### OpenAI-Compatible (works with any OpenAI SDK client)
+All routes except `/health` require `Authorization: Bearer <key>` or `x-api-key: <key>`.
 
 ```
-POST /v1/chat/completions      # Chat — streaming and non-streaming
-POST /v1/completions           # Legacy text completion
-GET  /v1/models                # List available models
-POST /v1/embeddings            # Embeddings
+GET  /health                          — Ollama status + model list (no auth)
+
+POST /v1/chat/completions             — OpenAI chat (streaming + non-streaming)
+POST /v1/messages                     — Anthropic Messages API (Claude Code)
+GET  /v1/models                       — Model list (includes Claude aliases)
+POST /v1/embeddings                   — Embeddings
+POST /api/chat                        — Ollama native chat
+GET  /api/tags                        — Ollama model list
+POST /api/generate                    — Ollama text generation
+
+POST /agent/sessions                  — Create agent session
+POST /agent/sessions/{id}/run         — Run task in session
+POST /agent/run                       — One-off agent run
+POST /agent/sessions/{id}/rollback-last-commit
+
+GET  /admin/ui/login                  — Browser admin login
+GET  /admin/ui/                       — Browser admin dashboard
+POST /admin/api/login                 — Get session token
+GET  /admin/api/status                — Service health + tunnel URL
+POST /admin/api/control               — Start/stop/restart services
+GET  /admin/api/users                 — List API keys
+POST /admin/api/users                 — Create key
+PATCH /admin/api/users/{id}           — Update email/department
+DELETE /admin/api/users/{id}          — Revoke key
+POST /admin/api/users/{id}/rotate     — Rotate token
 ```
-
-### Ollama Native
-
-```
-POST /api/generate             # Text generation
-POST /api/chat                 # Chat
-GET  /api/tags                 # List models
-POST /api/pull                 # Pull a new model
-GET  /api/ps                   # Show currently loaded models
-```
-
-### Health (no auth)
-
-```
-GET /health
-→ {"status": "ok", "models": ["deepseek-r1:671b", "deepseek-r1:32b", "qwen3-coder:30b"]}
-```
-
-### Admin API
-
-Available when admin auth is enabled (`ADMIN_SECRET` and/or `ADMIN_WINDOWS_AUTH=true`):
-
-```
-POST /admin/keys              # Create one user key with email + department
-GET  /admin/ui/login          # Browser login page for admin dashboard
-GET  /admin/ui/               # Browser dashboard (session after login)
-POST /admin/api/login         # Exchange admin credentials for a bearer token
-GET  /admin/api/status        # Service state + current tunnel URL
-POST /admin/api/control       # Start/stop/restart ollama|proxy|tunnel|stack
-GET  /admin/api/users         # List user API keys
-```
-
----
-
-## Client Setup
-
-### Option 1 — Cursor IDE
-
-The quickest way to get coding assistance using your home PC models inside Cursor.
-
-1. Open Cursor → **Settings** (`Ctrl+,`) → **Models**
-2. Scroll to the **OpenAI API Key** section and toggle it **ON**
-3. Fill in the two fields:
-
-| Field | Value |
-|-------|-------|
-| **API Key** | Your key from `.env` (e.g. `jnRLv...`) |
-| **Override Base URL** | `https://your-tunnel-url/v1` |
-
-4. Click **Verify** — Cursor confirms the connection
-5. In the model input box, type a model name and press **Enter** to add it:
-   - `deepseek-r1:671b` — best reasoning and complex tasks
-   - `deepseek-r1:32b` — faster, great for coding
-   - `qwen3-coder:30b` — optimised for code generation and tab autocomplete
-
-The selected model is now used for chat (`Ctrl+L`), inline edit (`Ctrl+K`), and Composer.
-
-> See `client-configs/cursor_settings.json` for a reference of these values.
-
----
-
-### Option 2 — Open WebUI (Browser Chat UI with model switcher)
-
-A full ChatGPT-style web interface with a dropdown to switch between all your local models. No IDE required — works in any browser on any device.
-
-**With Docker (recommended):**
-
-```bash
-docker run -d \
-  --name open-webui \
-  -p 3000:8080 \
-  -e OPENAI_API_BASE_URL=https://your-tunnel-url/v1 \
-  -e OPENAI_API_KEY=your-key \
-  ghcr.io/open-webui/open-webui:main
-```
-
-Then open **http://localhost:3000** in your browser.
-Create an account on first launch, then go to **Settings → Models** — your models (`deepseek-r1:671b`, `deepseek-r1:32b`, `qwen3-coder:30b`) appear automatically, pulled from the `/v1/models` endpoint.
-
-**Without Docker (pip):**
-
-```bash
-pip install open-webui
-export OPENAI_API_BASE_URL=https://your-tunnel-url/v1
-export OPENAI_API_KEY=your-key
-open-webui serve
-# Open http://localhost:8080
-```
-
-**Windows (PowerShell):**
-
-```powershell
-pip install open-webui
-$env:OPENAI_API_BASE_URL = "https://your-tunnel-url/v1"
-$env:OPENAI_API_KEY      = "your-key"
-open-webui serve
-# Open http://localhost:8080
-```
-
-> Open WebUI auto-discovers models — when you add a new model to your server it appears in the dropdown immediately without any config change.
-
----
-
-### Option 3 — VS Code Continue Extension
-
-Adds an AI chat panel and tab autocomplete directly inside VS Code, with a model switcher in the sidebar.
-
-1. Install the **Continue** extension (`Ctrl+Shift+X` → search "Continue")
-2. Use the recommended proxy settings in `.env` before exposing the server to Continue:
-
-```env
-PROXY_DEFAULT_SYSTEM_PROMPT_ENABLED=false
-PROXY_STRIP_THINK_TAGS=true
-PROXY_DEFAULT_MAX_TOKENS=1200
-```
-
-This avoids prompt-stacking with Continue's own rules, strips leaked `<think>` blocks from models that expose them, and adds a conservative fallback limit when a client omits `max_tokens`.
-
-3. Copy the recommended YAML config to your home directory:
-
-```bash
-# Linux / macOS
-cp client-configs/continue_config.yaml ~/.continue/config.yaml
-
-# Windows PowerShell
-Copy-Item client-configs\continue_config.yaml "$env:USERPROFILE\.continue\config.yaml"
-```
-
-If you are on an older Continue build that still expects `config.json`, use `client-configs/continue_config.json` instead.
-
-4. Open the file and replace the two placeholders:
-
-```yaml
-apiBase: https://YOUR_TUNNEL_URL/v1
-apiKey: YOUR_API_KEY
-```
-
-5. Reload VS Code — models appear in the Continue sidebar dropdown.
-
-Recommended behavior for accuracy and reliability:
-
-- Keep `qwen3-coder:30b` as the primary Continue model for chat, edit, apply, summarize, and autocomplete.
-- Use `deepseek-r1:32b` only as an optional manual chat profile when you want extra reasoning and accept slower, less format-disciplined responses.
-- Keep Continue context lean: `code`, `diff`, and `folder` are usually enough. Adding `docs`, `terminal`, `problems`, or `codebase` increases prompt size and can reduce determinism.
-- Start sensitive evals or tricky refactors in a fresh Continue chat so prior prompt state does not leak into the task.
-
-> See `client-configs/continue_config.yaml` for the recommended setup and `client-configs/continue_config.json` for legacy compatibility.
-
----
-
-### Option 4 - Zed
-
-`client-configs/zed_settings.json` contains a starting point for Zed's assistant configuration against this proxy. Replace the placeholder base URL and API key with your tunnel URL and a user key from `KEYS_FILE` or `API_KEYS`.
-
----
-
-### Aider
-
-```bash
-# Linux / macOS / WSL
-source client-configs/aider_config.sh
-aider --model openai/deepseek-r1:671b
-
-# Windows PowerShell
-. .\client-configs\aider_config.ps1
-aider --model openai/deepseek-r1:671b
-```
-
-### Python (openai SDK)
-
-```python
-from openai import OpenAI
-
-client = OpenAI(
-    base_url="https://your-tunnel-url/v1",
-    api_key="your-key"
-)
-
-# Streaming
-stream = client.chat.completions.create(
-    model="deepseek-r1:671b",
-    messages=[{"role": "user", "content": "Explain how transformers work"}],
-    stream=True,
-)
-for chunk in stream:
-    print(chunk.choices[0].delta.content or "", end="", flush=True)
-```
-
-### curl
-
-```bash
-# List models
-curl https://your-tunnel-url/api/tags \
-  -H "Authorization: Bearer your-key"
-
-# Generate (streaming)
-curl https://your-tunnel-url/api/generate \
-  -H "Authorization: Bearer your-key" \
-  -d '{"model":"qwen3-coder:30b","prompt":"Write a binary search in Python","stream":true}'
-
-# Chat (OpenAI format)
-curl https://your-tunnel-url/v1/chat/completions \
-  -H "Authorization: Bearer your-key" \
-  -H "Content-Type: application/json" \
-  -d '{"model":"deepseek-r1:32b","messages":[{"role":"user","content":"Hello"}]}'
-```
-
-### Coding Agent API
-
-Create a session:
-
-```bash
-curl https://your-tunnel-url/agent/sessions \
-  -H "Authorization: Bearer your-key" \
-  -H "Content-Type: application/json" \
-  -d '{"title":"Refactor auth flow"}'
-```
-
-Run a task:
-
-```bash
-curl https://your-tunnel-url/agent/run \
-  -H "Authorization: Bearer your-key" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "instruction":"Add a healthcheck note to the README and keep the wording concise",
-    "auto_commit": false,
-    "max_steps": 3
-  }'
-```
-
-The response includes:
-
-- the generated plan
-- per-step status
-- changed files
-- any commit hashes created during the run
-- a short summary suitable for UI display
-
-### Tests
-
-Run the lightweight automated checks from the repo root:
-
-```bash
-pytest
-```
-
-The tests cover:
-
-- workspace tool behavior
-- mocked planner/executor/verifier loop behavior
-- session and failure handling in the `/agent/*` API
 
 ---
 
@@ -810,86 +424,110 @@ The tests cover:
 
 | Threat | Mitigation |
 |--------|-----------|
-| Unauthorized access | Bearer token on all `/api/*` and `/v1/*` routes |
-| Brute force | Rate limiting per key (default 60 req/min, configurable) |
-| Man-in-the-middle | Cloudflare handles TLS — all traffic HTTPS end-to-end |
-| Direct Ollama exposure | Ollama binds to `127.0.0.1` only — unreachable from outside |
-| Key compromise | One key per device — revoke by removing from `API_KEYS` in `.env` |
+| Unauthorized access | Bearer token required on all `/api/*`, `/v1/*`, `/agent/*` routes |
+| Brute force | Rate limiting per key (default 60 req/min) |
+| MitM | Cloudflare handles TLS — HTTPS end-to-end |
+| Direct Ollama exposure | Ollama binds `127.0.0.1` only |
+| Key compromise | Revoke and rotate individually; `key_id` stable across rotation |
+| Admin access | Separate `ADMIN_SECRET` or Windows credentials; session tokens expire in 12h |
 
-**Never commit `.env`** — it is listed in `.gitignore`. Use `.env.example` as the template.
+**Never commit `.env`** — it's in `.gitignore`. Use `.env.example` as the template.
 
 ---
 
-## Adding More Models
+## Auto-Start on Boot
 
-Any model pulled into `OLLAMA_MODELS` appears on the API immediately — no restart needed:
-
-```bash
-# Set model path
-export OLLAMA_MODELS=/your/model/path
-
-# Pull any Ollama-compatible model
-ollama pull llama3.3:70b
-ollama pull gemma3:27b
-ollama pull phi4
+```powershell
+# Windows — Task Scheduler
+.\register_task.ps1
 ```
 
-Then use the model name directly in any client request.
+```bash
+# Linux — crontab
+(crontab -l 2>/dev/null; echo "@reboot cd $(pwd) && ./start_server.sh") | crontab -
+```
 
 ---
 
-## Permanent URL (Optional)
+## Permanent URL
 
-The default quick-tunnel URL changes on every server restart. For a permanent URL:
+The default quick-tunnel URL changes on every restart. For a permanent URL:
 
-1. Create a free account at [cloudflare.com](https://cloudflare.com)
-2. Run `./install.sh` (Linux/macOS) or `.\install.ps1` (Windows) and choose option **2 — Named Tunnel**
-3. Optionally route a custom domain (e.g. `llm.yourdomain.com`) to the tunnel
-
-Named tunnel URLs survive restarts and can be tied to a domain you own.
+1. Create a free [Cloudflare account](https://cloudflare.com)
+2. Run `./install.sh` or `.\install.ps1` → choose "Named Tunnel"
+3. Optionally map a custom domain (e.g. `llm.yourdomain.com`)
 
 ---
 
 ## Troubleshooting
 
-**Ollama won't start**
+See [docs/troubleshooting.md](docs/troubleshooting.md) for a comprehensive guide.
+
+Quick checks:
+
 ```bash
-tail -20 logs/ollama-err.log
+curl http://localhost:8000/health        # proxy up?
+curl http://localhost:11434/api/tags     # ollama up?
+ollama ps                                # model loaded?
+tail -30 logs/proxy.log                  # proxy errors?
+.\get_tunnel_url.ps1                     # current tunnel URL?
 ```
-
-**Proxy not reachable**
-```bash
-tail -20 logs/proxy-err.log
-curl http://localhost:8000/health
-```
-
-**Can't find tunnel URL**
-```bash
-./get_tunnel_url.sh        # Linux/macOS
-.\get_tunnel_url.ps1       # Windows
-```
-
-**403 Forbidden from remote machine**
-Your API key doesn't match `API_KEYS` in `.env`. Keys are case-sensitive.
-
-**671B responses are slow**
-Expected when model doesn't fit fully in RAM — Ollama pages from NVMe via mmap. A Gen4 NVMe gives the best experience (~30–90s per response). The 32B model runs entirely in RAM and is much faster.
-
-**Model still shows as downloading**
-Check progress: the partial blob file size vs expected total. Restart the pull if interrupted — Ollama resumes from where it left off.
 
 ---
 
-## Recommended Models by Hardware
+## Repository Structure
 
-Quick RAM tiers (details and example machines — **Mac M-series vs PC**, CPU-only, etc. — are in **[docs/device-compatibility.md](docs/device-compatibility.md)**):
-
-| Approx. RAM | Recommended models |
-|-------------|-------------------|
-| 16 GB | `qwen3-coder:7b`, `deepseek-r1:7b` |
-| 32 GB | `qwen3-coder:30b`, `deepseek-r1:32b` |
-| 64 GB | `llama3.3:70b`, `qwen3:32b` |
-| 128 GB+ | `deepseek-r1:671b` (via mmap), all of the above simultaneously |
+```
+qwen-server/
+├── proxy.py                      # FastAPI proxy — core of this project
+├── chat_handlers.py              # OpenAI + Ollama request translation
+├── langfuse_obs.py               # Langfuse tracing + cost tracking
+├── commercial_equivalent.py      # Commercial API pricing map
+├── infra_cost.py                 # Electricity + hardware cost model
+├── telegram_bot.py               # Telegram remote control bot
+├── admin_auth.py                 # Windows + secret admin auth
+├── admin_gui.py                  # Browser admin dashboard
+├── key_store.py                  # Hashed key storage
+├── service_manager.py            # Process management
+├── .env.example                  # Config template
+├── requirements.txt              # Python dependencies
+│
+├── handlers/
+│   └── anthropic_compat.py       # Anthropic Messages API translation
+│
+├── agent/
+│   ├── loop.py                   # Planner/executor/verifier loop
+│   ├── tools.py                  # Workspace tools (read, write, search)
+│   ├── models.py                 # Pydantic models
+│   ├── prompts.py                # System prompts
+│   └── state.py                  # Session storage
+│
+├── docs/
+│   ├── claude-code-setup.md      # Claude Code + Qwen setup guide
+│   ├── telegram-bot.md           # Telegram bot setup guide
+│   ├── admin-dashboard.md        # Admin UI guide
+│   ├── features.md               # Feature documentation
+│   ├── langfuse-observability.md # Langfuse + cost metrics guide
+│   ├── configuration-reference.md# All .env variables
+│   ├── troubleshooting.md        # Problem-solving guide
+│   ├── device-compatibility.md   # Hardware/RAM guide
+│   └── changelog.md              # Release history
+│
+├── templates/
+│   ├── admin/                    # Jinja2 admin UI templates
+│   └── codex_local_ide_system_prompt.txt
+│
+├── client-configs/               # IDE/client configuration examples
+├── remote-admin/                 # Vercel-deployable admin frontend
+├── scripts/                      # CLI utilities
+├── tests/                        # Automated tests
+│
+├── start_server.ps1 / .sh        # Start all services
+├── stop_server.ps1 / .sh         # Stop all services
+├── install.ps1 / .sh             # One-time setup
+├── download_models.ps1           # Pull models to D:\aipc-models
+└── get_tunnel_url.ps1 / .sh      # Show current public URL
+```
 
 ---
 
@@ -899,10 +537,10 @@ Quick RAM tiers (details and example machines — **Mac M-series vs PC**, CPU-on
 |--|-----------|-----------|
 | Cost | Pay per token | Free after hardware |
 | Privacy | Data sent to provider | Stays on your machine |
-| Rate limits | Enforced by provider | You control them |
-| Model choice | Provider's catalogue only | Any open-weight model |
-| 671B model access | Very expensive | Free |
+| Rate limits | Provider enforced | You control |
+| Model choice | Provider's catalogue | Any open-weight model |
 | Offline use | No | Yes |
+| 671B access | Very expensive | Free |
 
 ---
 
@@ -914,8 +552,10 @@ MIT — use freely, modify freely, no warranty.
 
 ## Acknowledgements
 
-- [Ollama](https://ollama.com) — local model serving made simple
-- [DeepSeek](https://deepseek.com) — open-weight R1 models (Opus-class reasoning)
-- [Qwen / Alibaba Cloud](https://qwenlm.github.io) — Qwen3-Coder (Sonnet-class coding)
+- [Ollama](https://ollama.com) — local model serving
+- [DeepSeek](https://deepseek.com) — DeepSeek-R1 open-weight models
+- [Qwen / Alibaba Cloud](https://qwenlm.github.io) — Qwen3-Coder models
+- [MiniMax](https://minimax.io) — MiniMax M2.5 open-weight model
 - [Cloudflare Tunnel](https://developers.cloudflare.com/cloudflare-one/connections/connect-apps) — free secure tunneling
 - [FastAPI](https://fastapi.tiangolo.com) — async Python web framework
+- [Langfuse](https://langfuse.com) — LLM observability platform

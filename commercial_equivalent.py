@@ -65,6 +65,39 @@ def _load_from_env() -> dict[str, CommercialEquivalent]:
             input_per_million_usd=0.40,
             output_per_million_usd=1.60,
         ),
+
+        # ── 2026 open-source additions ────────────────────────────────────────
+        # MiniMax M2.5 — 229B sparse MoE (10B active), community Q4_K_M GGUF
+        # Reference: MiniMax M2.5 API ($0.10/$0.55 per M tokens per minimax.io)
+        "frob/minimax-m2.5:230b-a10b-q4_K_M": CommercialEquivalent(
+            commercial_name="MiniMax M2.5 API / GPT-4.1 class (reference)",
+            input_per_million_usd=0.10,
+            output_per_million_usd=0.55,
+        ),
+
+        # DeepSeek V3.2 — 685B MoE, cloud-proxy via Ollama
+        # Reference: DeepSeek V3 API ($0.27/$1.10 per M tokens per deepseek.com)
+        "deepseek-v3.2:cloud": CommercialEquivalent(
+            commercial_name="DeepSeek V3.2 API / GPT-4.1 class (reference)",
+            input_per_million_usd=0.27,
+            output_per_million_usd=1.10,
+        ),
+
+        # MiniMax M2.7 — cloud-proxy only (open weights not yet released)
+        # Reference: MiniMax M2.7 API pricing (minimax.io)
+        "minimax-m2.7:cloud": CommercialEquivalent(
+            commercial_name="MiniMax M2.7 API (cloud proxy reference)",
+            input_per_million_usd=0.10,
+            output_per_million_usd=0.55,
+        ),
+
+        # GLM-5 — 744B MoE (40B active), cloud-proxy via Ollama
+        # Reference: GLM-5 API ($0.14/$0.14 per M tokens per z.ai)
+        "glm-5:cloud": CommercialEquivalent(
+            commercial_name="GLM-5 API / GPT-4.1 class (reference)",
+            input_per_million_usd=0.14,
+            output_per_million_usd=0.14,
+        ),
     }
 
     merged: dict[str, CommercialEquivalent] = dict(defaults)
