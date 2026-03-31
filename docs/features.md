@@ -348,7 +348,7 @@ See [docs/telegram-bot.md](telegram-bot.md) for full documentation.
 
 ---
 
-## 14. Cloudflare Tunnel
+## 14. Tunnel — Permanent Static URL via ngrok
 
 **What it does:** Exposes the local proxy over HTTPS without port forwarding, static IP, or firewall rules. Works behind home NAT, corporate firewalls, and mobile hotspots.
 
@@ -361,13 +361,22 @@ See [docs/telegram-bot.md](telegram-bot.md) for full documentation.
 .\run_tunnel.bat     # Windows
 ```
 
-**Named tunnel (permanent URL):**
+**Permanent static URL via ngrok (recommended):**
 
-1. Create a free Cloudflare account
-2. Run `./install.sh` or `.\install.ps1` → choose "Named Tunnel"
-3. Configure a custom domain (optional) at `llm.yourdomain.com`
+Run once on your personal laptop — no domain purchase needed:
 
-The tunnel URL can be fetched programmatically:
+```bash
+python setup_ngrok.py --token <YOUR_NGROK_AUTH_TOKEN>
+```
+
+Get your token free at [dashboard.ngrok.com](https://dashboard.ngrok.com). The script:
+- Claims your free static domain (e.g. `yourword-yourword-1234.ngrok-free.app`)
+- Saves `PUBLIC_URL`, `NGROK_AUTH_TOKEN`, `NGROK_DOMAIN` to `.env`
+- Rewrites `run_tunnel.sh` / `run_tunnel.bat` to use ngrok automatically
+
+After that, `./start_server.sh` starts the tunnel with the same URL every time. The URL is shown in the Admin UI **Public URL** field (which is now editable — paste any URL there to pin it permanently).
+
+The tunnel URL can also be fetched programmatically:
 
 ```bash
 ./get_tunnel_url.sh     # Linux/macOS

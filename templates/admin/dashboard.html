@@ -65,13 +65,20 @@
       </div>
       {% endfor %}
 
-      {% if services.public_url %}
       <div class="service-row">
         <h3>Public URL</h3>
-        <div class="token-box">{{ services.public_url }}</div>
-        <p class="muted">Use this base host for Continue, Zed, or the remote Vercel admin frontend.</p>
+        <form method="post" action="/admin/ui/public-url" style="display:flex;gap:0.5rem;align-items:center;flex-wrap:wrap;margin-bottom:0.4rem;">
+          <input type="url" name="public_url" value="{{ services.public_url or '' }}"
+            placeholder="https://xxx.trycloudflare.com"
+            style="flex:1;min-width:280px;font-family:monospace;font-size:0.9rem;" />
+          <button type="submit" class="small">Save</button>
+        </form>
+        <p class="muted">
+          Paste a permanent URL here (e.g. a named Cloudflare tunnel) to pin it — it will persist across restarts.
+          Leave blank to auto-detect the ephemeral quick-tunnel URL each time.
+          Use this base host for Claude Code, Continue, Cursor, or the remote admin frontend.
+        </p>
       </div>
-      {% endif %}
     </section>
 
     <section class="card">

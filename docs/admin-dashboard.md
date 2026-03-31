@@ -98,13 +98,17 @@ For each service (ollama, proxy, tunnel):
 
 ### Public URL display
 
-If the tunnel is running, its current public HTTPS URL appears in a copy-able box below the service rows. Use this URL for:
+The **Public URL** field appears below the service rows and is always visible. It shows and lets you configure the tunnel URL used by all clients.
 
+- **Editable input** — paste any URL and click **Save** to pin it permanently (saved to `.env` as `PUBLIC_URL`, survives restarts)
+- **Auto-detect fallback** — if left blank, the field auto-detects the ephemeral quick-tunnel URL from the cloudflared log each time
+
+Use this URL for:
 - Continue, Cursor, Zed, Aider client configuration
 - The remote Vercel admin frontend
 - Claude Code `ANTHROPIC_BASE_URL`
 
-> The URL changes on every server restart (quick-tunnel behavior). Use a named tunnel for a permanent URL — see the [Permanent URL section in README](../README.md#permanent-url-optional).
+**Recommended:** Run `setup_ngrok.py --token <token>` once on the server to claim a free permanent ngrok domain — it pre-fills this field and never changes. See the [Permanent URL section in README](../README.md#permanent-url).
 
 ---
 

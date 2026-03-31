@@ -98,6 +98,11 @@ class WindowsServiceManager:
         return ServiceState(name=service, running=pid is not None, pid=pid, detail=detail)
 
     def get_tunnel_url(self) -> str | None:
+        # A manually configured PUBLIC_URL always wins (permanent/named tunnel).
+        configured = os.environ.get("PUBLIC_URL", "").strip()
+        if configured:
+            return configured
+        # Fall back to auto-detecting the ephemeral quick-tunnel URL from the cloudflared log.
         log_file = self.logs_dir / "tunnel-err.log"
         if not log_file.is_file():
             return None

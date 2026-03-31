@@ -15,6 +15,24 @@ from starlette.templating import Jinja2Templates
 from key_store import issue_new_api_key
 from langfuse_obs import test_langfuse_connection
 
+_ENV_PATH = Path(__file__).resolve().parent / ".env"
+
+
+def _save_env_var(key: str, value: str) -> None:
+    """Update or append a KEY=value line in the .env file."""
+    line = f"{key}={value}\n"
+    if _ENV_PATH.is_file():
+        lines = _ENV_PATH.read_text(encoding="utf-8").splitlines(keepends=True)
+        for i, l in enumerate(lines):
+            if l.startswith(f"{key}=") or l.startswith(f"{key} ="):
+                lines[i] = line
+                _ENV_PATH.write_text("".join(lines), encoding="utf-8")
+                return
+        lines.append(line)
+        _ENV_PATH.write_text("".join(lines), encoding="utf-8")
+    else:
+        _ENV_PATH.write_text(line, encoding="utf-8")
+
 if TYPE_CHECKING:
     from fastapi import FastAPI
 
@@ -195,6 +213,20 @@ def register_admin_gui(
             return gr
         ok, msg = test_langfuse_connection()
         request.session["langfuse_diag"] = {"ok": ok, "message": msg}
+        return _redirect(request)
+
+    @router.post("/public-url")
+    async def save_public_url(request: Request, public_url: str = Form(default="")):
+        gr = _guest_redirect(request)
+        if gr:
+            return gr
+        url = public_url.strip().rstrip("/")
+        _save_env_var("PUBLIC_URL", url)
+        os.environ["PUBLIC_URL"] = url
+        if url:
+            request.session["flash"] = f"Public URL saved: {url}"
+        else:
+            request.session["flash"] = "Public URL cleared — will auto-detect from tunnel log."
         return _redirect(request)
 
     app.include_router(router)

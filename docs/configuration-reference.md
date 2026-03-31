@@ -151,6 +151,19 @@ See [docs/telegram-bot.md](telegram-bot.md) for full setup instructions.
 | `OLLAMA_EXE` | (auto-detect) | Explicit path to `ollama.exe` or `ollama` binary. Only needed if Ollama is not on `PATH`. Windows AI PC path: `C:\Users\swami\AppData\Roaming\aipc\runtime\ollama\ollama.exe`. |
 | `PYTHON_EXE` | (auto-detect) | Explicit path to Python. Needed on Windows if `python` opens the Store app. Example: `C:\Users\swami\AppData\Local\Programs\Python\Python312\python.exe` |
 | `CLOUDFLARED_EXE` | (auto-detect) | Explicit path to `cloudflared.exe`. Default install: `C:\Program Files (x86)\cloudflared\cloudflared.exe`. |
+| `NGROK_EXE` | (auto-detect) | Explicit path to `ngrok` binary. Auto-detected from pyngrok's download location if blank. |
+
+---
+
+## Tunnel — Permanent Static URL (ngrok)
+
+Run `setup_ngrok.py` once to populate these automatically. Get your token free at [dashboard.ngrok.com](https://dashboard.ngrok.com).
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `PUBLIC_URL` | (empty) | Pinned public URL shown in the Admin UI and returned by `get_tunnel_url()`. Overrides the auto-detected quick-tunnel URL. Set by `setup_ngrok.py` or paste manually in the Admin UI. |
+| `NGROK_AUTH_TOKEN` | (empty) | Your ngrok account token. Used by `run_tunnel.sh` / `run_tunnel.bat` after running `setup_ngrok.py`. |
+| `NGROK_DOMAIN` | (empty) | Your free static ngrok domain (e.g. `yourword-yourword-1234.ngrok-free.app`). Used by the tunnel scripts. |
 
 ---
 

@@ -6,6 +6,32 @@ No cloud costs. No data sent to third parties. Full control over your models.
 
 ---
 
+## This Setup — Connection Details
+
+> The server runs on a personal laptop. Use these credentials to connect from any client machine.
+>
+> **API Key:** `REDACTED_API_KEY`
+>
+> **Tunnel URL:** Run `setup_ngrok.py` once on the personal laptop to get a **permanent static URL** — see [Permanent URL](#permanent-url) below. Once set up, the URL is pinned in the Admin UI and never changes.
+>
+> Until then, find the current ephemeral URL via:
+> - Admin UI on the personal laptop: `http://localhost:8000/admin/ui/` → **Public URL** field (editable — paste a permanent URL here to pin it)
+> - Running: `./get_tunnel_url.sh` (macOS/Linux) or `.\get_tunnel_url.ps1` (Windows)
+>
+> To use with Claude Code CLI once you have the URL:
+> ```bash
+> export ANTHROPIC_BASE_URL=https://<tunnel-url>
+> export ANTHROPIC_API_KEY=REDACTED_API_KEY
+> claude
+> ```
+> To verify the connection:
+> ```bash
+> curl https://<tunnel-url>/v1/models \
+>   -H "Authorization: Bearer REDACTED_API_KEY"
+> ```
+
+---
+
 ## Documentation
 
 | Guide | What it covers |
@@ -451,11 +477,25 @@ POST /admin/api/users/{id}/rotate     — Rotate token
 
 ## Permanent URL
 
-The default quick-tunnel URL changes on every restart. For a permanent URL:
+The default quick-tunnel URL changes on every restart. Run `setup_ngrok.py` once to get a **free permanent static domain** from ngrok (no domain purchase required):
 
-1. Create a free [Cloudflare account](https://cloudflare.com)
-2. Run `./install.sh` or `.\install.ps1` → choose "Named Tunnel"
-3. Optionally map a custom domain (e.g. `llm.yourdomain.com`)
+**Step 1** — Sign up free at [dashboard.ngrok.com](https://dashboard.ngrok.com) and copy your authtoken from **Getting Started → Your Authtoken**
+
+**Step 2** — On your personal laptop, run:
+
+```bash
+python setup_ngrok.py --token <YOUR_NGROK_AUTH_TOKEN>
+```
+
+This will:
+- Authenticate ngrok with your token
+- Claim your free static domain (e.g. `yourword-yourword-1234.ngrok-free.app`)
+- Save `PUBLIC_URL`, `NGROK_AUTH_TOKEN`, and `NGROK_DOMAIN` to `.env`
+- Rewrite `run_tunnel.sh` / `run_tunnel.bat` to use ngrok automatically
+
+After that, just run `./start_server.sh` as normal — the URL is permanent and pinned in the Admin UI.
+
+> **Alternative:** For a custom domain (e.g. `llm.yourdomain.com`), create a named tunnel via the [Cloudflare Zero Trust dashboard](https://one.cloudflare.com) and paste the URL into the **Public URL** field in the Admin UI.
 
 ---
 
