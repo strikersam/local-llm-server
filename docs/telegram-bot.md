@@ -34,7 +34,7 @@ The bot is a standalone process (`telegram_bot.py`) that runs alongside the prox
 3. Follow the prompts:
    - Choose a display name (e.g. `My LLM Server`)
    - Choose a username (must end in `bot`, e.g. `my_llm_server_bot`)
-4. BotFather replies with a token like: `PLACEHOLDER_TELEGRAM_TOKEN`
+4. BotFather replies with a token (format: `<numeric-id>:<alphanumeric-string>`)
 5. Copy this token — you will need it for `TELEGRAM_BOT_TOKEN`
 
 ---
@@ -57,7 +57,7 @@ Add these values to your `.env` file:
 
 ```env
 # Bot token from @BotFather (required)
-TELEGRAM_BOT_TOKEN=PLACEHOLDER_TELEGRAM_TOKEN
+TELEGRAM_BOT_TOKEN=<paste-your-bot-token-here>
 
 # Comma-separated Telegram user IDs allowed to use the bot (read-only commands)
 TELEGRAM_ALLOWED_USER_IDS=12345678,87654321

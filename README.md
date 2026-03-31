@@ -10,7 +10,7 @@ No cloud costs. No data sent to third parties. Full control over your models.
 
 > The server runs on a personal laptop. Use these credentials to connect from any client machine.
 >
-> **API Key:** `REDACTED_API_KEY`
+> **API Key:** `<your-api-key>` (from your `.env` `API_KEYS` value)
 >
 > **Tunnel URL:** Run `setup_ngrok.py` once on the personal laptop to get a **permanent static URL** — see [Permanent URL](#permanent-url) below. Once set up, the URL is pinned in the Admin UI and never changes.
 >
@@ -21,13 +21,13 @@ No cloud costs. No data sent to third parties. Full control over your models.
 > To use with Claude Code CLI once you have the URL:
 > ```bash
 > export ANTHROPIC_BASE_URL=https://<tunnel-url>
-> export ANTHROPIC_API_KEY=REDACTED_API_KEY
+> export ANTHROPIC_API_KEY=<your-api-key>
 > claude
 > ```
 > To verify the connection:
 > ```bash
 > curl https://<tunnel-url>/v1/models \
->   -H "Authorization: Bearer REDACTED_API_KEY"
+>   -H "Authorization: Bearer <your-api-key>"
 > ```
 
 ---
