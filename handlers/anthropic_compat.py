@@ -26,7 +26,6 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
-import os
 import time
 import uuid
 from typing import Any, AsyncIterator
@@ -36,69 +35,55 @@ from fastapi import HTTPException, Request
 from fastapi.responses import JSONResponse, StreamingResponse
 
 from langfuse_obs import emit_chat_observation
+from router import get_router, RoutingDecision
+from router.health import invalidate_cache as _invalidate_health_cache
 
 log = logging.getLogger("qwen-proxy")
 
-# ─── Model name mapping ────────────────────────────────────────────────────────
 
-_BUILTIN_MODEL_MAP: dict[str, str] = {
-    # Claude 4.6 family (current — 2026)
-    "claude-opus-4-6":            "deepseek-r1:32b",
-    "claude-sonnet-4-6":          "qwen3-coder:30b",
-    "claude-haiku-4-5-20251001":  "qwen3-coder:30b",
-    # Claude 4.5 family
-    "claude-opus-4-5":            "deepseek-r1:32b",
-    "claude-opus-4":              "deepseek-r1:32b",
-    "claude-sonnet-4-5":          "qwen3-coder:30b",
-    "claude-sonnet-4":            "qwen3-coder:30b",
-    # Claude 3.5 family
-    "claude-3-5-sonnet-20241022": "qwen3-coder:30b",
-    "claude-3-5-haiku-20241022":  "qwen3-coder:30b",
-    # Claude 3 family
-    "claude-3-opus-20240229":     "deepseek-r1:32b",
-    "claude-3-sonnet-20240229":   "qwen3-coder:30b",
-    "claude-3-haiku-20240307":    "qwen3-coder:30b",
-}
+# ─── Fallback-aware HTTP helper ───────────────────────────────────────────────
 
-_resolved_model_map: dict[str, str] | None = None
+async def _post_anthropic_with_fallback(
+    url: str,
+    body: bytes,
+    headers: dict[str, str],
+    openai_payload: dict[str, Any],
+    fallback_models: list[str],
+) -> Any:  # returns httpx.Response
+    """POST to Ollama; on 5xx retry with each model in *fallback_models*."""
+    async with httpx.AsyncClient(timeout=httpx.Timeout(300.0, connect=10.0)) as client:
+        resp = await client.post(url, content=body, headers=headers)
+    if resp.status_code < 500 or not fallback_models:
+        return resp
+
+    for fallback in fallback_models:
+        log.warning(
+            "Anthropic handler: Ollama returned %d — retrying with fallback model %r",
+            resp.status_code, fallback,
+        )
+        _invalidate_health_cache()
+        payload = dict(openai_payload)
+        payload["model"] = fallback
+        retry_body = json.dumps(payload).encode("utf-8")
+        async with httpx.AsyncClient(timeout=httpx.Timeout(300.0, connect=10.0)) as client:
+            resp = await client.post(url, content=retry_body, headers=headers)
+        if resp.status_code < 500:
+            return resp
+
+    return resp
 
 
-def _build_model_map() -> dict[str, str]:
-    """Merge built-in defaults with MODEL_MAP env overrides.
-
-    MODEL_MAP format (comma-separated):
-        claude-3-5-sonnet-20241022:qwen3-coder:30b,*:qwen3-coder:30b
-
-    The special key ``*`` is the catch-all fallback.
-    """
-    merged = dict(_BUILTIN_MODEL_MAP)
-    raw = os.environ.get("MODEL_MAP", "").strip()
-    if raw:
-        for pair in raw.split(","):
-            pair = pair.strip()
-            if not pair:
-                continue
-            # Split only on the FIRST colon so local names like qwen3-coder:30b work.
-            colon = pair.index(":")
-            src = pair[:colon].strip()
-            dst = pair[colon + 1:].strip()
-            if src and dst:
-                merged[src] = dst
-    return merged
-
+# ─── Legacy shim (kept for any external callers) ───────────────────────────────
 
 def get_local_model(anthropic_model: str) -> str:
-    """Return the local Ollama model name for a given Anthropic model name."""
-    global _resolved_model_map
-    if _resolved_model_map is None:
-        _resolved_model_map = _build_model_map()
-    if anthropic_model in _resolved_model_map:
-        return _resolved_model_map[anthropic_model]
-    if "*" in _resolved_model_map:
-        return _resolved_model_map["*"]
-    default = os.environ.get("AGENT_EXECUTOR_MODEL", "qwen3-coder:30b")
-    log.warning("No MODEL_MAP entry for %r — falling back to %s", anthropic_model, default)
-    return default
+    """Return the local Ollama model name for a given Anthropic model name.
+
+    .. deprecated::
+        Prefer ``get_router().route(requested_model=...)`` which returns full
+        routing metadata. This shim is kept for backwards compatibility.
+    """
+    decision = get_router().route(requested_model=anthropic_model)
+    return decision.resolved_model
 
 
 # ─── Request translation: Anthropic → OpenAI ──────────────────────────────────
@@ -264,6 +249,7 @@ async def _stream_anthropic_sse(
     key_id: str | None,
     openai_messages: list[dict[str, Any]],
     start_time: float,
+    routing_meta: dict[str, Any] | None = None,
 ) -> AsyncIterator[bytes]:
     """Translate Ollama OpenAI SSE stream → Anthropic SSE stream."""
 
@@ -367,6 +353,7 @@ async def _stream_anthropic_sse(
         input_tokens, output_tokens,
         latency_ms=latency_ms,
         ttft_ms=ttft_ms or 0,
+        routing_meta=routing_meta,
     )
 
 
@@ -383,6 +370,7 @@ async def _emit_safely(
     completion_tokens: int,
     latency_ms: int = 0,
     ttft_ms: int = 0,
+    routing_meta: dict[str, Any] | None = None,
 ) -> None:
     try:
         await asyncio.to_thread(
@@ -397,6 +385,7 @@ async def _emit_safely(
             completion_tokens=completion_tokens,
             latency_ms=latency_ms,
             ttft_ms=ttft_ms,
+            routing_meta=routing_meta,
         )
     except Exception as exc:
         log.warning("Anthropic compat Langfuse emit error: %s", exc)
@@ -426,7 +415,6 @@ async def handle_anthropic_messages(
 
     # ── Field extraction ───────────────────────────────────────────────────────
     anthropic_model = str(payload.get("model") or "claude-3-5-sonnet-20241022")
-    local_model = get_local_model(anthropic_model)
 
     system_raw = payload.get("system")
     system_text = _system_field_to_string(system_raw) if system_raw else None
@@ -436,8 +424,24 @@ async def handle_anthropic_messages(
     max_tokens = payload.get("max_tokens")
     tools: list[dict[str, Any]] = payload.get("tools") or []
 
+    # ── Route: decide which local model to use ─────────────────────────────────
+    # Manual override: client sends X-Model-Override header (works from any IDE).
+    override_model = request.headers.get("x-model-override") or None
+    openai_messages_for_routing = _messages_to_openai(anthropic_messages, system_text)
+    routing = get_router().route(
+        requested_model=anthropic_model,
+        messages=openai_messages_for_routing,
+        system=system_text,
+        has_tools=bool(tools),
+        stream=stream,
+        override_model=override_model,
+        endpoint_type="chat",
+    )
+    local_model = routing.resolved_model
+    routing_meta = routing.to_meta()
+
     # ── Build OpenAI payload ───────────────────────────────────────────────────
-    openai_messages = _messages_to_openai(anthropic_messages, system_text)
+    openai_messages = openai_messages_for_routing
 
     openai_payload: dict[str, Any] = {
         "model": local_model,
@@ -466,8 +470,10 @@ async def handle_anthropic_messages(
     msg_id = f"msg_{uuid.uuid4().hex[:24]}"
 
     log.info(
-        "→ /v1/messages model=%s → %s stream=%s tools=%d",
-        anthropic_model, local_model, stream, len(tools),
+        "→ /v1/messages model=%s → %s [%s/%s] stream=%s tools=%d",
+        anthropic_model, local_model,
+        routing.mode, routing.selection_source,
+        stream, len(tools),
     )
 
     # ── Streaming response ─────────────────────────────────────────────────────
@@ -477,18 +483,23 @@ async def handle_anthropic_messages(
                 target_url, forward_headers, forward_body,
                 anthropic_model, local_model, msg_id,
                 email, department, key_id, openai_messages, start_time,
+                routing_meta=routing_meta,
             ),
             media_type="text/event-stream",
             headers={
                 "X-Accel-Buffering": "no",
                 "Cache-Control": "no-cache",
                 "anthropic-version": "2023-06-01",
+                "X-Routing-Mode": routing.mode,
+                "X-Routing-Model": local_model,
             },
         )
 
-    # ── Non-streaming response ─────────────────────────────────────────────────
-    async with httpx.AsyncClient(timeout=httpx.Timeout(300.0, connect=10.0)) as client:
-        resp = await client.post(target_url, content=forward_body, headers=forward_headers)
+    # ── Non-streaming response (with fallback retry on 5xx) ───────────────────
+    resp = await _post_anthropic_with_fallback(
+        target_url, forward_body, forward_headers,
+        openai_payload, routing.fallback_chain,
+    )
 
     latency_ms = int((time.perf_counter() - start_time) * 1000)
 
@@ -508,10 +519,15 @@ async def handle_anthropic_messages(
     await _emit_safely(
         email, department, key_id, local_model, openai_messages, out_text,
         pt, ct, latency_ms=latency_ms,
+        routing_meta=routing_meta,
     )
 
     return JSONResponse(
         content=anthropic_resp,
         status_code=resp.status_code,
-        headers={"anthropic-version": "2023-06-01"},
+        headers={
+            "anthropic-version": "2023-06-01",
+            "X-Routing-Mode": routing.mode,
+            "X-Routing-Model": local_model,
+        },
     )

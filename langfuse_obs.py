@@ -217,12 +217,16 @@ def emit_chat_observation(
     completion_tokens: int,
     latency_ms: int = 0,
     ttft_ms: int = 0,
+    routing_meta: dict[str, Any] | None = None,
 ) -> None:
     """Record one generation in Langfuse (SDK first, then REST fallback).
 
     Args:
-        latency_ms:  Total wall-clock time from request receipt to last byte (ms).
-        ttft_ms:     Time to first token (ms). 0 if not measured.
+        latency_ms:    Total wall-clock time from request receipt to last byte (ms).
+        ttft_ms:       Time to first token (ms). 0 if not measured.
+        routing_meta:  Optional dict from ``RoutingDecision.to_meta()`` — records
+                       model selection mode, task category, selection source, etc.
+                       Pass ``None`` to omit routing fields (legacy callers).
     """
     if not _langfuse_enabled():
         return
@@ -256,6 +260,8 @@ def emit_chat_observation(
         meta["key_id"] = key_id
     if eq:
         meta["commercial_reference_model"] = eq.commercial_name
+    if routing_meta:
+        meta.update(routing_meta)
 
     use_http = _env_val("LANGFUSE_USE_HTTP_ONLY").lower() in ("1", "true", "yes")
     if use_http:

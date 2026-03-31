@@ -19,6 +19,7 @@ from agent.prompts import (
     build_verification_prompt,
 )
 from agent.tools import WorkspaceTools
+from router import get_router
 
 log = logging.getLogger("qwen-agent")
 
@@ -71,7 +72,20 @@ class AgentRunner:
         max_steps: int,
     ) -> AgentPlan:
         messages = build_planning_prompt(instruction, history)
-        raw = await self._chat_json(DEFAULT_PLANNER_MODEL if not requested_model else requested_model, messages)
+        planner_decision = get_router().route(
+            requested_model=requested_model,
+            messages=messages,
+            override_model=requested_model if requested_model else None,
+            endpoint_type="agent_plan",
+        )
+        planner_model = planner_decision.resolved_model if not requested_model else requested_model
+        if not planner_model:
+            planner_model = DEFAULT_PLANNER_MODEL
+        log.debug(
+            "agent plan: model=%s [%s/%s]",
+            planner_model, planner_decision.mode, planner_decision.selection_source,
+        )
+        raw = await self._chat_json(planner_model, messages)
         plan = AgentPlan.model_validate(raw)
         plan.steps = plan.steps[:max_steps]
         return plan
@@ -86,10 +100,32 @@ class AgentRunner:
         if not target_files and step.get("type") == "create":
             target_files = [f"generated/step_{step['id']}.txt"]
 
+        executor_decision = get_router().route(
+            requested_model=requested_model,
+            override_model=requested_model if requested_model else None,
+            endpoint_type="agent_execute",
+        )
+        executor_model = executor_decision.resolved_model if not requested_model else requested_model
+        if not executor_model:
+            executor_model = DEFAULT_EXECUTOR_MODEL
+
+        verifier_decision = get_router().route(
+            requested_model=requested_model,
+            endpoint_type="agent_verify",
+        )
+        verifier_model = verifier_decision.resolved_model if not requested_model else requested_model
+        if not verifier_model:
+            verifier_model = DEFAULT_VERIFIER_MODEL
+
+        log.debug(
+            "agent execute: executor=%s verifier=%s",
+            executor_model, verifier_model,
+        )
+
         for remaining in range(4, 0, -1):
             try:
                 tool_call = await self._chat_json(
-                    DEFAULT_EXECUTOR_MODEL,
+                    executor_model,
                     build_tool_prompt(goal=goal, step=step, observations=observations, remaining_calls=remaining),
                 )
                 call = ToolCall.model_validate(tool_call)
@@ -123,7 +159,7 @@ class AgentRunner:
             file_applied = False
             while retries <= 2:
                 response = await self._chat_text(
-                    DEFAULT_EXECUTOR_MODEL if not requested_model else requested_model,
+                    executor_model,
                     build_execution_prompt(
                         goal=goal,
                         step=step,
@@ -135,7 +171,7 @@ class AgentRunner:
                 parsed = self._parse_execution_response(response, target_file)
                 if not parsed:
                     repaired = await self._chat_text(
-                        DEFAULT_EXECUTOR_MODEL if not requested_model else requested_model,
+                        executor_model,
                         [
                             {
                                 "role": "system",
@@ -171,7 +207,7 @@ class AgentRunner:
                 syntax_issues = self._local_syntax_check(out_path, new_content)
                 syntax_issues.extend(self._local_safety_check(out_path, new_content))
                 verification = await self._chat_json(
-                    DEFAULT_VERIFIER_MODEL if not requested_model else requested_model,
+                    verifier_model,
                     build_verification_prompt(
                         goal=goal,
                         step=step,

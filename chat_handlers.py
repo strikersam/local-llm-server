@@ -15,8 +15,47 @@ from fastapi import HTTPException, Request
 from fastapi.responses import JSONResponse, StreamingResponse
 
 from langfuse_obs import emit_chat_observation
+from router import get_router
+from router.health import invalidate_cache as _invalidate_health_cache
 
 log = logging.getLogger("qwen-proxy")
+
+
+async def _post_with_fallback(
+    url: str,
+    body: bytes,
+    headers: dict[str, str],
+    fallback_models: list[str],
+) -> httpx.Response:
+    """POST to *url*; on 5xx retry with each model in *fallback_models*.
+
+    The body is a JSON object with a ``"model"`` key.  Each retry swaps in the
+    next model name.  Returns the last response regardless of status.
+    """
+    async with httpx.AsyncClient(timeout=httpx.Timeout(300.0, connect=10.0)) as client:
+        resp = await client.post(url, content=body, headers=headers)
+        if resp.status_code < 500 or not fallback_models:
+            return resp
+
+    for fallback in fallback_models:
+        log.warning(
+            "Upstream returned %d — retrying with fallback model %r",
+            resp.status_code, fallback,
+        )
+        # Invalidate health cache so the next route() reflects current state
+        _invalidate_health_cache()
+        try:
+            payload = json.loads(body)
+        except (json.JSONDecodeError, ValueError):
+            break
+        payload["model"] = fallback
+        retry_body = json.dumps(payload).encode("utf-8")
+        async with httpx.AsyncClient(timeout=httpx.Timeout(300.0, connect=10.0)) as client:
+            resp = await client.post(url, content=retry_body, headers=headers)
+        if resp.status_code < 500:
+            return resp
+
+    return resp
 
 _INJECT_STREAM_USAGE = os.environ.get("PROXY_INJECT_STREAM_USAGE", "true").strip().lower() in (
     "1",
@@ -205,6 +244,28 @@ async def handle_openai_chat_completions(
     model = payload.get("model")
     if not isinstance(model, str):
         model = ""
+
+    # ── Route: resolve the actual local model to use ──────────────────────────
+    override_model = request.headers.get("x-model-override") or None
+    messages_for_routing = payload.get("messages")
+    routing = get_router().route(
+        requested_model=model or None,
+        messages=messages_for_routing if isinstance(messages_for_routing, list) else None,
+        has_tools=bool(payload.get("tools")),
+        stream=bool(payload.get("stream", False)),
+        override_model=override_model,
+        endpoint_type="chat",
+    )
+    resolved_model = routing.resolved_model
+    routing_meta = routing.to_meta()
+
+    # Rewrite model in payload so it reaches Ollama correctly.
+    # Only rewrite if the router actually changed or resolved the model.
+    if resolved_model and resolved_model != model:
+        payload = dict(payload)
+        payload["model"] = resolved_model
+        model = resolved_model
+
     payload = _inject_default_system_prompt(payload)
     payload = _apply_chat_defaults(payload)
     messages = payload.get("messages")
@@ -213,7 +274,7 @@ async def handle_openai_chat_completions(
 
     if exact_output is not None:
         usage_completion_tokens = max(len(exact_output) // 4, 1) if exact_output else 0
-        await _emit_safely(email, department, key_id, model, messages, exact_output, 0, usage_completion_tokens)
+        await _emit_safely(email, department, key_id, model, messages, exact_output, 0, usage_completion_tokens, routing_meta=routing_meta)
         if stream:
             async def _single_exact_stream() -> AsyncIterator[bytes]:
                 yield _openai_chat_stream_bytes(exact_output, model)
@@ -242,13 +303,17 @@ async def handle_openai_chat_completions(
 
     if stream:
         return StreamingResponse(
-            _stream_openai_chat(target_url, headers, forward, email, department, key_id, model, messages),
+            _stream_openai_chat(target_url, headers, forward, email, department, key_id, model, messages, routing_meta=routing_meta),
             media_type="text/event-stream",
-            headers={"X-Accel-Buffering": "no", "Cache-Control": "no-cache"},
+            headers={
+                "X-Accel-Buffering": "no",
+                "Cache-Control": "no-cache",
+                "X-Routing-Mode": routing.mode,
+                "X-Routing-Model": model,
+            },
         )
 
-    async with httpx.AsyncClient(timeout=httpx.Timeout(300.0, connect=10.0)) as client:
-        resp = await client.post(target_url, content=forward, headers=headers)
+    resp = await _post_with_fallback(target_url, forward, headers, routing.fallback_chain)
 
     if resp.headers.get("content-type", "").startswith("application/json"):
         data = resp.json()
@@ -256,8 +321,12 @@ async def handle_openai_chat_completions(
         return JSONResponse(content=resp.text, status_code=resp.status_code)
 
     out_text, pt, ct = _openai_usage_from_response(data)
-    await _emit_safely(email, department, key_id, model, messages, out_text, pt, ct)
-    return JSONResponse(content=data, status_code=resp.status_code)
+    await _emit_safely(email, department, key_id, model, messages, out_text, pt, ct, routing_meta=routing_meta)
+    return JSONResponse(
+        content=data,
+        status_code=resp.status_code,
+        headers={"X-Routing-Mode": routing.mode, "X-Routing-Model": model},
+    )
 
 
 def _openai_usage_from_response(data: Any) -> tuple[str, int, int]:
@@ -293,6 +362,7 @@ async def _emit_safely(
     out_text: str,
     pt: int,
     ct: int,
+    routing_meta: dict[str, Any] | None = None,
 ) -> None:
     try:
         await asyncio.to_thread(
@@ -305,6 +375,7 @@ async def _emit_safely(
             output_text=out_text,
             prompt_tokens=pt,
             completion_tokens=ct,
+            routing_meta=routing_meta,
         )
     except Exception as e:
         log.warning("Observation emit error: %s", e)
@@ -355,6 +426,7 @@ async def _stream_openai_chat(
     key_id: str | None,
     model: str,
     messages: Any,
+    routing_meta: dict[str, Any] | None = None,
 ) -> AsyncIterator[bytes]:
     buf = bytearray()
     line_buf = bytearray()
@@ -393,7 +465,7 @@ async def _stream_openai_chat(
         # Rough fallback if usage was not present in stream
         est = max(len(out_text) // 4, 1)
         ct = est
-    await _emit_safely(email, department, key_id, model, messages, out_text, pt, ct)
+    await _emit_safely(email, department, key_id, model, messages, out_text, pt, ct, routing_meta=routing_meta)
 
 
 async def handle_ollama_native_chat(
@@ -413,25 +485,40 @@ async def handle_ollama_native_chat(
         raise HTTPException(status_code=400, detail="JSON body must be an object")
 
     payload = _inject_default_system_prompt(payload)
-    body = json.dumps(payload).encode("utf-8")
     model = payload.get("model")
     if not isinstance(model, str):
         model = ""
     stream = bool(payload.get("stream", False))
     messages = payload.get("messages")
 
+    # ── Route: resolve the actual local model ────────────────────────────────
+    override_model = request.headers.get("x-model-override") or None
+    routing = get_router().route(
+        requested_model=model or None,
+        messages=messages if isinstance(messages, list) else None,
+        stream=stream,
+        override_model=override_model,
+        endpoint_type="chat",
+    )
+    resolved_model = routing.resolved_model
+    routing_meta = routing.to_meta()
+    if resolved_model and resolved_model != model:
+        payload = dict(payload)
+        payload["model"] = resolved_model
+        model = resolved_model
+
+    body = json.dumps(payload).encode("utf-8")
     content_type = request.headers.get("content-type", "application/json")
     target_url = f"{ollama_base}/api/chat"
     headers = {"Content-Type": content_type}
 
     if stream:
         return StreamingResponse(
-            _stream_ollama_chat(target_url, headers, body, email, department, key_id, model, messages),
+            _stream_ollama_chat(target_url, headers, body, email, department, key_id, model, messages, routing_meta=routing_meta),
             media_type="application/x-ndjson",
         )
 
-    async with httpx.AsyncClient(timeout=httpx.Timeout(300.0, connect=10.0)) as client:
-        resp = await client.post(target_url, content=body, headers=headers)
+    resp = await _post_with_fallback(target_url, body, headers, routing.fallback_chain)
 
     if not resp.headers.get("content-type", "").startswith("application/json"):
         return JSONResponse(content=resp.text, status_code=resp.status_code)
@@ -447,7 +534,7 @@ async def handle_ollama_native_chat(
         pt = int(data.get("prompt_eval_count") or 0)
         ct = int(data.get("eval_count") or 0)
 
-    await _emit_safely(email, department, key_id, model, messages, out_text, pt, ct)
+    await _emit_safely(email, department, key_id, model, messages, out_text, pt, ct, routing_meta=routing_meta)
     return JSONResponse(content=data, status_code=resp.status_code)
 
 
@@ -460,6 +547,7 @@ async def _stream_ollama_chat(
     key_id: str | None,
     model: str,
     messages: Any,
+    routing_meta: dict[str, Any] | None = None,
 ) -> AsyncIterator[bytes]:
     buf = bytearray()
     async with httpx.AsyncClient(timeout=httpx.Timeout(300.0, connect=10.0)) as client:
@@ -475,7 +563,7 @@ async def _stream_ollama_chat(
     if pt == 0 and ct == 0 and out_text:
         est = max(len(out_text) // 4, 1)
         ct = est
-    await _emit_safely(email, department, key_id, model, messages, out_text, pt, ct)
+    await _emit_safely(email, department, key_id, model, messages, out_text, pt, ct, routing_meta=routing_meta)
 
 
 def _parse_ollama_ndjson(buffer: bytes) -> tuple[str, int, int]:
