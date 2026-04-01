@@ -616,8 +616,8 @@ async def anthropic_messages(request: Request, auth: AuthContext = Depends(verif
 
 @app.get("/v1/models")
 async def list_models_openai(auth: AuthContext = Depends(verify_api_key)):
-    """List available models — includes both local Ollama models and Claude name aliases."""
-    from handlers.anthropic_compat import _build_model_map
+    """List available models — union of live Ollama models and the router registry."""
+    from router.registry import get_registry
     try:
         async with httpx.AsyncClient(timeout=5) as client:
             r = await client.get(f"{OLLAMA_BASE}/api/tags")
@@ -625,17 +625,21 @@ async def list_models_openai(auth: AuthContext = Depends(verify_api_key)):
     except Exception:
         ollama_models = []
 
-    model_map = _build_model_map()
-    claude_aliases = [
-        {"id": claude_name, "object": "model", "owned_by": "local-via-" + local_name}
-        for claude_name, local_name in model_map.items()
-        if claude_name != "*"
-    ]
+    registry = get_registry()
+    ollama_set = set(ollama_models)
+
+    # Models known to Ollama
     local_entries = [
         {"id": name, "object": "model", "owned_by": "ollama"}
         for name in ollama_models
     ]
-    return {"object": "list", "data": local_entries + claude_aliases}
+    # Registry models not already reported by Ollama (e.g. not yet pulled)
+    registry_only = [
+        {"id": name, "object": "model", "owned_by": "router-registry"}
+        for name in registry
+        if name not in ollama_set
+    ]
+    return {"object": "list", "data": local_entries + registry_only}
 
 
 # ─── Ollama native routes (/api/*) ─────────────────────────────────────────────
