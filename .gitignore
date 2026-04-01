@@ -10,6 +10,9 @@ server.pids
 logs/
 *.pid
 *.log
+.data/
+.agents/
+webui/
 
 # Python cache
 __pycache__/
@@ -17,17 +20,6 @@ __pycache__/
 *.pyo
 .venv/
 venv/
-
-# Web UI build artifacts
-webui/frontend/node_modules/
-webui/frontend/dist/
-webui/frontend/*.tsbuildinfo
-
-# Web UI server-side config store (providers/workspaces)
-.data/
-
-# Local agent tooling (not part of runtime repo)
-.agents/
 
 # OS / editor
 .DS_Store

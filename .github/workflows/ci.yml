@@ -47,7 +47,8 @@ jobs:
         env:
           # Provide stub env vars so modules that read env at import time don't error
           API_KEYS: "ci-test-key"
-          ADMIN_SECRET: "ci-admin-secret-123"
+          ADMIN_PASSWORD: "ci-test-password"
+          SECRET_KEY: "ci-test-secret-do-not-use"
           OLLAMA_BASE: "http://localhost:11434"
           LANGFUSE_SECRET_KEY: ""
           LANGFUSE_PUBLIC_KEY: ""

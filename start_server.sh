@@ -24,13 +24,7 @@ mkdir -p "$LOG_DIR"
 
 # -- Resolve executables --------------------------------------------------------
 OLLAMA_EXE="${OLLAMA_EXE:-ollama}"
-if [[ -n "${PYTHON_EXE// }" ]]; then
-    :
-elif [[ -x "$SCRIPT_DIR/.venv/bin/python" ]]; then
-    PYTHON_EXE="$SCRIPT_DIR/.venv/bin/python"
-else
-    PYTHON_EXE="python3"
-fi
+PYTHON_EXE="${PYTHON_EXE:-python3}"
 CLOUDFLARED_EXE="${CLOUDFLARED_EXE:-cloudflared}"
 PROXY_PORT="${PROXY_PORT:-8000}"
 

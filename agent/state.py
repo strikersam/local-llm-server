@@ -16,20 +16,12 @@ class AgentSessionStore:
         self._lock = threading.RLock()
         self._sessions: dict[str, AgentSession] = {}
 
-    def create(
-        self,
-        *,
-        title: str | None = None,
-        provider_id: str | None = None,
-        workspace_id: str | None = None,
-    ) -> AgentSession:
+    def create(self, title: str | None = None) -> AgentSession:
         session_id = "as_" + secrets.token_hex(8)
         now = _now()
         session = AgentSession(
             session_id=session_id,
             title=title or "Coding Agent Session",
-            provider_id=provider_id,
-            workspace_id=workspace_id,
             created_at=now,
             updated_at=now,
             history=[],

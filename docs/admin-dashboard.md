@@ -105,7 +105,7 @@ The **Public URL** field appears below the service rows and is always visible. I
 
 Use this URL for:
 - Continue, Cursor, Zed, Aider client configuration
-- The built-in Web UI (App at `/`, Admin at `/admin/app`)
+- Any remote static admin frontend
 - Claude Code `ANTHROPIC_BASE_URL`
 
 **Recommended:** Run `setup_ngrok.py --token <token>` once on the server to claim a free permanent ngrok domain — it pre-fills this field and never changes. See the [Permanent URL section in README](../README.md#permanent-url).
@@ -213,16 +213,31 @@ Clicking it tests whether the configured Langfuse credentials can reach the Lang
 
 ---
 
-## Web UI Admin App (Built-in)
+## Remote Admin Frontend (Static Hosting)
 
-The proxy now ships a built-in “Claude Code–style” web UI that includes an Admin app for:
-- Provider/model configuration (OpenAI-compatible endpoints; secrets stored server-side)
-- Workspace selection (current repo by default; optional git-clone workspaces)
-- An admin-only command runner (allow-listed commands like `pytest`, `git status`)
+The repo ships a static frontend in `remote-admin/` that calls the JSON admin API. This lets you access admin functions from a hosted URL without exposing the browser to your home IP.
 
-**URL:** `/admin/app`
+**Setup:**
 
-This is served by the same FastAPI process as the proxy (no Vercel deploy required).
+1. Push the repo to GitHub
+2. Deploy `remote-admin/` as a static site (any static hosting; no server functions needed)
+3. Open the deployed URL
+4. Enter your current tunnel URL and admin credentials
+
+**Supported actions via remote frontend:**
+
+| Endpoint | Action |
+|----------|--------|
+| `POST /admin/api/login` | Authenticate → get session token |
+| `GET /admin/api/status` | Service health + current tunnel URL |
+| `POST /admin/api/control` | Start / stop / restart services |
+| `GET /admin/api/users` | List API key records |
+| `POST /admin/api/users` | Create a new key |
+| `PATCH /admin/api/users/{key_id}` | Update email / department |
+| `DELETE /admin/api/users/{key_id}` | Revoke key |
+| `POST /admin/api/users/{key_id}/rotate` | Rotate token |
+
+**Limitation:** The remote frontend needs the current tunnel URL, which changes on every restart. For permanent remote access, use a named Cloudflare tunnel.
 
 ---
 
@@ -290,4 +305,4 @@ After clicking **Create API key**, a flash banner appears at the top with the ne
 
 After clicking **Run connection test**, the result appears below the button. The green message confirms the Langfuse credentials are valid and the endpoint is reachable. A red message indicates a connection failure with the HTTP error code.
 
-> **Note:** The legacy `remote-admin/` static frontend is deprecated; use `/admin/app`.
+> **Note:** A remote admin frontend screenshot is not yet captured — it requires a live hosted deployment.

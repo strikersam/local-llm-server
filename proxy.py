@@ -41,10 +41,6 @@ from chat_handlers import handle_ollama_native_chat, handle_openai_chat_completi
 from handlers.anthropic_compat import handle_anthropic_messages
 from key_store import issue_new_api_key, load_key_store
 from service_manager import WindowsServiceManager
-from webui.config_store import JsonConfigStore
-from webui.providers import ProviderManager
-from webui.router import register_webui
-from webui.workspaces import WorkspaceManager
 
 # ─── Config ────────────────────────────────────────────────────────────────────
 
@@ -273,20 +269,6 @@ register_admin_gui(app, KEY_STORE, ADMIN_AUTH, SERVICE_MANAGER)
 AGENT_RUNNER = AgentRunner(ollama_base=OLLAMA_BASE, workspace_root=Path(__file__).resolve().parent)
 AGENT_SESSIONS = AgentSessionStore()
 
-WEBUI_STORE = JsonConfigStore()
-WEBUI_PROVIDERS = ProviderManager(WEBUI_STORE)
-WEBUI_WORKSPACES = WorkspaceManager(WEBUI_STORE, default_local_root=Path(__file__).resolve().parent)
-WEBUI_PROVIDERS.ensure_defaults(local_base_url=OLLAMA_BASE)
-WEBUI_WORKSPACES.ensure_defaults()
-register_webui(
-    app,
-    providers=WEBUI_PROVIDERS,
-    workspaces=WEBUI_WORKSPACES,
-    admin_enabled=ADMIN_AUTH.enabled,
-    verify_user=verify_api_key,
-    get_admin_identity=_get_admin_identity_from_request,
-)
-
 # ─── Health (no auth) ──────────────────────────────────────────────────────────
 
 @app.post("/admin/keys")
@@ -463,7 +445,7 @@ async def create_agent_session(
     auth: AuthContext = Depends(verify_api_key),
 ):
     title = body.title or f"Session for {auth.email}"
-    return AGENT_SESSIONS.create(title=title, provider_id=body.provider_id, workspace_id=body.workspace_id)
+    return AGENT_SESSIONS.create(title=title)
 
 
 @app.get("/agent/sessions/{session_id}")
@@ -487,32 +469,10 @@ async def run_agent_task(
     AGENT_SESSIONS.append_message(session_id, "user", body.instruction)
     history = [item.model_dump() for item in (AGENT_SESSIONS.get(session_id) or session).history]
     try:
-        provider_id = body.provider_id or session.provider_id
-        workspace_id = body.workspace_id or session.workspace_id
-        runner = AGENT_RUNNER
-        requested_model = body.model
-        if provider_id or workspace_id:
-            provider_id = provider_id or "prov_local"
-            workspace_id = workspace_id or "ws_current"
-            secret = WEBUI_PROVIDERS.get_secret(provider_id)
-            ws = WEBUI_WORKSPACES.get(workspace_id)
-            if not secret:
-                raise HTTPException(status_code=404, detail=f"Unknown provider: {provider_id}")
-            if not ws:
-                raise HTTPException(status_code=404, detail=f"Unknown workspace: {workspace_id}")
-            if requested_model is None and provider_id != "prov_local" and secret.default_model:
-                requested_model = secret.default_model
-            headers = {"Authorization": f"Bearer {secret.api_key}"} if secret.api_key else None
-            runner = AgentRunner(
-                ollama_base=secret.base_url,
-                workspace_root=ws.path,
-                provider_headers=headers,
-                provider_temperature=secret.default_temperature,
-            )
-        result = await runner.run(
+        result = await AGENT_RUNNER.run(
             instruction=body.instruction,
             history=history,
-            requested_model=requested_model,
+            requested_model=body.model,
             auto_commit=body.auto_commit,
             max_steps=body.max_steps,
         )
@@ -537,40 +497,14 @@ async def run_agent_task(
 
 @app.post("/agent/run")
 async def run_agent_once(body: AgentRunRequest, auth: AuthContext = Depends(verify_api_key)):
-    temp = AGENT_SESSIONS.create(
-        title=f"One-off run for {auth.email}",
-        provider_id=body.provider_id,
-        workspace_id=body.workspace_id,
-    )
+    temp = AGENT_SESSIONS.create(title=f"One-off run for {auth.email}")
     AGENT_SESSIONS.append_message(temp.session_id, "user", body.instruction)
     history = [item.model_dump() for item in (AGENT_SESSIONS.get(temp.session_id) or temp).history]
     try:
-        provider_id = body.provider_id
-        workspace_id = body.workspace_id
-        runner = AGENT_RUNNER
-        requested_model = body.model
-        if provider_id or workspace_id:
-            provider_id = provider_id or "prov_local"
-            workspace_id = workspace_id or "ws_current"
-            secret = WEBUI_PROVIDERS.get_secret(provider_id)
-            ws = WEBUI_WORKSPACES.get(workspace_id)
-            if not secret:
-                raise HTTPException(status_code=404, detail=f"Unknown provider: {provider_id}")
-            if not ws:
-                raise HTTPException(status_code=404, detail=f"Unknown workspace: {workspace_id}")
-            if requested_model is None and provider_id != "prov_local" and secret.default_model:
-                requested_model = secret.default_model
-            headers = {"Authorization": f"Bearer {secret.api_key}"} if secret.api_key else None
-            runner = AgentRunner(
-                ollama_base=secret.base_url,
-                workspace_root=ws.path,
-                provider_headers=headers,
-                provider_temperature=secret.default_temperature,
-            )
-        result = await runner.run(
+        result = await AGENT_RUNNER.run(
             instruction=body.instruction,
             history=history,
-            requested_model=requested_model,
+            requested_model=body.model,
             auto_commit=body.auto_commit,
             max_steps=body.max_steps,
         )
@@ -603,15 +537,10 @@ async def rollback_agent_commit(session_id: str, auth: AuthContext = Depends(ver
     if not commits:
         raise HTTPException(status_code=400, detail="No agent commit available to roll back")
     target = commits[-1]
-    cwd = Path(__file__).resolve().parent
-    if session.workspace_id:
-        ws = WEBUI_WORKSPACES.get(session.workspace_id)
-        if ws:
-            cwd = Path(ws.path)
     try:
         proc = subprocess.run(
             ["git", "revert", "--no-edit", target],
-            cwd=cwd,
+            cwd=Path(__file__).resolve().parent,
             check=True,
             capture_output=True,
             text=True,
@@ -744,6 +673,24 @@ async def openai_compat(path: str, request: Request, auth: AuthContext = Depends
             key_id=auth.key_id,
         )
     return await proxy_request(request, f"v1/{path}")
+
+# ─── Root info ──────────────────────────────────────────────────────────────────
+
+@app.get("/")
+async def root():
+    return {
+        "service": "Qwen3-Coder Authenticated Proxy",
+        "endpoints": {
+            "health":         "GET  /health          (no auth)",
+            "ollama_api":     "ANY  /api/*            (Bearer auth)",
+            "openai_compat":  "ANY  /v1/*             (Bearer auth)",
+            "agent_sessions": "POST /agent/sessions   (Bearer auth)",
+            "agent_run":      "POST /agent/run        (Bearer auth)",
+        },
+        "docs": "Set Authorization: Bearer <your-key> on all /api/* and /v1/* requests",
+        "admin_ui": "GET /admin/ui/login (Windows credentials if enabled, otherwise admin secret)",
+        "admin_api": "POST /admin/api/login then call /admin/api/status, /admin/api/control, /admin/api/users",
+    }
 
 # ─── Entry point ────────────────────────────────────────────────────────────────
 
