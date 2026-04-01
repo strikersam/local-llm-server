@@ -231,6 +231,9 @@ def _get_admin_identity_from_request(
     token = ""
     if authorization and authorization.startswith("Bearer "):
         token = authorization[7:].strip()
+    # Allow direct ADMIN_SECRET as Bearer token (used by bot/API clients)
+    if token and ADMIN_SECRET and token == ADMIN_SECRET:
+        return AdminIdentity(username="api", auth_source="token")
     session = ADMIN_AUTH.sessions.get(token) if token else None
     if session:
         return session.identity
