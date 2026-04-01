@@ -74,6 +74,20 @@ See [docs/claude-code-setup.md](claude-code-setup.md) for full Claude Code setup
 
 ---
 
+## Web UI (Claude Code–style)
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `WEBUI_DATA_DIR` | `.data` | Directory for server-side Web UI config storage (providers/workspaces). Not served to clients. Use a persistent volume path in production if you want provider/workspace config to survive restarts. |
+| `DATA_DIR` | (unset) | Alias for `WEBUI_DATA_DIR` (kept for convenience). |
+| `WEBUI_CMD_ALLOWLIST` | `pytest,rg,git,ls,cat` | Comma-separated allowlist for the admin-only command runner (`POST /admin/api/commands/run`). `git` is further restricted to safe subcommands (`status`, `diff`, `log`, `show`, `rev-parse`). |
+| `DEFAULT_TEMPERATURE` | `0.2` | Default temperature used when seeding providers from env (can be overridden per provider in the Admin app). |
+| `OPENAI_COMPAT_BASE_URL` | (unset) | Optional: seed a remote OpenAI-compatible provider on first boot (e.g. `https://api.openai.com`). Also accepted as `OPENAI_BASE_URL`. |
+| `OPENAI_COMPAT_API_KEY` | (unset) | Optional: API key for the seeded provider. Also accepted as `OPENAI_API_KEY`. |
+| `OPENAI_COMPAT_MODEL` | (unset) | Optional: default model for the seeded provider. Also accepted as `OPENAI_MODEL`. |
+
+---
+
 ## Langfuse Observability
 
 | Variable | Default | Description |

@@ -1,6 +1,6 @@
-# NEXT ACTION — AI Engineering Retrofit
+# NEXT ACTION — Web UI + Cloud Deployment
 
-**Session:** `repo-ai-retrofit` (2026-04-01)
+**Session:** `webui-claude-code-ui` (2026-04-01)
 **Resume command:** `python scripts/ai_runner.py resume`
 **Status file:** `.claude/state/agent-state.json`
 **Checkpoint log:** `.claude/state/checkpoint.jsonl`
@@ -9,40 +9,24 @@
 
 ## Current Objective
 
-Retrofit `local-llm-server` into a repo-native AI engineering system with:
-durable memory, reusable skills, deterministic hooks, mandatory tests + changelog
-enforcement, multi-agent orchestration, OpenClaw integration, and auto-resume.
+Ship a Claude Code–style Web UI + Admin app inside this repo, remove Vercel-specific
+deployment, and provide a public, worldwide hosting path.
 
 ---
 
 ## Completed Steps
 
-- [x] Repo inspection (stack: Python 3.13, FastAPI, pytest, ollama proxy)
-- [x] Directory scaffold created
-- [x] Bootstrap state files written
-- [x] `.gitignore` updated (allow `.claude/` project files)
-- [x] Root `CLAUDE.md` created
-- [x] Local `CLAUDE.md` for `agent/`, `router/`
-- [x] `.claude/skills/` — all 10 required skills
-- [x] `.claude/hooks/` — pre-commit, pre-push, commit-msg (blocking)
-- [x] `.githooks/` upgraded (soft→hard changelog check)
-- [x] GitHub Actions CI workflow
-- [x] GitHub Actions changelog-check workflow
-- [x] `.github/PULL_REQUEST_TEMPLATE.md`
-- [x] `.github/CODEOWNERS`
-- [x] `.claude/agents/` — planner, implementer, reviewer, judge personas
-- [x] `scripts/ai_runner.py` — auto-resume watchdog
-- [x] `docs/architecture/` — overview, agent-orchestration
-- [x] `docs/runbooks/` — auto-resume, release
-- [x] `docs/adrs/` — 3 ADRs
-- [x] `docs/admin/github-branch-protection.md`
+- [x] Built-in Web UI served by FastAPI at `/` and `/app`
+- [x] Built-in Admin app at `/admin/app` (providers/workspaces/commands)
+- [x] Workspace selection + optional git-clone workspaces
+- [x] Provider registry for remote OpenAI-compatible endpoints (secrets server-side)
+- [x] Removed Vercel-specific setup; deprecated `remote-admin/`
+- [x] Dockerfile + Cloud Run deployment docs
+- [x] `pytest -x` passes
 
 ## Next Step
 
-- [ ] **Step 17 — Self-test & verification**
-  - Run `pytest` to ensure all tests still pass
-  - Run hook simulation
-  - Verify `scripts/ai_runner.py` checkpoint/resume cycle
+- [ ] Deploy the container (recommended: `docs/deploy/cloud-run.md`)
 
 ## If Interrupted
 

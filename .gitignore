@@ -18,6 +18,14 @@ __pycache__/
 .venv/
 venv/
 
+# Web UI build artifacts
+webui/frontend/node_modules/
+webui/frontend/dist/
+webui/frontend/*.tsbuildinfo
+
+# Web UI server-side config store (providers/workspaces)
+.data/
+
 # OS / editor
 .DS_Store
 Thumbs.db
