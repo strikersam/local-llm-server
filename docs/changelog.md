@@ -8,6 +8,11 @@
 
 ## [Unreleased]
 
+### Security
+
+- `README.md`: removed hardcoded tunnel domain from documentation; use `NGROK_DOMAIN`
+  and placeholders instead.
+
 ### Added — Repo-native AI engineering system retrofit
 
 - **`CLAUDE.md`** — root operating guide for Claude: codebase map, key commands, coding
@@ -90,6 +95,11 @@
 
 - **`.githooks/prepare-commit-msg`** — updated to reference the new `.claude/hooks/`
   path and clarify that it is soft-reminder only; the blocking version is in `.claude/hooks/commit-msg`.
+
+### Fixed
+
+- `proxy.py`: allow `ADMIN_SECRET` as a Bearer token for admin API routes (useful for
+  bot/API clients).
 
 ---
 
