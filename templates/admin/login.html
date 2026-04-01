@@ -4,7 +4,11 @@
 <div class="grid-wide">
   <section class="card hero">
     <h1>Sign in to the control plane</h1>
-    <p class="muted">Use your Windows username and password for this machine. The same backend also exposes a JSON admin API that a remote static frontend can use.</p>
+    {% if supports_windows_auth %}
+    <p class="muted">Use your Windows username and password for this machine. The same backend also exposes a JSON admin API (and a built-in Admin app at <code>/admin/app</code>).</p>
+    {% else %}
+    <p class="muted">Windows auth is not available on this host. Use the configured <code>ADMIN_SECRET</code> as the password (username can be anything). You can also use the built-in Admin app at <code>/admin/app</code>.</p>
+    {% endif %}
     <div class="chips">
       <span class="chip">Service controls</span>
       <span class="chip">User management</span>

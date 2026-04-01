@@ -1,6 +1,6 @@
-# NEXT ACTION — AI Engineering Retrofit
+# NEXT ACTION — Web UI (No Vercel)
 
-**Session:** `repo-ai-retrofit` (2026-04-01)
+**Session:** `webui-no-vercel` (2026-04-01)
 **Resume command:** `python scripts/ai_runner.py resume`
 **Status file:** `.claude/state/agent-state.json`
 **Checkpoint log:** `.claude/state/checkpoint.jsonl`
@@ -9,41 +9,22 @@
 
 ## Current Objective
 
-Retrofit `local-llm-server` into a repo-native AI engineering system with:
-durable memory, reusable skills, deterministic hooks, mandatory tests + changelog
-enforcement, multi-agent orchestration, OpenClaw integration, and auto-resume.
+Maintain a built-in Claude Code–style Web UI + Admin app inside this repo, without any
+Vercel-specific artifacts or documentation references.
 
 ---
 
 ## Completed Steps
 
-- [x] Repo inspection (stack: Python 3.13, FastAPI, pytest, ollama proxy)
-- [x] Directory scaffold created
-- [x] Bootstrap state files written
-- [x] `.gitignore` updated (allow `.claude/` project files)
-- [x] Root `CLAUDE.md` created
-- [x] Local `CLAUDE.md` for `agent/`, `router/`
-- [x] `.claude/skills/` — all 10 required skills
-- [x] `.claude/hooks/` — pre-commit, pre-push, commit-msg (blocking)
-- [x] `.githooks/` upgraded (soft→hard changelog check)
-- [x] GitHub Actions CI workflow
-- [x] GitHub Actions changelog-check workflow
-- [x] `.github/PULL_REQUEST_TEMPLATE.md`
-- [x] `.github/CODEOWNERS`
-- [x] `.claude/agents/` — planner, implementer, reviewer, judge personas
-- [x] `scripts/ai_runner.py` — auto-resume watchdog
-- [x] `docs/architecture/` — overview, agent-orchestration
-- [x] `docs/runbooks/` — auto-resume, release
-- [x] `docs/adrs/` — 3 ADRs
-- [x] `docs/admin/github-branch-protection.md`
-- [x] Cleanup: reverted web UI work + removed Vercel artifacts/references
+- [x] Repo-native AI engineering system: skills, hooks, state, CI, docs
+- [x] Built-in Web UI served by FastAPI at `/` and `/app`
+- [x] Built-in Admin app at `/admin/app` (providers/workspaces/commands)
+- [x] Provider/workspace support for agent routes
+- [x] No Vercel-specific config files or docs
 
 ## Next Step
 
-- [ ] **Step 17 — Self-test & verification**
-  - Run `pytest` to ensure all tests still pass
-  - Run hook simulation
-  - Verify `scripts/ai_runner.py` checkpoint/resume cycle
+- [ ] Optional: deploy container (`docs/deploy/cloud-run.md` or `docs/deploy/docker.md`)
 
 ## If Interrupted
 

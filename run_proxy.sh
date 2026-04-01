@@ -14,7 +14,14 @@ export RATE_LIMIT_RPM="${RATE_LIMIT_RPM:-60}"
 export LOG_LEVEL="${LOG_LEVEL:-INFO}"
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-PYTHON_EXE="${PYTHON_EXE:-python3}"
+
+if [[ -n "${PYTHON_EXE// }" ]]; then
+  :
+elif [[ -x "$SCRIPT_DIR/.venv/bin/python" ]]; then
+  PYTHON_EXE="$SCRIPT_DIR/.venv/bin/python"
+else
+  PYTHON_EXE="python3"
+fi
 
 cd "$SCRIPT_DIR"
 exec "$PYTHON_EXE" -m uvicorn proxy:app --host 0.0.0.0 --port "$PROXY_PORT"

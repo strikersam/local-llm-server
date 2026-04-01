@@ -30,12 +30,16 @@ class VerificationResult(BaseModel):
 class AgentRunRequest(BaseModel):
     instruction: str = Field(..., min_length=1, max_length=8000)
     model: str | None = None
+    provider_id: str | None = Field(default=None, max_length=64)
+    workspace_id: str | None = Field(default=None, max_length=64)
     auto_commit: bool = False
     max_steps: int = Field(default=5, ge=1, le=5)
 
 
 class AgentSessionCreateRequest(BaseModel):
     title: str | None = Field(default=None, max_length=200)
+    provider_id: str | None = Field(default=None, max_length=64)
+    workspace_id: str | None = Field(default=None, max_length=64)
 
 
 class AgentSessionMessage(BaseModel):
@@ -46,6 +50,8 @@ class AgentSessionMessage(BaseModel):
 class AgentSession(BaseModel):
     session_id: str
     title: str
+    provider_id: str | None = None
+    workspace_id: str | None = None
     created_at: str
     updated_at: str
     history: list[AgentSessionMessage] = Field(default_factory=list)

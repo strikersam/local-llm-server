@@ -12,13 +12,16 @@
 
 - `README.md`: removed hardcoded tunnel domain from documentation; use `NGROK_DOMAIN`
   and placeholders instead.
+- `webui/providers.py`: provider API keys are stored server-side only and are never returned in API responses (only `has_api_key`).
+- `webui/commands.py`: added an admin-only, allow-listed command runner suitable for public deployments.
 
-### Removed
+### Added — Claude Code–style Web UI
 
-- Web UI + cloud deploy additions were reverted; the repo no longer includes the `webui/`
-  module or deployment docs introduced for it.
-- Hosting-specific artifacts and documentation references were removed from the remote
-  admin frontend.
+- `webui/frontend/`: Vite + React SPA served by the proxy (App at `/` + `/app`, Admin at `/admin/app`) with chat + agent run UI, repo/workspace browsing, and provider/workspace management.
+- `webui/router.py`: Web UI JSON API (`/ui/api/*`) and Admin config APIs (`/admin/api/providers`, `/admin/api/workspaces`, `/admin/api/commands/run`).
+- `webui/providers.py` + `webui/workspaces.py`: provider/workspace registries (local workspace by default; optional git-cloned workspaces).
+- `Dockerfile` + `.dockerignore`: container build that bundles the SPA and serves it from FastAPI (no external static hosting required).
+- `docs/deploy/cloud-run.md` + `docs/deploy/docker.md`: deployment guides for a public, worldwide URL and for container hosts.
 
 ### Added — Repo-native AI engineering system retrofit
 
@@ -96,6 +99,7 @@
 
 ### Changed
 
+- `proxy.py`: agent run endpoints now accept optional `provider_id`/`workspace_id` to run against a selected provider and workspace (backwards-compatible defaults preserved).
 - **`.gitignore`** — replaced blanket `.claude/` exclusion with targeted exclusions for
   ephemeral Claude Code session files only; project-level AI engineering files in `.claude/`
   are now tracked.
@@ -105,6 +109,9 @@
 
 ### Fixed
 
+- `tests/conftest.py`: ensure repo root modules (e.g. `proxy.py`) are importable under newer pytest import modes.
+- `start_server.sh` + `run_proxy.sh`: automatically prefer the repo `.venv` Python when present (avoids “No module named uvicorn” when system Python lacks deps).
+- `templates/admin/login.html`: clarify login method when Windows auth is unavailable (use `ADMIN_SECRET`).
 - `proxy.py`: allow `ADMIN_SECRET` as a Bearer token for admin API routes (useful for
   bot/API clients).
 

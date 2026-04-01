@@ -29,8 +29,19 @@ DEFAULT_VERIFIER_MODEL = os.environ.get("AGENT_VERIFIER_MODEL", "deepseek-r1:32b
 
 
 class AgentRunner:
-    def __init__(self, *, ollama_base: str, workspace_root: str | Path | None = None) -> None:
+    def __init__(
+        self,
+        *,
+        ollama_base: str,
+        workspace_root: str | Path | None = None,
+        provider_headers: dict[str, str] | None = None,
+        provider_temperature: float | None = None,
+    ) -> None:
+        # NOTE: "ollama_base" is kept for backwards compatibility; this runner only needs an
+        # OpenAI-compatible base URL with /v1/chat/completions.
         self.ollama_base = ollama_base.rstrip("/")
+        self.provider_headers = dict(provider_headers or {})
+        self.provider_temperature = provider_temperature
         self.tools = WorkspaceTools(workspace_root)
 
     async def run(
@@ -150,6 +161,8 @@ class AgentRunner:
                 "status": "skipped",
                 "reason": "No target files identified",
                 "changed_files": [],
+                "observations": observations,
+                "models": {"executor": executor_model, "verifier": verifier_model},
             }
 
         for target_file in target_files:
@@ -199,6 +212,8 @@ class AgentRunner:
                             "status": "failed",
                             "issues": feedback_issues,
                             "changed_files": changed_files,
+                            "observations": observations,
+                            "models": {"executor": executor_model, "verifier": verifier_model},
                         }
                     continue
 
@@ -234,6 +249,8 @@ class AgentRunner:
                         "status": "failed",
                         "issues": feedback_issues,
                         "changed_files": changed_files,
+                        "observations": observations,
+                        "models": {"executor": executor_model, "verifier": verifier_model},
                     }
             if not file_applied:
                 return {
@@ -242,6 +259,8 @@ class AgentRunner:
                     "status": "failed",
                     "issues": ["Executor did not produce an applicable file update."],
                     "changed_files": changed_files,
+                    "observations": observations,
+                    "models": {"executor": executor_model, "verifier": verifier_model},
                 }
 
         step_review_issues = self._review_step_result(step=step, changed_files=changed_files)
@@ -252,6 +271,8 @@ class AgentRunner:
                 "status": "failed",
                 "issues": step_review_issues,
                 "changed_files": changed_files,
+                "observations": observations,
+                "models": {"executor": executor_model, "verifier": verifier_model},
             }
 
         return {
@@ -259,6 +280,8 @@ class AgentRunner:
             "description": step["description"],
             "status": "applied",
             "changed_files": changed_files,
+            "observations": observations,
+            "models": {"executor": executor_model, "verifier": verifier_model},
         }
 
     def _run_tool(self, tool: str, args: dict[str, Any]) -> Any:
@@ -271,9 +294,12 @@ class AgentRunner:
         raise ValueError(f"Unsupported tool: {tool}")
 
     async def _chat_text(self, model: str, messages: list[dict[str, str]]) -> str:
-        payload = {"model": model, "messages": messages, "stream": False}
+        payload: dict[str, Any] = {"model": model, "messages": messages, "stream": False}
+        if self.provider_temperature is not None:
+            payload["temperature"] = self.provider_temperature
+        headers = {"Content-Type": "application/json", **self.provider_headers}
         async with httpx.AsyncClient(timeout=httpx.Timeout(300.0, connect=10.0)) as client:
-            resp = await client.post(f"{self.ollama_base}/v1/chat/completions", json=payload)
+            resp = await client.post(f"{self.ollama_base}/v1/chat/completions", json=payload, headers=headers)
         resp.raise_for_status()
         data = resp.json()
         return data["choices"][0]["message"]["content"]

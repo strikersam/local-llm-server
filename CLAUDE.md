@@ -39,7 +39,8 @@ key_store.py          API key CRUD + persistence (keys.json)   ← RISKY: secret
 langfuse_obs.py       Langfuse trace emission helper
 service_manager.py    Windows service / process management
 telegram_bot.py       Telegram bot for remote control
-remote-admin/         Static SPA for remote dashboard (optional hosting)
+remote-admin/         Legacy static SPA for remote dashboard (optional hosting)
+webui/               Claude Code–style web UI (SPA + backend APIs)
 client-configs/       Example configs for Cursor, Aider, Continue, Zed, VSCode
 docs/                 All documentation (architecture, runbooks, ADRs)
 .claude/              AI engineering system (skills, hooks, agents, state)

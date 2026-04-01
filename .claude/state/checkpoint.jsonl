@@ -13,4 +13,6 @@
 {"ts":"2026-04-01T00:11:00Z","step":"docs-architecture-adrs","status":"done","detail":"Created docs/architecture/overview.md, agent-orchestration.md, docs/runbooks/auto-resume.md, release.md, docs/adrs/001-003, docs/admin/github-branch-protection.md"}
 {"ts": "2026-04-01T19:24:07.896579+00:00", "step": "step-one", "status": "done", "detail": "simulation: step-one completed before interruption"}
 {"ts":"2026-04-01T00:12:00Z","step":"self-test-verification","status":"done","detail":"All 20 key files verified. Syntax checks pass. Manifest OK. Audit clean. Simulation PASS. Resume test PASS with isolated state."}
+{"ts":"2026-04-01T20:29:16Z","step":"webui-claude-code-ui","status":"done","detail":"Implemented Claude Code–style Web UI + Admin app (providers/workspaces/commands), removed Vercel config, added Dockerfile + Cloud Run docs, and updated agent/provider support. pytest -x PASS."}
 {"ts":"2026-04-01T21:17:01Z","step":"cleanup-remove-webui-vercel","status":"done","detail":"Reverted web UI + cloud deploy work; removed Vercel artifacts and documentation references."}
+{"ts":"2026-04-01T21:39:16Z","step":"webui-no-vercel-restore","status":"done","detail":"Restored built-in Web UI + Admin app without Vercel-specific artifacts or documentation references."}
