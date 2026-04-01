@@ -25,5 +25,9 @@ Desktop.ini
 .idea/
 .vscode/
 
-# Claude Code session state (not part of the project)
-.claude/
+# Claude Code ephemeral session state — do NOT commit these
+.claude/settings.local.json
+.claude/sessions/
+.claude/todos
+# But DO commit project-level AI engineering files in .claude/
+# (skills, hooks, commands, agents, state are intentionally versioned)

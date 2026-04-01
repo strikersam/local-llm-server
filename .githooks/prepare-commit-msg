@@ -1,8 +1,11 @@
 #!/usr/bin/env sh
 # prepare-commit-msg — remind committers to update docs/changelog.md
 #
-# Install:
+# Install (legacy, soft reminder only):
 #   git config core.hooksPath .githooks
+#
+# For BLOCKING enforcement use the full hook suite:
+#   git config core.hooksPath .claude/hooks
 #
 # This hook checks whether any staged Python/config/doc changes are present
 # without a matching update to docs/changelog.md, and prepends a reminder

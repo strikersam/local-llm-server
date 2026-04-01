@@ -1,0 +1,35 @@
+# CODEOWNERS — review requirements for sensitive paths
+#
+# GitHub docs: https://docs.github.com/en/repositories/managing-your-repositorys-settings-and-features/customizing-your-repository/about-code-owners
+#
+# Format: <pattern>  <@user-or-team>
+# Replace @your-github-username with the actual GitHub username(s).
+#
+# To enforce: enable "Require review from Code Owners" in branch protection settings.
+# See docs/admin/github-branch-protection.md
+
+# Default: all files require at least one review
+*                          @your-github-username
+
+# Auth + key management (highest security sensitivity)
+admin_auth.py              @your-github-username
+key_store.py               @your-github-username
+
+# Agent execution (filesystem write surface)
+agent/tools.py             @your-github-username
+agent/loop.py              @your-github-username
+
+# Core proxy (request routing, rate limiting, CORS)
+proxy.py                   @your-github-username
+
+# Model routing
+router/                    @your-github-username
+
+# CI/CD and repo configuration
+.github/                   @your-github-username
+.claude/                   @your-github-username
+Makefile                   @your-github-username
+
+# Documentation
+docs/                      @your-github-username
+CLAUDE.md                  @your-github-username
