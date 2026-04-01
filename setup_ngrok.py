@@ -87,7 +87,7 @@ def authenticate_ngrok(token: str, ngrok_bin: str) -> None:
     if result.returncode != 0:
         print(f"      ERROR: {result.stderr.strip()}")
         sys.exit(1)
-    print("      ✓ Authenticated")
+    print("      [OK] Authenticated")
 
 
 def get_or_create_static_domain(token: str) -> str:
@@ -99,17 +99,17 @@ def get_or_create_static_domain(token: str) -> str:
 
     if free_domains:
         domain = free_domains[0]["domain"]
-        print(f"      ✓ Found existing static domain: {domain}")
+        print(f"      [OK] Found existing static domain: {domain}")
         return domain
 
     # Create one (free tier allows exactly one ngrok-free.app domain)
-    print("      No static domain found — creating one...")
+    print("      No static domain found - creating one...")
     result = _api(token, "POST", "/reserved_domains", json={"domain": ""})
     domain = result.get("domain", "")
     if not domain:
         print("      ERROR: ngrok API did not return a domain. Check your account at https://dashboard.ngrok.com/domains")
         sys.exit(1)
-    print(f"      ✓ Created static domain: {domain}")
+    print(f"      [OK] Created static domain: {domain}")
     return domain
 
 
@@ -118,7 +118,7 @@ def save_to_env(token: str, domain: str) -> None:
     _save_env_var("NGROK_AUTH_TOKEN", token)
     _save_env_var("NGROK_DOMAIN", domain)
     _save_env_var("PUBLIC_URL", f"https://{domain}")
-    print(f"      ✓ PUBLIC_URL=https://{domain}")
+    print(f"      [OK] PUBLIC_URL=https://{domain}")
 
 
 def rewrite_tunnel_scripts(domain: str, ngrok_bin: str) -> None:
@@ -139,7 +139,7 @@ exec "$NGROK_BIN" http "$PROXY_PORT" --domain="$NGROK_DOMAIN" --log=stderr
         encoding="utf-8",
     )
     sh.chmod(0o755)
-    print(f"      ✓ run_tunnel.sh updated")
+    print("      [OK] run_tunnel.sh updated")
 
     bat = ROOT / "run_tunnel.bat"
     bat.write_text(
@@ -155,7 +155,7 @@ if "%NGROK_EXE%"=="" set NGROK_EXE=ngrok
 """,
         encoding="utf-8",
     )
-    print(f"      ✓ run_tunnel.bat updated")
+    print("      [OK] run_tunnel.bat updated")
 
 
 # ── main ───────────────────────────────────────────────────────────────────────
