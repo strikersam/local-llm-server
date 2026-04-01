@@ -1,0 +1,90 @@
+name: CI
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+    branches: ["main", "master"]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: Test (Python ${{ matrix.python-version }})
+    runs-on: ubuntu-latest
+
+    strategy:
+      matrix:
+        python-version: ["3.13"]
+      fail-fast: true
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Syntax check
+        run: |
+          find . -name "*.py" \
+            -not -path "./.venv/*" \
+            -not -path "./.git/*" \
+            -exec python -m py_compile {} +
+          echo "✓ Python syntax OK"
+
+      - name: Run tests
+        env:
+          # Provide stub env vars so modules that read env at import time don't error
+          API_KEYS: "ci-test-key"
+          ADMIN_PASSWORD: "ci-test-password"
+          SECRET_KEY: "ci-test-secret-do-not-use"
+          OLLAMA_BASE: "http://localhost:11434"
+          LANGFUSE_SECRET_KEY: ""
+          LANGFUSE_PUBLIC_KEY: ""
+          LANGFUSE_HOST: ""
+          ROUTER_HEALTH_CHECK_ENABLED: "false"
+        run: |
+          pytest -x -v --tb=short
+
+      - name: Upload test results
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results-${{ matrix.python-version }}
+          path: .pytest_cache/
+          retention-days: 7
+
+  lint:
+    name: Lint check
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          cache: pip
+      - name: Install
+        run: pip install -r requirements.txt
+      - name: Check for hardcoded secrets
+        run: |
+          # Fail if any non-test .py file has a hardcoded SECRET_KEY assignment
+          if grep -rn --include="*.py" \
+            --exclude-dir=".venv" \
+            --exclude-dir="tests" \
+            'SECRET_KEY\s*=\s*["\x27][^"]+["\x27]' .; then
+            echo "::error::Hardcoded SECRET_KEY found — use environment variables"
+            exit 1
+          fi
+          echo "✓ No hardcoded secrets found"

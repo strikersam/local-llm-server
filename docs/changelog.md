@@ -8,7 +8,88 @@
 
 ## [Unreleased]
 
-_(nothing pending)_
+### Added — Repo-native AI engineering system retrofit
+
+- **`CLAUDE.md`** — root operating guide for Claude: codebase map, key commands, coding
+  rules, testing expectations, changelog rule, skill-to-situation mapping table, and
+  pointers to all deeper docs. Local `CLAUDE.md` files added to `agent/` and `router/`
+  (risky modules).
+
+- **`AGENTS.md` + `TOOLS.md`** — workspace context files for agentic tools (OpenClaw,
+  Claude Code). Describes agent roles, state file locations, and available tool manifest.
+
+- **`.claude/skills/`** — 11 reusable repo-specific skills: `implementation-planner`,
+  `test-first-executor`, `changelog-enforcer`, `council-review`, `risky-module-review`,
+  `release-readiness`, `docs-sync`, `cooldown-resume`, `dependency-audit`,
+  `repo-memory-updater`, and `modularity-review` (inspired by Vlad Khononov's
+  balanced-coupling model).
+
+- **`.claude/hooks/`** — three blocking git hooks activated via
+  `git config core.hooksPath .claude/hooks`:
+  - `pre-commit`: blocks `.env`/`keys.json` commits, hardcoded `SECRET_KEY`, Python syntax errors
+  - `commit-msg`: rejects commits with code changes but no `docs/changelog.md` staged
+  - `pre-push`: runs `pytest -x` before any push
+
+- **`.claude/agents/`** — persona definitions for Planner, Implementer, Reviewer, and
+  Judge agents used by the orchestration layer.
+
+- **`.claude/commands/`** — slash-command definitions: `/plan`, `/review`, `/resume`.
+
+- **`.claude/state/`** — durable checkpoint system: `agent-state.json` (machine-readable
+  full session state), `NEXT_ACTION.md` (human-readable resume guide), `checkpoint.jsonl`
+  (append-only completed-step log).
+
+- **`scripts/ai_runner.py`** — auto-resume watchdog. Starts named Claude Code sessions,
+  detects rate-limit/cooldown/token-exhaustion patterns, retries with exponential backoff
+  (60s→120s→240s→480s→960s), resumes from last checkpoint with idempotency guarantees.
+  Provides `start`, `status`, `resume`, `stop`, `logs`, `summary`, `manifest`, `audit`,
+  `changelog-check`, and `test-resume` commands.
+
+- **`Makefile`** — developer command surface: `make test`, `make test-fast`, `make lint`,
+  `make hooks-install`, `make changelog-check`, `make ai-start/status/resume/stop/logs`,
+  `make manifest/summary/audit`.
+
+- **`.github/workflows/ci.yml`** — GitHub Actions CI: pytest + Python syntax check +
+  hardcoded-secret scan on every push and PR.
+
+- **`.github/workflows/changelog-check.yml`** — blocks PR merge if `docs/changelog.md`
+  has no `[Unreleased]` content (exempt prefixes: `chore:`, `docs:`, `ci:`, `test:`).
+
+- **`.github/PULL_REQUEST_TEMPLATE.md`** — structured PR template with testing,
+  changelog, risky-module, and council-review checklists.
+
+- **`.github/CODEOWNERS`** — code ownership for auth, key store, agent tools, routing,
+  and CI config paths.
+
+- **`docs/architecture/overview.md`** — full system architecture: component map,
+  multi-agent flow diagram, observability, deployment modes.
+
+- **`docs/architecture/agent-orchestration.md`** — four-agent design: plan-first pathway,
+  tool loop, execution pathway, review pathway, release-readiness pathway.
+
+- **`docs/runbooks/auto-resume.md`** — how auto-resume works, where state lives, how to
+  inspect stuck runs, force-resume, abort, and simulation proof.
+
+- **`docs/runbooks/release.md`** — step-by-step release procedure with rollback plan.
+
+- **`docs/runbooks/openclaw-setup.md`** — OpenClaw installation, workspace linking, and
+  shared-vs-personal memory separation.
+
+- **`docs/adrs/001-local-llm-proxy.md`** — ADR: self-hosted OpenAI-compatible proxy.
+- **`docs/adrs/002-model-routing.md`** — ADR: dynamic model routing with task classification.
+- **`docs/adrs/003-multi-agent-orchestration.md`** — ADR: plan-execute-verify loop design.
+
+- **`docs/admin/github-branch-protection.md`** — exact GitHub branch protection settings
+  required to make CI and changelog checks mandatory merge gates.
+
+### Changed
+
+- **`.gitignore`** — replaced blanket `.claude/` exclusion with targeted exclusions for
+  ephemeral Claude Code session files only; project-level AI engineering files in `.claude/`
+  are now tracked.
+
+- **`.githooks/prepare-commit-msg`** — updated to reference the new `.claude/hooks/`
+  path and clarify that it is soft-reminder only; the blocking version is in `.claude/hooks/commit-msg`.
 
 ---
 
