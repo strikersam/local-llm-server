@@ -10,18 +10,18 @@ No cloud costs. No data sent to third parties. Full control over your models.
 
 > The server runs on a personal laptop. Use these credentials to connect from any client machine.
 >
-> **Tunnel URL (permanent):** `https://YOUR_NGROK_DOMAIN`
+> **Tunnel URL (permanent):** set `NGROK_DOMAIN` in `.env` — visible in Admin UI at `/admin/ui/`
 > **API Key:** from the personal laptop's `.env` → `API_KEYS` value
 >
 > To use with Claude Code CLI:
 > ```bash
-> export ANTHROPIC_BASE_URL=https://YOUR_NGROK_DOMAIN
+> export ANTHROPIC_BASE_URL=https://<your-ngrok-domain>
 > export ANTHROPIC_API_KEY=<your-api-key>
 > claude
 > ```
 > To verify the connection:
 > ```bash
-> curl https://YOUR_NGROK_DOMAIN/v1/models \
+> curl https://<your-ngrok-domain>/v1/models \
 >   -H "Authorization: Bearer <your-api-key>"
 > ```
 >
