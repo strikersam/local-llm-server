@@ -26,6 +26,9 @@ webui/frontend/*.tsbuildinfo
 # Web UI server-side config store (providers/workspaces)
 .data/
 
+# Local agent tooling (not part of runtime repo)
+.agents/
+
 # OS / editor
 .DS_Store
 Thumbs.db
