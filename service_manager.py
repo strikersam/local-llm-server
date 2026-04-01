@@ -79,7 +79,7 @@ class WindowsServiceManager:
     def _find_pid(self, service: str) -> int | None:
         scripts = {
             "proxy": "Get-CimInstance Win32_Process | Where-Object { $_.CommandLine -like '*proxy:app*' } | Select-Object -ExpandProperty ProcessId -First 1",
-            "tunnel": "Get-Process -Name cloudflared -ErrorAction SilentlyContinue | Select-Object -ExpandProperty Id -First 1",
+            "tunnel": "Get-Process -Name ngrok -ErrorAction SilentlyContinue | Select-Object -ExpandProperty Id -First 1",
             "ollama": "Get-Process -Name ollama -ErrorAction SilentlyContinue | Select-Object -ExpandProperty Id -First 1",
         }
         completed = self._run_ps(scripts[service])
@@ -102,17 +102,18 @@ class WindowsServiceManager:
         configured = os.environ.get("PUBLIC_URL", "").strip()
         if configured:
             return configured
-        # Fall back to auto-detecting the ephemeral quick-tunnel URL from the cloudflared log.
-        log_file = self.logs_dir / "tunnel-err.log"
-        if not log_file.is_file():
-            return None
-        raw = log_file.read_text(encoding="utf-8", errors="ignore")
-        matches = []
-        marker = ".trycloudflare.com"
-        for token in raw.split():
-            if token.startswith("https://") and marker in token:
-                matches.append(token.strip(' "\'<>'))
-        return matches[-1] if matches else None
+        # Query ngrok's local API for the live tunnel URL.
+        try:
+            import urllib.request
+            with urllib.request.urlopen("http://localhost:4040/api/tunnels", timeout=2) as resp:
+                data = json.loads(resp.read())
+            for t in data.get("tunnels", []):
+                url = t.get("public_url", "")
+                if url.startswith("https://"):
+                    return url
+        except Exception:
+            pass
+        return None
 
     def get_status(self) -> dict[str, object]:
         services = {

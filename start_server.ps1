@@ -49,19 +49,17 @@ if (-not $pythonExe) {
     exit 1
 }
 
-# CLOUDFLARED_EXE: explicit path in .env, or search PATH + common install locations
-$cfExe = $env:CLOUDFLARED_EXE
-if (-not $cfExe) {
+# NGROK_EXE: explicit path in .env, or search default pyngrok install location + PATH
+$ngrokExe = $env:NGROK_EXE
+if (-not $ngrokExe) {
     $candidates = @(
-        "cloudflared",
-        "C:\Program Files (x86)\cloudflared\cloudflared.exe",
-        "C:\Program Files\cloudflared\cloudflared.exe",
-        "$env:LOCALAPPDATA\cloudflared\cloudflared.exe"
+        "$env:LOCALAPPDATA\ngrok\ngrok.exe",
+        "ngrok"
     )
     foreach ($c in $candidates) {
         try {
-            & $c --version 2>&1 | Out-Null
-            if ($LASTEXITCODE -eq 0) { $cfExe = $c; break }
+            & $c version 2>&1 | Out-Null
+            if ($LASTEXITCODE -eq 0) { $ngrokExe = $c; break }
         } catch {}
     }
 }
@@ -127,34 +125,42 @@ for ($i = 1; $i -le 15; $i++) {
     Write-Host "  Waiting for proxy... ($i/15)"
 }
 
-# -- Step 3: Start Cloudflare Tunnel --------------------------------------------
+# -- Step 3: Start ngrok Tunnel ------------------------------------------------
 Write-Host ""
-Write-Host "[3/3] Starting Cloudflare Tunnel..." -ForegroundColor Cyan
+Write-Host "[3/3] Starting ngrok Tunnel..." -ForegroundColor Cyan
 
-$cfProc = $null
+$ngrokProc = $null
 
-if (-not $cfExe) {
-    Write-Host "[SKIP] cloudflared not found. Run install.ps1 to set it up." -ForegroundColor Yellow
+if (-not $ngrokExe) {
+    Write-Host "[SKIP] ngrok not found. Install via: pip install pyngrok" -ForegroundColor Yellow
     Write-Host "       Local only: http://localhost:$($env:PROXY_PORT)" -ForegroundColor Yellow
 } else {
-    Get-Process -Name "cloudflared" -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
+    Get-Process -Name "ngrok" -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
     Start-Sleep -Milliseconds 500
 
-    $cfProc = Start-Process -FilePath "$SCRIPT_DIR\run_tunnel.bat" `
+    $ngrokProc = Start-Process -FilePath "$SCRIPT_DIR\run_tunnel.bat" `
         -WorkingDirectory $SCRIPT_DIR `
         -RedirectStandardOutput "$LOG_DIR\tunnel.log" `
         -RedirectStandardError  "$LOG_DIR\tunnel-err.log" `
         -WindowStyle Hidden -PassThru
 
-    Start-Sleep -Seconds 8
+    # Wait for ngrok local API to become ready (up to 15s)
     $tunnelUrl = ""
-    if (Test-Path "$LOG_DIR\tunnel-err.log") {
-        $raw = Get-Content "$LOG_DIR\tunnel-err.log" -Raw -ErrorAction SilentlyContinue
-        if ($raw -match "https://[a-z0-9\-]+\.trycloudflare\.com") {
-            $tunnelUrl = $matches[0]
-        }
+    for ($i = 1; $i -le 15; $i++) {
+        Start-Sleep -Seconds 1
+        try {
+            $apiResp = Invoke-RestMethod -Uri "http://localhost:4040/api/tunnels" -TimeoutSec 2 -ErrorAction Stop
+            $https = $apiResp.tunnels | Where-Object { $_.public_url -like "https://*" } | Select-Object -First 1
+            if ($https) {
+                $tunnelUrl = $https.public_url
+                # Persist as PUBLIC_URL so admin UI and proxy reflect it immediately
+                [System.Environment]::SetEnvironmentVariable("PUBLIC_URL", $tunnelUrl, "Process")
+                break
+            }
+        } catch {}
     }
-    Write-Host "[OK] Tunnel started (PID $($cfProc.Id))" -ForegroundColor Green
+
+    Write-Host "[OK] Tunnel started (PID $($ngrokProc.Id))" -ForegroundColor Green
     if ($tunnelUrl) {
         Write-Host ""
         Write-Host "  >>> Public URL: $tunnelUrl <<<" -ForegroundColor Yellow
@@ -162,7 +168,7 @@ if (-not $cfExe) {
         Write-Host "  (URL copied to clipboard)" -ForegroundColor Gray
         Write-Host ""
     } else {
-        Write-Host "  Run .\get_tunnel_url.ps1 to see the public URL." -ForegroundColor Yellow
+        Write-Host "  Could not detect URL yet - check Admin UI or http://localhost:4040" -ForegroundColor Yellow
     }
 }
 
@@ -170,7 +176,7 @@ if (-not $cfExe) {
 @{
     ollama = $ollamaProc.Id
     proxy  = $proxyProc.Id
-    tunnel = if ($cfProc) { $cfProc.Id } else { $null }
+    tunnel = if ($ngrokProc) { $ngrokProc.Id } else { $null }
 } | ConvertTo-Json | Set-Content "$SCRIPT_DIR\server.pids"
 
 # -- Summary --------------------------------------------------------------------
