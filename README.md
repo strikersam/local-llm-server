@@ -10,25 +10,22 @@ No cloud costs. No data sent to third parties. Full control over your models.
 
 > The server runs on a personal laptop. Use these credentials to connect from any client machine.
 >
-> **API Key:** `<your-api-key>` (from your `.env` `API_KEYS` value)
+> **Tunnel URL (permanent):** `https://YOUR_NGROK_DOMAIN`
+> **API Key:** from the personal laptop's `.env` → `API_KEYS` value
 >
-> **Tunnel URL:** Run `setup_ngrok.py` once on the personal laptop to get a **permanent static URL** — see [Permanent URL](#permanent-url) below. Once set up, the URL is pinned in the Admin UI and never changes.
->
-> Until then, find the current ephemeral URL via:
-> - Admin UI on the personal laptop: `http://localhost:8000/admin/ui/` → **Public URL** field (editable — paste a permanent URL here to pin it)
-> - Running: `./get_tunnel_url.sh` (macOS/Linux) or `.\get_tunnel_url.ps1` (Windows)
->
-> To use with Claude Code CLI once you have the URL:
+> To use with Claude Code CLI:
 > ```bash
-> export ANTHROPIC_BASE_URL=https://<tunnel-url>
+> export ANTHROPIC_BASE_URL=https://YOUR_NGROK_DOMAIN
 > export ANTHROPIC_API_KEY=<your-api-key>
 > claude
 > ```
 > To verify the connection:
 > ```bash
-> curl https://<tunnel-url>/v1/models \
+> curl https://YOUR_NGROK_DOMAIN/v1/models \
 >   -H "Authorization: Bearer <your-api-key>"
 > ```
+>
+> This URL is permanent — it will not change across server restarts. It is also visible and editable in the Admin UI at `http://localhost:8000/admin/ui/` → **Public URL** field.
 
 ---
 
