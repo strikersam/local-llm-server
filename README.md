@@ -577,7 +577,7 @@ qwen-server/
 
 | Web UI (Agentic coding) | Admin app (Login) | Admin app (Providers + Workspaces) |
 |---|---|---|
-| ![Web UI](/docs/screenshots/webui-app.png) | ![Admin login](/docs/screenshots/webui-admin-login.png) | ![Admin app](/docs/screenshots/webui-admin.png) |
+| ![Web UI](docs/screenshots/webui-app.png) | ![Admin login](docs/screenshots/webui-admin-login.png) | ![Admin app](docs/screenshots/webui-admin.png) |
 
 ## What you get (high-level)
 
