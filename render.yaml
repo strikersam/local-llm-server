@@ -1,0 +1,24 @@
+services:
+  - type: web
+    name: llm-wiki-backend
+    env: docker
+    dockerfilePath: ./Dockerfile.backend
+    plan: free
+    healthCheckPath: /api/health
+    envVars:
+      - key: MONGO_URL
+        sync: false          # Set to your MongoDB Atlas connection string
+      - key: DB_NAME
+        value: llm_wiki_dashboard
+      - key: JWT_SECRET
+        generateValue: true
+      - key: ADMIN_EMAIL
+        value: admin@llmwiki.local
+      - key: ADMIN_PASSWORD
+        sync: false          # Set a strong password
+      - key: LLM_PROVIDER
+        value: ollama
+      - key: OLLAMA_BASE_URL
+        sync: false          # Set to your Ollama instance URL (or leave blank)
+      - key: FRONTEND_URL
+        value: https://strikersam.github.io

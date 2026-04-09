@@ -2,6 +2,7 @@
   "name": "llm-wiki-dashboard",
   "version": "1.0.0",
   "private": true,
+  "homepage": "https://strikersam.github.io/local-llm-server",
   "dependencies": {
     "axios": "^1.6.0",
     "lucide-react": "^0.294.0",
