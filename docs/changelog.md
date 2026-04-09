@@ -23,6 +23,11 @@
 - **`VITE_API_BASE` support in web UI**: `webui/frontend/src/api.ts` now reads `VITE_API_BASE` at build time. When empty (default), all API calls use relative paths (works on Render single-container). When set to an absolute URL (e.g. the Render service URL), the frontend can be hosted separately on GitHub Pages and still reach the backend.
 - **Cloudflare Tunnel profile in docker-compose.yml**: `docker compose --profile tunnel up` starts a `cloudflared` container providing a free public HTTPS URL for the proxy — no account or port-forwarding required for quick tunnels.
 
+- **`MODEL_MAP` parser bug fixed** (`router/model_router.py`): `pair.index(":")` was used to split alias pairs, which only works when the destination model name contains no colons. Model names like `qwen3-coder:30b` contain a colon, so `MODEL_MAP=claude-sonnet-4-6:qwen3-coder:30b` was silently misparsed. Fixed to `pair.split(":", 1)`.
+- **Token count calculation fixed** (`chat_handlers.py`): When only `total_tokens` was set in a stream (no prompt/completion split), completion was calculated as `max(total - prompt, 0)` with `prompt = 0`, which was already correct. Simplified for clarity.
+- **`KeyStore` corruption handling added** (`key_store.py`): `_load_unlocked` previously crashed silently if `keys.json` contained invalid JSON (disk corruption, partial write, etc.). Now catches `JSONDecodeError` / `OSError`, logs a warning, and resets to an empty store instead of leaving keys in an undefined state.
+- **`Dockerfile` health check added**: Container now declares a `HEALTHCHECK` using Python's built-in `urllib` (no extra dependency) so Docker, Render, and `docker-compose` all get live readiness signals from `/health`.
+
 ### Fixed — (prior entries)
 
 - **Vercel deployments removed**: Added `vercel.json` with `github.enabled: false` to disable Vercel's GitHub integration and stop failing deployment statuses.
