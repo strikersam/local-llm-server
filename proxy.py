@@ -1169,7 +1169,12 @@ async def anthropic_messages(request: Request, auth: AuthContext = Depends(verif
 
 @app.get("/v1/models")
 async def list_models_openai(auth: AuthContext = Depends(verify_api_key)):
-    """List available models — union of live Ollama models and the router registry."""
+    """List available models — union of live Ollama models, router registry, and Claude aliases.
+
+    Claude aliases (e.g. claude-sonnet-4-6) are included so that Claude Code and
+    other Anthropic SDK clients can discover and select them without manual config.
+    """
+    from router.model_router import _get_model_map
     from router.registry import get_registry
     try:
         async with httpx.AsyncClient(timeout=5) as client:
@@ -1192,7 +1197,15 @@ async def list_models_openai(auth: AuthContext = Depends(verify_api_key)):
         for name in registry
         if name not in ollama_set
     ]
-    return {"object": "list", "data": local_entries + registry_only}
+    # Claude/Anthropic model aliases from MODEL_MAP — lets Claude Code and
+    # Anthropic SDK clients discover which model names this proxy accepts.
+    alias_set = set(m["id"] for m in local_entries + registry_only)
+    alias_entries = [
+        {"id": alias, "object": "model", "owned_by": "proxy-alias"}
+        for alias in _get_model_map()
+        if alias not in alias_set
+    ]
+    return {"object": "list", "data": local_entries + registry_only + alias_entries}
 
 
 # ─── Ollama native routes (/api/*) ─────────────────────────────────────────────

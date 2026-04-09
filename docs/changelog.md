@@ -10,6 +10,21 @@
 
 ### Fixed
 
+- **render.yaml completely rewritten**: Previous file deployed a MongoDB-based wiki project instead of the actual FastAPI proxy. Now correctly uses the main `Dockerfile`, correct health-check path (`/health`), and the right env vars (`OLLAMA_BASE`, `API_KEYS`, `ADMIN_SECRET`, `KEYS_FILE`, etc.).
+- **docker-compose.yml rewritten**: Removed stale MongoDB/LLM-wiki services. Default stack is now `ollama` + `proxy`. Optional profiles: `--profile tunnel` (Cloudflare Tunnel, free) and `--profile ngrok`. The proxy is now the default service instead of being buried under the `full` profile.
+- **deploy-frontend.yml workflow fixed**: Was deploying the old `frontend/` (llm-wiki CRA project) instead of `webui/frontend/` (the actual Vite-based web UI). Fixed all paths, replaced `REACT_APP_*` env vars with `VITE_*`, corrected build output from `build/` to `dist/`.
+- **Dockerfile.frontend updated**: Now builds the correct `webui/frontend/` Vite project (was building `frontend/` stale CRA project). Supports `VITE_API_BASE` build arg for GitHub Pages deployment.
+- **Dockerfile.backend removed**: Stale file that referenced `backend/` (a different MongoDB-based project). Not part of the proxy architecture.
+- **`/v1/models` now includes Claude model aliases**: The endpoint previously only listed live Ollama models and registry entries. Claude Code and Anthropic SDK clients now see all configured model aliases (e.g. `claude-sonnet-4-6`, `claude-opus-4-6`) in the model list, enabling automatic model discovery.
+- **.env.example cleaned up**: Removed stale `MONGO_URL` / `DB_NAME` vars. Added Cloudflare Tunnel and ngrok setup instructions, Claude Code / Cursor / Aider configuration guide.
+
+### Added
+
+- **`VITE_API_BASE` support in web UI**: `webui/frontend/src/api.ts` now reads `VITE_API_BASE` at build time. When empty (default), all API calls use relative paths (works on Render single-container). When set to an absolute URL (e.g. the Render service URL), the frontend can be hosted separately on GitHub Pages and still reach the backend.
+- **Cloudflare Tunnel profile in docker-compose.yml**: `docker compose --profile tunnel up` starts a `cloudflared` container providing a free public HTTPS URL for the proxy — no account or port-forwarding required for quick tunnels.
+
+### Fixed — (prior entries)
+
 - **Vercel deployments removed**: Added `vercel.json` with `github.enabled: false` to disable Vercel's GitHub integration and stop failing deployment statuses.
 - **pytest collection fixed**: Added `pytest.ini` restricting test discovery to `tests/` — prevents root-level integration scripts (`backend_test.py`, `backend_test_iteration3.py`) from breaking CI.
 
