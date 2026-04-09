@@ -145,51 +145,86 @@ Control your entire stack from your phone. No browser, no VPN.
 
 ## Quick Start
 
+### Option A — Deploy to Render (free public URL, works from anywhere)
+
+1. Connect [github.com/strikersam/local-llm-server](https://github.com/strikersam/local-llm-server) to [render.com](https://render.com) → **New → Web Service** → Render auto-detects `render.yaml`
+2. Set these env vars in the Render dashboard:
+
+| Variable | What to put |
+|---|---|
+| `ADMIN_SECRET` | A strong password you choose — **this is your admin login password** |
+| `API_KEYS` | A bearer token for API clients, e.g. `sk-mykey123` |
+| `OLLAMA_BASE` | Your Windows machine Cloudflare tunnel URL (see below), or leave blank to use a cloud provider |
+
+3. Deploy → Render gives you `https://your-app.onrender.com`
+
+**No Windows machine? Use a free cloud provider instead** — add ONE of these to Render env vars:
+
+| Provider | `OPENAI_COMPAT_BASE_URL` | `OPENAI_COMPAT_API_KEY` | `OPENAI_COMPAT_MODEL` |
+|---|---|---|---|
+| **HuggingFace** (free) | `https://api-inference.huggingface.co/v1` | `hf_xxx` from huggingface.co/settings/tokens | `Qwen/Qwen2.5-Coder-32B-Instruct` |
+| **Groq** (free, fast) | `https://api.groq.com/openai/v1` | Groq API key | `llama-3.3-70b-versatile` |
+| **OpenRouter** (free models) | `https://openrouter.ai/api/v1` | OpenRouter key | `meta-llama/llama-3.3-70b-instruct:free` |
+
+**Access the deployed service:**
+
+| What | URL |
+|---|---|
+| Web UI (agent chat) | `https://your-app.onrender.com/app` — enter your `API_KEYS` value |
+| Admin dashboard | `https://your-app.onrender.com/admin/app` — username: anything, password: `ADMIN_SECRET` |
+| Health / model list | `https://your-app.onrender.com/health` |
+
+> Render free tier sleeps after 15 min idle (30 s wake-up). Upgrade to Starter ($7/mo) for always-on.
+
+---
+
+### Option B — Local Docker + public tunnel (Windows machine with Ollama)
+
 ```bash
 git clone https://github.com/strikersam/local-llm-server
 cd local-llm-server
 
-cp .env.example .env   # edit with your settings
+cp .env.example .env
+# Edit .env — set API_KEYS and ADMIN_SECRET
 
-docker compose up -d                      # core services
-docker compose --profile public up -d     # + Cloudflare tunnel
-docker compose --profile full up -d       # + OpenAI proxy for external tools
+docker compose up -d                    # proxy on :8000 + Ollama on :11434
+docker compose --profile tunnel up -d  # also starts free Cloudflare public URL
 ```
 
-Open **http://localhost:3000** and log in.
+The Cloudflare tunnel container prints a `*.trycloudflare.com` URL — that's your public URL. Open **http://localhost:8000/app** locally.
 
+**Expose your Windows Ollama to Render** (so cloud-deployed proxy can reach local models):
+```powershell
+winget install Cloudflare.cloudflared
+cloudflared tunnel --url http://localhost:11434
+# Copy the printed *.trycloudflare.com URL → paste as OLLAMA_BASE in Render env vars
 ```
-Email:    admin@llmwiki.local
-Password: WikiAdmin2026!
-```
-
-> Change these in `.env` before exposing to the internet.
 
 ---
 
 ## Connecting Your AI Tools
 
-The proxy at port 8000 speaks the OpenAI API. Any tool with a configurable base URL works without modification.
+The proxy speaks both the OpenAI and Anthropic APIs. Replace `https://your-app.onrender.com` with your Render URL or Cloudflare tunnel URL.
 
 ### Cursor IDE
 ```
 Settings → Models → OpenAI API Key:
-  API Key:  <from API Keys page>
-  Base URL: https://your-tunnel.trycloudflare.com/v1
-  Model:    qwen3-coder:30b
+  API Key:  <your API_KEYS value>
+  Base URL: https://your-app.onrender.com/v1
+  Model:    claude-sonnet-4-6   (or any model from /v1/models)
 ```
 
 ### Claude Code CLI
 ```bash
-export ANTHROPIC_BASE_URL=https://your-tunnel.trycloudflare.com
-export ANTHROPIC_API_KEY=sk-relay-...
+export ANTHROPIC_BASE_URL=https://your-app.onrender.com
+export ANTHROPIC_API_KEY=&lt;your API_KEYS value&gt;
 claude
 ```
 
 ### Aider
 ```bash
-aider --openai-api-base https://your-tunnel.trycloudflare.com/v1 \
-      --openai-api-key sk-relay-...
+aider --openai-api-base https://your-app.onrender.com/v1 \
+      --openai-api-key &lt;your API_KEYS value&gt;
 ```
 
 ### Continue (VS Code / JetBrains)
@@ -199,8 +234,8 @@ aider --openai-api-base https://your-tunnel.trycloudflare.com/v1 \
     "title": "Local LLM",
     "provider": "openai",
     "model": "qwen3-coder:30b",
-    "apiBase": "https://your-tunnel.trycloudflare.com/v1",
-    "apiKey": "sk-relay-..."
+    "apiBase": "https://your-app.onrender.com/v1",
+    "apiKey": "&lt;your API_KEYS value&gt;"
   }]
 }
 ```
@@ -211,8 +246,9 @@ aider --openai-api-base https://your-tunnel.trycloudflare.com/v1 \
 
 ### Ollama (Local — zero cost)
 ```bash
-docker exec llm-wiki-ollama ollama pull qwen3-coder:30b
-docker exec llm-wiki-ollama ollama pull deepseek-r1:671b
+# Pull models after `docker compose up`
+docker exec llm-server-ollama ollama pull qwen3-coder:30b
+docker exec llm-server-ollama ollama pull deepseek-r1:32b
 ```
 
 ### OpenRouter
