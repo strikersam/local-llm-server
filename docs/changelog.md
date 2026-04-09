@@ -34,6 +34,48 @@
 - **`CLAUDE.md`** — Updated with Research→Plan→Implement workflow diagram, 11-step standard
   sequence, model selection table (Haiku/Sonnet/Opus per task type), and full skill reference.
 
+### Added — 19 new agent features (fully implemented + tested)
+
+New modules in `agent/`:
+
+- **`agent/memory.py`** (`SessionMemory`) — snapshot and restore agent session state to/from disk; no external DB required
+- **`agent/context.py`** (`ContextCompressor`) — three context compression strategies: `reactive` (drop oldest), `micro` (deduplicate), `inspect` (stats only)
+- **`agent/permissions.py`** (`AdaptivePermissions`) — infer `read_only` / `read_write` / `full_access` from session transcript
+- **`agent/token_budget.py`** (`TokenBudget`, `BudgetExceededError`) — per-session token spend cap with `record()` / `check()` / `reset()`
+- **`agent/coordinator.py`** (`AgentCoordinator`, `WorkerSpec`) — run N worker AgentRunners in parallel under one coordinator with `max_concurrent` semaphore
+- **`agent/background.py`** (`BackgroundAgent`, `BackgroundTask`) — always-on worker thread that drains a task queue; wires webhooks, scheduler, and watchdog events
+- **`agent/scheduler.py`** (`AgentScheduler`, `ScheduledJob`) — cron-based job scheduling via APScheduler; manual webhook trigger via `trigger(job_id)`
+- **`agent/playbook.py`** (`PlaybookLibrary`, `Playbook`, `PlaybookRun`) — named multi-step automation playbooks; register from code or JSON files, start/finish runs
+- **`agent/watchdog.py`** (`ResourceWatchdog`, `WatchedResource`, `WatchEvent`) — poll URLs/files by SHA-256 hash; fire `on_change` callback on state change
+- **`agent/commit_tracker.py`** (`CommitTracker`, `CommitAttribution`) — add `Agent-Session / Agent-Model / Agent-Tool / Agent-Timestamp` git trailers to attributed commits
+- **`agent/scaffolding.py`** (`ProjectScaffolder`, `Template`) — three built-in project templates (`python-library`, `fastapi-service`, `cli-tool`); custom JSON templates supported
+- **`agent/skills.py`** (`SkillLibrary`, `Skill`) — auto-index `.claude/skills/**/SKILL.md`; keyword search; MCP-hosted skill registration
+- **`agent/terminal.py`** (`TerminalPanel`, `TerminalSnapshot`) — capture rendered terminal buffer via `tmux capture-pane`; run+capture helper for commands
+- **`agent/browser.py`** (`BrowserSession`, `BrowserAction`) — Playwright-backed browser automation (navigate, click, fill, screenshot, evaluate); stub mode when Playwright not installed
+- **`agent/voice.py`** (`VoiceCommandInterface`, `TranscriptionResult`) — base64 audio → text transcription via Whisper API or local `openai-whisper`; stub mode when neither available
+
+New API routes in `proxy.py` (45 new endpoints across 10 groups):
+- `/agent/memory/*` — snapshot, restore, list, delete session memory
+- `/agent/context/*` — compress and inspect context history
+- `/agent/sessions/{id}/snip` — conversation surgery (remove messages by index)
+- `/agent/sessions/{id}/permissions` — adaptive permission assessment
+- `/agent/budget/*` — set/get/list token spend caps
+- `/agent/coordinate` — multi-agent coordinator dispatch
+- `/agent/background/*` — background task queue
+- `/agent/scheduler/*` — cron job CRUD + trigger
+- `/agent/playbooks/*` — playbook CRUD + run lifecycle
+- `/agent/watchdog/*` — resource watch CRUD + manual check
+- `/agent/scaffolding/*` — template list + apply
+- `/agent/skills/*` — skill list, search, MCP registration
+- `/agent/commits` — AI-attributed commit log
+- `/agent/terminal/*` — terminal snapshot + command capture
+- `/agent/browser/*` — browser start/stop/action
+- `/agent/voice/*` — voice status + transcription
+
+Tests: 155 new tests across 11 new test files; total suite 210 tests, all passing.
+
+- `README.md`: updated with all 19 features documented in plain language with API reference tables for each group.
+
 ### Security
 
 - `README.md`: removed hardcoded tunnel domain from documentation; use `NGROK_DOMAIN`
