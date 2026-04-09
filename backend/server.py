@@ -2,6 +2,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 import os
+import re
 import json
 import secrets
 import bcrypt
@@ -30,29 +31,28 @@ ADMIN_PASSWORD = os.environ.get("ADMIN_PASSWORD", "WikiAdmin2026!")
 OLLAMA_BASE = os.environ.get("OLLAMA_BASE_URL", "http://localhost:11434")
 LLM_PROVIDER = os.environ.get("LLM_PROVIDER", "emergent")
 EMERGENT_KEY = os.environ.get("EMERGENT_LLM_KEY", "")
+LANGFUSE_PK = os.environ.get("LANGFUSE_PUBLIC_KEY", "")
+LANGFUSE_SK = os.environ.get("LANGFUSE_SECRET_KEY", "")
+LANGFUSE_BASE = os.environ.get("LANGFUSE_BASE_URL", "https://cloud.langfuse.com")
+ADMIN_SECRET = os.environ.get("ADMIN_SECRET", "")
+NGROK_DOMAIN = os.environ.get("NGROK_DOMAIN", "")
+NGROK_TOKEN = os.environ.get("NGROK_AUTHTOKEN", "")
 
-app = FastAPI(title="LLM Wiki Dashboard", version="1.0.0")
+app = FastAPI(title="LLM Wiki — Unified Platform", version="2.0.0")
 
 frontend_url = os.environ.get("FRONTEND_URL", "http://localhost:3000")
 app_url = os.environ.get("APP_URL", "")
-origins = [frontend_url]
-if app_url:
-    origins.append(app_url)
-origins.append("http://localhost:3000")
+origins = ["*"]
 
 app.add_middleware(
-    CORSMiddleware,
-    allow_origins=origins,
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    CORSMiddleware, allow_origins=origins, allow_credentials=True, allow_methods=["*"], allow_headers=["*"],
 )
 
 client = AsyncIOMotorClient(MONGO_URL)
 db = client[DB_NAME]
 
 
-# --- Password & JWT helpers ---
+# ─── Auth Helpers ───────────────────────────────────────────────────────────────
 
 def hash_password(password: str) -> str:
     return bcrypt.hashpw(password.encode("utf-8"), bcrypt.gensalt()).decode("utf-8")
@@ -61,13 +61,16 @@ def verify_password(plain: str, hashed: str) -> bool:
     return bcrypt.checkpw(plain.encode("utf-8"), hashed.encode("utf-8"))
 
 def create_access_token(user_id: str, email: str) -> str:
-    payload = {"sub": user_id, "email": email, "exp": datetime.now(timezone.utc) + timedelta(hours=24), "type": "access"}
-    return jwt.encode(payload, JWT_SECRET, algorithm=JWT_ALGORITHM)
+    return jwt.encode(
+        {"sub": user_id, "email": email, "exp": datetime.now(timezone.utc) + timedelta(hours=24), "type": "access"},
+        JWT_SECRET, algorithm=JWT_ALGORITHM,
+    )
 
 def create_refresh_token(user_id: str) -> str:
-    payload = {"sub": user_id, "exp": datetime.now(timezone.utc) + timedelta(days=7), "type": "refresh"}
-    return jwt.encode(payload, JWT_SECRET, algorithm=JWT_ALGORITHM)
-
+    return jwt.encode(
+        {"sub": user_id, "exp": datetime.now(timezone.utc) + timedelta(days=7), "type": "refresh"},
+        JWT_SECRET, algorithm=JWT_ALGORITHM,
+    )
 
 async def get_current_user(request: Request) -> dict:
     token = request.cookies.get("access_token")
@@ -93,7 +96,7 @@ async def get_current_user(request: Request) -> dict:
         raise HTTPException(status_code=401, detail="Invalid token")
 
 
-# --- Startup ---
+# ─── Startup ────────────────────────────────────────────────────────────────────
 
 @app.on_event("startup")
 async def startup():
@@ -103,52 +106,74 @@ async def startup():
     await db.sources.create_index("created_at")
     await db.activity_log.create_index("created_at")
     await db.chat_sessions.create_index("user_id")
+    await db.providers.create_index("provider_id", unique=True)
+    await db.api_keys.create_index("key_id", unique=True)
     await seed_admin()
-    log.info("LLM Wiki Dashboard started — provider=%s", LLM_PROVIDER)
+    await seed_default_providers()
+    log.info("LLM Wiki Unified Platform started — provider=%s", LLM_PROVIDER)
 
 
 async def seed_admin():
     existing = await db.users.find_one({"email": ADMIN_EMAIL})
     if existing is None:
         await db.users.insert_one({
-            "email": ADMIN_EMAIL,
-            "password_hash": hash_password(ADMIN_PASSWORD),
-            "name": "Admin",
-            "role": "admin",
+            "email": ADMIN_EMAIL, "password_hash": hash_password(ADMIN_PASSWORD),
+            "name": "Admin", "role": "admin",
             "created_at": datetime.now(timezone.utc).isoformat(),
         })
         log.info("Admin user seeded: %s", ADMIN_EMAIL)
     elif not verify_password(ADMIN_PASSWORD, existing["password_hash"]):
-        await db.users.update_one(
-            {"email": ADMIN_EMAIL},
-            {"$set": {"password_hash": hash_password(ADMIN_PASSWORD)}}
-        )
-        log.info("Admin password updated")
-    # Write credentials
-    mem = Path("/app/memory")
-    mem.mkdir(exist_ok=True)
-    (mem / "test_credentials.md").write_text(
-        f"# Test Credentials\n\n- **Email**: {ADMIN_EMAIL}\n- **Password**: {ADMIN_PASSWORD}\n- **Role**: admin\n\n"
-        f"## Auth Endpoints\n- POST /api/auth/login\n- POST /api/auth/logout\n- GET /api/auth/me\n- POST /api/auth/refresh\n"
-    )
+        await db.users.update_one({"email": ADMIN_EMAIL}, {"$set": {"password_hash": hash_password(ADMIN_PASSWORD)}})
 
 
-# --- Auth Models ---
+async def seed_default_providers():
+    defaults = [
+        {
+            "provider_id": "ollama-local",
+            "name": "Ollama (Local)",
+            "type": "ollama",
+            "base_url": OLLAMA_BASE,
+            "api_key": "",
+            "default_model": "llama3.2",
+            "is_default": LLM_PROVIDER != "emergent",
+            "status": "configured",
+        },
+    ]
+    if EMERGENT_KEY:
+        defaults.append({
+            "provider_id": "emergent-cloud",
+            "name": "Emergent (Cloud)",
+            "type": "openai-compatible",
+            "base_url": "https://api.openai.com/v1",
+            "api_key": EMERGENT_KEY,
+            "default_model": "gpt-4o-mini",
+            "is_default": LLM_PROVIDER == "emergent",
+            "status": "configured",
+        })
+    for p in defaults:
+        existing = await db.providers.find_one({"provider_id": p["provider_id"]})
+        if not existing:
+            p["created_at"] = datetime.now(timezone.utc).isoformat()
+            await db.providers.insert_one(p)
+
+
+# ─── Activity Logging ──────────────────────────────────────────────────────────
+
+async def log_activity(category: str, message: str, user_id: str = None, meta: dict = None):
+    await db.activity_log.insert_one({
+        "category": category, "message": message, "user_id": user_id, "meta": meta or {},
+        "created_at": datetime.now(timezone.utc).isoformat(),
+    })
+
+
+# ─── Auth Endpoints ─────────────────────────────────────────────────────────────
 
 class LoginBody(BaseModel):
     email: str
     password: str
 
-class RegisterBody(BaseModel):
-    email: str
-    password: str
-    name: str = "User"
-
-
-# --- Auth Endpoints ---
-
 @app.post("/api/auth/login")
-async def login(body: LoginBody, request: Request):
+async def login(body: LoginBody):
     email = body.email.strip().lower()
     user = await db.users.find_one({"email": email})
     if not user or not verify_password(body.password, user["password_hash"]):
@@ -156,9 +181,7 @@ async def login(body: LoginBody, request: Request):
     uid = str(user["_id"])
     access = create_access_token(uid, email)
     refresh = create_refresh_token(uid)
-    response = JSONResponse({
-        "_id": uid, "email": user["email"], "name": user.get("name", ""), "role": user.get("role", "user")
-    })
+    response = JSONResponse({"_id": uid, "email": user["email"], "name": user.get("name", ""), "role": user.get("role", "user")})
     response.set_cookie("access_token", access, httponly=True, secure=False, samesite="lax", max_age=86400, path="/")
     response.set_cookie("refresh_token", refresh, httponly=True, secure=False, samesite="lax", max_age=604800, path="/")
     await log_activity("auth", f"User {email} logged in", user_id=uid)
@@ -196,68 +219,52 @@ async def refresh_token(request: Request):
         raise HTTPException(status_code=401, detail="Invalid refresh token")
 
 
-# --- Activity Logging ---
+# ─── LLM Engine ─────────────────────────────────────────────────────────────────
 
-async def log_activity(category: str, message: str, user_id: str = None, meta: dict = None):
-    await db.activity_log.insert_one({
-        "category": category,
-        "message": message,
-        "user_id": user_id,
-        "meta": meta or {},
-        "created_at": datetime.now(timezone.utc).isoformat(),
-    })
-
-
-# --- LLM Chat ---
+async def get_active_provider():
+    prov = await db.providers.find_one({"is_default": True})
+    if not prov:
+        prov = await db.providers.find_one({})
+    return prov
 
 async def call_llm(messages: list[dict], model: str = None, temperature: float = 0.3) -> str:
-    """Call LLM via Emergent integration or Ollama."""
-    if LLM_PROVIDER == "emergent" and EMERGENT_KEY:
+    provider = await get_active_provider()
+    ptype = provider["type"] if provider else "emergent"
+    api_key = provider.get("api_key", "") if provider else EMERGENT_KEY
+    base_url = provider.get("base_url", OLLAMA_BASE) if provider else OLLAMA_BASE
+    use_model = model or (provider.get("default_model") if provider else None) or "gpt-4o-mini"
+
+    if (ptype == "openai-compatible" or ptype == "emergent") and api_key:
         try:
             from emergentintegrations.llm.chat import LlmChat, UserMessage
-            # Build system message from messages list
-            system_msg = ""
-            user_text = ""
+            system_msg, user_text = "", ""
             for m in messages:
                 if m["role"] == "system":
                     system_msg += m["content"] + "\n"
                 elif m["role"] == "user":
                     user_text += m["content"] + "\n"
                 elif m["role"] == "assistant":
-                    user_text += f"[Previous assistant response: {m['content'][:200]}]\n"
-
-            session_id = secrets.token_hex(8)
-            llm = LlmChat(
-                api_key=EMERGENT_KEY,
-                session_id=session_id,
-                system_message=system_msg.strip(),
-            ).with_model("openai", model or "gpt-4o-mini").with_params(temperature=temperature)
-
-            response = await llm.send_message(UserMessage(text=user_text.strip()))
-            return response
+                    user_text += f"[Previous: {m['content'][:200]}]\n"
+            sid = secrets.token_hex(8)
+            llm = LlmChat(api_key=api_key, session_id=sid, system_message=system_msg.strip()
+            ).with_model("openai", use_model).with_params(temperature=temperature)
+            return await llm.send_message(UserMessage(text=user_text.strip()))
         except Exception as e:
-            log.error("Emergent LLM call failed: %s", e)
+            log.error("Cloud LLM call failed: %s", e)
             raise HTTPException(status_code=502, detail=f"LLM call failed: {e}")
     else:
-        # Ollama OpenAI-compatible endpoint
-        payload = {
-            "model": model or "llama3.2",
-            "messages": messages,
-            "temperature": temperature,
-            "stream": False,
-        }
+        payload = {"model": use_model, "messages": messages, "temperature": temperature, "stream": False}
         try:
             async with httpx.AsyncClient(timeout=120) as c:
-                resp = await c.post(f"{OLLAMA_BASE}/v1/chat/completions", json=payload)
+                resp = await c.post(f"{base_url}/v1/chat/completions", json=payload)
                 resp.raise_for_status()
-                data = resp.json()
-                return data["choices"][0]["message"]["content"]
+                return resp.json()["choices"][0]["message"]["content"]
         except Exception as e:
             log.error("Ollama LLM call failed: %s", e)
             raise HTTPException(status_code=502, detail=f"LLM call failed: {e}")
 
 
-# --- Chat Sessions ---
+# ─── Chat Sessions ──────────────────────────────────────────────────────────────
 
 class ChatMessage(BaseModel):
     content: str
@@ -268,67 +275,36 @@ class ChatMessage(BaseModel):
 async def chat_send(body: ChatMessage, user: dict = Depends(get_current_user)):
     uid = user["_id"]
     sid = body.session_id
-
     if not sid:
         result = await db.chat_sessions.insert_one({
-            "user_id": uid,
-            "title": body.content[:60],
-            "messages": [],
-            "created_at": datetime.now(timezone.utc).isoformat(),
-            "updated_at": datetime.now(timezone.utc).isoformat(),
+            "user_id": uid, "title": body.content[:60], "messages": [],
+            "created_at": datetime.now(timezone.utc).isoformat(), "updated_at": datetime.now(timezone.utc).isoformat(),
         })
         sid = str(result.inserted_id)
-
     session = await db.chat_sessions.find_one({"_id": ObjectId(sid)})
     if not session:
         raise HTTPException(status_code=404, detail="Session not found")
-
     messages = session.get("messages", [])
     messages.append({"role": "user", "content": body.content})
-
-    # Build wiki context
     wiki_pages = []
     async for page in db.wiki_pages.find({}, {"_id": 0, "slug": 1, "title": 1}).limit(50):
         wiki_pages.append(f"- {page['title']} ({page['slug']})")
     wiki_index = "\n".join(wiki_pages) if wiki_pages else "(empty wiki)"
-
     system_msg = {
         "role": "system",
-        "content": (
-            "You are the LLM Wiki Agent. You help the user build and maintain a persistent knowledge wiki. "
-            "You can: answer questions from the wiki, suggest new pages, analyze sources, and help organize knowledge. "
-            f"Current wiki pages:\n{wiki_index}\n\n"
-            "When referencing wiki pages, use [[Page Title]] notation. "
-            "Be concise, helpful, and reference specific wiki pages when relevant."
-        )
+        "content": f"You are the LLM Wiki Agent. You help build and maintain a persistent knowledge wiki. Current wiki pages:\n{wiki_index}\nUse [[Page Title]] notation for references. Be concise and helpful.",
     }
-
     llm_messages = [system_msg] + messages[-20:]
     response_text = await call_llm(llm_messages, model=body.model)
-
     messages.append({"role": "assistant", "content": response_text})
-
-    await db.chat_sessions.update_one(
-        {"_id": ObjectId(sid)},
-        {"$set": {"messages": messages, "updated_at": datetime.now(timezone.utc).isoformat()}}
-    )
-
-    await log_activity("chat", f"Chat message in session {sid[:8]}...", user_id=uid,
-                        meta={"session_id": sid, "tokens_est": len(body.content.split()) + len(response_text.split())})
-
-    return {
-        "session_id": sid,
-        "response": response_text,
-        "message_count": len(messages),
-    }
+    await db.chat_sessions.update_one({"_id": ObjectId(sid)}, {"$set": {"messages": messages, "updated_at": datetime.now(timezone.utc).isoformat()}})
+    await log_activity("chat", f"Chat in session {sid[:8]}...", user_id=uid, meta={"session_id": sid})
+    return {"session_id": sid, "response": response_text, "message_count": len(messages)}
 
 @app.get("/api/chat/sessions")
 async def list_sessions(user: dict = Depends(get_current_user)):
     sessions = []
-    async for s in db.chat_sessions.find(
-        {"user_id": user["_id"]},
-        {"messages": 0}
-    ).sort("updated_at", -1).limit(50):
+    async for s in db.chat_sessions.find({"user_id": user["_id"]}, {"messages": 0}).sort("updated_at", -1).limit(50):
         s["_id"] = str(s["_id"])
         sessions.append(s)
     return {"sessions": sessions}
@@ -347,7 +323,7 @@ async def delete_session(session_id: str, user: dict = Depends(get_current_user)
     return {"ok": True}
 
 
-# --- Wiki Pages ---
+# ─── Wiki Pages ─────────────────────────────────────────────────────────────────
 
 class WikiPageCreate(BaseModel):
     title: str
@@ -360,7 +336,6 @@ class WikiPageUpdate(BaseModel):
     tags: list[str] = None
 
 def slugify(title: str) -> str:
-    import re
     slug = title.lower().strip()
     slug = re.sub(r'[^\w\s-]', '', slug)
     slug = re.sub(r'[\s_]+', '-', slug)
@@ -368,9 +343,7 @@ def slugify(title: str) -> str:
 
 @app.get("/api/wiki/pages")
 async def list_wiki_pages(q: str = None, user: dict = Depends(get_current_user)):
-    query = {}
-    if q:
-        query = {"$text": {"$search": q}}
+    query = {"$text": {"$search": q}} if q else {}
     pages = []
     async for p in db.wiki_pages.find(query, {"content": 0}).sort("updated_at", -1).limit(200):
         p["_id"] = str(p["_id"])
@@ -388,20 +361,10 @@ async def get_wiki_page(slug: str, user: dict = Depends(get_current_user)):
 @app.post("/api/wiki/pages")
 async def create_wiki_page(body: WikiPageCreate, user: dict = Depends(get_current_user)):
     slug = slugify(body.title)
-    existing = await db.wiki_pages.find_one({"slug": slug})
-    if existing:
+    if await db.wiki_pages.find_one({"slug": slug}):
         raise HTTPException(status_code=409, detail="Page with this title already exists")
     now = datetime.now(timezone.utc).isoformat()
-    doc = {
-        "title": body.title,
-        "slug": slug,
-        "content": body.content,
-        "tags": body.tags,
-        "source_count": 0,
-        "created_at": now,
-        "updated_at": now,
-        "created_by": user["_id"],
-    }
+    doc = {"title": body.title, "slug": slug, "content": body.content, "tags": body.tags, "source_count": 0, "created_at": now, "updated_at": now, "created_by": user["_id"]}
     result = await db.wiki_pages.insert_one(doc)
     doc["_id"] = str(result.inserted_id)
     await log_activity("wiki", f"Created page: {body.title}", user_id=user["_id"])
@@ -410,12 +373,9 @@ async def create_wiki_page(body: WikiPageCreate, user: dict = Depends(get_curren
 @app.put("/api/wiki/pages/{slug}")
 async def update_wiki_page(slug: str, body: WikiPageUpdate, user: dict = Depends(get_current_user)):
     updates = {"updated_at": datetime.now(timezone.utc).isoformat()}
-    if body.title is not None:
-        updates["title"] = body.title
-    if body.content is not None:
-        updates["content"] = body.content
-    if body.tags is not None:
-        updates["tags"] = body.tags
+    if body.title is not None: updates["title"] = body.title
+    if body.content is not None: updates["content"] = body.content
+    if body.tags is not None: updates["tags"] = body.tags
     result = await db.wiki_pages.update_one({"slug": slug}, {"$set": updates})
     if result.matched_count == 0:
         raise HTTPException(status_code=404, detail="Page not found")
@@ -432,24 +392,35 @@ async def delete_wiki_page(slug: str, user: dict = Depends(get_current_user)):
     await log_activity("wiki", f"Deleted page: {slug}", user_id=user["_id"])
     return {"ok": True}
 
+@app.post("/api/wiki/lint")
+async def lint_wiki(user: dict = Depends(get_current_user)):
+    pages = []
+    async for p in db.wiki_pages.find({}, {"_id": 0, "title": 1, "slug": 1, "content": 1, "tags": 1}):
+        pages.append(p)
+    if not pages:
+        return {"issues": [], "summary": "Wiki is empty. Add some pages first."}
+    page_list = "\n".join([f"- {p['title']} (/{p['slug']}): {len(p.get('content',''))} chars, tags: {p.get('tags', [])}" for p in pages])
+    result = await call_llm([
+        {"role": "system", "content": "Analyze wiki structure. Return JSON with 'issues' (array of {type, severity, page, description}) and 'summary' (string)."},
+        {"role": "user", "content": f"Wiki pages:\n{page_list}"},
+    ])
+    try:
+        json_match = re.search(r'\{.*\}', result, re.DOTALL)
+        if json_match:
+            parsed = json.loads(json_match.group())
+            return parsed
+    except Exception:
+        pass
+    return {"issues": [], "summary": result}
 
-# --- Source Ingestion ---
+
+# ─── Source Ingestion ───────────────────────────────────────────────────────────
 
 @app.post("/api/sources/ingest")
-async def ingest_source(
-    user: dict = Depends(get_current_user),
-    file: UploadFile = File(None),
-    url: str = Form(None),
-    title: str = Form(None),
-    content_text: str = Form(None),
-):
+async def ingest_source(user: dict = Depends(get_current_user), file: UploadFile = File(None), url: str = Form(None), title: str = Form(None), content_text: str = Form(None)):
     if not file and not url and not content_text:
         raise HTTPException(status_code=400, detail="Provide a file, URL, or text content")
-
-    raw_content = ""
-    source_type = "text"
-    source_name = title or "Untitled Source"
-
+    raw_content, source_type, source_name = "", "text", title or "Untitled Source"
     if file:
         raw_content = (await file.read()).decode("utf-8", errors="replace")
         source_name = title or file.filename or "Uploaded File"
@@ -465,41 +436,19 @@ async def ingest_source(
             raise HTTPException(status_code=400, detail=f"Failed to fetch URL: {e}")
     elif content_text:
         raw_content = content_text
-        source_type = "text"
-
     now = datetime.now(timezone.utc).isoformat()
-    doc = {
-        "title": source_name,
-        "type": source_type,
-        "url": url,
-        "raw_content": raw_content[:100000],
-        "status": "pending",
-        "summary": None,
-        "created_at": now,
-        "created_by": user["_id"],
-    }
+    doc = {"title": source_name, "type": source_type, "url": url, "raw_content": raw_content[:100000], "status": "pending", "summary": None, "created_at": now, "created_by": user["_id"]}
     result = await db.sources.insert_one(doc)
     source_id = str(result.inserted_id)
-
-    # Process with LLM to generate summary
     try:
         summary = await call_llm([
-            {"role": "system", "content": "Summarize this source document concisely in 2-3 paragraphs. Extract key entities, concepts, and claims. Format as markdown."},
+            {"role": "system", "content": "Summarize this source in 2-3 paragraphs. Extract key concepts. Format as markdown."},
             {"role": "user", "content": raw_content[:8000]},
         ])
-        await db.sources.update_one(
-            {"_id": ObjectId(source_id)},
-            {"$set": {"status": "processed", "summary": summary}}
-        )
-        await log_activity("ingest", f"Ingested source: {source_name}", user_id=user["_id"],
-                            meta={"source_id": source_id, "type": source_type})
+        await db.sources.update_one({"_id": ObjectId(source_id)}, {"$set": {"status": "processed", "summary": summary}})
+        await log_activity("ingest", f"Ingested: {source_name}", user_id=user["_id"], meta={"source_id": source_id})
     except Exception as e:
-        await db.sources.update_one(
-            {"_id": ObjectId(source_id)},
-            {"$set": {"status": "failed", "summary": f"Processing failed: {e}"}}
-        )
-        log.error("Source ingestion LLM failed: %s", e)
-
+        await db.sources.update_one({"_id": ObjectId(source_id)}, {"$set": {"status": "failed", "summary": f"Processing failed: {e}"}})
     doc["_id"] = source_id
     return doc
 
@@ -525,7 +474,7 @@ async def delete_source(source_id: str, user: dict = Depends(get_current_user)):
     return {"ok": True}
 
 
-# --- Activity Log ---
+# ─── Activity & Stats ──────────────────────────────────────────────────────────
 
 @app.get("/api/activity")
 async def get_activity(limit: int = 50, user: dict = Depends(get_current_user)):
@@ -535,79 +484,255 @@ async def get_activity(limit: int = 50, user: dict = Depends(get_current_user)):
         logs.append(entry)
     return {"logs": logs}
 
-
-# --- Dashboard Stats ---
-
 @app.get("/api/stats")
 async def get_stats(user: dict = Depends(get_current_user)):
     wiki_count = await db.wiki_pages.count_documents({})
     source_count = await db.sources.count_documents({})
     session_count = await db.chat_sessions.count_documents({})
     log_count = await db.activity_log.count_documents({})
+    provider_count = await db.providers.count_documents({})
+    key_count = await db.api_keys.count_documents({})
     recent_pages = []
     async for p in db.wiki_pages.find({}, {"_id": 0, "title": 1, "slug": 1, "updated_at": 1}).sort("updated_at", -1).limit(5):
         recent_pages.append(p)
+    active_provider = await get_active_provider()
     return {
-        "wiki_pages": wiki_count,
-        "sources": source_count,
-        "chat_sessions": session_count,
-        "activity_entries": log_count,
+        "wiki_pages": wiki_count, "sources": source_count, "chat_sessions": session_count,
+        "activity_entries": log_count, "providers": provider_count, "api_keys": key_count,
         "recent_pages": recent_pages,
-        "llm_provider": LLM_PROVIDER,
+        "llm_provider": active_provider.get("name", "None") if active_provider else "None",
+        "ngrok_domain": NGROK_DOMAIN,
+        "langfuse_configured": bool(LANGFUSE_PK and LANGFUSE_SK),
     }
 
 
-# --- Wiki Lint ---
+# ─── Providers CRUD ─────────────────────────────────────────────────────────────
 
-@app.post("/api/wiki/lint")
-async def lint_wiki(user: dict = Depends(get_current_user)):
-    pages = []
-    async for p in db.wiki_pages.find({}, {"_id": 0, "title": 1, "slug": 1, "content": 1, "tags": 1}):
-        pages.append(p)
+class ProviderCreate(BaseModel):
+    provider_id: str
+    name: str
+    type: str = "openai-compatible"
+    base_url: str
+    api_key: str = ""
+    default_model: str = ""
+    is_default: bool = False
 
-    if not pages:
-        return {"issues": [], "summary": "Wiki is empty. Add some pages first."}
+class ProviderUpdate(BaseModel):
+    name: str = None
+    base_url: str = None
+    api_key: str = None
+    default_model: str = None
+    is_default: bool = None
 
-    page_list = "\n".join([f"- {p['title']} (/{p['slug']}): {len(p.get('content',''))} chars, tags: {p.get('tags', [])}" for p in pages])
+@app.get("/api/providers")
+async def list_providers(user: dict = Depends(get_current_user)):
+    providers = []
+    async for p in db.providers.find({}).sort("created_at", 1):
+        p["_id"] = str(p["_id"])
+        if p.get("api_key"):
+            p["api_key_masked"] = p["api_key"][:8] + "..." + p["api_key"][-4:] if len(p["api_key"]) > 12 else "***"
+        else:
+            p["api_key_masked"] = ""
+        p.pop("api_key", None)
+        providers.append(p)
+    return {"providers": providers}
 
-    result = await call_llm([
-        {"role": "system", "content": (
-            "You are a wiki health checker. Analyze the wiki structure and report issues. "
-            "Check for: orphan pages (no cross-references), missing pages (referenced but don't exist), "
-            "stale content, missing tags, duplicate topics, and areas that need expansion. "
-            "Return a JSON object with 'issues' (array of {type, severity, page, description}) and 'summary' (string)."
-        )},
-        {"role": "user", "content": f"Wiki pages:\n{page_list}"},
-    ])
+@app.post("/api/providers")
+async def create_provider(body: ProviderCreate, user: dict = Depends(get_current_user)):
+    if await db.providers.find_one({"provider_id": body.provider_id}):
+        raise HTTPException(status_code=409, detail="Provider ID already exists")
+    if body.is_default:
+        await db.providers.update_many({}, {"$set": {"is_default": False}})
+    doc = body.dict()
+    doc["created_at"] = datetime.now(timezone.utc).isoformat()
+    doc["status"] = "configured"
+    await db.providers.insert_one(doc)
+    await log_activity("provider", f"Added provider: {body.name}", user_id=user["_id"])
+    return {"ok": True, "provider_id": body.provider_id}
 
+@app.put("/api/providers/{provider_id}")
+async def update_provider(provider_id: str, body: ProviderUpdate, user: dict = Depends(get_current_user)):
+    updates = {}
+    for k, v in body.dict(exclude_none=True).items():
+        updates[k] = v
+    if body.is_default:
+        await db.providers.update_many({"provider_id": {"$ne": provider_id}}, {"$set": {"is_default": False}})
+    if updates:
+        result = await db.providers.update_one({"provider_id": provider_id}, {"$set": updates})
+        if result.matched_count == 0:
+            raise HTTPException(status_code=404, detail="Provider not found")
+    await log_activity("provider", f"Updated provider: {provider_id}", user_id=user["_id"])
+    return {"ok": True}
+
+@app.delete("/api/providers/{provider_id}")
+async def delete_provider(provider_id: str, user: dict = Depends(get_current_user)):
+    result = await db.providers.delete_one({"provider_id": provider_id})
+    if result.deleted_count == 0:
+        raise HTTPException(status_code=404, detail="Provider not found")
+    await log_activity("provider", f"Deleted provider: {provider_id}", user_id=user["_id"])
+    return {"ok": True}
+
+@app.post("/api/providers/{provider_id}/test")
+async def test_provider(provider_id: str, user: dict = Depends(get_current_user)):
+    prov = await db.providers.find_one({"provider_id": provider_id})
+    if not prov:
+        raise HTTPException(status_code=404, detail="Provider not found")
     try:
-        import re
-        json_match = re.search(r'\{.*\}', result, re.DOTALL)
-        if json_match:
-            parsed = json.loads(json_match.group())
-            await log_activity("lint", f"Wiki lint: {len(parsed.get('issues', []))} issues found", user_id=user["_id"])
-            return parsed
-    except (json.JSONDecodeError, Exception):
+        if prov["type"] == "ollama":
+            async with httpx.AsyncClient(timeout=10) as c:
+                r = await c.get(f"{prov['base_url']}/api/tags")
+                models = [m["name"] for m in r.json().get("models", [])]
+            await db.providers.update_one({"provider_id": provider_id}, {"$set": {"status": "online"}})
+            return {"ok": True, "models": models}
+        else:
+            async with httpx.AsyncClient(timeout=10) as c:
+                r = await c.get(f"{prov['base_url']}/models", headers={"Authorization": f"Bearer {prov.get('api_key', '')}"})
+            await db.providers.update_one({"provider_id": provider_id}, {"$set": {"status": "online"}})
+            return {"ok": True, "status": "connected"}
+    except Exception as e:
+        await db.providers.update_one({"provider_id": provider_id}, {"$set": {"status": "error"}})
+        return {"ok": False, "error": str(e)}
+
+
+# ─── Models Hub ─────────────────────────────────────────────────────────────────
+
+@app.get("/api/models")
+async def list_models(user: dict = Depends(get_current_user)):
+    models = []
+    # Try Ollama
+    try:
+        async with httpx.AsyncClient(timeout=10) as c:
+            r = await c.get(f"{OLLAMA_BASE}/api/tags")
+            if r.status_code == 200:
+                for m in r.json().get("models", []):
+                    models.append({
+                        "name": m["name"],
+                        "size": m.get("size", 0),
+                        "modified_at": m.get("modified_at", ""),
+                        "source": "ollama-local",
+                        "details": m.get("details", {}),
+                    })
+    except Exception:
         pass
+    # Add cloud model references from providers
+    async for prov in db.providers.find({"type": {"$ne": "ollama"}}):
+        if prov.get("default_model"):
+            models.append({
+                "name": prov["default_model"],
+                "size": 0,
+                "modified_at": "",
+                "source": prov["provider_id"],
+                "details": {"provider": prov["name"]},
+            })
+    return {"models": models}
 
-    return {"issues": [], "summary": result}
+class ModelPullRequest(BaseModel):
+    name: str
+
+@app.post("/api/models/pull")
+async def pull_model(body: ModelPullRequest, user: dict = Depends(get_current_user)):
+    try:
+        async with httpx.AsyncClient(timeout=600) as c:
+            r = await c.post(f"{OLLAMA_BASE}/api/pull", json={"name": body.name, "stream": False})
+            r.raise_for_status()
+        await log_activity("models", f"Pulled model: {body.name}", user_id=user["_id"])
+        return {"ok": True, "model": body.name}
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"Pull failed: {e}")
+
+@app.delete("/api/models/{model_name}")
+async def delete_model(model_name: str, user: dict = Depends(get_current_user)):
+    try:
+        async with httpx.AsyncClient(timeout=30) as c:
+            r = await c.delete(f"{OLLAMA_BASE}/api/delete", json={"name": model_name})
+            r.raise_for_status()
+        await log_activity("models", f"Deleted model: {model_name}", user_id=user["_id"])
+        return {"ok": True}
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"Delete failed: {e}")
 
 
-# --- Provider Settings ---
+# ─── API Keys Management ───────────────────────────────────────────────────────
 
-@app.get("/api/settings/providers")
-async def get_providers(user: dict = Depends(get_current_user)):
-    return {
-        "current": LLM_PROVIDER,
-        "ollama_base": OLLAMA_BASE,
-        "providers": [
-            {"id": "emergent", "name": "Emergent (Cloud)", "status": "active" if LLM_PROVIDER == "emergent" else "available"},
-            {"id": "ollama", "name": "Ollama (Local)", "status": "active" if LLM_PROVIDER == "ollama" else "available"},
-        ]
+class ApiKeyCreate(BaseModel):
+    email: str
+    department: str = "general"
+    label: str = ""
+
+@app.get("/api/keys")
+async def list_api_keys(user: dict = Depends(get_current_user)):
+    keys = []
+    async for k in db.api_keys.find({}, {"secret_hash": 0}).sort("created_at", -1):
+        k["_id"] = str(k["_id"])
+        keys.append(k)
+    return {"keys": keys}
+
+@app.post("/api/keys")
+async def create_api_key(body: ApiKeyCreate, user: dict = Depends(get_current_user)):
+    plain = "sk-wiki-" + secrets.token_urlsafe(32)
+    key_id = "key_" + secrets.token_hex(4)
+    hashed = bcrypt.hashpw(plain.encode(), bcrypt.gensalt()).decode()
+    doc = {
+        "key_id": key_id, "email": body.email, "department": body.department,
+        "label": body.label, "secret_hash": hashed, "prefix": plain[:12] + "...",
+        "created_at": datetime.now(timezone.utc).isoformat(), "created_by": user["_id"],
     }
+    await db.api_keys.insert_one(doc)
+    await log_activity("keys", f"Created API key for {body.email}", user_id=user["_id"])
+    return {"key_id": key_id, "api_key": plain, "email": body.email}
+
+@app.delete("/api/keys/{key_id}")
+async def delete_api_key(key_id: str, user: dict = Depends(get_current_user)):
+    result = await db.api_keys.delete_one({"key_id": key_id})
+    if result.deleted_count == 0:
+        raise HTTPException(status_code=404, detail="Key not found")
+    await log_activity("keys", f"Revoked API key: {key_id}", user_id=user["_id"])
+    return {"ok": True}
 
 
-# --- Health ---
+# ─── Observability (Langfuse) ───────────────────────────────────────────────────
+
+@app.get("/api/observability/status")
+async def observability_status(user: dict = Depends(get_current_user)):
+    configured = bool(LANGFUSE_PK and LANGFUSE_SK)
+    status = {"configured": configured, "base_url": LANGFUSE_BASE, "public_key_prefix": LANGFUSE_PK[:12] + "..." if LANGFUSE_PK else ""}
+    if configured:
+        try:
+            async with httpx.AsyncClient(timeout=10) as c:
+                r = await c.get(f"{LANGFUSE_BASE}/api/public/health", auth=(LANGFUSE_PK, LANGFUSE_SK))
+                if r.status_code == 200:
+                    status["connected"] = True
+                    status["message"] = "Langfuse connected"
+                else:
+                    status["connected"] = False
+                    status["message"] = f"HTTP {r.status_code}"
+        except Exception as e:
+            status["connected"] = False
+            status["message"] = str(e)
+    else:
+        status["connected"] = False
+        status["message"] = "Not configured — set LANGFUSE_PUBLIC_KEY and LANGFUSE_SECRET_KEY"
+    return status
+
+@app.get("/api/observability/dashboard-url")
+async def observability_dashboard(user: dict = Depends(get_current_user)):
+    return {"url": LANGFUSE_BASE, "configured": bool(LANGFUSE_PK)}
+
+
+# ─── System / Platform Info ─────────────────────────────────────────────────────
+
+@app.get("/api/platform")
+async def platform_info(user: dict = Depends(get_current_user)):
+    return {
+        "name": "LLM Wiki Platform",
+        "version": "2.0.0",
+        "ngrok_domain": NGROK_DOMAIN,
+        "ngrok_configured": bool(NGROK_TOKEN),
+        "langfuse_configured": bool(LANGFUSE_PK and LANGFUSE_SK),
+        "langfuse_url": LANGFUSE_BASE,
+        "ollama_base": OLLAMA_BASE,
+        "github_repo": "https://github.com/strikersam/local-llm-server",
+    }
 
 @app.get("/api/health")
 async def health():
@@ -616,4 +741,11 @@ async def health():
         mongo_ok = True
     except Exception:
         mongo_ok = False
-    return {"status": "ok" if mongo_ok else "degraded", "mongo": mongo_ok, "provider": LLM_PROVIDER}
+    ollama_ok = False
+    try:
+        async with httpx.AsyncClient(timeout=3) as c:
+            r = await c.get(f"{OLLAMA_BASE}/api/tags")
+            ollama_ok = r.status_code == 200
+    except Exception:
+        pass
+    return {"status": "ok" if mongo_ok else "degraded", "mongo": mongo_ok, "ollama": ollama_ok, "provider": LLM_PROVIDER}
