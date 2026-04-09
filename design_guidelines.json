@@ -1,0 +1,103 @@
+{
+  "theme": "DARK",
+  "archetype": "4 (Swiss & High-Contrast)",
+  "vibe": "Objective, rigid, functional. Terminal/Retro-Futurism aesthetic. High-end editorial tech style.",
+  "colors": {
+    "background": {
+      "base": "#0A0A0A",
+      "surface": "#141414",
+      "surface_elevated": "#1A1A1A"
+    },
+    "text": {
+      "primary": "#FFFFFF",
+      "secondary": "#A0A0A0",
+      "muted": "#737373"
+    },
+    "border": {
+      "default": "rgba(255, 255, 255, 0.1)",
+      "strong": "rgba(255, 255, 255, 0.2)"
+    },
+    "accent": {
+      "primary": "#002FA7",
+      "primary_hover": "#002585",
+      "danger": "#FF3333",
+      "warning": "#FFFF00"
+    }
+  },
+  "typography": {
+    "fonts": {
+      "heading": "Cabinet Grotesk, Chivo",
+      "body": "IBM Plex Mono",
+      "alternative": "JetBrains Mono"
+    },
+    "sizes": {
+      "h1": "text-4xl sm:text-5xl lg:text-6xl tracking-tighter",
+      "h2": "text-2xl sm:text-3xl lg:text-4xl tracking-tight",
+      "h3": "text-xl sm:text-2xl tracking-tight",
+      "h4": "text-lg sm:text-xl",
+      "body": "text-base leading-relaxed",
+      "small": "text-sm",
+      "overline": "text-xs tracking-[0.2em] uppercase font-bold"
+    }
+  },
+  "spacing_and_layout": {
+    "philosophy": "Strict grid hierarchy, dense and compact spacing. 'Control Room' grid for dashboards.",
+    "grid_system": "Base grid: grid-cols-1 md:grid-cols-3 lg:grid-cols-4 or 12-column. Gap: tight (gap-4 or gap-6).",
+    "borders": "Visible borders everywhere (Grid Borders style). Expose the skeleton.",
+    "card_style": "Flat background, 1px subtle border, no shadow, sharp corners (rounded-none or max rounded-sm)."
+  },
+  "surfaces": {
+    "headers_nav": "Solid background with hard bottom border. No glassmorphism (keep it brutalist).",
+    "dashboard_cards": "Flat background, 1px subtle border (border-white/10). Hover: border color darkens/lightens, slight shadow.",
+    "buttons": "Square edges, solid fill for primary, transparent with 1px border for secondary."
+  },
+  "motion_interactions": {
+    "hover_states": "ALWAYS explicitly set text color on hover. focus:ring-2 focus:ring-[#002FA7].",
+    "animations": "Minimalist. Micro-interactions for feedback. Entrance animations (staggered) for lists."
+  },
+  "icons_assets": {
+    "library": "lucide-react, react-icons/si (for provider logos like OpenAI, Anthropic, Ollama), phosphor-icons",
+    "installation_command": "yarn add react-icons @phosphor-icons/react lucide-react"
+  },
+  "images": {
+    "login_bg": {
+      "url": "https://static.prod-images.emergentagent.com/jobs/6bf7aa0e-927a-4851-95e4-78f9c580e21a/images/37ee5765c3fcd28b5e7cefcd7091eb0b55fcc87a2bfd97123b3f7c4d496fd4db.png",
+      "description": "High-contrast, Swiss brutalist abstract data visualization, dark mode",
+      "category": "background",
+      "placement": "Login page hero/background"
+    },
+    "empty_state_bg": {
+      "url": "https://static.prod-images.emergentagent.com/jobs/6bf7aa0e-927a-4851-95e4-78f9c580e21a/images/a2e37d8dc8bb790cba52101e744df91b95f4ac237b71a9197c15c77fd4b1e52c.png",
+      "description": "Monochrome brutalist grid pattern, dark mode, futuristic terminal aesthetic",
+      "category": "background",
+      "placement": "Empty state backgrounds for data tables or workspace browser"
+    }
+  },
+  "component_guidelines": {
+    "buttons": "Shadcn Button heavily customized: rounded-none, primary color #002FA7, hover #002585, text-white. No soft rounded corners.",
+    "inputs": "Shadcn Input heavily customized: bg-[#0A0A0A], border border-white/10, focus-visible:ring-1 focus-visible:ring-[#002FA7] rounded-none.",
+    "cards": "Shadcn Card heavily customized: rounded-none, border-white/10, bg-[#141414].",
+    "data_display": "Use Recharts or Shadcn Charts with monochrome color scheme + single accent color.",
+    "chat_interface": "Message bubbles: User messages have stark border and accent color bg. Agent messages have dark gray bg.",
+    "markdown_viewer": "Use react-markdown. Syntax highlighting in dark theme. IBM Plex Mono for code blocks. Stark borders around pre/code blocks."
+  },
+  "specific_pages": {
+    "chat_agent": "Split screen layout. Chat on the left (w-1/3 or w-1/2), Wiki/Source context on the right.",
+    "wiki_browser": "Sidebar file tree. Main content area displaying markdown. Dense, technical typography.",
+    "source_ingestion": "Drag and drop zone with dashed border, brutalist styling. Status indicators for ingestion progress.",
+    "activity_log": "High density table (Shadcn Table) with monospace typography for tokens and logs.",
+    "admin_dashboard": "Bento grid for API keys, providers. Strict rectangular layout."
+  },
+  "testing_attributes": {
+    "rule": "All interactive and key informational elements MUST include a data-testid attribute.",
+    "convention": "kebab-case, role-based. e.g., data-testid='login-form-submit-button'"
+  },
+  "instructions_to_main_agent": [
+    "Strictly adhere to the dark theme and Swiss brutalist aesthetic. Do NOT use soft shadows, large border radii, or generic gradients.",
+    "Ensure all text has sufficient contrast against the stark #0A0A0A and #141414 backgrounds.",
+    "Use react-icons/si for API provider logos (e.g., SiOpenai, SiAnthropic).",
+    "Apply `data-testid` to all forms, inputs, buttons, and critical UI components.",
+    "For the Login page, use the `login_bg` image as a full-bleed background with an overlay `bg-black/80` or `bg-black/60` to ensure the stark form is legible.",
+    "Keep spacing generous but layout strict. Grids should feel like a 'Control Room'."
+  ]
+}
