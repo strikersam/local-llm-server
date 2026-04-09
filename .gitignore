@@ -50,3 +50,6 @@ test_reports/
 # Environment files
 *.env
 *.env.*
+
+# Runtime data (SQLite databases, persisted state)
+.data/
