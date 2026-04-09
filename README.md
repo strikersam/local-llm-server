@@ -31,16 +31,31 @@ No subscriptions. No metered API calls on someone else's bill. Your hardware, yo
 | **Source Ingestion** | Upload files, paste URLs, raw text. AI auto-summarizes into structured knowledge. |
 | **Wiki Lint** | AI health check that finds orphan pages, missing refs, stale content. |
 
+---
+
 ### Agent Modes
 
 These control *how* the agent operates — think of them as gears on a gearbox.
 
 | Feature | What It Does |
 |---------|-------------|
-| **Background Agent** | The agent runs continuously in the background, watching for events. It can listen for GitHub webhooks (new PR, issue comment, push), send you a Telegram notification when something needs attention, and act on its own without you opening a chat window. Think of it as an always-on assistant that never sleeps. |
-| **Multi-Agent Swarms** | One coordinator agent breaks a big task into subtasks and hands each one to a worker agent with just the tools it needs. Workers run in parallel, report back, and the coordinator assembles the result. Good for large codebases, parallel research, or anything too big for one agent in one shot. |
-| **Self-Resuming Agents** | The agent can pause itself ("I'll check back in 10 minutes"), wait for an external event, and pick up exactly where it left off — without you having to re-explain the task. Useful for long-running builds, deployment waits, or overnight batch jobs. |
-| **Voice Commands** | Talk to the agent out loud. A dedicated CLI entrypoint (`llm-relay voice`) captures your microphone, transcribes it, and sends it as a prompt. Hands-free coding while you think. |
+| **Background Agent** | The agent runs continuously in the background, watching for events. It processes tasks from webhooks, the scheduler, and the watchdog without you opening a chat window. Submit a task to the queue and the agent handles it whenever the worker is free. |
+| **Multi-Agent Swarms** | One coordinator agent breaks a big task into subtasks and hands each one to a worker agent. Workers run in parallel (up to `max_concurrent`), report back, and the coordinator assembles the result. Good for large codebases, parallel research, or anything too big for one agent in one shot. |
+| **Self-Resuming Agents** | The agent saves a memory snapshot before it shuts down and reloads it on restart — picking up exactly where it left off without you having to re-explain the project. Pairs with `POST /agent/memory/{session_id}/snapshot`. |
+| **Voice Commands** | Submit base64-encoded audio to the agent and get a text transcript back. Supports a Whisper-compatible REST API (`WHISPER_BASE_URL` env var) or local `openai-whisper` for fully offline transcription. |
+
+**API — Agent Modes**
+
+```
+POST   /agent/coordinate                        Run N workers in parallel under one coordinator
+POST   /agent/background/tasks                  Submit a task to the background queue
+GET    /agent/background/tasks                  List all background tasks (filter by ?status=)
+GET    /agent/background/tasks/{task_id}        Get a single task
+POST   /agent/voice/transcribe                  Transcribe base64 audio → text
+GET    /agent/voice/status                      Check microphone and Whisper availability
+```
+
+---
 
 ### Automation & Scheduling
 
@@ -48,18 +63,33 @@ Set the agent loose on a schedule or hook it into your existing event pipeline.
 
 | Feature | What It Does |
 |---------|-------------|
-| **Scheduled Jobs** | Create cron-based schedules for any agent task — "run the wiki lint every Monday at 9am", "summarize new GitHub issues daily". List and delete jobs from the dashboard. External webhooks can also fire jobs instantly. |
-| **Automation Playbooks** | Pre-write a multi-step automation as a named playbook ("deploy-and-notify", "summarize-and-file"). The agent runs the whole playbook as a single unit — you invoke it by name, it handles the rest. |
-| **Resource Watchdog** | Point the watchdog at any URL, file, or service endpoint. When it detects a state change (new data, error response, file modification), it automatically triggers the agent action you defined. No polling loops to write yourself. |
+| **Scheduled Jobs** | Create cron-based schedules for any agent instruction — "run wiki lint every Monday at 9 am", "summarise open GitHub issues daily". Jobs store their last-run timestamp and run count. External webhooks can fire jobs immediately via `/trigger`. |
+| **Automation Playbooks** | Pre-write a multi-step automation as a named playbook. Each step is an agent instruction. Invoke the whole playbook by name and it runs every step in order. Track runs with start/finish timestamps. |
+| **Resource Watchdog** | Point the watchdog at any URL or file. When it detects a content change (via SHA-256 hash comparison), it fires your registered callback. No polling loops to write yourself — just register and start. |
 
-### Remote & Browser Control
+**API — Automation**
 
-Reach your agent from anywhere, and let it reach the web for you.
+```
+POST   /agent/scheduler/jobs                    Create a scheduled job (cron expression)
+GET    /agent/scheduler/jobs                    List all jobs
+GET    /agent/scheduler/jobs/{job_id}           Get a job
+POST   /agent/scheduler/jobs/{job_id}/trigger   Fire a job immediately (webhook-style)
+DELETE /agent/scheduler/jobs/{job_id}           Delete a job
 
-| Feature | What It Does |
-|---------|-------------|
-| **Browser Automation** | The agent controls a real browser — clicks buttons, fills forms, navigates pages, takes screenshots. Built on Playwright. This is not URL fetching; it's a full browser the agent can drive interactively. Useful for testing UIs, scraping dynamic pages, or automating web workflows. |
-| **Remote Access via SSH** | SSH into your agent session from any machine. A `relay://` URI scheme lets external tools (your IDE, CI runner, another agent) connect directly to a running session without going through a web interface. |
+POST   /agent/playbooks                         Register a playbook
+GET    /agent/playbooks                         List playbooks (filter by ?tag=)
+GET    /agent/playbooks/{id}                    Get a playbook
+DELETE /agent/playbooks/{id}                    Delete a playbook
+POST   /agent/playbooks/{id}/run                Start a playbook run
+GET    /agent/playbooks/{id}/runs               List runs for a playbook
+
+POST   /agent/watchdog/resources                Start watching a URL or file
+GET    /agent/watchdog/resources                List watched resources
+DELETE /agent/watchdog/resources/{id}           Stop watching
+POST   /agent/watchdog/resources/{id}/check     Check a resource right now
+```
+
+---
 
 ### Memory & Context
 
@@ -67,9 +97,25 @@ The agent stays useful over long tasks and long sessions.
 
 | Feature | What It Does |
 |---------|-------------|
-| **Session Memory** | The agent saves a snapshot of what it knows and what it was doing before it shuts down. When it restarts, it picks up its memory from disk — no external database needed, no re-explaining the project from scratch. |
-| **Smart Context Compression** | When a conversation gets long and starts hitting model limits, three strategies kick in: *reactive* (compress the oldest messages), *micro* (compress just the redundant bits), or *inspect* (show you what's taking up space so you decide). The agent stays coherent across long sessions. |
-| **Conversation Surgery** | Remove a specific bad exchange, an outdated instruction, or a confusing tangent from history — without wiping everything. Surgical, not nuclear. |
+| **Session Memory** | Save a snapshot of the agent's current session state to disk. On restart the agent restores its history, last plan, and result from the snapshot — no external database needed, no re-explaining the project from scratch. |
+| **Smart Context Compression** | Three strategies when conversation history gets too long: **reactive** (drop oldest non-system messages until under the token threshold), **micro** (remove exact duplicates and near-empty messages), **inspect** (return statistics without modifying anything). |
+| **Conversation Surgery** | Remove specific messages from session history by index without wiping everything. Good for cutting out a bad exchange, an outdated instruction, or a confusing tangent. |
+
+**API — Memory & Context**
+
+```
+POST   /agent/memory/{session_id}/snapshot      Save session state to disk
+GET    /agent/memory/{session_id}               Restore saved state
+GET    /agent/memory                            List all snapshots
+DELETE /agent/memory/{session_id}               Delete a snapshot
+
+POST   /agent/context/compress                  Compress messages (strategy: reactive|micro|inspect)
+POST   /agent/context/inspect                   Get token stats for a message list
+
+POST   /agent/sessions/{id}/snip                Remove messages by index from session history
+```
+
+---
 
 ### Intelligence & Planning
 
@@ -77,8 +123,19 @@ Make the agent think harder before it acts.
 
 | Feature | What It Does |
 |---------|-------------|
-| **Deep Planning Mode** | Before writing a single line of code, the agent produces a full implementation plan: what to build, in what order, how to verify each step worked. Then it checks the plan itself for gaps before starting. Fewer rabbit holes, fewer half-finished features. |
-| **Adaptive Permissions** | The agent reads what it has been doing in the session and adjusts its permission posture automatically. If it's been doing read-only research, it stays in read-only mode. If you've explicitly asked it to write files, it knows it has that permission. No more repetitive "are you sure?" dialogs for things you've already said yes to. |
+| **Adaptive Permissions** | Analyses the session transcript and infers the appropriate permission level: `read_only`, `read_write`, or `full_access`. Signals include write-intent words (create, edit, commit) and risky words (sudo, exec, destroy). The agent can use this to avoid asking for approval on actions the session has already authorised. |
+| **Token Spend Caps** | Set a maximum token budget per session. Record prompt and completion token counts; when the total reaches the cap a `BudgetExceededError` is raised. Set `cap=0` for unlimited. Useful for metered cloud backends. |
+
+**API — Intelligence**
+
+```
+GET    /agent/sessions/{id}/permissions         Infer permission level from session history
+PUT    /agent/budget/{session_id}               Set a token cap  {"cap": 50000}
+GET    /agent/budget/{session_id}               Get current usage and remaining budget
+GET    /agent/budget                            List all session budgets
+```
+
+---
 
 ### Developer Tooling
 
@@ -86,11 +143,33 @@ Utilities that make building on top of LLM Relay easier.
 
 | Feature | What It Does |
 |---------|-------------|
-| **Full Terminal Visibility** | The agent reads the full rendered terminal buffer — not just raw stdout. It sees interactive prompts, color output, progress bars, and UI elements in the terminal exactly as you would. This means it can respond to programs that ask questions mid-run. |
-| **Skill Library** | A local directory of reusable agent skills (like "run tests then summarize failures" or "create PR with changelog"). You can also install MCP-hosted skill packs from the network — they work like plugins. Search skills by name or keyword from the dashboard. |
-| **AI Commit Tracking** | Every git commit the agent makes is tagged with the session ID that created it. You can always trace which AI session wrote which code change — useful for audits, rollbacks, and understanding what the agent did while you were away. |
-| **Project Scaffolding** | Pre-built project templates the agent uses when you ask it to start a new project. Instead of an empty folder, you get a working skeleton with the right structure for your stack, ready for the agent to build on. |
-| **Token Spend Caps** | Set a maximum number of tokens the agent is allowed to spend per session or per sub-agent. When the cap is reached, the agent stops and reports back rather than running up an unexpected bill. Useful for metered cloud backends. |
+| **Terminal Panel** | Captures the full rendered terminal buffer via `tmux capture-pane`, or falls back to running a command and capturing stdout+stderr. The agent can read interactive prompts, progress bars, and coloured output — not just raw stdout. |
+| **Skill Library** | Automatically indexes every `SKILL.md` found under `.claude/skills/`. Supports keyword search across name, description, and full content. MCP-hosted skill packs can be registered via the API and are searchable alongside local skills. |
+| **AI Commit Tracking** | Every git commit the agent makes can be tagged with `Agent-Session`, `Agent-Model`, `Agent-Tool`, and `Agent-Timestamp` git trailers. Browse attributed commits via `/agent/commits` to trace which AI session wrote which change. |
+| **Project Scaffolding** | Three built-in project templates (`python-library`, `fastapi-service`, `cli-tool`) plus support for loading custom templates from JSON files. Apply a template to a directory in one API call. |
+| **Browser Automation** | Controls a real Chromium browser via Playwright. Navigate pages, click, fill forms, take screenshots, evaluate JavaScript. Install Playwright to activate; runs in stub mode (graceful failures) when not installed. |
+
+**API — Dev Tooling**
+
+```
+GET    /agent/terminal/snapshot                 Capture current terminal buffer
+POST   /agent/terminal/run                      Run a command and capture full output
+
+GET    /agent/skills                            List skills (filter by ?source=local|mcp)
+GET    /agent/skills/search?q=...               Search skills by keyword
+POST   /agent/skills/mcp                        Register an MCP-hosted skill
+
+GET    /agent/commits?limit=10                  List recent AI-attributed commits
+
+GET    /agent/scaffolding/templates             List available project templates
+POST   /agent/scaffolding/apply                 Scaffold a new project from a template
+
+POST   /agent/browser/start                     Start a browser session
+POST   /agent/browser/stop                      Stop the browser session
+POST   /agent/browser/action                    Execute a browser action (navigate|click|fill|screenshot|evaluate|get_state)
+```
+
+---
 
 ### Infrastructure
 
@@ -171,6 +250,20 @@ Password: WikiAdmin2026!
 ```
 
 Change these in `.env` before deploying publicly.
+
+---
+
+## Optional Feature Dependencies
+
+Some features require additional packages. All degrade gracefully when not installed.
+
+| Feature | Install command | Env var |
+|---------|-----------------|---------|
+| Browser Automation | `pip install playwright && playwright install chromium` | — |
+| Voice (Whisper API) | — | `WHISPER_BASE_URL=http://localhost:9000` |
+| Voice (local Whisper) | `pip install openai-whisper` | — |
+| Voice recording | `pip install pyaudio` | — |
+| Scheduled Jobs (cron) | `pip install apscheduler` *(bundled)* | — |
 
 ---
 
