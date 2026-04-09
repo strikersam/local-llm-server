@@ -37,6 +37,7 @@ from admin_gui import register_admin_gui
 from agent.loop import AgentRunner
 from agent.models import AgentRunRequest, AgentSessionCreateRequest
 from agent.state import AgentSessionStore
+from agent.user_memory import UserMemoryStore
 from chat_handlers import handle_ollama_native_chat, handle_openai_chat_completions
 from handlers.anthropic_compat import handle_anthropic_messages
 from key_store import issue_new_api_key, load_key_store
@@ -272,6 +273,7 @@ if ADMIN_AUTH.enabled:
 register_admin_gui(app, KEY_STORE, ADMIN_AUTH, SERVICE_MANAGER)
 AGENT_RUNNER = AgentRunner(ollama_base=OLLAMA_BASE, workspace_root=Path(__file__).resolve().parent)
 AGENT_SESSIONS = AgentSessionStore()
+USER_MEMORY = UserMemoryStore()
 
 WEBUI_STORE = JsonConfigStore()
 WEBUI_PROVIDERS = ProviderManager(WEBUI_STORE)
@@ -515,6 +517,8 @@ async def run_agent_task(
             requested_model=requested_model,
             auto_commit=body.auto_commit,
             max_steps=body.max_steps,
+            user_id=auth.email,
+            memory_store=USER_MEMORY,
         )
     except Exception as exc:
         log.exception("Agent run failed")
@@ -573,6 +577,8 @@ async def run_agent_once(body: AgentRunRequest, auth: AuthContext = Depends(veri
             requested_model=requested_model,
             auto_commit=body.auto_commit,
             max_steps=body.max_steps,
+            user_id=auth.email,
+            memory_store=USER_MEMORY,
         )
     except Exception as exc:
         log.exception("Agent one-off run failed")

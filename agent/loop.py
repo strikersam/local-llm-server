@@ -19,6 +19,7 @@ from agent.prompts import (
     build_verification_prompt,
 )
 from agent.tools import WorkspaceTools
+from agent.user_memory import UserMemoryStore
 from router import get_router
 
 log = logging.getLogger("qwen-agent")
@@ -52,14 +53,16 @@ class AgentRunner:
         requested_model: str | None,
         auto_commit: bool,
         max_steps: int,
+        user_id: str | None = None,
+        memory_store: UserMemoryStore | None = None,
     ) -> dict[str, Any]:
-        plan = await self._generate_plan(instruction, history, requested_model, max_steps)
+        plan = await self._generate_plan(instruction, history, requested_model, max_steps, user_id, memory_store)
         step_results: list[dict[str, Any]] = []
         commits: list[str] = []
 
         for step in plan.steps[:max_steps]:
             step_data = step.model_dump()
-            result = await self._execute_step(plan.goal, step_data, requested_model)
+            result = await self._execute_step(plan.goal, step_data, requested_model, user_id, memory_store)
             step_results.append(result)
             if auto_commit and result["status"] == "applied" and result["changed_files"]:
                 commit = self._commit_step(step_data["description"], result["changed_files"])
@@ -81,8 +84,11 @@ class AgentRunner:
         history: list[dict[str, str]],
         requested_model: str | None,
         max_steps: int,
+        user_id: str | None = None,
+        memory_store: UserMemoryStore | None = None,
     ) -> AgentPlan:
-        messages = build_planning_prompt(instruction, history)
+        user_memories = memory_store.recall_all(user_id) if memory_store and user_id else {}
+        messages = build_planning_prompt(instruction, history, user_memories=user_memories)
         planner_decision = get_router().route(
             requested_model=requested_model,
             messages=messages,
@@ -101,7 +107,14 @@ class AgentRunner:
         plan.steps = plan.steps[:max_steps]
         return plan
 
-    async def _execute_step(self, goal: str, step: dict[str, Any], requested_model: str | None) -> dict[str, Any]:
+    async def _execute_step(
+        self,
+        goal: str,
+        step: dict[str, Any],
+        requested_model: str | None,
+        user_id: str | None = None,
+        memory_store: UserMemoryStore | None = None,
+    ) -> dict[str, Any]:
         observations: list[dict[str, Any]] = []
         context_items: list[dict[str, Any]] = []
         changed_files: list[str] = []
@@ -146,7 +159,7 @@ class AgentRunner:
             if call.tool == "finish":
                 observations.append({"tool": "finish", "result": call.args.get("reason", "done inspecting")})
                 break
-            result = self._run_tool(call.tool, call.args)
+            result = self._run_tool(call.tool, call.args, user_id=user_id, memory_store=memory_store)
             observations.append({"tool": call.tool, "args": call.args, "result": result})
             context_items.append({"tool": call.tool, "result": result})
 
@@ -284,13 +297,27 @@ class AgentRunner:
             "models": {"executor": executor_model, "verifier": verifier_model},
         }
 
-    def _run_tool(self, tool: str, args: dict[str, Any]) -> Any:
+    def _run_tool(
+        self,
+        tool: str,
+        args: dict[str, Any],
+        user_id: str | None = None,
+        memory_store: UserMemoryStore | None = None,
+    ) -> Any:
         if tool == "read_file":
             return self.tools.read_file(str(args.get("path", "")))
         if tool == "list_files":
             return self.tools.list_files(str(args.get("path", ".")), int(args.get("limit", 200)))
         if tool == "search_code":
             return self.tools.search_code(str(args.get("query", "")), int(args.get("limit", 20)))
+        if tool == "recall_memory":
+            if not memory_store or not user_id:
+                return "(memory not available)"
+            return self.tools.recall_memory(str(args.get("key", "")), user_id=user_id, memory_store=memory_store)
+        if tool == "save_memory":
+            if not memory_store or not user_id:
+                return "(memory not available)"
+            return self.tools.save_memory(str(args.get("key", "")), str(args.get("value", "")), user_id=user_id, memory_store=memory_store)
         raise ValueError(f"Unsupported tool: {tool}")
 
     async def _chat_text(self, model: str, messages: list[dict[str, str]]) -> str:

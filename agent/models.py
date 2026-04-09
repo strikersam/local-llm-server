@@ -18,7 +18,7 @@ class AgentPlan(BaseModel):
 
 
 class ToolCall(BaseModel):
-    tool: Literal["read_file", "write_file", "apply_diff", "list_files", "search_code", "finish"]
+    tool: Literal["read_file", "write_file", "apply_diff", "list_files", "search_code", "recall_memory", "save_memory", "finish"]
     args: dict[str, Any] = Field(default_factory=dict)
 
 

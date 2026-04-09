@@ -8,6 +8,13 @@
 
 ## [Unreleased]
 
+### Added
+
+- **Persistent agent memory** (`agent/user_memory.py`): SQLite-backed `UserMemoryStore` lets agents save and recall per-user key/value facts across sessions and server restarts.  New `save_memory` / `recall_memory` tools are available to the agent executor.
+- **Durable session history** (`agent/state.py`): `AgentSessionStore` now writes sessions and message history to SQLite (`.data/agent.db`, overridable via `AGENT_DB_PATH`).  All sessions survive server restarts.
+- **Memory-aware planning** (`agent/prompts.py`): the planner system prompt is injected with the user's stored profile preferences so the agent can personalise responses from the first message.
+- `tests/test_memory.py`: unit and persistence tests for `UserMemoryStore` and the new SQLite-backed `AgentSessionStore`.
+
 ### Security
 
 - `README.md`: removed hardcoded tunnel domain from documentation; use `NGROK_DOMAIN`
