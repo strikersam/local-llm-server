@@ -10,7 +10,7 @@ function StatCard({ icon: Icon, label, value, color, onClick, delay }) {
         <Icon size={14} style={{ color }} />
         <ArrowRight size={10} className="text-[#737373] opacity-0 group-hover:opacity-100 transition-opacity" />
       </div>
-      <div className="text-2xl font-bold tracking-tight" style={{ fontFamily: 'Chivo, sans-serif' }}>{value}</div>
+      <div className="text-3xl font-black tracking-tight" style={{ fontFamily: 'Chivo, sans-serif' }}>{value}</div>
       <div className="text-[9px] tracking-[0.2em] uppercase text-[#737373] mt-0.5 font-mono">{label}</div>
     </button>
   );
