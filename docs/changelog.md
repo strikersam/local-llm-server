@@ -8,6 +8,32 @@
 
 ## [Unreleased]
 
+### Added — pro-workflow AI engineering system
+
+- **`.claude/agents/scout.md`** — Scout agent: 5-dimension confidence scoring (Scope Clarity,
+  Pattern Familiarity, Dependency Aware, Edge Case Coverage, Test Strategy × 20 pts each).
+  Returns GO (≥70) or HOLD (<70) with gap list. Supports DEV/REVIEW/RESEARCH context modes.
+- **`.claude/skills/pro-workflow/SKILL.md`** — Master workflow skill: Research → Plan → Implement
+  with 8 core patterns, model selection guide, and validation gates between phases.
+- **`.claude/skills/smart-commit/SKILL.md`** — Quality gates + conventional commits: tests, syntax
+  check, secret detection, conventional commit format enforced before every commit.
+- **`.claude/skills/wrap-up/SKILL.md`** — 5-step session closing ritual: changes audit, quality
+  check, learning capture, next session planning, one-paragraph summary.
+- **`.claude/skills/learn-rule/SKILL.md`** — Persist corrections and discoveries to
+  `.claude/state/learnings.md` so mistakes are never repeated across sessions.
+- **`.claude/skills/replay-learnings/SKILL.md`** — Surface relevant past patterns before starting
+  work. Filters learnings by module and operation type.
+- **`.claude/skills/parallel-worktrees/SKILL.md`** — Git worktree setup for zero dead time: work
+  on multiple branches simultaneously with copy-paste commands for common patterns.
+- **`.claude/skills/session-handoff/SKILL.md`** — Write structured resume documentation so any
+  session (AI or human) can continue without archaeology.
+- **`.claude/skills/insights/SKILL.md`** — Analytics, heatmaps, and trends: file churn analysis,
+  failure pattern detection, retry hot spots, learning clusters, prioritized recommendations.
+- **`.claude/skills/deslop/SKILL.md`** — Remove AI code slop before committing: obvious comments,
+  one-use helpers, phantom defensive checks, speculative abstractions, verbose names.
+- **`CLAUDE.md`** — Updated with Research→Plan→Implement workflow diagram, 11-step standard
+  sequence, model selection table (Haiku/Sonnet/Opus per task type), and full skill reference.
+
 ### Security
 
 - `README.md`: removed hardcoded tunnel domain from documentation; use `NGROK_DOMAIN`
