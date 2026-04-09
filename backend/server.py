@@ -84,11 +84,12 @@ def create_refresh_token(user_id: str) -> str:
     )
 
 async def get_current_user(request: Request) -> dict:
-    token = request.cookies.get("access_token")
+    token = None
+    auth = request.headers.get("Authorization", "")
+    if auth.startswith("Bearer "):
+        token = auth[7:]
     if not token:
-        auth = request.headers.get("Authorization", "")
-        if auth.startswith("Bearer "):
-            token = auth[7:]
+        token = request.cookies.get("access_token")
     if not token:
         raise HTTPException(status_code=401, detail="Not authenticated")
     try:
@@ -192,11 +193,11 @@ async def login(body: LoginBody):
     uid = str(user["_id"])
     access = create_access_token(uid, email)
     refresh = create_refresh_token(uid)
-    response = JSONResponse({"_id": uid, "email": user["email"], "name": user.get("name", ""), "role": user.get("role", "user")})
-    response.set_cookie("access_token", access, httponly=True, secure=False, samesite="lax", max_age=86400, path="/")
-    response.set_cookie("refresh_token", refresh, httponly=True, secure=False, samesite="lax", max_age=604800, path="/")
     await log_activity("auth", f"User {email} logged in", user_id=uid)
-    return response
+    return {
+        "_id": uid, "email": user["email"], "name": user.get("name", ""), "role": user.get("role", "user"),
+        "access_token": access, "refresh_token": refresh,
+    }
 
 @app.post("/api/auth/logout")
 async def logout():
@@ -211,7 +212,8 @@ async def me(user: dict = Depends(get_current_user)):
 
 @app.post("/api/auth/refresh")
 async def refresh_token(request: Request):
-    token = request.cookies.get("refresh_token")
+    body = await request.json()
+    token = body.get("refresh_token", "")
     if not token:
         raise HTTPException(status_code=401, detail="No refresh token")
     try:
@@ -223,9 +225,7 @@ async def refresh_token(request: Request):
             raise HTTPException(status_code=401, detail="User not found")
         uid = str(user["_id"])
         access = create_access_token(uid, user["email"])
-        response = JSONResponse({"ok": True})
-        response.set_cookie("access_token", access, httponly=True, secure=False, samesite="lax", max_age=86400, path="/")
-        return response
+        return {"access_token": access}
     except (jwt.ExpiredSignatureError, jwt.InvalidTokenError):
         raise HTTPException(status_code=401, detail="Invalid refresh token")
 

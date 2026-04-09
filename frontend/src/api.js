@@ -2,9 +2,49 @@ import axios from 'axios';
 
 const API = axios.create({
   baseURL: process.env.REACT_APP_BACKEND_URL || '',
-  withCredentials: true,
   headers: { 'Content-Type': 'application/json' },
 });
+
+// Attach Bearer token to every request
+API.interceptors.request.use((config) => {
+  const token = localStorage.getItem('access_token');
+  if (token) {
+    config.headers.Authorization = `Bearer ${token}`;
+  }
+  return config;
+});
+
+// On 401, try refreshing the token once
+let isRefreshing = false;
+API.interceptors.response.use(
+  (res) => res,
+  async (error) => {
+    const orig = error.config;
+    if (error.response?.status === 401 && !orig._retry && !orig.url?.includes('/auth/')) {
+      orig._retry = true;
+      const refresh = localStorage.getItem('refresh_token');
+      if (refresh && !isRefreshing) {
+        isRefreshing = true;
+        try {
+          const { data } = await axios.post(
+            `${process.env.REACT_APP_BACKEND_URL || ''}/api/auth/refresh`,
+            { refresh_token: refresh },
+          );
+          localStorage.setItem('access_token', data.access_token);
+          orig.headers.Authorization = `Bearer ${data.access_token}`;
+          return API(orig);
+        } catch {
+          localStorage.removeItem('access_token');
+          localStorage.removeItem('refresh_token');
+          window.location.href = '/login';
+        } finally {
+          isRefreshing = false;
+        }
+      }
+    }
+    return Promise.reject(error);
+  }
+);
 
 export function fmtErr(detail) {
   if (detail == null) return 'Something went wrong.';
@@ -15,7 +55,11 @@ export function fmtErr(detail) {
 
 // Auth
 export const login = (email, password) => API.post('/api/auth/login', { email, password });
-export const logout = () => API.post('/api/auth/logout');
+export const logout = () => {
+  localStorage.removeItem('access_token');
+  localStorage.removeItem('refresh_token');
+  return Promise.resolve();
+};
 export const getMe = () => API.get('/api/auth/me');
 
 // Chat
