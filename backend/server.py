@@ -214,17 +214,27 @@ async def call_llm(messages: list[dict], model: str = None, temperature: float =
     """Call LLM via Emergent integration or Ollama."""
     if LLM_PROVIDER == "emergent" and EMERGENT_KEY:
         try:
-            from emergentintegrations.llm.chat import chat, ChatMessage
-            chat_messages = []
+            from emergentintegrations.llm.chat import LlmChat, UserMessage
+            # Build system message from messages list
+            system_msg = ""
+            user_text = ""
             for m in messages:
-                chat_messages.append(ChatMessage(role=m["role"], content=m["content"]))
-            response = await chat(
+                if m["role"] == "system":
+                    system_msg += m["content"] + "\n"
+                elif m["role"] == "user":
+                    user_text += m["content"] + "\n"
+                elif m["role"] == "assistant":
+                    user_text += f"[Previous assistant response: {m['content'][:200]}]\n"
+
+            session_id = secrets.token_hex(8)
+            llm = LlmChat(
                 api_key=EMERGENT_KEY,
-                model=model or "gpt-4o-mini",
-                messages=chat_messages,
-                temperature=temperature,
-            )
-            return response.message
+                session_id=session_id,
+                system_message=system_msg.strip(),
+            ).with_model("openai", model or "gpt-4o-mini").with_params(temperature=temperature)
+
+            response = await llm.send_message(UserMessage(text=user_text.strip()))
+            return response
         except Exception as e:
             log.error("Emergent LLM call failed: %s", e)
             raise HTTPException(status_code=502, detail=f"LLM call failed: {e}")
