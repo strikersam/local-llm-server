@@ -11,8 +11,7 @@
 - POST /api/auth/refresh
 
 ## Auth Type
-JWT tokens stored in httpOnly cookies (access_token + refresh_token).
-Access token valid for 24 hours, refresh token for 7 days.
+JWT tokens stored in httpOnly cookies. Access: 24h, Refresh: 7d.
 
-## Admin Secret (for proxy)
+## Admin Secret (for proxy endpoints)
 K-G-3sRhNko2zxMJBrY62Q17MweS7NXY73f7Y6nOJos

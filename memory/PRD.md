@@ -1,75 +1,53 @@
-# LLM Wiki Platform — PRD
+# LLM Relay — PRD
 
 ## Original Problem Statement
-Build a unified self-hosted AI platform replicating Emergent/Lovable/Claude Code features. Single UI that combines: Admin panel, Langfuse dashboard, LLM Wiki dashboard, model management, provider management. Accessible from one place with no chaos. Connect to HuggingFace, Ollama cloud, or local models. Based on Karpathy's LLM Wiki gist + synthesized ideas from Docker sandboxes, multi-agent AI, claw-code patterns.
+Build a unified self-hosted AI platform (rebranded as "LLM Relay") that replicates Emergent/Lovable/Claude Code features. Single unified dashboard combining admin panel, Langfuse observability, knowledge wiki, model management, provider management. Accessible from one place. Connect to HuggingFace, Ollama cloud, or local models. Based on Karpathy's LLM Wiki gist + synthesized ideas from multiple sources including claw-code patterns.
 
-## User Choices
-- LLM Backend: Both Ollama (default with Llama) + OpenAI-compatible
-- Features: All — Chat, Wiki, Sources, Activity, Agent mode, Providers, Models, Keys, Observability
-- Docker: Single docker-compose.yml with ngrok profile
-- UI: Unified platform, killer design, Swiss brutalist dark theme
-- Auth: Static admin credentials
-- Langfuse: Configured with user's keys
-- ngrok: User has existing setup, refined in docker-compose
+**Tagline**: Route, run, and control LLMs on your own hardware, not someone else's meter.
 
 ## Architecture
-- **Backend**: FastAPI on port 8001, MongoDB, JWT auth, multi-provider LLM
-- **Frontend**: React 18, Tailwind CSS, Lucide Icons — unified dashboard
-- **Providers**: Ollama (local), OpenAI-compatible (cloud), HuggingFace, OpenRouter
+- **Frontend**: React 18 + Tailwind CSS, unified dashboard on port 3000
+- **Backend**: FastAPI on port 8001, MongoDB, JWT auth
+- **LLM**: Multi-provider (Ollama local, OpenAI-compatible, HuggingFace, OpenRouter)
 - **Observability**: Langfuse (cloud.langfuse.com)
 - **Tunnel**: ngrok for public access
-- **Containerization**: Docker Compose with profiles (public, full)
-
-## Core Requirements (Static)
-1. Unified dashboard — single entry point for all features
-2. Agent Chat with wiki-aware context
-3. Wiki Browser with full CRUD, markdown, search, tags
-4. Source Ingestion with AI summarization
-5. Provider Management (CRUD, test, set default)
-6. Models Hub (Ollama pull/delete, cloud references)
-7. API Key Management (issue/revoke for Cursor/Claude Code/Aider)
-8. Observability (Langfuse status + dashboard link)
-9. Activity Log with category filtering
-10. Docker-compose with ngrok for public access
+- **Containers**: Docker Compose with profiles (public, full)
 
 ## What's Been Implemented
 
-### Phase 1 (2026-04-09) — MVP
-- [x] Full FastAPI backend with all endpoints
-- [x] JWT auth with cookie-based sessions
-- [x] LLM integration via emergentintegrations
-- [x] Wiki CRUD with full-text search
-- [x] Chat agent with wiki context
-- [x] Source ingestion with AI summarization
-- [x] Activity log, Dashboard
+### Phase 1 — MVP (2026-04-09)
+- [x] Auth (JWT + cookies), Wiki CRUD, Chat agent, Source ingestion, Activity log
 
-### Phase 2 (2026-04-09) — Unified Platform
-- [x] Provider Management (CRUD + test + set default)
-- [x] Models Hub (list/pull/delete Ollama + cloud references)
-- [x] API Key Management (issue/revoke with hashed secrets)
-- [x] Observability (Langfuse connection status + dashboard link)
-- [x] Enhanced Dashboard (6 stat cards, health badges, ngrok domain)
-- [x] Unified sidebar with 3 sections (Core, Infrastructure, System)
-- [x] Docker Compose with ngrok profile
-- [x] Comprehensive README with full API docs, provider setup, tool connection guides
-- [x] CORS fix for credentialed requests
+### Phase 2 — Unified Platform (2026-04-09)
+- [x] Provider CRUD + test + set default
+- [x] Models Hub (Ollama pull/delete + cloud refs)
+- [x] API Key management (issue/revoke)
+- [x] Observability (Langfuse status + dashboard link)
+- [x] Enhanced Dashboard (6 stats, health badges, ngrok badge)
+- [x] Docker Compose with ngrok + proxy profiles
+
+### Phase 3 — Rebrand + Polish (2026-04-09)
+- [x] Rebranded to "LLM Relay"
+- [x] Generated hero image for login
+- [x] Fixed CORS for credentialed cookie requests
+- [x] Created .env.example (no secrets)
+- [x] Updated .gitignore
+- [x] Comprehensive README with API docs, provider setup, tool connection guides
 
 ## Test Status
-- Backend: 100% (27/27 tests)
-- Frontend: 85%+ (all core flows working)
+- Backend: 100% (21/21)
+- Frontend: 100% (12/12 requirements)
 
 ## Backlog
 ### P1
 - Real-time chat streaming (SSE)
-- Wiki page interlinking graph
+- Wiki knowledge graph visualization
 - Source-to-wiki auto-generation
-- Provider health polling
-- Token usage tracking per session
+- Token usage tracking with cost estimates
 
 ### P2
 - Multi-user accounts
 - Dark/light theme toggle
-- Export wiki as static site
-- Webhook integrations
 - Vector search with embeddings
-- Telegram bot integration (existing code)
+- Telegram bot integration
+- Code workspace panel (Claude Code-style file editor + terminal)
