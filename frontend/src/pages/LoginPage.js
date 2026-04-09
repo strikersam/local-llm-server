@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { useAuth } from '../AuthContext';
-import { formatError } from '../api';
+import { fmtErr } from '../api';
 import { Lock, ArrowRight, AlertCircle } from 'lucide-react';
 
 export default function LoginPage() {
@@ -17,7 +17,7 @@ export default function LoginPage() {
     try {
       await login(email, password);
     } catch (err) {
-      setError(formatError(err?.response?.data?.detail));
+      setError(fmtErr(err?.response?.data?.detail));
     } finally {
       setLoading(false);
     }

@@ -42,11 +42,36 @@ app = FastAPI(title="LLM Wiki — Unified Platform", version="2.0.0")
 
 frontend_url = os.environ.get("FRONTEND_URL", "http://localhost:3000")
 app_url = os.environ.get("APP_URL", "")
-origins = ["*"]
+origins = [
+    frontend_url,
+    "http://localhost:3000",
+]
+if app_url:
+    origins.append(app_url)
+# Add the preview domain
+preview_domain = os.environ.get("REACT_APP_BACKEND_URL", "")
+if preview_domain:
+    origins.append(preview_domain)
+# Add common patterns
+origins = list(set(o for o in origins if o))
 
 app.add_middleware(
-    CORSMiddleware, allow_origins=origins, allow_credentials=True, allow_methods=["*"], allow_headers=["*"],
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
+
+# Override CORS for credentialed requests
+@app.middleware("http")
+async def cors_fix(request: Request, call_next):
+    response = await call_next(request)
+    origin = request.headers.get("origin", "")
+    if origin:
+        response.headers["Access-Control-Allow-Origin"] = origin
+        response.headers["Access-Control-Allow-Credentials"] = "true"
+    return response
 
 client = AsyncIOMotorClient(MONGO_URL)
 db = client[DB_NAME]
