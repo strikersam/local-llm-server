@@ -195,9 +195,9 @@ class LLMWikiAPITester:
         """Test activity log"""
         return self.run_test("Get Activity Log", "GET", "/api/activity", 200)
 
-    def test_settings(self):
-        """Test settings endpoints"""
-        return self.run_test("Get Providers", "GET", "/api/settings/providers", 200)
+    def test_providers(self):
+        """Test providers endpoints"""
+        return self.run_test("Get Providers", "GET", "/api/providers", 200)
 
     def test_wiki_lint(self):
         """Test wiki lint functionality"""
@@ -233,7 +233,7 @@ class LLMWikiAPITester:
             self.test_chat_operations,
             self.test_source_operations,
             self.test_activity_log,
-            self.test_settings,
+            self.test_providers,
             self.test_wiki_lint,
             self.test_logout
         ]

@@ -1,43 +1,48 @@
-# Secrets — never commit
+# Environment & secrets
 .env
-/.pytest_cache/
-tests/__pycache__/
-__pycache__/
-keys.json
+*.env
+!.env.example
+backend/.env
+frontend/.env
 
-# Runtime state
-server.pids
-logs/
-*.pid
-*.log
-.data/
-.agents/
-
-# Python cache
+# Dependencies
+node_modules/
 __pycache__/
 *.pyc
-*.pyo
 .venv/
 venv/
 
-# Web UI build artifacts
-webui/frontend/node_modules/
-webui/frontend/dist/
-webui/frontend/*.tsbuildinfo
+# Build artifacts
+frontend/build/
+dist/
+*.egg-info/
 
-# Web UI server-side config store (providers/workspaces)
-# (intentionally ignored; contains provider/workspace secrets)
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
 
-# OS / editor
+# OS
 .DS_Store
 Thumbs.db
-Desktop.ini
-.idea/
-.vscode/
 
-# Claude Code ephemeral session state — do NOT commit these
-.claude/settings.local.json
-.claude/sessions/
-.claude/todos
-# But DO commit project-level AI engineering files in .claude/
-# (skills, hooks, commands, agents, state are intentionally versioned)
+# Logs
+*.log
+
+# Database
+*.db
+
+# Keys
+keys.json
+*.pem
+*.key
+
+# Emergent platform
+.emergent/
+
+# Memory (internal)
+memory/
+
+# Test reports
+test_reports/

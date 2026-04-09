@@ -36,7 +36,7 @@ export default function DashboardHome() {
           {health?.status === 'ok' ? 'ALL SYSTEMS OPERATIONAL' : 'CHECKING STATUS...'}
         </div>
         <h1 className="text-2xl font-bold tracking-tighter" style={{ fontFamily: 'Chivo, sans-serif' }}>Control Room</h1>
-        <p className="text-xs text-[#737373] mt-0.5">Unified AI Agent Platform — Self-Hosted</p>
+        <p className="text-xs text-[#737373] mt-0.5">LLM Relay — Unified AI Platform</p>
       </div>
 
       {/* Health Badges */}

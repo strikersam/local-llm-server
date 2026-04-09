@@ -1,147 +1,152 @@
-# LLM Wiki — Self-Hosted Unified AI Platform
+# LLM Relay
 
-> A self-hosted, open-source alternative to Emergent/Lovable/Claude Code with a unified dashboard.
-> Persistent, compounding knowledge base maintained by AI agents.
-> Inspired by [Karpathy's LLM Wiki](https://gist.github.com/karpathy/442a6bf555914893e9891c11519de94f) pattern.
+> **Route, run, and control LLMs on your own hardware, not someone else's meter.**
 
-## What Is This?
+A self-hosted, open-source AI platform that gives you everything Emergent, Lovable, and Claude Code offer — on your infrastructure, with zero vendor lock-in.
 
-LLM Wiki is a **fully self-hosted AI agent platform** that gives you everything you do in Emergent, Claude Code, or Lovable — but on your own infrastructure, for free. One unified dashboard to manage:
+![LLM Relay Dashboard](https://static.prod-images.emergentagent.com/jobs/6bf7aa0e-927a-4851-95e4-78f9c580e21a/images/6d1e1a17e7631bc5783700099b8bd99b3256c85b7d78807597ae8cea63ae6ad4.png)
 
-- **AI Agent Chat** with wiki-aware context
-- **Knowledge Wiki** (markdown-based, AI-maintained)
-- **Source Ingestion** (files, URLs, text)
-- **LLM Provider Management** (Ollama local, HuggingFace, OpenRouter, any OpenAI-compat API)
-- **Model Management** (pull/delete Ollama models)
-- **API Key Management** (issue keys for Cursor, Claude Code, Aider)
-- **Observability** (Langfuse integration for cost/usage tracking)
-- **Public Access** (ngrok tunnel for sharing)
+---
+
+## What Is LLM Relay?
+
+LLM Relay is a **unified dashboard** that replaces the patchwork of tools you're juggling today. One interface to:
+
+- **Route** requests to any LLM — local Ollama, HuggingFace, OpenRouter, or any OpenAI-compatible API
+- **Run** an AI agent that builds a compounding knowledge wiki (Karpathy's LLM Wiki pattern)
+- **Control** who accesses what — API key management, Langfuse observability, activity audit trail
+
+No subscriptions. No metered API calls on someone else's bill. Your hardware, your data, your rules.
+
+---
+
+## Features
+
+### Core
+
+| Feature | What It Does |
+|---------|-------------|
+| **Agent Chat** | LLM-powered chat with wiki context. Supports all configured providers. Quick prompts to get started. |
+| **Knowledge Wiki** | Full CRUD markdown wiki with search, tags, cross-references. AI-maintained. |
+| **Source Ingestion** | Upload files, paste URLs, raw text. AI auto-summarizes into structured knowledge. |
+| **Wiki Lint** | AI health check that finds orphan pages, missing refs, stale content. |
+
+### Infrastructure
+
+| Feature | What It Does |
+|---------|-------------|
+| **Providers** | Add/configure/test LLM backends. Switch between local Ollama, HuggingFace, OpenRouter, custom endpoints. Set a default with one click. |
+| **Models Hub** | Pull/delete Ollama models. View cloud model references. One-line model downloads. |
+| **API Keys** | Issue/revoke API keys for external tools — Cursor, Claude Code, Aider, Continue. Hashed storage. |
+
+### System
+
+| Feature | What It Does |
+|---------|-------------|
+| **Observability** | Langfuse integration — token usage, cost tracking, latency metrics, per-user attribution. |
+| **Activity Log** | Complete audit trail with category filtering (chat, wiki, ingest, provider, keys, auth). |
+| **Health Dashboard** | Real-time status for MongoDB, Ollama, Langfuse. ngrok domain display. |
+
+---
 
 ## Architecture
 
 ```
-┌──────────────────────────────────────────────────────────────────┐
-│                    Unified React Dashboard                       │
-│  Dashboard │ Chat │ Wiki │ Sources │ Providers │ Models │ Keys   │
-├──────────────────────────────────────────────────────────────────┤
-│                     FastAPI Backend (8001)                        │
-│  Auth │ Chat │ Wiki CRUD │ Ingest │ Providers │ Models │ Keys    │
-├──────────────┬──────────────┬─────────────┬──────────────────────┤
-│   MongoDB    │   Ollama     │  Cloud APIs  │    Langfuse          │
-│  (Storage)   │ (Local LLM)  │ (HF/OpenAI) │  (Observability)     │
-├──────────────┴──────────────┴─────────────┴──────────────────────┤
-│          ngrok / Cloudflare Tunnel (Public Access)                │
-└──────────────────────────────────────────────────────────────────┘
+                        ┌──────────────────────────────┐
+                        │    React Dashboard (3000)     │
+                        │  Login | Dashboard | Chat     │
+                        │  Wiki | Sources | Providers   │
+                        │  Models | Keys | Observability│
+                        └──────────────┬───────────────┘
+                                       │
+                        ┌──────────────┴───────────────┐
+                        │   FastAPI Backend (8001)      │
+                        │   Auth | LLM Engine | CRUD    │
+                        │   Providers | Models | Keys   │
+                        └──┬────────┬────────┬────────┘
+                           │        │        │
+                    ┌──────┤  ┌─────┤  ┌─────┤
+                    ▼      │  ▼     │  ▼     │
+                 MongoDB   │ Ollama │ Cloud  │
+                (Storage)  │(Local) │ APIs   │
+                           │        │        │
+                           │  ┌─────┤  ┌─────┘
+                           │  ▼     │  ▼
+                           │Langfuse│ ngrok
+                           │(Trace) │(Tunnel)
+                           └────────┘
 ```
 
-Three-layer knowledge architecture (Karpathy pattern):
-1. **Raw Sources** → Files, URLs, text ingested and AI-processed
-2. **Wiki** → LLM-maintained markdown knowledge base with cross-references
-3. **Agent** → Query, lint, cross-reference, and expand the knowledge base
+Three-layer knowledge architecture (Karpathy LLM Wiki pattern):
+
+1. **Raw Sources** — Files, URLs, text ingested and AI-processed
+2. **Wiki** — LLM-maintained markdown knowledge base
+3. **Agent** — Query, lint, cross-reference, expand
+
+---
 
 ## Quick Start
 
-### Docker (Recommended)
+### Docker Compose (recommended)
 
 ```bash
 git clone https://github.com/strikersam/local-llm-server
 cd local-llm-server
 
-# Copy and edit environment
-cp .env.example .env
-# Edit .env with your settings
+cp .env.example .env   # edit with your settings
 
-# Start all services
-docker compose up -d
-
-# With public access (ngrok)
-docker compose --profile public up -d
-
-# With full proxy (Claude Code/Cursor/Aider compatibility)
-docker compose --profile full up -d
-
-# Open dashboard
-open http://localhost:3000
+docker compose up -d                      # core services
+docker compose --profile public up -d     # + ngrok tunnel
+docker compose --profile full up -d       # + proxy for Cursor/Claude Code
 ```
+
+Open **http://localhost:3000** and log in.
 
 ### Default Credentials
 
-| Field    | Value                |
-|----------|----------------------|
-| Email    | admin@llmwiki.local  |
-| Password | WikiAdmin2026!       |
+```
+Email:    admin@llmwiki.local
+Password: WikiAdmin2026!
+```
 
-## Features
+Change these in `.env` before deploying publicly.
 
-### Core
-| Feature | Description |
-|---------|-------------|
-| Agent Chat | LLM-powered chat with wiki context. Supports all configured providers |
-| Wiki Browser | Full CRUD, markdown rendering, search, tags, interlinking |
-| Source Ingestion | Upload files, paste URLs, raw text. AI summarizes automatically |
-| Wiki Lint | AI health check — finds orphans, missing refs, stale content |
-| Activity Log | Complete audit trail with category filtering |
+---
 
-### Infrastructure
-| Feature | Description |
-|---------|-------------|
-| Providers | Add/configure/test LLM providers. Set default. Supports Ollama, HuggingFace, OpenRouter, any OpenAI-compat API |
-| Models Hub | List local Ollama models, pull new ones, delete unused. See cloud model references |
-| API Keys | Issue/revoke API keys for external tools (Cursor, Claude Code, Aider) |
+## Provider Setup
 
-### System
-| Feature | Description |
-|---------|-------------|
-| Observability | Langfuse integration — token usage, cost tracking, latency, user attribution |
-| Health Dashboard | Real-time status for MongoDB, Ollama, Langfuse |
-| ngrok Integration | One-click public access via ngrok tunnel |
+### Ollama (Local — zero cost)
+Runs as a Docker service. Models auto-downloaded.
 
-## LLM Provider Setup
-
-### Ollama (Local — Default for Self-Hosted)
 ```bash
-# Ollama runs as a Docker service automatically
-# Models are pulled via the dashboard or CLI
-docker exec llm-wiki-ollama ollama pull llama3.2
+# Pull additional models via dashboard or CLI
 docker exec llm-wiki-ollama ollama pull qwen3-coder:30b
+docker exec llm-wiki-ollama ollama pull deepseek-r1:32b
 ```
 
 ### HuggingFace Inference API
-1. Get API token from https://huggingface.co/settings/tokens
-2. Go to **Providers** → **Add Provider**
-3. Set:
-   - Type: OpenAI Compatible
-   - Base URL: `https://api-inference.huggingface.co/v1`
-   - API Key: your HuggingFace token
-   - Default Model: e.g., `meta-llama/Llama-3.2-3B-Instruct`
+Go to **Providers** → **Add Provider**:
+- Type: OpenAI Compatible
+- Base URL: `https://api-inference.huggingface.co/v1`
+- API Key: your HuggingFace token
+- Model: `meta-llama/Llama-3.2-3B-Instruct`
 
 ### OpenRouter
-1. Get API key from https://openrouter.ai/keys
-2. Add provider with Base URL: `https://openrouter.ai/api/v1`
+- Base URL: `https://openrouter.ai/api/v1`
+- API Key: your OpenRouter key
 
-### Local Ollama (Remote Machine)
-1. Add provider with Base URL: `http://your-machine-ip:11434`
-2. No API key needed
+### Remote Ollama (another machine)
+- Type: Ollama
+- Base URL: `http://192.168.1.100:11434`
 
-## Public Access (ngrok)
-
-```bash
-# Set in .env
-NGROK_AUTHTOKEN=your-token
-NGROK_DOMAIN=your-domain.ngrok-free.dev
-
-# Start with ngrok profile
-docker compose --profile public up -d
-```
-
-Your dashboard is now accessible at `https://your-domain.ngrok-free.dev`
+---
 
 ## Connecting External Tools
 
 ### Cursor IDE
 ```
-Settings → Models → OpenAI API Key section:
-  API Key: (issue from API Keys page)
+Settings → Models → OpenAI API Key:
+  API Key: <from API Keys page>
   Base URL: https://your-domain.ngrok-free.dev/v1
   Model: qwen3-coder:30b
 ```
@@ -149,114 +154,157 @@ Settings → Models → OpenAI API Key section:
 ### Claude Code CLI
 ```bash
 export ANTHROPIC_BASE_URL=https://your-domain.ngrok-free.dev
-export ANTHROPIC_API_KEY=sk-wiki-...  # from API Keys page
+export ANTHROPIC_API_KEY=sk-relay-...
 claude
 ```
 
 ### Aider
 ```bash
 aider --openai-api-base https://your-domain.ngrok-free.dev/v1 \
-      --openai-api-key sk-wiki-...
+      --openai-api-key sk-relay-...
 ```
 
-## API Reference
-
-### Auth
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| POST | /api/auth/login | Login |
-| POST | /api/auth/logout | Logout |
-| GET | /api/auth/me | Current user |
-
-### Chat
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| POST | /api/chat/send | Send message to agent |
-| GET | /api/chat/sessions | List sessions |
-| GET | /api/chat/sessions/:id | Get session |
-| DELETE | /api/chat/sessions/:id | Delete session |
-
-### Wiki
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| GET | /api/wiki/pages | List/search pages |
-| GET | /api/wiki/pages/:slug | Get page |
-| POST | /api/wiki/pages | Create page |
-| PUT | /api/wiki/pages/:slug | Update page |
-| DELETE | /api/wiki/pages/:slug | Delete page |
-| POST | /api/wiki/lint | Run health check |
-
-### Sources
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| POST | /api/sources/ingest | Ingest file/URL/text |
-| GET | /api/sources | List sources |
-| GET | /api/sources/:id | Get source |
-| DELETE | /api/sources/:id | Delete source |
-
-### Providers
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| GET | /api/providers | List providers |
-| POST | /api/providers | Add provider |
-| PUT | /api/providers/:id | Update provider |
-| DELETE | /api/providers/:id | Delete provider |
-| POST | /api/providers/:id/test | Test connection |
-
-### Models
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| GET | /api/models | List all models |
-| POST | /api/models/pull | Pull Ollama model |
-| DELETE | /api/models/:name | Delete model |
-
-### Keys
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| GET | /api/keys | List API keys |
-| POST | /api/keys | Issue new key |
-| DELETE | /api/keys/:id | Revoke key |
-
-### System
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| GET | /api/health | System health |
-| GET | /api/stats | Dashboard stats |
-| GET | /api/activity | Activity log |
-| GET | /api/platform | Platform info |
-| GET | /api/observability/status | Langfuse status |
+---
 
 ## Services
 
 | Service | Port | Description |
 |---------|------|-------------|
-| Frontend | 3000 | Unified React dashboard |
-| Backend | 8001 | FastAPI API server |
-| Proxy | 8000 | OpenAI/Anthropic-compat proxy (for Cursor/Claude Code) |
-| MongoDB | 27017 | Document store |
-| Ollama | 11434 | Local LLM runtime |
-| ngrok | — | Public tunnel (optional) |
+| **Frontend** | 3000 | Unified React dashboard |
+| **Backend** | 8001 | FastAPI API server |
+| **Proxy** | 8000 | OpenAI/Anthropic-compat proxy (Cursor/Claude Code) |
+| **MongoDB** | 27017 | Document store |
+| **Ollama** | 11434 | Local LLM runtime |
+| **ngrok** | — | Public tunnel (optional) |
+
+---
+
+## API Reference
+
+<details>
+<summary><strong>Auth</strong></summary>
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| POST | `/api/auth/login` | Login with email/password |
+| POST | `/api/auth/logout` | Clear session |
+| GET | `/api/auth/me` | Current user |
+| POST | `/api/auth/refresh` | Refresh token |
+
+</details>
+
+<details>
+<summary><strong>Chat / Agent</strong></summary>
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| POST | `/api/chat/send` | Send message to wiki agent |
+| GET | `/api/chat/sessions` | List sessions |
+| GET | `/api/chat/sessions/:id` | Get session |
+| DELETE | `/api/chat/sessions/:id` | Delete session |
+
+</details>
+
+<details>
+<summary><strong>Wiki</strong></summary>
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/api/wiki/pages` | List/search pages |
+| GET | `/api/wiki/pages/:slug` | Get page |
+| POST | `/api/wiki/pages` | Create page |
+| PUT | `/api/wiki/pages/:slug` | Update page |
+| DELETE | `/api/wiki/pages/:slug` | Delete page |
+| POST | `/api/wiki/lint` | AI health check |
+
+</details>
+
+<details>
+<summary><strong>Sources</strong></summary>
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| POST | `/api/sources/ingest` | Ingest file/URL/text |
+| GET | `/api/sources` | List all |
+| GET | `/api/sources/:id` | Get with content |
+| DELETE | `/api/sources/:id` | Delete |
+
+</details>
+
+<details>
+<summary><strong>Providers</strong></summary>
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/api/providers` | List providers |
+| POST | `/api/providers` | Add provider |
+| PUT | `/api/providers/:id` | Update |
+| DELETE | `/api/providers/:id` | Delete |
+| POST | `/api/providers/:id/test` | Test connection |
+
+</details>
+
+<details>
+<summary><strong>Models</strong></summary>
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/api/models` | List all models |
+| POST | `/api/models/pull` | Pull Ollama model |
+| DELETE | `/api/models/:name` | Delete model |
+
+</details>
+
+<details>
+<summary><strong>Keys</strong></summary>
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/api/keys` | List API keys |
+| POST | `/api/keys` | Issue key |
+| DELETE | `/api/keys/:id` | Revoke key |
+
+</details>
+
+<details>
+<summary><strong>System</strong></summary>
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/api/health` | System health |
+| GET | `/api/stats` | Dashboard stats |
+| GET | `/api/activity` | Activity log |
+| GET | `/api/platform` | Platform info |
+| GET | `/api/observability/status` | Langfuse status |
+
+</details>
+
+---
 
 ## Tech Stack
 
-- **Frontend**: React 18, Tailwind CSS, React Router, React Markdown, Lucide Icons
-- **Backend**: Python 3.11, FastAPI, Motor (async MongoDB), PyJWT, bcrypt, httpx
-- **Database**: MongoDB 7
-- **LLM Runtime**: Ollama (local) / Any OpenAI-compatible API (cloud)
-- **Observability**: Langfuse
-- **Tunnel**: ngrok
-- **Containerization**: Docker Compose
+| Layer | Technology |
+|-------|-----------|
+| Frontend | React 18, Tailwind CSS, React Router, React Markdown, Lucide |
+| Backend | Python 3.11, FastAPI, Motor (async MongoDB), PyJWT, bcrypt, httpx |
+| Database | MongoDB 7 |
+| LLM Runtime | Ollama (local) / Any OpenAI-compatible API |
+| Observability | Langfuse |
+| Tunnel | ngrok |
+| Containers | Docker Compose |
 
 ## Synthesized From
 
-| Resource | Key Idea |
-|----------|----------|
+| Source | Key Pattern Adopted |
+|--------|-------------------|
 | [Karpathy LLM Wiki](https://gist.github.com/karpathy/442a6bf555914893e9891c11519de94f) | Three-layer knowledge architecture |
-| [Docker Sandboxes](https://www.docker.com/blog/docker-sandboxes-run-agents-in-yolo-mode-safely/) | Isolated agent execution |
-| [Multi-Agent AI](https://www.infoworld.com/article/4154335/multi-agent-ai-is-the-new-microservices.html) | Simple, focused agent design |
-| [Claw Code](https://github.com/ultraworkers/claw-code) | CLI agent patterns, session management |
-| [Claude Code Token Analyzer](https://gist.github.com/kieranklaassen/7b2ebb39cbbb78cc2831497605d76cc6) | Usage tracking best practices |
+| [Docker Sandboxes](https://www.docker.com/blog/docker-sandboxes-run-agents-in-yolo-mode-safely/) | Isolated, safe agent execution |
+| [Multi-Agent AI](https://www.infoworld.com/article/4154335/multi-agent-ai-is-the-new-microservices.html) | Simple agent design, avoid over-engineering |
+| [Claw Code](https://github.com/ultraworkers/claw-code) | CLI agent patterns, session management, provider routing |
+| [Claude Code Token Analyzer](https://gist.github.com/kieranklaassen/7b2ebb39cbbb78cc2831497605d76cc6) | Usage tracking, cost awareness |
+
+---
 
 ## License
 
-Open source. Use it, fork it, improve it.
+Open source. Use it, fork it, ship it.

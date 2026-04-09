@@ -52,7 +52,7 @@ export default function DashboardLayout() {
       <div className="px-5 py-4 border-b border-white/10">
         <div className="flex items-center gap-2">
           <Cpu size={16} className="text-[#002FA7]" />
-          <span className="text-sm font-bold tracking-tighter" style={{ fontFamily: 'Chivo, sans-serif' }}>LLM WIKI</span>
+          <span className="text-sm font-bold tracking-tighter" style={{ fontFamily: 'Chivo, sans-serif' }}>LLM RELAY</span>
         </div>
         <div className="text-[9px] tracking-[0.2em] uppercase text-[#737373] mt-0.5 font-mono">UNIFIED PLATFORM v2.0</div>
       </div>

@@ -13,7 +13,6 @@ from datetime import datetime, timezone, timedelta
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException, Request, Depends, UploadFile, File, Form
-from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 from motor.motor_asyncio import AsyncIOMotorClient
@@ -38,39 +37,26 @@ ADMIN_SECRET = os.environ.get("ADMIN_SECRET", "")
 NGROK_DOMAIN = os.environ.get("NGROK_DOMAIN", "")
 NGROK_TOKEN = os.environ.get("NGROK_AUTHTOKEN", "")
 
-app = FastAPI(title="LLM Wiki — Unified Platform", version="2.0.0")
+app = FastAPI(title="LLM Relay — Unified Platform", version="2.0.0")
 
 frontend_url = os.environ.get("FRONTEND_URL", "http://localhost:3000")
-app_url = os.environ.get("APP_URL", "")
-origins = [
-    frontend_url,
-    "http://localhost:3000",
-]
-if app_url:
-    origins.append(app_url)
-# Add the preview domain
-preview_domain = os.environ.get("REACT_APP_BACKEND_URL", "")
-if preview_domain:
-    origins.append(preview_domain)
-# Add common patterns
-origins = list(set(o for o in origins if o))
 
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
-
-# Override CORS for credentialed requests
+# CORS — handled manually to support credentials properly
 @app.middleware("http")
-async def cors_fix(request: Request, call_next):
-    response = await call_next(request)
+async def cors_middleware(request: Request, call_next):
     origin = request.headers.get("origin", "")
+    if request.method == "OPTIONS":
+        response = JSONResponse(content="", status_code=200)
+    else:
+        response = await call_next(request)
     if origin:
         response.headers["Access-Control-Allow-Origin"] = origin
-        response.headers["Access-Control-Allow-Credentials"] = "true"
+    else:
+        response.headers["Access-Control-Allow-Origin"] = frontend_url
+    response.headers["Access-Control-Allow-Credentials"] = "true"
+    response.headers["Access-Control-Allow-Methods"] = "GET, POST, PUT, DELETE, OPTIONS, PATCH"
+    response.headers["Access-Control-Allow-Headers"] = "Content-Type, Authorization, Cookie"
+    response.headers["Access-Control-Max-Age"] = "600"
     return response
 
 client = AsyncIOMotorClient(MONGO_URL)
@@ -135,7 +121,7 @@ async def startup():
     await db.api_keys.create_index("key_id", unique=True)
     await seed_admin()
     await seed_default_providers()
-    log.info("LLM Wiki Unified Platform started — provider=%s", LLM_PROVIDER)
+    log.info("LLM Relay Platform started — provider=%s", LLM_PROVIDER)
 
 
 async def seed_admin():
@@ -749,7 +735,7 @@ async def observability_dashboard(user: dict = Depends(get_current_user)):
 @app.get("/api/platform")
 async def platform_info(user: dict = Depends(get_current_user)):
     return {
-        "name": "LLM Wiki Platform",
+        "name": "LLM Relay Platform",
         "version": "2.0.0",
         "ngrok_domain": NGROK_DOMAIN,
         "ngrok_configured": bool(NGROK_TOKEN),
