@@ -1,0 +1,93 @@
+version: '3.8'
+
+services:
+  # MongoDB
+  mongodb:
+    image: mongo:7
+    container_name: llm-wiki-mongo
+    restart: unless-stopped
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongo_data:/data/db
+    healthcheck:
+      test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Ollama — Local LLM Runtime
+  ollama:
+    image: ollama/ollama:latest
+    container_name: llm-wiki-ollama
+    restart: unless-stopped
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama_data:/root/.ollama
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    # Remove the 'deploy' block above if you don't have a GPU
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:11434/api/tags"]
+      interval: 15s
+      timeout: 10s
+      retries: 5
+
+  # Pull default model on startup
+  ollama-init:
+    image: curlimages/curl:latest
+    container_name: llm-wiki-ollama-init
+    depends_on:
+      ollama:
+        condition: service_healthy
+    restart: "no"
+    entrypoint: >
+      sh -c '
+        echo "Pulling llama3.2 model...";
+        curl -s http://ollama:11434/api/pull -d "{\"name\": \"llama3.2\"}" ;
+        echo "Model pull initiated."
+      '
+
+  # Backend — FastAPI
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile.backend
+    container_name: llm-wiki-backend
+    restart: unless-stopped
+    ports:
+      - "8001:8001"
+    environment:
+      - MONGO_URL=mongodb://mongodb:27017
+      - DB_NAME=llm_wiki_dashboard
+      - JWT_SECRET=${JWT_SECRET:-change-me-to-a-random-secret}
+      - ADMIN_EMAIL=${ADMIN_EMAIL:-admin@llmwiki.local}
+      - ADMIN_PASSWORD=${ADMIN_PASSWORD:-WikiAdmin2026!}
+      - OLLAMA_BASE_URL=http://ollama:11434
+      - LLM_PROVIDER=ollama
+      - FRONTEND_URL=http://localhost:3000
+    depends_on:
+      mongodb:
+        condition: service_healthy
+
+  # Frontend — React (production build served by nginx)
+  frontend:
+    build:
+      context: .
+      dockerfile: Dockerfile.frontend
+    container_name: llm-wiki-frontend
+    restart: unless-stopped
+    ports:
+      - "3000:80"
+    depends_on:
+      - backend
+
+volumes:
+  mongo_data:
+  ollama_data:
