@@ -8,6 +8,18 @@
 
 ## [Unreleased]
 
+### Added — Feature documentation from Claude Code leak analysis
+
+- `README.md`: expanded Features section with 19 capabilities documented in plain
+  human-readable language, organised into six groups: Agent Modes, Automation &
+  Scheduling, Remote & Browser Control, Memory & Context, Intelligence & Planning,
+  and Developer Tooling. Covers Background Agent, Multi-Agent Swarms, Self-Resuming
+  Agents, Voice Commands, Scheduled Jobs, Automation Playbooks, Resource Watchdog,
+  Browser Automation, Remote Access, Session Memory, Smart Context Compression,
+  Conversation Surgery, Deep Planning Mode, Adaptive Permissions, Full Terminal
+  Visibility, Skill Library, AI Commit Tracking, Project Scaffolding, and Token
+  Spend Caps.
+
 ### Security
 
 - `README.md`: removed hardcoded tunnel domain from documentation; use `NGROK_DOMAIN`

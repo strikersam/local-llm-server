@@ -31,6 +31,67 @@ No subscriptions. No metered API calls on someone else's bill. Your hardware, yo
 | **Source Ingestion** | Upload files, paste URLs, raw text. AI auto-summarizes into structured knowledge. |
 | **Wiki Lint** | AI health check that finds orphan pages, missing refs, stale content. |
 
+### Agent Modes
+
+These control *how* the agent operates — think of them as gears on a gearbox.
+
+| Feature | What It Does |
+|---------|-------------|
+| **Background Agent** | The agent runs continuously in the background, watching for events. It can listen for GitHub webhooks (new PR, issue comment, push), send you a Telegram notification when something needs attention, and act on its own without you opening a chat window. Think of it as an always-on assistant that never sleeps. |
+| **Multi-Agent Swarms** | One coordinator agent breaks a big task into subtasks and hands each one to a worker agent with just the tools it needs. Workers run in parallel, report back, and the coordinator assembles the result. Good for large codebases, parallel research, or anything too big for one agent in one shot. |
+| **Self-Resuming Agents** | The agent can pause itself ("I'll check back in 10 minutes"), wait for an external event, and pick up exactly where it left off — without you having to re-explain the task. Useful for long-running builds, deployment waits, or overnight batch jobs. |
+| **Voice Commands** | Talk to the agent out loud. A dedicated CLI entrypoint (`llm-relay voice`) captures your microphone, transcribes it, and sends it as a prompt. Hands-free coding while you think. |
+
+### Automation & Scheduling
+
+Set the agent loose on a schedule or hook it into your existing event pipeline.
+
+| Feature | What It Does |
+|---------|-------------|
+| **Scheduled Jobs** | Create cron-based schedules for any agent task — "run the wiki lint every Monday at 9am", "summarize new GitHub issues daily". List and delete jobs from the dashboard. External webhooks can also fire jobs instantly. |
+| **Automation Playbooks** | Pre-write a multi-step automation as a named playbook ("deploy-and-notify", "summarize-and-file"). The agent runs the whole playbook as a single unit — you invoke it by name, it handles the rest. |
+| **Resource Watchdog** | Point the watchdog at any URL, file, or service endpoint. When it detects a state change (new data, error response, file modification), it automatically triggers the agent action you defined. No polling loops to write yourself. |
+
+### Remote & Browser Control
+
+Reach your agent from anywhere, and let it reach the web for you.
+
+| Feature | What It Does |
+|---------|-------------|
+| **Browser Automation** | The agent controls a real browser — clicks buttons, fills forms, navigates pages, takes screenshots. Built on Playwright. This is not URL fetching; it's a full browser the agent can drive interactively. Useful for testing UIs, scraping dynamic pages, or automating web workflows. |
+| **Remote Access via SSH** | SSH into your agent session from any machine. A `relay://` URI scheme lets external tools (your IDE, CI runner, another agent) connect directly to a running session without going through a web interface. |
+
+### Memory & Context
+
+The agent stays useful over long tasks and long sessions.
+
+| Feature | What It Does |
+|---------|-------------|
+| **Session Memory** | The agent saves a snapshot of what it knows and what it was doing before it shuts down. When it restarts, it picks up its memory from disk — no external database needed, no re-explaining the project from scratch. |
+| **Smart Context Compression** | When a conversation gets long and starts hitting model limits, three strategies kick in: *reactive* (compress the oldest messages), *micro* (compress just the redundant bits), or *inspect* (show you what's taking up space so you decide). The agent stays coherent across long sessions. |
+| **Conversation Surgery** | Remove a specific bad exchange, an outdated instruction, or a confusing tangent from history — without wiping everything. Surgical, not nuclear. |
+
+### Intelligence & Planning
+
+Make the agent think harder before it acts.
+
+| Feature | What It Does |
+|---------|-------------|
+| **Deep Planning Mode** | Before writing a single line of code, the agent produces a full implementation plan: what to build, in what order, how to verify each step worked. Then it checks the plan itself for gaps before starting. Fewer rabbit holes, fewer half-finished features. |
+| **Adaptive Permissions** | The agent reads what it has been doing in the session and adjusts its permission posture automatically. If it's been doing read-only research, it stays in read-only mode. If you've explicitly asked it to write files, it knows it has that permission. No more repetitive "are you sure?" dialogs for things you've already said yes to. |
+
+### Developer Tooling
+
+Utilities that make building on top of LLM Relay easier.
+
+| Feature | What It Does |
+|---------|-------------|
+| **Full Terminal Visibility** | The agent reads the full rendered terminal buffer — not just raw stdout. It sees interactive prompts, color output, progress bars, and UI elements in the terminal exactly as you would. This means it can respond to programs that ask questions mid-run. |
+| **Skill Library** | A local directory of reusable agent skills (like "run tests then summarize failures" or "create PR with changelog"). You can also install MCP-hosted skill packs from the network — they work like plugins. Search skills by name or keyword from the dashboard. |
+| **AI Commit Tracking** | Every git commit the agent makes is tagged with the session ID that created it. You can always trace which AI session wrote which code change — useful for audits, rollbacks, and understanding what the agent did while you were away. |
+| **Project Scaffolding** | Pre-built project templates the agent uses when you ask it to start a new project. Instead of an empty folder, you get a working skeleton with the right structure for your stack, ready for the agent to build on. |
+| **Token Spend Caps** | Set a maximum number of tokens the agent is allowed to spend per session or per sub-agent. When the cap is reached, the agent stops and reports back rather than running up an unexpected bill. Useful for metered cloud backends. |
+
 ### Infrastructure
 
 | Feature | What It Does |
