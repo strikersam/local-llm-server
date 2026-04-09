@@ -109,10 +109,10 @@ export default function ChatPage() {
         </div>
         <div className="flex-1 overflow-y-auto divide-y divide-white/5">
           {sessions.map(s => (
-            <button
+            <div
               key={s._id}
               onClick={() => { navigate(`/chat/${s._id}`); loadSession(s._id); }}
-              className={`w-full flex items-center gap-2 px-4 py-3 text-left hover:bg-white/[0.03] transition-colors group
+              className={`w-full flex items-center gap-2 px-4 py-3 text-left hover:bg-white/[0.03] transition-colors group cursor-pointer
                 ${sessionId === s._id ? 'bg-white/5 border-l-2 border-[#002FA7]' : 'border-l-2 border-transparent'}`}
               data-testid={`session-${s._id}`}
             >
@@ -128,7 +128,7 @@ export default function ChatPage() {
               >
                 <Trash2 size={12} />
               </button>
-            </button>
+            </div>
           ))}
           {sessions.length === 0 && (
             <div className="p-4 text-center text-xs text-[#737373]">No sessions yet</div>
