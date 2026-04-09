@@ -44,6 +44,12 @@ keys.json
 # Memory (internal)
 memory/
 
+# Runtime data (auto-generated on startup, may contain user API keys)
+.data/
+
+# Agent session memory snapshots
+.agent_memory/
+
 # Test reports
 test_reports/
 -e 
