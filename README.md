@@ -26,47 +26,17 @@
 
 19 new capabilities drawn from the Claude Code architecture analysis — all implemented, tested, and live on this server.
 
-### Agent Modes
+**Agent Modes** — Background Agent · Multi-Agent Swarms · Self-Resuming Agents · Voice Commands
 
-| Feature | What It Does |
-|---------|-------------|
-| **Background Agent** | The agent runs continuously in the background, watching for events. It can listen for webhooks, process tasks from a queue, and act without you opening a chat window. Think of it as an always-on assistant that never sleeps. |
-| **Multi-Agent Swarms** | One coordinator agent breaks a big task into subtasks and hands each to a worker agent with just the tools it needs. Workers run in parallel, report back, and the coordinator assembles the result. Good for large codebases or anything too big for one agent in one shot. |
-| **Self-Resuming Agents** | The agent saves a memory snapshot before it shuts down and reloads it on restart — picking up exactly where it left off without you re-explaining the project. No external database needed. |
-| **Voice Commands** | Submit audio to the agent and get a text transcript back. Supports a Whisper-compatible REST endpoint or local `openai-whisper`. Degrades to stub mode gracefully when neither is available. |
+**Automation** — Scheduled Jobs · Automation Playbooks · Resource Watchdog
 
-### Automation & Scheduling
+**Memory & Context** — Session Memory · Smart Context Compression · Conversation Surgery
 
-| Feature | What It Does |
-|---------|-------------|
-| **Scheduled Jobs** | Create cron-based schedules for any agent instruction — "run wiki lint every Monday at 9 am". Jobs track last-run time and run count. External webhooks can fire any job immediately via `/trigger`. |
-| **Automation Playbooks** | Pre-write a multi-step automation as a named playbook. Each step is an agent instruction. Invoke the whole playbook by name and it runs every step in order. Track runs with start/finish timestamps. |
-| **Resource Watchdog** | Point the watchdog at any URL or file. When the content hash changes, the registered callback fires so you can trigger agent actions or send notifications. No polling loops to write yourself. |
+**Intelligence** — Adaptive Permissions · Token Spend Caps
 
-### Memory & Context
+**Developer Tooling** — Terminal Panel · Skill Library · AI Commit Tracking · Project Scaffolding · Browser Automation
 
-| Feature | What It Does |
-|---------|-------------|
-| **Session Memory** | Save a snapshot of the agent's current session to disk and restore it on restart. History, last plan, and last result all come back — no re-explaining the project from scratch. |
-| **Smart Context Compression** | Three strategies when conversation history gets too long: **reactive** (drop oldest non-system messages), **micro** (remove duplicates and near-empty messages), **inspect** (return token stats without modifying anything). |
-| **Conversation Surgery** | Remove specific messages from session history by index without wiping everything. Cuts out a bad exchange or outdated instruction without a full reset. |
-
-### Intelligence & Planning
-
-| Feature | What It Does |
-|---------|-------------|
-| **Adaptive Permissions** | Analyses the session transcript and infers the appropriate permission level: read-only, read-write, or full-access. The agent uses this to avoid asking for approval on things the session has already authorised. |
-| **Token Spend Caps** | Set a maximum token budget per session. When the total hits the cap a `BudgetExceededError` is raised and the agent stops rather than running up an unexpected bill. |
-
-### Developer Tooling
-
-| Feature | What It Does |
-|---------|-------------|
-| **Terminal Panel** | Captures the full rendered terminal buffer via `tmux capture-pane` — not just raw stdout. The agent sees interactive prompts, progress bars, and coloured output exactly as you would. |
-| **Skill Library** | Automatically indexes every `SKILL.md` under `.claude/skills/`. Supports keyword search across name, description, and content. MCP-hosted skill packs can be registered via API and are searchable alongside local skills. |
-| **AI Commit Tracking** | Every commit the agent makes is tagged with `Agent-Session`, `Agent-Model`, `Agent-Tool`, and `Agent-Timestamp` git trailers. Browse attributed commits at `GET /agent/commits` to trace which AI session wrote which change. |
-| **Project Scaffolding** | Three built-in project templates (`python-library`, `fastapi-service`, `cli-tool`) plus support for custom JSON templates. Apply a template to any directory in one API call. |
-| **Browser Automation** | Controls a real Chromium browser via Playwright — navigate pages, click, fill forms, take screenshots, evaluate JavaScript. Runs in stub mode when Playwright is not installed. |
+Full details and API reference in the [Features](#one-platform-every-ai-tool-you-need) section below.
 
 ---
 
