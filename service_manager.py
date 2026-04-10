@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import os
 import subprocess
+import sys
 import time
 from dataclasses import asdict, dataclass
 from pathlib import Path
@@ -77,6 +78,8 @@ class WindowsServiceManager:
         self.pid_file.write_text(json.dumps(payload), encoding="utf-8")
 
     def _find_pid(self, service: str) -> int | None:
+        if sys.platform != "win32":
+            return None
         scripts = {
             "proxy": "Get-CimInstance Win32_Process | Where-Object { $_.CommandLine -like '*proxy:app*' } | Select-Object -ExpandProperty ProcessId -First 1",
             "tunnel": "Get-Process -Name ngrok -ErrorAction SilentlyContinue | Select-Object -ExpandProperty Id -First 1",

@@ -8,6 +8,17 @@
 
 ## [Unreleased]
 
+### Fixed
+
+- **`/admin/api/status` crashes on Linux** (`service_manager.py`): `_find_pid()` now
+  returns `None` immediately on non-Windows platforms instead of attempting to invoke
+  `powershell`, which does not exist on Linux/macOS. The endpoint now returns a valid
+  JSON response with all services reported as `running: false` on non-Windows hosts.
+
+- **`/ui/api/providers/{id}/models` returns 500 when provider unreachable** (`webui/router.py`):
+  `httpx.ConnectError` and other network errors are now caught and re-raised as HTTP 503
+  with a human-readable `detail` message instead of leaking an internal server error.
+
 ### Added
 
 - **OpenRouter + Together AI cloud providers** (`backend/server.py`):
