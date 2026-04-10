@@ -57,6 +57,5 @@ test_reports/
 *.env
 *.env.*
 
-# Runtime data (SQLite databases, persisted state, scheduler jobs)
+# Runtime data (SQLite databases, persisted state)
 .data/
-data/
