@@ -287,6 +287,67 @@ async def google_callback(request: Request, code: str = None, state: str = None)
         )
         resp.raise_for_status()
         token_data = resp.json()
+        access_token = token_data.get("access_token")
+        if not access_token:
+            raise HTTPException(status_code=400, detail="Google token exchange failed")
+
+        # 2. Get user info
+        user_resp = await client.get(
+            "https://www.googleapis.com/oauth2/v3/userinfo",
+            headers={"Authorization": f"Bearer {access_token}"},
+        )
+        user_resp.raise_for_status()
+        g_user = user_resp.json()
+
+        email = g_user.get("email")
+        if not email:
+            raise HTTPException(status_code=400, detail="Could not retrieve email from Google")
+
+        # 3. Find or create user
+        user = await db.users.find_one({"email": email.lower()})
+        uid_str = str(g_user.get("sub"))
+        now = datetime.now(timezone.utc).isoformat()
+
+        if not user:
+            new_user = {
+                "email": email.lower(),
+                "name": g_user.get("name"),
+                "avatar_url": g_user.get("picture"),
+                "provider": "google",
+                "provider_user_id": uid_str,
+                "role": "user",
+                "created_at": now,
+                "last_login": now,
+            }
+            result = await db.users.insert_one(new_user)
+            user_id = str(result.inserted_id)
+            try:
+                await log_activity("auth", f"New user {email} registered via Google", user_id=user_id)
+            except NameError:
+                pass
+        else:
+            user_id = str(user["_id"])
+            await db.users.update_one(
+                {"_id": user["_id"]},
+                {
+                    "$set": {
+                        "last_login": now,
+                        "provider": user.get("provider", "google"),
+                        "provider_user_id": user.get("provider_user_id", uid_str),
+                        "avatar_url": user.get("avatar_url") or g_user.get("picture"),
+                    }
+                },
+            )
+            try:
+                await log_activity("auth", f"User {email} logged in via Google", user_id=user_id)
+            except NameError:
+                pass
+
+        # 4. Generate tokens and redirect to frontend
+        access = create_access_token(user_id, email)
+        refresh = create_refresh_token(user_id)
+        return RedirectResponse(f"{frontend_url}/auth/callback?access_token={access}&refresh_token={refresh}")
+
 # CORS — handled manually to support credentials properly
 @app.middleware("http")
 async def cors_middleware(request: Request, call_next):
