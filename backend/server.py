@@ -1435,7 +1435,7 @@ async def platform_info(user: dict = Depends(get_current_user)):
         "github_repo": "https://github.com/strikersam/local-llm-server",
     }
 
-@app.get("/api/health")
+@app.get("/api/health-test")
 async def health():
     try:
         await db.command("ping")
