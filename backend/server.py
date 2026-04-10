@@ -5,6 +5,7 @@ import os
 import re
 import json
 import secrets
+import asyncio
 import bcrypt
 import jwt
 import httpx
@@ -18,6 +19,13 @@ from pydantic import BaseModel, Field
 from motor.motor_asyncio import AsyncIOMotorClient
 from bson import ObjectId
 
+from backend.llm_providers import (
+    LlmProviderConfig,
+    chat_completion_text,
+    list_openai_models,
+    normalize_base_url,
+)
+
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 log = logging.getLogger("llm-wiki")
 
@@ -28,8 +36,13 @@ JWT_ALGORITHM = "HS256"
 ADMIN_EMAIL = os.environ.get("ADMIN_EMAIL", "admin@llmrelay.local")
 ADMIN_PASSWORD = os.environ.get("ADMIN_PASSWORD", "WikiAdmin2026!")
 OLLAMA_BASE = os.environ.get("OLLAMA_BASE_URL", "http://localhost:11434")
-LLM_PROVIDER = os.environ.get("LLM_PROVIDER", "emergent")
-EMERGENT_KEY = os.environ.get("EMERGENT_LLM_KEY", "")
+OLLAMA_MODEL = os.environ.get("OLLAMA_MODEL", "llama3.2")
+
+HF_TOKEN = os.environ.get("HF_TOKEN") or os.environ.get("HUGGINGFACE_API_TOKEN", "")
+HF_BASE_URL = os.environ.get("HF_BASE_URL", "https://router.huggingface.co")
+HF_MODEL_ID = os.environ.get("HF_MODEL_ID", "Qwen/Qwen2.5-Coder-7B-Instruct")
+
+LLM_PROVIDER = os.environ.get("LLM_PROVIDER", "ollama")
 LANGFUSE_PK = os.environ.get("LANGFUSE_PUBLIC_KEY", "")
 LANGFUSE_SK = os.environ.get("LANGFUSE_SECRET_KEY", "")
 LANGFUSE_BASE = os.environ.get("LANGFUSE_BASE_URL", "https://cloud.langfuse.com")
@@ -61,6 +74,34 @@ async def cors_middleware(request: Request, call_next):
 
 client = AsyncIOMotorClient(MONGO_URL)
 db = client[DB_NAME]
+
+_BOOTSTRAP_DONE = False
+_BOOTSTRAP_LOCK = asyncio.Lock()
+
+
+async def ensure_bootstrap() -> None:
+    """Idempotent bootstrap for indexes + seeded admin/providers.
+
+    FastAPI startup hooks can be skipped in some dev/prod entrypoints; this keeps
+    the service usable even if the ASGI server doesn't run startup events.
+    """
+    global _BOOTSTRAP_DONE
+    if _BOOTSTRAP_DONE:
+        return
+    async with _BOOTSTRAP_LOCK:
+        if _BOOTSTRAP_DONE:
+            return
+        await db.users.create_index("email", unique=True)
+        await db.wiki_pages.create_index("slug", unique=True)
+        await db.wiki_pages.create_index([("title", "text"), ("content", "text")])
+        await db.sources.create_index("created_at")
+        await db.activity_log.create_index("created_at")
+        await db.chat_sessions.create_index("user_id")
+        await db.providers.create_index("provider_id", unique=True)
+        await db.api_keys.create_index("key_id", unique=True)
+        await seed_admin()
+        await seed_default_providers()
+        _BOOTSTRAP_DONE = True
 
 
 # ─── Auth Helpers ───────────────────────────────────────────────────────────────
@@ -112,16 +153,7 @@ async def get_current_user(request: Request) -> dict:
 
 @app.on_event("startup")
 async def startup():
-    await db.users.create_index("email", unique=True)
-    await db.wiki_pages.create_index("slug", unique=True)
-    await db.wiki_pages.create_index([("title", "text"), ("content", "text")])
-    await db.sources.create_index("created_at")
-    await db.activity_log.create_index("created_at")
-    await db.chat_sessions.create_index("user_id")
-    await db.providers.create_index("provider_id", unique=True)
-    await db.api_keys.create_index("key_id", unique=True)
-    await seed_admin()
-    await seed_default_providers()
+    await ensure_bootstrap()
     log.info("LLM Relay Platform started — provider=%s", LLM_PROVIDER)
 
 
@@ -146,22 +178,21 @@ async def seed_default_providers():
             "type": "ollama",
             "base_url": OLLAMA_BASE,
             "api_key": "",
-            "default_model": "llama3.2",
-            "is_default": LLM_PROVIDER != "emergent",
+            "default_model": OLLAMA_MODEL,
+            "is_default": LLM_PROVIDER == "ollama",
+            "status": "configured",
+        },
+        {
+            "provider_id": "huggingface-serverless",
+            "name": "Hugging Face (Serverless)",
+            "type": "huggingface",
+            "base_url": HF_BASE_URL,
+            "api_key": HF_TOKEN,
+            "default_model": HF_MODEL_ID,
+            "is_default": LLM_PROVIDER == "huggingface",
             "status": "configured",
         },
     ]
-    if EMERGENT_KEY:
-        defaults.append({
-            "provider_id": "emergent-cloud",
-            "name": "Emergent (Cloud)",
-            "type": "openai-compatible",
-            "base_url": "https://api.openai.com/v1",
-            "api_key": EMERGENT_KEY,
-            "default_model": "gpt-4o-mini",
-            "is_default": LLM_PROVIDER == "emergent",
-            "status": "configured",
-        })
     for p in defaults:
         existing = await db.providers.find_one({"provider_id": p["provider_id"]})
         if not existing:
@@ -186,6 +217,7 @@ class LoginBody(BaseModel):
 
 @app.post("/api/auth/login")
 async def login(body: LoginBody):
+    await ensure_bootstrap()
     email = body.email.strip().lower()
     user = await db.users.find_one({"email": email})
     if not user or not verify_password(body.password, user["password_hash"]):
@@ -238,41 +270,49 @@ async def get_active_provider():
         prov = await db.providers.find_one({})
     return prov
 
-async def call_llm(messages: list[dict], model: str = None, temperature: float = 0.3) -> str:
-    provider = await get_active_provider()
-    ptype = provider["type"] if provider else "emergent"
-    api_key = provider.get("api_key", "") if provider else EMERGENT_KEY
-    base_url = provider.get("base_url", OLLAMA_BASE) if provider else OLLAMA_BASE
-    use_model = model or (provider.get("default_model") if provider else None) or "gpt-4o-mini"
-
-    if (ptype == "openai-compatible" or ptype == "emergent") and api_key:
-        try:
-            from emergentintegrations.llm.chat import LlmChat, UserMessage
-            system_msg, user_text = "", ""
-            for m in messages:
-                if m["role"] == "system":
-                    system_msg += m["content"] + "\n"
-                elif m["role"] == "user":
-                    user_text += m["content"] + "\n"
-                elif m["role"] == "assistant":
-                    user_text += f"[Previous: {m['content'][:200]}]\n"
-            sid = secrets.token_hex(8)
-            llm = LlmChat(api_key=api_key, session_id=sid, system_message=system_msg.strip()
-            ).with_model("openai", use_model).with_params(temperature=temperature)
-            return await llm.send_message(UserMessage(text=user_text.strip()))
-        except Exception as e:
-            log.error("Cloud LLM call failed: %s", e)
-            raise HTTPException(status_code=502, detail=f"LLM call failed: {e}")
-    else:
-        payload = {"model": use_model, "messages": messages, "temperature": temperature, "stream": False}
-        try:
-            async with httpx.AsyncClient(timeout=120) as c:
-                resp = await c.post(f"{base_url}/v1/chat/completions", json=payload)
-                resp.raise_for_status()
-                return resp.json()["choices"][0]["message"]["content"]
-        except Exception as e:
-            log.error("Ollama LLM call failed: %s", e)
-            raise HTTPException(status_code=502, detail=f"LLM call failed: {e}")
+async def call_llm(
+    messages: list[dict],
+    *,
+    model: str | None = None,
+    temperature: float = 0.3,
+    provider_id: str | None = None,
+) -> str:
+    provider = await db.providers.find_one({"provider_id": provider_id}) if provider_id else await get_active_provider()
+    if not provider:
+        provider = {
+            "provider_id": "ollama-local",
+            "type": "ollama",
+            "base_url": OLLAMA_BASE,
+            "api_key": "",
+            "default_model": OLLAMA_MODEL,
+        }
+    cfg = LlmProviderConfig(
+        type=str(provider.get("type") or "openai-compatible"),
+        base_url=normalize_base_url(str(provider.get("base_url") or OLLAMA_BASE)),
+        api_key=(str(provider.get("api_key") or "").strip() or None),
+        default_model=(str(provider.get("default_model") or "").strip() or None),
+    )
+    try:
+        return await chat_completion_text(
+            cfg,
+            messages=messages,
+            model=model,
+            temperature=temperature,
+        )
+    except httpx.HTTPStatusError as exc:
+        # Surface helpful provider-specific guidance.
+        status = exc.response.status_code
+        detail = f"LLM call failed ({cfg.type}, HTTP {status}): {exc.response.text}"
+        if status in (401, 403) and cfg.type in ("huggingface", "openai-compatible"):
+            detail = (
+                f"{detail}\n\n"
+                "This provider requires an API token. Set it in Providers → API Key "
+                "or via HF_TOKEN / HUGGINGFACE_API_TOKEN for the default Hugging Face provider."
+            )
+        raise HTTPException(status_code=502, detail=detail) from exc
+    except Exception as exc:
+        log.error("LLM call failed: %s", exc)
+        raise HTTPException(status_code=502, detail=f"LLM call failed: {exc}") from exc
 
 
 # ─── Chat Sessions ──────────────────────────────────────────────────────────────
@@ -281,14 +321,23 @@ class ChatMessage(BaseModel):
     content: str
     session_id: str = None
     model: str = None
+    provider_id: str | None = None
+    temperature: float | None = Field(default=None, ge=0.0, le=2.0)
 
 @app.post("/api/chat/send")
 async def chat_send(body: ChatMessage, user: dict = Depends(get_current_user)):
     uid = user["_id"]
     sid = body.session_id
     if not sid:
+        active = await get_active_provider()
+        default_pid = active.get("provider_id") if active else "ollama-local"
         result = await db.chat_sessions.insert_one({
-            "user_id": uid, "title": body.content[:60], "messages": [],
+            "user_id": uid,
+            "title": body.content[:60],
+            "provider_id": body.provider_id or default_pid,
+            "model": body.model or None,
+            "temperature": body.temperature if body.temperature is not None else None,
+            "messages": [],
             "created_at": datetime.now(timezone.utc).isoformat(), "updated_at": datetime.now(timezone.utc).isoformat(),
         })
         sid = str(result.inserted_id)
@@ -306,9 +355,27 @@ async def chat_send(body: ChatMessage, user: dict = Depends(get_current_user)):
         "content": f"You are the LLM Wiki Agent. You help build and maintain a persistent knowledge wiki. Current wiki pages:\n{wiki_index}\nUse [[Page Title]] notation for references. Be concise and helpful.",
     }
     llm_messages = [system_msg] + messages[-20:]
-    response_text = await call_llm(llm_messages, model=body.model)
+    provider_id = body.provider_id or session.get("provider_id")
+    temperature = body.temperature if body.temperature is not None else (session.get("temperature") or 0.3)
+    response_text = await call_llm(
+        llm_messages,
+        model=body.model or session.get("model"),
+        temperature=float(temperature),
+        provider_id=provider_id,
+    )
     messages.append({"role": "assistant", "content": response_text})
-    await db.chat_sessions.update_one({"_id": ObjectId(sid)}, {"$set": {"messages": messages, "updated_at": datetime.now(timezone.utc).isoformat()}})
+    await db.chat_sessions.update_one(
+        {"_id": ObjectId(sid)},
+        {
+            "$set": {
+                "messages": messages,
+                "provider_id": provider_id,
+                "model": body.model or session.get("model"),
+                "temperature": temperature,
+                "updated_at": datetime.now(timezone.utc).isoformat(),
+            }
+        },
+    )
     await log_activity("chat", f"Chat in session {sid[:8]}...", user_id=uid, meta={"session_id": sid})
     return {"session_id": sid, "response": response_text, "message_count": len(messages)}
 
@@ -596,13 +663,42 @@ async def test_provider(provider_id: str, user: dict = Depends(get_current_user)
             await db.providers.update_one({"provider_id": provider_id}, {"$set": {"status": "online"}})
             return {"ok": True, "models": models}
         else:
-            async with httpx.AsyncClient(timeout=10) as c:
-                r = await c.get(f"{prov['base_url']}/models", headers={"Authorization": f"Bearer {prov.get('api_key', '')}"})
+            cfg = LlmProviderConfig(
+                type=str(prov.get("type") or "openai-compatible"),
+                base_url=normalize_base_url(str(prov.get("base_url") or "")),
+                api_key=(str(prov.get("api_key") or "").strip() or None),
+                default_model=(str(prov.get("default_model") or "").strip() or None),
+            )
+            models = await list_openai_models(cfg)
             await db.providers.update_one({"provider_id": provider_id}, {"$set": {"status": "online"}})
-            return {"ok": True, "status": "connected"}
+            return {"ok": True, "models": models}
     except Exception as e:
         await db.providers.update_one({"provider_id": provider_id}, {"$set": {"status": "error"}})
         return {"ok": False, "error": str(e)}
+
+
+@app.get("/api/providers/{provider_id}/models")
+async def provider_models(provider_id: str, user: dict = Depends(get_current_user)):
+    prov = await db.providers.find_one({"provider_id": provider_id})
+    if not prov:
+        raise HTTPException(status_code=404, detail="Provider not found")
+    if prov.get("type") == "ollama":
+        async with httpx.AsyncClient(timeout=10) as c:
+            r = await c.get(f"{prov['base_url']}/api/tags")
+            r.raise_for_status()
+            models = [m["name"] for m in r.json().get("models", [])]
+        return {"provider_id": provider_id, "models": models}
+
+    cfg = LlmProviderConfig(
+        type=str(prov.get("type") or "openai-compatible"),
+        base_url=normalize_base_url(str(prov.get("base_url") or "")),
+        api_key=(str(prov.get("api_key") or "").strip() or None),
+        default_model=(str(prov.get("default_model") or "").strip() or None),
+    )
+    models = await list_openai_models(cfg)
+    if not models and cfg.default_model:
+        models = [cfg.default_model]
+    return {"provider_id": provider_id, "models": models}
 
 
 # ─── Models Hub ─────────────────────────────────────────────────────────────────

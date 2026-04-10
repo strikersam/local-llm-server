@@ -10,6 +10,10 @@
 
 ### Added
 
+- **Dashboard provider support: Hugging Face (serverless) + Ollama** (`backend/server.py`, `backend/llm_providers.py`, `frontend/src/pages/ChatPage.js`, `frontend/src/api.js`):
+  The dashboard chat can now select a provider + model, with a seeded **Hugging Face (Serverless)** provider (HF router)
+  and a robust **Ollama** default (OpenAI-compat with fallback to native `/api/chat`).
+
 - **Context compaction** (`agent/context_manager.py`, `agent/loop.py`, `agent/prompts.py`):
   When session history exceeds the compaction threshold (default 16 messages) the harness
   asks the planner model to summarise the old portion into a concise note.  The summary
@@ -84,6 +88,10 @@
   Planner/Executor/Verifier system parallels the advisor pattern.
 
 ### Fixed
+
+- **Dashboard OpenAI-compatible calls fixed** (`backend/server.py`): providers now call their OpenAI-compatible base URL directly (no extra SDK), with `Authorization: Bearer ...` support when an API key is configured.
+- **Docker dashboard profile added** (`docker-compose.yml`, `Dockerfile.backend`, `Dockerfile.dashboard.frontend`): `docker compose --profile dashboard up` starts Mongo + API + Web UI on ports 27017/8001/3000.
+- **Browser automation stability** (`agent/browser.py`): browser automation is disabled by default unless `BROWSER_AUTOMATION_ENABLED=true`, preventing flaky Playwright shutdown hangs in tests/CI.
 
 - **render.yaml completely rewritten**: Previous file deployed a MongoDB-based wiki project instead of the actual FastAPI proxy. Now correctly uses the main `Dockerfile`, correct health-check path (`/health`), and the right env vars (`OLLAMA_BASE`, `API_KEYS`, `ADMIN_SECRET`, `KEYS_FILE`, etc.).
 - **docker-compose.yml rewritten**: Removed stale MongoDB/LLM-wiki services. Default stack is now `ollama` + `proxy`. Optional profiles: `--profile tunnel` (Cloudflare Tunnel, free) and `--profile ngrok`. The proxy is now the default service instead of being buried under the `full` profile.

@@ -59,6 +59,60 @@ services:
       ollama:
         condition: service_healthy
 
+  # ── Dashboard stack (Mongo + API + Web UI) ─────────────────────────────────
+  # Usage:
+  #   docker compose --profile dashboard up
+  #
+  # Opens:
+  #   Web UI: http://localhost:3000
+  #   API:    http://localhost:8001
+  mongo:
+    image: mongo:7
+    container_name: llm-relay-mongo
+    restart: unless-stopped
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongo_data:/data/db
+    profiles:
+      - dashboard
+
+  dashboard-backend:
+    build:
+      context: .
+      dockerfile: Dockerfile.backend
+    container_name: llm-relay-backend
+    restart: unless-stopped
+    ports:
+      - "8001:8001"
+    env_file:
+      - .env
+    environment:
+      - MONGO_URL=mongodb://mongo:27017
+      - FRONTEND_URL=http://localhost:3000
+      - OLLAMA_BASE_URL=http://ollama:11434
+    depends_on:
+      - mongo
+      ollama:
+        condition: service_healthy
+    profiles:
+      - dashboard
+
+  dashboard-frontend:
+    build:
+      context: .
+      dockerfile: Dockerfile.dashboard.frontend
+      args:
+        REACT_APP_BACKEND_URL: http://localhost:8001
+    container_name: llm-relay-frontend
+    restart: unless-stopped
+    ports:
+      - "3000:80"
+    depends_on:
+      - dashboard-backend
+    profiles:
+      - dashboard
+
   # ── Cloudflare Tunnel (free, no account needed for quick tunnels) ─────────
   # Provides a public HTTPS URL instantly. No NGROK_AUTHTOKEN needed for
   # quick tunnels. For a persistent subdomain, create a named tunnel:
@@ -97,3 +151,4 @@ services:
 
 volumes:
   ollama_data:
+  mongo_data:

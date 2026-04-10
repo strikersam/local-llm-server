@@ -12,6 +12,7 @@ raising an exception.
 """
 from __future__ import annotations
 
+import os
 import logging
 from dataclasses import dataclass, field
 from typing import Any
@@ -78,6 +79,11 @@ class BrowserSession:
     # ------------------------------------------------------------------
 
     def _check_playwright(self) -> bool:
+        if not _env_true("BROWSER_AUTOMATION_ENABLED"):
+            log.info(
+                "Browser automation disabled (set BROWSER_AUTOMATION_ENABLED=true to enable)"
+            )
+            return False
         try:
             import playwright  # noqa: F401
             return True
@@ -177,3 +183,8 @@ class BrowserSession:
 
 def _not_started() -> str:
     return "Browser not started. Call await session.start() first."
+
+
+def _env_true(name: str) -> bool:
+    value = os.getenv(name, "")
+    return value.strip().lower() in {"1", "true", "yes", "y", "on"}

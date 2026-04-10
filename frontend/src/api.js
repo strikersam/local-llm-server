@@ -63,7 +63,14 @@ export const logout = () => {
 export const getMe = () => API.get('/api/auth/me');
 
 // Chat
-export const chatSend = (content, sessionId, model) => API.post('/api/chat/send', { content, session_id: sessionId, model });
+export const chatSend = (content, sessionId, model, providerId, temperature) =>
+  API.post('/api/chat/send', {
+    content,
+    session_id: sessionId,
+    model: model || null,
+    provider_id: providerId || null,
+    temperature: temperature ?? null,
+  });
 export const listSessions = () => API.get('/api/chat/sessions');
 export const getSession = (id) => API.get(`/api/chat/sessions/${id}`);
 export const deleteSession = (id) => API.delete(`/api/chat/sessions/${id}`);
@@ -92,6 +99,7 @@ export const createProvider = (data) => API.post('/api/providers', data);
 export const updateProvider = (id, data) => API.put(`/api/providers/${id}`, data);
 export const deleteProvider = (id) => API.delete(`/api/providers/${id}`);
 export const testProvider = (id) => API.post(`/api/providers/${id}/test`);
+export const listProviderModels = (id) => API.get(`/api/providers/${encodeURIComponent(id)}/models`);
 
 // Models
 export const listModels = () => API.get('/api/models');

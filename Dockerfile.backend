@@ -1,13 +1,13 @@
 FROM python:3.11-slim
 
-WORKDIR /app/backend
+WORKDIR /app
 
-COPY backend/requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+COPY backend/requirements.txt backend/requirements.txt
+RUN pip install --no-cache-dir -r backend/requirements.txt
 
-COPY backend/ .
+COPY backend/ backend/
 
 EXPOSE 8001
 
 # Render injects PORT; fall back to 8001 for local use
-CMD ["sh", "-c", "uvicorn server:app --host 0.0.0.0 --port ${PORT:-8001}"]
+CMD ["sh", "-c", "uvicorn backend.server:app --host 0.0.0.0 --port ${PORT:-8001}"]
