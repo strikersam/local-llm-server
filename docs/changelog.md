@@ -8,7 +8,38 @@
 
 ## [Unreleased]
 
+### Added
+
+- **OpenRouter + Together AI cloud providers** (`backend/server.py`):
+  Both providers are now seeded automatically as `openrouter` and `together-ai`. Set
+  `OPENROUTER_API_KEY` or `TOGETHER_API_KEY` env vars on Render; the seed logic picks them up
+  and applies them to the DB records on every restart (fixing the HF_TOKEN drift bug too).
+
+- **Predefined model catalog** (`backend/server.py`):
+  `PREDEFINED_MODELS` lists flagship, balanced, and fast models for every supported provider
+  (OpenRouter, HuggingFace, Ollama, Together AI). `GET /api/models/catalog` exposes the full
+  catalog with role and tier metadata. `GET /api/providers/{id}/models` now merges live
+  models with the predefined catalog so models are always shown even if the API call fails.
+
+- **Multi-agent Planner → Executor → Verifier orchestration** (`backend/server.py`):
+  Chat messages are automatically classified as `simple` or `complex`. Complex requests (≥25
+  words or containing keywords like "write", "create", "analyze") route through the three-role
+  orchestration loop: DeepSeek-R1 plans, Qwen3 executes, DeepSeek-R1 verifies. Each provider
+  type maps to optimal role models via `AGENT_ROLE_MODELS`. Applies Anthropic context
+  efficiency principles: observation masking (truncate old outputs to ≤300 chars) and context
+  compaction (LLM-summarize history >16 messages).
+
+- **Agent mode toggle in chat UI** (`frontend/src/pages/ChatPage.js`, `frontend/src/api.js`):
+  A "Agent ON/OFF" button (with a Zap icon) in the chat header forces multi-agent
+  orchestration for any message regardless of auto-classification. State persists in
+  localStorage. The `agent_mode` flag is sent in every `POST /api/chat/send` request.
+
 ### Fixed
+
+- **HF_TOKEN env-var changes not applied to existing DB records** (`backend/server.py`):
+  `seed_default_providers` now syncs `api_key` and `base_url` from env vars against existing
+  provider records on every startup. Previously, setting `HF_TOKEN` on Render after the first
+  deployment had no effect because the seeder skipped existing records.
 
 - **"Input should be a valid string" error on new agent chat sessions** (`backend/server.py`):
   `ChatMessage.session_id` and `ChatMessage.model` were typed as `str` with default `None`,

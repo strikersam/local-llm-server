@@ -3,11 +3,12 @@ import { useParams, useNavigate } from 'react-router-dom';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { chatSend, listSessions, getSession, deleteSession, listProviders, listProviderModels, fmtErr } from '../api';
-import { Send, Plus, Trash2, MessageSquare, Bot, User, Loader2 } from 'lucide-react';
+import { Send, Plus, Trash2, MessageSquare, Bot, User, Loader2, Zap } from 'lucide-react';
 
 const LS_PROVIDER_ID = 'llmrelay_provider_id';
 const LS_MODEL = 'llmrelay_model';
 const LS_TEMPERATURE = 'llmrelay_temperature';
+const LS_AGENT_MODE = 'llmrelay_agent_mode';
 
 export default function ChatPage() {
   const { sessionId: paramSid } = useParams();
@@ -23,6 +24,7 @@ export default function ChatPage() {
   const [models, setModels] = useState([]);
   const [model, setModel] = useState(localStorage.getItem(LS_MODEL) || '');
   const [temperature, setTemperature] = useState(Number(localStorage.getItem(LS_TEMPERATURE) || '0.3'));
+  const [agentMode, setAgentMode] = useState(localStorage.getItem(LS_AGENT_MODE) === 'true');
   const messagesEndRef = useRef(null);
   const inputRef = useRef(null);
 
@@ -51,6 +53,10 @@ export default function ChatPage() {
   useEffect(() => {
     if (Number.isFinite(temperature)) localStorage.setItem(LS_TEMPERATURE, String(temperature));
   }, [temperature]);
+
+  useEffect(() => {
+    localStorage.setItem(LS_AGENT_MODE, String(agentMode));
+  }, [agentMode]);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -115,7 +121,7 @@ export default function ChatPage() {
     setMessages(prev => [...prev, { role: 'user', content }]);
 
     try {
-      const { data } = await chatSend(content, sessionId, model || null, providerId || null, temperature);
+      const { data } = await chatSend(content, sessionId, model || null, providerId || null, temperature, agentMode);
       setSessionId(data.session_id);
       setMessages(prev => [...prev, { role: 'assistant', content: data.response }]);
       if (!sessionId) {
@@ -223,7 +229,20 @@ export default function ChatPage() {
               ))}
             </datalist>
           </div>
-          <div className="ml-auto flex items-center gap-2">
+          <div className="ml-auto flex items-center gap-3">
+            <button
+              onClick={() => setAgentMode(m => !m)}
+              title={agentMode ? 'Agent mode ON (Planner→Executor→Verifier)' : 'Agent mode OFF (single LLM call)'}
+              className={`flex items-center gap-1.5 px-2.5 py-1 border text-[10px] font-mono tracking-wider uppercase transition-colors ${
+                agentMode
+                  ? 'border-[#002FA7] bg-[#002FA7]/20 text-white'
+                  : 'border-white/10 text-[#737373] hover:border-white/20'
+              }`}
+              data-testid="agent-mode-toggle"
+            >
+              <Zap size={11} className={agentMode ? 'text-white' : 'text-[#737373]'} />
+              {agentMode ? 'Agent ON' : 'Agent OFF'}
+            </button>
             <div className="w-1.5 h-1.5 bg-green-500 rounded-full" />
             <span className="text-[10px] text-[#737373] font-mono">WIKI AGENT ACTIVE</span>
           </div>

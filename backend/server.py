@@ -50,6 +50,77 @@ ADMIN_SECRET = os.environ.get("ADMIN_SECRET", "")
 NGROK_DOMAIN = os.environ.get("NGROK_DOMAIN", "")
 NGROK_TOKEN = os.environ.get("NGROK_AUTHTOKEN", "")
 
+OPENROUTER_API_KEY = os.environ.get("OPENROUTER_API_KEY", "")
+OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"
+TOGETHER_API_KEY = os.environ.get("TOGETHER_API_KEY", "")
+TOGETHER_BASE_URL = "https://api.together.xyz/v1"
+
+# ─── Model Catalog ────────────────────────────────────────────────────────────────
+# Best-in-class models per provider, tagged by role and tier.
+# role: planner = strong reasoning; executor = instruction-following/coding; verifier = critical eval
+
+PREDEFINED_MODELS: dict[str, list[dict]] = {
+    "openrouter": [
+        {"id": "deepseek/deepseek-r1", "name": "DeepSeek R1", "role": ["planner", "verifier"], "tier": "flagship"},
+        {"id": "qwen/qwen3-235b-a22b", "name": "Qwen3 235B A22B", "role": ["executor"], "tier": "flagship"},
+        {"id": "google/gemini-2.5-pro-preview", "name": "Gemini 2.5 Pro", "role": ["planner", "executor"], "tier": "flagship"},
+        {"id": "anthropic/claude-opus-4", "name": "Claude Opus 4", "role": ["planner", "verifier"], "tier": "flagship"},
+        {"id": "meta-llama/llama-4-maverick", "name": "Llama 4 Maverick", "role": ["executor"], "tier": "fast"},
+        {"id": "qwen/qwen3-30b-a3b", "name": "Qwen3 30B A3B", "role": ["executor"], "tier": "fast"},
+        {"id": "deepseek/deepseek-r1-distill-qwen-32b", "name": "DeepSeek R1 Distill 32B", "role": ["planner"], "tier": "balanced"},
+        {"id": "mistralai/mistral-small-3.2-24b-instruct", "name": "Mistral Small 3.2 24B", "role": ["executor"], "tier": "fast"},
+    ],
+    "huggingface": [
+        {"id": "Qwen/QwQ-32B", "name": "QwQ 32B", "role": ["planner", "verifier"], "tier": "flagship"},
+        {"id": "deepseek-ai/DeepSeek-R1", "name": "DeepSeek R1", "role": ["planner", "verifier"], "tier": "flagship"},
+        {"id": "Qwen/Qwen2.5-72B-Instruct", "name": "Qwen2.5 72B Instruct", "role": ["executor"], "tier": "flagship"},
+        {"id": "Qwen/Qwen2.5-Coder-32B-Instruct", "name": "Qwen2.5-Coder 32B", "role": ["executor"], "tier": "balanced"},
+        {"id": "meta-llama/Llama-3.3-70B-Instruct", "name": "Llama 3.3 70B", "role": ["executor"], "tier": "balanced"},
+        {"id": "mistralai/Mistral-7B-Instruct-v0.3", "name": "Mistral 7B v0.3", "role": ["executor"], "tier": "fast"},
+    ],
+    "ollama": [
+        {"id": "deepseek-r1:32b", "name": "DeepSeek R1 32B", "role": ["planner", "verifier"], "tier": "flagship"},
+        {"id": "qwen3:30b", "name": "Qwen3 30B", "role": ["executor"], "tier": "flagship"},
+        {"id": "qwen3:14b", "name": "Qwen3 14B", "role": ["executor"], "tier": "balanced"},
+        {"id": "llama3.3:70b", "name": "Llama 3.3 70B", "role": ["executor"], "tier": "flagship"},
+        {"id": "deepseek-r1:14b", "name": "DeepSeek R1 14B", "role": ["planner"], "tier": "balanced"},
+        {"id": "qwen2.5-coder:14b", "name": "Qwen2.5-Coder 14B", "role": ["executor"], "tier": "balanced"},
+        {"id": "llama3.2:3b", "name": "Llama 3.2 3B", "role": ["executor"], "tier": "fast"},
+    ],
+    "together": [
+        {"id": "deepseek-ai/DeepSeek-R1", "name": "DeepSeek R1", "role": ["planner", "verifier"], "tier": "flagship"},
+        {"id": "Qwen/Qwen3-235B-A22B", "name": "Qwen3 235B A22B", "role": ["executor"], "tier": "flagship"},
+        {"id": "meta-llama/Llama-4-Maverick-17B-128E-Instruct-FP8", "name": "Llama 4 Maverick", "role": ["executor"], "tier": "fast"},
+        {"id": "Qwen/Qwen2.5-72B-Instruct-Turbo", "name": "Qwen2.5 72B Turbo", "role": ["executor"], "tier": "balanced"},
+        {"id": "deepseek-ai/DeepSeek-R1-Distill-Qwen-32B", "name": "DeepSeek R1 Distill 32B", "role": ["planner"], "tier": "balanced"},
+    ],
+}
+
+# Which model handles each agent role per provider type.
+# Planner/Verifier → strong reasoning model; Executor → best instruction-following model.
+AGENT_ROLE_MODELS: dict[str, dict[str, str]] = {
+    "openrouter": {
+        "planner": "deepseek/deepseek-r1",
+        "executor": "qwen/qwen3-235b-a22b",
+        "verifier": "deepseek/deepseek-r1",
+    },
+    "huggingface": {
+        "planner": "Qwen/QwQ-32B",
+        "executor": "Qwen/Qwen2.5-72B-Instruct",
+        "verifier": "deepseek-ai/DeepSeek-R1",
+    },
+    "ollama": {
+        "planner": "deepseek-r1:32b",
+        "executor": "qwen3:30b",
+        "verifier": "deepseek-r1:32b",
+    },
+    "together": {
+        "planner": "deepseek-ai/DeepSeek-R1",
+        "executor": "Qwen/Qwen3-235B-A22B",
+        "verifier": "deepseek-ai/DeepSeek-R1",
+    },
+}
+
 app = FastAPI(title="LLM Relay — Unified Platform", version="2.0.0")
 
 frontend_url = os.environ.get("FRONTEND_URL", "http://localhost:3000")
@@ -192,12 +263,243 @@ async def seed_default_providers():
             "is_default": LLM_PROVIDER == "huggingface",
             "status": "configured",
         },
+        {
+            "provider_id": "openrouter",
+            "name": "OpenRouter",
+            "type": "openai-compatible",
+            "base_url": OPENROUTER_BASE_URL,
+            "api_key": OPENROUTER_API_KEY,
+            "default_model": "qwen/qwen3-235b-a22b",
+            "is_default": LLM_PROVIDER == "openrouter",
+            "status": "configured" if OPENROUTER_API_KEY else "unconfigured",
+        },
+        {
+            "provider_id": "together-ai",
+            "name": "Together AI",
+            "type": "openai-compatible",
+            "base_url": TOGETHER_BASE_URL,
+            "api_key": TOGETHER_API_KEY,
+            "default_model": "Qwen/Qwen3-235B-A22B",
+            "is_default": LLM_PROVIDER == "together",
+            "status": "configured" if TOGETHER_API_KEY else "unconfigured",
+        },
     ]
     for p in defaults:
         existing = await db.providers.find_one({"provider_id": p["provider_id"]})
         if not existing:
             p["created_at"] = datetime.now(timezone.utc).isoformat()
             await db.providers.insert_one(p)
+        else:
+            # Always sync env-var-backed fields so Render env var changes take effect
+            # without requiring a manual DB update.
+            update: dict = {}
+            if p.get("api_key") and existing.get("api_key") != p["api_key"]:
+                update["api_key"] = p["api_key"]
+            if p.get("base_url") and existing.get("base_url") != p["base_url"]:
+                update["base_url"] = p["base_url"]
+            if update:
+                await db.providers.update_one({"provider_id": p["provider_id"]}, {"$set": update})
+                log.info("Synced env-var fields for provider %s: %s", p["provider_id"], list(update.keys()))
+
+
+# ─── Multi-Agent Orchestration ────────────────────────────────────────────────
+# Implements the Planner → Executor → Verifier three-role loop described in the
+# project README and ADR-003. Applies Anthropic's context efficiency principles:
+#   • Observation masking: truncate old tool outputs to ≤300 chars
+#   • Context compaction: LLM-summarize history when > COMPACT_THRESHOLD messages
+#   • Condensed sub-agent summaries: each role returns a ≤500-char synthesis
+
+_COMPLEX_KEYWORDS = {
+    "write", "create", "build", "generate", "analyze", "implement", "refactor",
+    "design", "plan", "research", "compare", "summarize", "explain in detail",
+    "step by step", "walk me through", "how would you", "what are all",
+}
+_COMPLEX_WORD_THRESHOLD = 25
+_COMPACT_THRESHOLD = 16
+
+
+def _classify_complexity(content: str) -> str:
+    """Return 'complex' if the message warrants multi-agent orchestration, else 'simple'."""
+    lower = content.lower()
+    word_count = len(content.split())
+    has_keyword = any(kw in lower for kw in _COMPLEX_KEYWORDS)
+    return "complex" if (word_count >= _COMPLEX_WORD_THRESHOLD or has_keyword) else "simple"
+
+
+def _mask_observations(messages: list[dict], max_chars: int = 300) -> list[dict]:
+    """Truncate tool/observation content in older messages to prevent context bloat."""
+    result = []
+    for i, m in enumerate(messages):
+        if i < len(messages) - 4 and m.get("role") == "assistant":
+            content = m.get("content", "")
+            if len(content) > max_chars:
+                m = {**m, "content": content[:max_chars] + " … [truncated]"}
+        result.append(m)
+    return result
+
+
+async def _compact_context(
+    messages: list[dict],
+    provider_cfg: "LlmProviderConfig",
+    model: str | None,
+) -> list[dict]:
+    """Summarize older messages when history grows beyond COMPACT_THRESHOLD."""
+    if len(messages) <= _COMPACT_THRESHOLD:
+        return messages
+
+    # Keep the last 6 messages verbatim; summarize the rest.
+    to_summarize = messages[:-6]
+    recent = messages[-6:]
+
+    summary_prompt = [
+        {
+            "role": "system",
+            "content": (
+                "You are a context compactor. Summarize the conversation below "
+                "in ≤500 words, preserving all decisions, facts, and code snippets. "
+                "Output ONLY the summary — no preamble."
+            ),
+        },
+        {
+            "role": "user",
+            "content": "\n\n".join(
+                f"[{m['role'].upper()}] {m['content']}" for m in to_summarize
+            ),
+        },
+    ]
+    try:
+        summary = await chat_completion_text(provider_cfg, messages=summary_prompt, model=model, temperature=0.1)
+        compacted = [{"role": "system", "content": f"[Conversation summary]\n{summary}"}]
+    except Exception:
+        # If compaction fails, just drop old messages rather than crashing.
+        compacted = [{"role": "system", "content": "[Earlier context omitted for brevity]"}]
+
+    return compacted + recent
+
+
+async def _run_agent_loop(
+    instruction: str,
+    session_messages: list[dict],
+    wiki_index: str,
+    provider: dict,
+    requested_model: str | None,
+) -> str:
+    """
+    Three-role orchestration loop:
+      1. Planner  (DeepSeek-R1 / reasoning model) — break the task into steps
+      2. Executor (Qwen3 / coding model)          — execute each step
+      3. Verifier (DeepSeek-R1)                   — validate final output
+
+    Returns the final synthesized response as a string.
+    """
+    ptype = str(provider.get("type") or "openai-compatible")
+    role_models = AGENT_ROLE_MODELS.get(ptype, AGENT_ROLE_MODELS["openrouter"])
+
+    def _make_cfg(role_model: str) -> LlmProviderConfig:
+        return LlmProviderConfig(
+            type=ptype,
+            base_url=normalize_base_url(str(provider.get("base_url") or OLLAMA_BASE)),
+            api_key=(str(provider.get("api_key") or "").strip() or None),
+            default_model=role_model,
+        )
+
+    # Allow caller to override all roles with a specific model.
+    planner_model = requested_model or role_models["planner"]
+    executor_model = requested_model or role_models["executor"]
+    verifier_model = requested_model or role_models["verifier"]
+
+    # ── Phase 1: Planner ──────────────────────────────────────────────────────
+    history_text = "\n".join(
+        f"[{m['role'].upper()}] {m['content'][:300]}" for m in session_messages[-8:]
+    )
+    planner_messages = [
+        {
+            "role": "system",
+            "content": (
+                "You are the Planner agent in a three-role AI system (Planner → Executor → Verifier). "
+                "Your job is to break down the user's request into a clear, ordered list of steps "
+                "for the Executor to carry out. Be concise. Number each step. "
+                f"Wiki context:\n{wiki_index}"
+            ),
+        },
+        {
+            "role": "user",
+            "content": (
+                f"Recent conversation:\n{history_text}\n\n"
+                f"New request: {instruction}\n\n"
+                "Produce a numbered execution plan. Each step must be one clear action."
+            ),
+        },
+    ]
+
+    plan_text = await chat_completion_text(
+        _make_cfg(planner_model), messages=planner_messages, model=planner_model, temperature=0.2
+    )
+    log.info("[Agent] Planner produced plan (%d chars)", len(plan_text))
+
+    # ── Phase 2: Executor ─────────────────────────────────────────────────────
+    compacted_history = _mask_observations(session_messages[-12:])
+    executor_messages = [
+        {
+            "role": "system",
+            "content": (
+                "You are the Executor agent. You receive a plan from the Planner and carry it out "
+                "step by step, producing a thorough, well-structured response. "
+                "Use Markdown for formatting. Reference wiki pages as [[Page Title]]. "
+                f"Wiki context:\n{wiki_index}"
+            ),
+        },
+        *compacted_history,
+        {
+            "role": "user",
+            "content": (
+                f"User request: {instruction}\n\n"
+                f"Execution plan from Planner:\n{plan_text}\n\n"
+                "Execute the plan and produce the final response."
+            ),
+        },
+    ]
+
+    executor_response = await chat_completion_text(
+        _make_cfg(executor_model), messages=executor_messages, model=executor_model, temperature=0.4
+    )
+    log.info("[Agent] Executor produced response (%d chars)", len(executor_response))
+
+    # ── Phase 3: Verifier ─────────────────────────────────────────────────────
+    # Only run verifier for substantial responses to avoid unnecessary API calls.
+    if len(executor_response) < 200:
+        return executor_response
+
+    verifier_messages = [
+        {
+            "role": "system",
+            "content": (
+                "You are the Verifier agent. Your job is to critically review the Executor's response "
+                "and either approve it (return it as-is with minor corrections) or improve it. "
+                "Check: accuracy, completeness, clarity, and adherence to the user's request. "
+                "Output ONLY the final response — no meta-commentary about your review process."
+            ),
+        },
+        {
+            "role": "user",
+            "content": (
+                f"Original request: {instruction}\n\n"
+                f"Planner's plan:\n{plan_text[:500]}\n\n"
+                f"Executor's response:\n{executor_response}\n\n"
+                "Review and output the verified final response."
+            ),
+        },
+    ]
+
+    try:
+        verified_response = await chat_completion_text(
+            _make_cfg(verifier_model), messages=verifier_messages, model=verifier_model, temperature=0.1
+        )
+        log.info("[Agent] Verifier approved/improved response (%d chars)", len(verified_response))
+        return verified_response
+    except Exception as e:
+        log.warning("[Agent] Verifier failed (%s) — returning executor response", e)
+        return executor_response
 
 
 # ─── Activity Logging ──────────────────────────────────────────────────────────
@@ -323,6 +625,7 @@ class ChatMessage(BaseModel):
     model: str | None = None
     provider_id: str | None = None
     temperature: float | None = Field(default=None, ge=0.0, le=2.0)
+    agent_mode: bool = False  # When True, forces multi-agent orchestration regardless of complexity
 
 @app.post("/api/chat/send")
 async def chat_send(body: ChatMessage, user: dict = Depends(get_current_user)):
@@ -346,23 +649,63 @@ async def chat_send(body: ChatMessage, user: dict = Depends(get_current_user)):
         raise HTTPException(status_code=404, detail="Session not found")
     messages = session.get("messages", [])
     messages.append({"role": "user", "content": body.content})
+
     wiki_pages = []
     async for page in db.wiki_pages.find({}, {"_id": 0, "slug": 1, "title": 1}).limit(50):
         wiki_pages.append(f"- {page['title']} ({page['slug']})")
     wiki_index = "\n".join(wiki_pages) if wiki_pages else "(empty wiki)"
-    system_msg = {
-        "role": "system",
-        "content": f"You are the LLM Wiki Agent. You help build and maintain a persistent knowledge wiki. Current wiki pages:\n{wiki_index}\nUse [[Page Title]] notation for references. Be concise and helpful.",
-    }
-    llm_messages = [system_msg] + messages[-20:]
+
     provider_id = body.provider_id or session.get("provider_id")
     temperature = body.temperature if body.temperature is not None else (session.get("temperature") or 0.3)
-    response_text = await call_llm(
-        llm_messages,
-        model=body.model or session.get("model"),
-        temperature=float(temperature),
-        provider_id=provider_id,
-    )
+
+    # Determine whether to use multi-agent orchestration.
+    use_agent = body.agent_mode or _classify_complexity(body.content) == "complex"
+
+    if use_agent:
+        provider = await db.providers.find_one({"provider_id": provider_id}) if provider_id else await get_active_provider()
+        if not provider:
+            provider = {"provider_id": "ollama-local", "type": "ollama", "base_url": OLLAMA_BASE, "api_key": "", "default_model": OLLAMA_MODEL}
+        try:
+            response_text = await _run_agent_loop(
+                instruction=body.content,
+                session_messages=messages[:-1],  # exclude the just-appended user msg
+                wiki_index=wiki_index,
+                provider=provider,
+                requested_model=body.model or session.get("model"),
+            )
+        except Exception as exc:
+            log.error("Agent loop failed, falling back to simple LLM: %s", exc)
+            use_agent = False
+
+    if not use_agent:
+        system_msg = {
+            "role": "system",
+            "content": (
+                "You are the LLM Wiki Agent. You help build and maintain a persistent knowledge wiki. "
+                f"Current wiki pages:\n{wiki_index}\n"
+                "Use [[Page Title]] notation for references. Be concise and helpful."
+            ),
+        }
+        # Compact context if history is long.
+        history_for_llm = messages[-20:]
+        if len(messages) > _COMPACT_THRESHOLD:
+            provider = await db.providers.find_one({"provider_id": provider_id}) if provider_id else await get_active_provider()
+            if provider:
+                cfg = LlmProviderConfig(
+                    type=str(provider.get("type") or "openai-compatible"),
+                    base_url=normalize_base_url(str(provider.get("base_url") or OLLAMA_BASE)),
+                    api_key=(str(provider.get("api_key") or "").strip() or None),
+                    default_model=(str(provider.get("default_model") or "").strip() or None),
+                )
+                history_for_llm = await _compact_context(messages, cfg, body.model or session.get("model"))
+        llm_messages = [system_msg] + history_for_llm
+        response_text = await call_llm(
+            llm_messages,
+            model=body.model or session.get("model"),
+            temperature=float(temperature),
+            provider_id=provider_id,
+        )
+
     messages.append({"role": "assistant", "content": response_text})
     await db.chat_sessions.update_one(
         {"_id": ObjectId(sid)},
@@ -682,26 +1025,55 @@ async def provider_models(provider_id: str, user: dict = Depends(get_current_use
     prov = await db.providers.find_one({"provider_id": provider_id})
     if not prov:
         raise HTTPException(status_code=404, detail="Provider not found")
-    if prov.get("type") == "ollama":
-        async with httpx.AsyncClient(timeout=10) as c:
-            r = await c.get(f"{prov['base_url']}/api/tags")
-            r.raise_for_status()
-            models = [m["name"] for m in r.json().get("models", [])]
-        return {"provider_id": provider_id, "models": models}
+
+    # Determine provider type key for catalog lookup.
+    ptype = str(prov.get("type") or "openai-compatible")
+    # Map provider_id to catalog key (e.g. "openrouter" → "openrouter", "together-ai" → "together")
+    catalog_key = provider_id if provider_id in PREDEFINED_MODELS else {
+        "ollama-local": "ollama",
+        "huggingface-serverless": "huggingface",
+        "together-ai": "together",
+    }.get(provider_id, ptype)
+    predefined = [m["id"] for m in PREDEFINED_MODELS.get(catalog_key, [])]
+
+    if ptype == "ollama":
+        try:
+            async with httpx.AsyncClient(timeout=10) as c:
+                r = await c.get(f"{prov['base_url']}/api/tags")
+                r.raise_for_status()
+                live_models = [m["name"] for m in r.json().get("models", [])]
+        except Exception:
+            live_models = []
+        # Merge: live models first, then predefined not already present
+        seen = set(live_models)
+        merged = live_models + [m for m in predefined if m not in seen]
+        return {"provider_id": provider_id, "models": merged}
 
     cfg = LlmProviderConfig(
-        type=str(prov.get("type") or "openai-compatible"),
+        type=ptype,
         base_url=normalize_base_url(str(prov.get("base_url") or "")),
         api_key=(str(prov.get("api_key") or "").strip() or None),
         default_model=(str(prov.get("default_model") or "").strip() or None),
     )
-    models = await list_openai_models(cfg)
-    if not models and cfg.default_model:
-        models = [cfg.default_model]
-    return {"provider_id": provider_id, "models": models}
+    try:
+        live_models = await list_openai_models(cfg)
+    except Exception:
+        live_models = []
+
+    # Always surface predefined models even if the live /v1/models call fails or returns nothing
+    seen = set(live_models)
+    merged = live_models + [m for m in predefined if m not in seen]
+    if not merged and cfg.default_model:
+        merged = [cfg.default_model]
+    return {"provider_id": provider_id, "models": merged}
 
 
 # ─── Models Hub ─────────────────────────────────────────────────────────────────
+
+@app.get("/api/models/catalog")
+async def models_catalog(user: dict = Depends(get_current_user)):
+    """Return the full predefined model catalog with role/tier metadata."""
+    return {"catalog": PREDEFINED_MODELS, "agent_role_models": AGENT_ROLE_MODELS}
 
 @app.get("/api/models")
 async def list_models(user: dict = Depends(get_current_user)):

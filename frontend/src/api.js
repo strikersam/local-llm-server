@@ -63,13 +63,14 @@ export const logout = () => {
 export const getMe = () => API.get('/api/auth/me');
 
 // Chat
-export const chatSend = (content, sessionId, model, providerId, temperature) =>
+export const chatSend = (content, sessionId, model, providerId, temperature, agentMode = false) =>
   API.post('/api/chat/send', {
     content,
     session_id: sessionId,
     model: model || null,
     provider_id: providerId || null,
     temperature: temperature ?? null,
+    agent_mode: agentMode,
   });
 export const listSessions = () => API.get('/api/chat/sessions');
 export const getSession = (id) => API.get(`/api/chat/sessions/${id}`);
