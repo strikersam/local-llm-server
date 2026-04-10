@@ -10,6 +10,69 @@
 
 ### Added
 
+- **Context compaction** (`agent/context_manager.py`, `agent/loop.py`, `agent/prompts.py`):
+  When session history exceeds the compaction threshold (default 16 messages) the harness
+  asks the planner model to summarise the old portion into a concise note.  The summary
+  replaces old messages; the most recent context is kept verbatim.  Implements the
+  compaction strategy described in Anthropic's "Scaling Managed Agents" article (April 2026).
+
+- **Observation masking** (`agent/context_manager.py`, `agent/loop.py`):
+  Old tool outputs in the executor inspection loop are now truncated to ≤300 chars while
+  tool-call records remain visible.  The last 4 observations are passed verbatim; earlier
+  ones are summarised.  Pattern from JetBrains Junie, cited in the Anthropic managed-agents
+  article.
+
+- **Just-in-time retrieval tools** (`agent/tools.py`, `agent/prompts.py`, `agent/models.py`):
+  Two new executor tools implement the three-tier JIT hierarchy:
+  - `head_file(path, lines=50)` — reads only the first N lines; avoids bloating context with
+    large files during the inspection phase.
+  - `file_index(path, max_entries=100)` — lightweight listing with line counts and byte sizes
+    (~150 chars per entry); always-loaded tier for workspace orientation.
+  The tool-selection prompt now guides the executor to start with `file_index`/`search_code`,
+  escalate to `head_file`, and only call `read_file` when the full file is truly needed.
+
+- **Append-only event log** (`agent/state.py`, `agent/models.py`):
+  `AgentSessionStore` now maintains a durable `agent_events` table — a positional, append-only
+  event stream that lives outside the LLM context window.  Mirrors the session design in
+  Anthropic's Managed Agents architecture.  New public API:
+  - `append_event(session_id, event_type, payload)` — append a typed event
+  - `get_events(session_id, from_position=0, limit=200)` — positional slice query
+  The harness logs key events (`user_message`, `step_start`, `step_complete`, `compaction`,
+  `assistant_message`) automatically during `AgentRunner.run()`.
+
+- **Sub-agent condensed summaries** (`agent/context_manager.py`, `agent/loop.py`):
+  `ContextManager.condense_step_result()` trims step results to ~2k tokens before storing
+  in the event log, keeping the orchestrator's context lean.  Implements the 1–2k token
+  sub-agent summary pattern from the Anthropic managed-agents article.
+
+- **Resilient tool dispatch** (`agent/loop.py`):
+  `_run_tool` now wraps all tool invocations in a try/except and returns `[tool error: ...]`
+  strings instead of raising.  The harness catches sandbox failures as tool-call errors and
+  feeds them back to the model — matching Anthropic's decoupled Brain/Hands model where
+  container failures are handled gracefully.
+
+- **`ContextManager` class** (`agent/context_manager.py`):
+  New standalone module implementing all context-engineering strategies.  Tuneable via
+  constructor kwargs (`mask_after`, `compact_after`, `jit_file_limit`).
+
+- **`AgentEvent` model** (`agent/models.py`):
+  New Pydantic model for event log entries with `event_type`, `payload`, `timestamp`,
+  and monotonic `position` fields.
+
+- **`AgentSession.event_count`** (`agent/models.py`, `agent/state.py`):
+  Sessions now track the total number of events appended so the harness can know the
+  current log position without loading all events.
+
+- **New test files**:
+  - `tests/test_context_manager.py` — 14 tests covering masking, compaction, JIT hints,
+    and condensed summaries.
+  - `tests/test_event_log.py` — 8 tests covering append, positional slicing, isolation,
+    and persistence across store restarts.
+  - `tests/test_agent_tools.py` — extended with 6 new tests for `head_file` and
+    `file_index` including path-escape rejection.
+
+
+
 - **Advisor strategy support in Anthropic compat layer** (`handlers/anthropic_compat.py`):
   Server-side beta tool types (`advisor_20260301`, `computer_use_*`, `web_search_20250305`,
   `text_editor_20241022`, `bash_20241022`) are now stripped before forwarding to Ollama

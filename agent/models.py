@@ -4,6 +4,36 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
+# ---------------------------------------------------------------------------
+# Event log  (append-only session journal)
+# ---------------------------------------------------------------------------
+
+EventType = Literal[
+    "user_message",
+    "assistant_message",
+    "tool_call",
+    "tool_result",
+    "step_start",
+    "step_complete",
+    "compaction",
+    "error",
+]
+
+
+class AgentEvent(BaseModel):
+    """A single entry in the session's append-only event log.
+
+    Inspired by Anthropic's Managed Agents architecture: the session is a
+    durable event log that lives *outside* Claude's context window.  The
+    harness queries it with ``getEvents(from_position)`` to reconstruct
+    whatever slice of history the model needs for the current turn.
+    """
+
+    event_type: EventType
+    payload: dict[str, Any] = Field(default_factory=dict)
+    timestamp: str = ""       # filled by AgentSessionStore
+    position: int = 0         # filled by AgentSessionStore (monotonic)
+
 
 class AgentStep(BaseModel):
     id: int = Field(..., ge=1)
@@ -18,7 +48,18 @@ class AgentPlan(BaseModel):
 
 
 class ToolCall(BaseModel):
-    tool: Literal["read_file", "write_file", "apply_diff", "list_files", "search_code", "recall_memory", "save_memory", "finish"]
+    tool: Literal[
+        "read_file",
+        "head_file",      # JIT retrieval: first N lines only
+        "file_index",     # JIT retrieval: lightweight file list with sizes
+        "write_file",
+        "apply_diff",
+        "list_files",
+        "search_code",
+        "recall_memory",
+        "save_memory",
+        "finish",
+    ]
     args: dict[str, Any] = Field(default_factory=dict)
 
 
@@ -57,3 +98,6 @@ class AgentSession(BaseModel):
     history: list[AgentSessionMessage] = Field(default_factory=list)
     last_plan: AgentPlan | None = None
     last_result: dict[str, Any] | None = None
+    # Total events appended to the durable event log for this session.
+    # Used by the harness to know the current log position without loading all events.
+    event_count: int = 0

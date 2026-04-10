@@ -9,7 +9,7 @@ import threading
 import time
 from pathlib import Path
 
-from agent.models import AgentPlan, AgentSession, AgentSessionMessage
+from agent.models import AgentEvent, AgentPlan, AgentSession, AgentSessionMessage
 
 log = logging.getLogger("qwen-agent")
 
@@ -60,7 +60,8 @@ class AgentSessionStore:
                     created_at   TEXT NOT NULL,
                     updated_at   TEXT NOT NULL,
                     last_plan    TEXT,
-                    last_result  TEXT
+                    last_result  TEXT,
+                    event_count  INTEGER NOT NULL DEFAULT 0
                 )
                 """
             )
@@ -73,6 +74,25 @@ class AgentSessionStore:
                     content    TEXT NOT NULL
                 )
                 """
+            )
+            # Append-only event log — mirrors Anthropic Managed Agents' session
+            # design: a durable, positional event stream that lives outside the
+            # LLM context window.  The harness queries it via get_events().
+            conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS agent_events (
+                    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+                    session_id TEXT NOT NULL REFERENCES agent_sessions(session_id),
+                    position   INTEGER NOT NULL,
+                    event_type TEXT NOT NULL,
+                    payload    TEXT NOT NULL,
+                    timestamp  TEXT NOT NULL
+                )
+                """
+            )
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_events_session "
+                "ON agent_events (session_id, position)"
             )
             conn.commit()
 
@@ -94,6 +114,7 @@ class AgentSessionStore:
                     history=[AgentSessionMessage(role=m["role"], content=m["content"]) for m in msgs],
                     last_plan=json.loads(row["last_plan"]) if row["last_plan"] else None,
                     last_result=json.loads(row["last_result"]) if row["last_result"] else None,
+                    event_count=row["event_count"] if "event_count" in row.keys() else 0,
                 )
         return sessions
 
@@ -101,8 +122,9 @@ class AgentSessionStore:
         conn.execute(
             """
             INSERT OR REPLACE INTO agent_sessions
-                (session_id, title, provider_id, workspace_id, created_at, updated_at, last_plan, last_result)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                (session_id, title, provider_id, workspace_id, created_at, updated_at,
+                 last_plan, last_result, event_count)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 session.session_id,
@@ -113,6 +135,7 @@ class AgentSessionStore:
                 session.updated_at,
                 json.dumps(session.last_plan.model_dump()) if session.last_plan else None,
                 json.dumps(session.last_result) if session.last_result else None,
+                session.event_count,
             ),
         )
 
@@ -168,6 +191,84 @@ class AgentSessionStore:
                 )
                 conn.commit()
             return AgentSession.model_validate(session.model_dump())
+
+    # ── event log ─────────────────────────────────────────────────────────────
+
+    def append_event(
+        self,
+        session_id: str,
+        event_type: str,
+        payload: dict,
+    ) -> AgentEvent:
+        """Append one event to the session's append-only event log.
+
+        The event log is inspired by Anthropic's Managed Agents architecture:
+        a durable, positional stream that lives *outside* the LLM context
+        window.  The harness queries it with ``get_events()`` to reconstruct
+        whichever slice of history the model needs.
+        """
+        with self._lock:
+            session = self._sessions.get(session_id)
+            if session is None:
+                raise KeyError(f"Session {session_id!r} not found")
+            position = session.event_count
+            now = _now()
+            event = AgentEvent(
+                event_type=event_type,  # type: ignore[arg-type]
+                payload=payload,
+                timestamp=now,
+                position=position,
+            )
+            with self._connect() as conn:
+                conn.execute(
+                    """
+                    INSERT INTO agent_events (session_id, position, event_type, payload, timestamp)
+                    VALUES (?, ?, ?, ?, ?)
+                    """,
+                    (session_id, position, event_type, json.dumps(payload), now),
+                )
+                conn.execute(
+                    "UPDATE agent_sessions SET event_count = event_count + 1 WHERE session_id = ?",
+                    (session_id,),
+                )
+                conn.commit()
+            session.event_count += 1
+            return event
+
+    def get_events(
+        self,
+        session_id: str,
+        *,
+        from_position: int = 0,
+        limit: int = 200,
+    ) -> list[AgentEvent]:
+        """Return a positional slice of the event log.
+
+        Mirrors the ``getEvents(from_position)`` interface described in the
+        Anthropic Managed Agents article.  The harness uses this to load only
+        the events it needs for the current turn, keeping the agent loop
+        stateless.
+        """
+        with self._connect() as conn:
+            rows = conn.execute(
+                """
+                SELECT position, event_type, payload, timestamp
+                FROM agent_events
+                WHERE session_id = ? AND position >= ?
+                ORDER BY position
+                LIMIT ?
+                """,
+                (session_id, from_position, limit),
+            ).fetchall()
+        return [
+            AgentEvent(
+                event_type=row["event_type"],  # type: ignore[arg-type]
+                payload=json.loads(row["payload"]),
+                timestamp=row["timestamp"],
+                position=row["position"],
+            )
+            for row in rows
+        ]
 
     def update_result(self, session_id: str, plan: AgentPlan | dict, result: dict) -> AgentSession:
         with self._lock:
