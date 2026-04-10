@@ -46,7 +46,16 @@
 
 ### Added
 
+- **Social Login (GitHub & Google)** (`backend/server.py`, `frontend/src/`):
+  Added support for social sign-in/sign-up via GitHub and Google to the LLM Relay dashboard. Features include:
+  - Automatic user registration on first social sign-in.
+  - Persistent user tracking in MongoDB (provider, avatar, last login).
+  - Activity logging for social authentication events.
+  - CSRF protection via state parameter and session-based flow.
+  - New frontend buttons and `/auth/callback` route for seamless integration.
+
 - **OpenRouter + Together AI cloud providers** (`backend/server.py`):
+
   Both providers are now seeded automatically as `openrouter` and `together-ai`. Set
   `OPENROUTER_API_KEY` or `TOGETHER_API_KEY` env vars on Render; the seed logic picks them up
   and applies them to the DB records on every restart (fixing the HF_TOKEN drift bug too).

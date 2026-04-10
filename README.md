@@ -27,6 +27,7 @@
 **Latest additions (April 2026)**
 
 - **User Memory Store** — the agent remembers things about each user across sessions (preferences, project paths, conventions). Stored in SQLite; injected into the planner automatically.
+- **Social Login (GitHub & Google)** — Sign in or register automatically using your GitHub or Google account. User identity, avatar, and last login are tracked in the database.
 - **Anthropic Managed-Agents best practices** — five harness-level reliability techniques (observation masking, context compaction, JIT file retrieval, durable event log, condensed sub-agent summaries) baked in transparently.
 - **Anthropic advisor strategy** — the Anthropic compat layer now strips server-side beta tool types (`advisor_20260301`, `computer_use`, `web_search`, `text_editor`, `bash`) before forwarding to Ollama, and preserves advisor content blocks as plain-text context on follow-up turns.
 - **Commit Rollback** — revert the last AI-authored git commit in one API call.
@@ -56,6 +57,7 @@ LLM Relay is not just a proxy. It is a complete AI operations platform built aro
 - **Source Ingestion** — drop files, URLs, or raw text; AI summarises into the wiki
 - **Multi-provider routing** — Ollama, OpenRouter, HuggingFace, any OpenAI-compatible API
 - **Models Hub** — pull and manage Ollama models without touching a terminal
+- **Social Login** — GitHub & Google integration with auto-registration
 - **API Key management** — issue scoped keys per user and department
 - **Langfuse observability** — token usage, cost, latency, per-user attribution
 - **Telegram bot** — control everything from your phone
@@ -553,6 +555,8 @@ All features degrade gracefully when dependencies are absent.
 | Method | Endpoint | Description |
 |--------|----------|-------------|
 | POST | `/api/auth/login` | Login with email/password |
+| GET  | `/api/auth/github/login` | Initiate GitHub OAuth flow |
+| GET  | `/api/auth/google/login` | Initiate Google OAuth flow |
 | POST | `/api/auth/logout` | Clear session |
 | GET | `/api/auth/me` | Current user |
 | POST | `/api/auth/refresh` | Refresh token |
