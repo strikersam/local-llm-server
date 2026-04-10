@@ -4,7 +4,7 @@ services:
     env: docker
     dockerfilePath: ./Dockerfile.backend
     plan: free
-    healthCheckPath: /api/health-test
+    healthCheckPath: /api/health
     envVars:
       # MongoDB Atlas connection string — required
       # Create a free M0 cluster at https://cloud.mongodb.com and paste the URI here
