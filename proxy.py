@@ -302,27 +302,22 @@ TERMINAL_PANEL    = TerminalPanel()
 COMMIT_TRACKER    = CommitTracker(repo_root=Path(__file__).resolve().parent)
 VOICE_INTERFACE   = VoiceCommandInterface()
 WATCHDOG          = ResourceWatchdog()
-SCHEDULER         = AgentScheduler()
+_SCHEDULER_JOBS_FILE = Path(
+    os.environ.get("SCHEDULER_JOBS_FILE", Path(__file__).resolve().parent / "data" / "scheduled_jobs.json")
+)
+SCHEDULER         = AgentScheduler(jobs_path=_SCHEDULER_JOBS_FILE)
 BACKGROUND_AGENT  = BackgroundAgent()
 COORDINATOR       = AgentCoordinator(ollama_base=OLLAMA_BASE, workspace_root=str(Path(__file__).resolve().parent))
 BROWSER_SESSION   = BrowserSession()
 
-# ─── Feature singletons ────────────────────────────────────────────────────────
-SESSION_MEMORY    = SessionMemory()
-CTX_COMPRESSOR    = ContextCompressor()
-PERMISSIONS       = AdaptivePermissions()
-TOKEN_BUDGET      = TokenBudget()
-PLAYBOOKS         = PlaybookLibrary()
-SCAFFOLDER        = ProjectScaffolder()
-SKILL_LIBRARY     = SkillLibrary()
-TERMINAL_PANEL    = TerminalPanel()
-COMMIT_TRACKER    = CommitTracker(repo_root=Path(__file__).resolve().parent)
-VOICE_INTERFACE   = VoiceCommandInterface()
-WATCHDOG          = ResourceWatchdog()
-SCHEDULER         = AgentScheduler()
-BACKGROUND_AGENT  = BackgroundAgent()
-COORDINATOR       = AgentCoordinator(ollama_base=OLLAMA_BASE, workspace_root=str(Path(__file__).resolve().parent))
-BROWSER_SESSION   = BrowserSession()
+# ─── Seed default scheduled jobs ──────────────────────────────────────────────
+_SCOUT_PROMPT_FILE = Path(__file__).resolve().parent / "scripts" / "daily_feature_scout.md"
+if _SCOUT_PROMPT_FILE.exists():
+    SCHEDULER.seed(
+        name="daily-feature-scout",
+        cron="0 9 * * *",
+        instruction=_SCOUT_PROMPT_FILE.read_text(),
+    )
 
 WEBUI_STORE = JsonConfigStore()
 WEBUI_PROVIDERS = ProviderManager(WEBUI_STORE)
@@ -852,7 +847,7 @@ async def background_get(task_id: str, auth: AuthContext = Depends(verify_api_ke
 class ScheduleJobRequest(BaseModel):
     name: str = Field(..., min_length=1, max_length=200)
     cron: str = Field(..., min_length=9, max_length=100)
-    instruction: str = Field(..., min_length=1, max_length=4000)
+    instruction: str = Field(..., min_length=1, max_length=10000)
 
 
 @app.post("/agent/scheduler/jobs")
