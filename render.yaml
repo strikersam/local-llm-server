@@ -20,7 +20,7 @@ services:
 
       # Admin login credentials for the dashboard
       - key: ADMIN_EMAIL
-        value: admin@llmwiki.local
+        value: admin@llmrelay.local
       - key: ADMIN_PASSWORD
         sync: false
 
