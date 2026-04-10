@@ -1,10 +1,10 @@
-name: Deploy Web UI to GitHub Pages
+name: Deploy Frontend to GitHub Pages
 
 on:
   push:
     branches: [master]
     paths:
-      - 'webui/frontend/**'
+      - 'frontend/**'
       - '.github/workflows/deploy-frontend.yml'
   workflow_dispatch:
 
@@ -27,29 +27,26 @@ jobs:
         with:
           node-version: '20'
           cache: npm
-          cache-dependency-path: webui/frontend/package-lock.json
+          cache-dependency-path: frontend/package-lock.json
 
       - name: Install dependencies
-        working-directory: webui/frontend
+        working-directory: frontend
         run: npm ci
 
       - name: Build
-        working-directory: webui/frontend
+        working-directory: frontend
         env:
-          # Set this secret in GitHub → Settings → Secrets and variables → Actions
-          # Value: your Render service URL, e.g. https://local-llm-server.onrender.com
-          # Leave empty to use relative paths (only works when served by the proxy itself)
-          VITE_API_BASE: ${{ secrets.RENDER_BACKEND_URL }}
-          VITE_APP_BASE: /local-llm-server
+          REACT_APP_BACKEND_URL: ${{ secrets.RENDER_BACKEND_URL }}
+          PUBLIC_URL: /local-llm-server
         run: npm run build
 
       - name: Add 404 → SPA redirect
-        run: cp webui/frontend/dist/index.html webui/frontend/dist/404.html
+        run: cp frontend/build/index.html frontend/build/404.html
 
       - name: Upload Pages artifact
         uses: actions/upload-pages-artifact@v3
         with:
-          path: webui/frontend/dist
+          path: frontend/build
 
   deploy:
     needs: build
