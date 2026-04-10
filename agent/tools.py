@@ -3,6 +3,10 @@ from __future__ import annotations
 import difflib
 import os
 from pathlib import Path
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from agent.user_memory import UserMemoryStore
 
 
 TEXT_EXTENSIONS = {
@@ -61,6 +65,79 @@ class WorkspaceTools:
         )
         self.write_file(path, new_content)
         return {"path": str(target.relative_to(self.root)), "diff": diff}
+
+    def recall_memory(
+        self,
+        key: str,
+        *,
+        user_id: str,
+        memory_store: UserMemoryStore,
+    ) -> str:
+        """Return a previously saved memory value, or an empty string if absent."""
+        value = memory_store.recall(user_id, key)
+        return value if value is not None else ""
+
+    def save_memory(
+        self,
+        key: str,
+        value: str,
+        *,
+        user_id: str,
+        memory_store: UserMemoryStore,
+    ) -> str:
+        """Persist a key/value pair to the user's profile store."""
+        memory_store.save(user_id, key, value)
+        return f"Saved '{key}' for {user_id}."
+
+    def head_file(self, path: str, lines: int = 50) -> str:
+        """Return the first *lines* lines of a file.
+
+        Just-in-time retrieval: the executor uses this to quickly inspect a
+        file's structure without loading the entire content into the context
+        window.  If the full file is needed the executor can follow up with
+        ``read_file``.
+
+        Recommended by Anthropic's managed-agents article: prefer targeted
+        head/search queries over full-file reads during the inspection phase.
+        """
+        target = self._resolve_path(path)
+        text = target.read_text(encoding="utf-8")
+        head = "\n".join(text.splitlines()[:lines])
+        total = len(text.splitlines())
+        suffix = f"\n… ({total - lines} more lines)" if total > lines else ""
+        return head + suffix
+
+    def file_index(self, path: str = ".", max_entries: int = 100) -> list[dict[str, str | int]]:
+        """Return a lightweight index of files with line counts and sizes.
+
+        This is the 'always-loaded lightweight index' tier from the
+        three-tier JIT retrieval hierarchy (Anthropic managed-agents article):
+        ~150 chars per entry, always in context, detailed content loaded
+        on demand.
+        """
+        target = self._resolve_path(path)
+        entries: list[dict[str, str | int]] = []
+        if target.is_file():
+            lines = len(target.read_text(encoding="utf-8", errors="ignore").splitlines())
+            return [{"path": str(target.relative_to(self.root)), "lines": lines, "bytes": target.stat().st_size}]
+
+        for dirpath, dirnames, filenames in os.walk(target):
+            dirnames[:] = [d for d in dirnames if d not in {".git", "__pycache__", ".venv", "node_modules"}]
+            for filename in filenames:
+                full = Path(dirpath) / filename
+                if full.suffix.lower() not in TEXT_EXTENSIONS and full.name not in {".env", ".gitignore"}:
+                    continue
+                try:
+                    content = full.read_text(encoding="utf-8", errors="ignore")
+                    line_count = len(content.splitlines())
+                    byte_size = full.stat().st_size
+                except OSError:
+                    continue
+                rel = str(full.relative_to(self.root))
+                entries.append({"path": rel, "lines": line_count, "bytes": byte_size})
+                if len(entries) >= max_entries:
+                    return entries
+        return entries
 
     def search_code(self, query: str, limit: int = 20) -> list[dict[str, str | int]]:
         matches: list[dict[str, str | int]] = []

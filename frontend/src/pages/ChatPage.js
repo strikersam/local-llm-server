@@ -2,8 +2,13 @@ import React, { useState, useEffect, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import { chatSend, listSessions, getSession, deleteSession } from '../api';
-import { Send, Plus, Trash2, MessageSquare, Bot, User, Loader2 } from 'lucide-react';
+import { chatSend, listSessions, getSession, deleteSession, listProviders, listProviderModels, fmtErr } from '../api';
+import { Send, Plus, Trash2, MessageSquare, Bot, User, Loader2, Zap } from 'lucide-react';
+
+const LS_PROVIDER_ID = 'llmrelay_provider_id';
+const LS_MODEL = 'llmrelay_model';
+const LS_TEMPERATURE = 'llmrelay_temperature';
+const LS_AGENT_MODE = 'llmrelay_agent_mode';
 
 export default function ChatPage() {
   const { sessionId: paramSid } = useParams();
@@ -14,11 +19,18 @@ export default function ChatPage() {
   const [input, setInput] = useState('');
   const [sending, setSending] = useState(false);
   const [sessionId, setSessionId] = useState(paramSid || null);
+  const [providers, setProviders] = useState([]);
+  const [providerId, setProviderId] = useState(localStorage.getItem(LS_PROVIDER_ID) || '');
+  const [models, setModels] = useState([]);
+  const [model, setModel] = useState(localStorage.getItem(LS_MODEL) || '');
+  const [temperature, setTemperature] = useState(Number(localStorage.getItem(LS_TEMPERATURE) || '0.3'));
+  const [agentMode, setAgentMode] = useState(localStorage.getItem(LS_AGENT_MODE) === 'true');
   const messagesEndRef = useRef(null);
   const inputRef = useRef(null);
 
   useEffect(() => {
     loadSessions();
+    loadProviders();
   }, []);
 
   useEffect(() => {
@@ -26,6 +38,25 @@ export default function ChatPage() {
       loadSession(paramSid);
     }
   }, [paramSid]);
+
+  useEffect(() => {
+    if (providerId) {
+      localStorage.setItem(LS_PROVIDER_ID, providerId);
+      loadProviderModels(providerId);
+    }
+  }, [providerId]);
+
+  useEffect(() => {
+    if (model != null) localStorage.setItem(LS_MODEL, model);
+  }, [model]);
+
+  useEffect(() => {
+    if (Number.isFinite(temperature)) localStorage.setItem(LS_TEMPERATURE, String(temperature));
+  }, [temperature]);
+
+  useEffect(() => {
+    localStorage.setItem(LS_AGENT_MODE, String(agentMode));
+  }, [agentMode]);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -38,12 +69,39 @@ export default function ChatPage() {
     } catch {}
   };
 
+  const loadProviders = async () => {
+    try {
+      const { data } = await listProviders();
+      const list = data.providers || [];
+      setProviders(list);
+      // Pick a default provider if none selected yet.
+      if (!providerId && list.length) {
+        const def = list.find((p) => p.is_default) || list[0];
+        setProviderId(def.provider_id);
+      }
+    } catch {}
+  };
+
+  const loadProviderModels = async (pid) => {
+    try {
+      const { data } = await listProviderModels(pid);
+      const ms = data.models || [];
+      setModels(ms);
+      if (!model && ms.length) setModel(ms[0]);
+    } catch {
+      setModels([]);
+    }
+  };
+
   const loadSession = async (sid) => {
     try {
       const { data } = await getSession(sid);
       setSessionId(sid);
       setCurrentSession(data);
       setMessages(data.messages || []);
+      if (data.provider_id) setProviderId(data.provider_id);
+      if (data.model) setModel(data.model);
+      if (data.temperature != null) setTemperature(Number(data.temperature));
     } catch {}
   };
 
@@ -63,7 +121,7 @@ export default function ChatPage() {
     setMessages(prev => [...prev, { role: 'user', content }]);
 
     try {
-      const { data } = await chatSend(content, sessionId);
+      const { data } = await chatSend(content, sessionId, model || null, providerId || null, temperature, agentMode);
       setSessionId(data.session_id);
       setMessages(prev => [...prev, { role: 'assistant', content: data.response }]);
       if (!sessionId) {
@@ -73,7 +131,7 @@ export default function ChatPage() {
     } catch (err) {
       setMessages(prev => [...prev, {
         role: 'assistant',
-        content: `Error: ${err?.response?.data?.detail || 'Failed to get response. Check LLM provider.'}`
+        content: `Error: ${fmtErr(err?.response?.data?.detail) || err?.message || 'Failed to get response. Check LLM provider.'}`
       }]);
     } finally {
       setSending(false);
@@ -144,7 +202,47 @@ export default function ChatPage() {
           <span className="text-xs tracking-[0.15em] uppercase text-[#A0A0A0] font-mono font-bold">
             {currentSession ? currentSession.title?.slice(0, 40) : 'New Agent Session'}
           </span>
-          <div className="ml-auto flex items-center gap-2">
+          <div className="ml-4 flex items-center gap-2">
+            <select
+              value={providerId}
+              onChange={(e) => setProviderId(e.target.value)}
+              className="bg-[#0A0A0A] border border-white/10 text-[10px] text-white font-mono px-2 py-1 outline-none focus:border-[#002FA7]"
+              data-testid="chat-provider-select"
+            >
+              {providers.map((p) => (
+                <option key={p.provider_id} value={p.provider_id}>
+                  {p.name}
+                </option>
+              ))}
+            </select>
+            <input
+              list="provider-models"
+              value={model}
+              onChange={(e) => setModel(e.target.value)}
+              placeholder="Model (e.g. llama3.2, Qwen/Qwen2.5-Coder-7B-Instruct)"
+              className="bg-[#0A0A0A] border border-white/10 text-[10px] text-white font-mono px-2 py-1 outline-none focus:border-[#002FA7] w-[260px]"
+              data-testid="chat-model-input"
+            />
+            <datalist id="provider-models">
+              {models.map((m) => (
+                <option key={m} value={m} />
+              ))}
+            </datalist>
+          </div>
+          <div className="ml-auto flex items-center gap-3">
+            <button
+              onClick={() => setAgentMode(m => !m)}
+              title={agentMode ? 'Agent mode ON (Planner→Executor→Verifier)' : 'Agent mode OFF (single LLM call)'}
+              className={`flex items-center gap-1.5 px-2.5 py-1 border text-[10px] font-mono tracking-wider uppercase transition-colors ${
+                agentMode
+                  ? 'border-[#002FA7] bg-[#002FA7]/20 text-white'
+                  : 'border-white/10 text-[#737373] hover:border-white/20'
+              }`}
+              data-testid="agent-mode-toggle"
+            >
+              <Zap size={11} className={agentMode ? 'text-white' : 'text-[#737373]'} />
+              {agentMode ? 'Agent ON' : 'Agent OFF'}
+            </button>
             <div className="w-1.5 h-1.5 bg-green-500 rounded-full" />
             <span className="text-[10px] text-[#737373] font-mono">WIKI AGENT ACTIVE</span>
           </div>

@@ -88,12 +88,15 @@ def register_webui(
         headers: dict[str, str] = {}
         if secret.api_key:
             headers["Authorization"] = f"Bearer {secret.api_key}"
-        async with httpx.AsyncClient(timeout=20) as client:
-            resp = await client.get(f"{secret.base_url}/v1/models", headers=headers)
-            if resp.status_code == 404:
-                # Ollama exposes model listing via /api/tags (older or non-OpenAI endpoints).
-                resp = await client.get(f"{secret.base_url}/api/tags", headers=headers)
-        resp.raise_for_status()
+        try:
+            async with httpx.AsyncClient(timeout=20) as client:
+                resp = await client.get(f"{secret.base_url}/v1/models", headers=headers)
+                if resp.status_code == 404:
+                    # Ollama exposes model listing via /api/tags (older or non-OpenAI endpoints).
+                    resp = await client.get(f"{secret.base_url}/api/tags", headers=headers)
+            resp.raise_for_status()
+        except httpx.HTTPError as exc:
+            raise HTTPException(status_code=503, detail=f"Provider unreachable: {exc}") from exc
         data = resp.json()
 
         # OpenAI: {"data": [{"id": "..."}]}

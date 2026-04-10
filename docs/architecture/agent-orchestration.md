@@ -100,6 +100,29 @@ git worktree add .worktrees/agent-2 HEAD
 Each agent writes to its own worktree; the Judge merges results.
 This is documented as a future capability — the current implementation is sequential.
 
+## Relationship to the Anthropic Advisor Strategy
+
+The Anthropic [advisor strategy](https://claude.com/blog/the-advisor-strategy) (`advisor_20260301`
+beta tool) uses the same structural insight: a cheaper executor model does most of the token
+generation, while a higher-intelligence model provides strategic guidance at key decision points.
+
+| Anthropic advisor strategy | This repo's local equivalent |
+|---|---|
+| Sonnet / Haiku executor | `qwen3-coder:30b` |
+| Opus advisor (on-demand, mid-generation) | `deepseek-r1:32b` Planner (pre-execution) + Verifier (post-write) |
+| Single `/v1/messages` round-trip | `AgentRunner.run()` — sequential plan → execute → verify loop |
+
+The main difference: the Anthropic advisor is invoked *on demand* by the executor mid-generation;
+the local pattern runs the reasoning model *up-front* (planning) and *after* each write (verification).
+Both achieve a similar cost/quality tradeoff.
+
+Because this proxy cannot execute the server-side Opus sub-inference, the `handlers/anthropic_compat.py`
+layer strips `advisor_20260301` from tool arrays before forwarding to Ollama, and converts any
+advisor result blocks in message history to plain text. See
+`docs/architecture/advisor-strategy.md` for details.
+
+---
+
 ## OSS Inspirations (Clean-Room)
 
 This design was inspired by:

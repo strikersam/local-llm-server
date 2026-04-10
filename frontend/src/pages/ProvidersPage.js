@@ -5,7 +5,7 @@ import { Layers, Plus, Trash2, Zap, CheckCircle, XCircle, AlertCircle, Server, G
 const PROVIDER_TYPES = [
   { id: 'ollama', label: 'Ollama', desc: 'Local LLM via Ollama API' },
   { id: 'openai-compatible', label: 'OpenAI Compatible', desc: 'Any OpenAI-compat API (HuggingFace, OpenRouter, etc.)' },
-  { id: 'huggingface', label: 'HuggingFace', desc: 'HuggingFace Inference API' },
+  { id: 'huggingface', label: 'HuggingFace', desc: 'Hugging Face serverless inference (OpenAI-compatible)' },
 ];
 
 export default function ProvidersPage() {
@@ -86,7 +86,7 @@ export default function ProvidersPage() {
             <div>
               <label className="block text-[9px] tracking-[0.15em] uppercase text-[#737373] mb-1 font-mono">Base URL</label>
               <input value={form.base_url} onChange={e => setForm({ ...form, base_url: e.target.value })}
-                placeholder={form.type === 'ollama' ? 'http://localhost:11434' : form.type === 'huggingface' ? 'https://api-inference.huggingface.co/v1' : 'https://openrouter.ai/api/v1'}
+                placeholder={form.type === 'ollama' ? 'http://localhost:11434' : form.type === 'huggingface' ? 'https://router.huggingface.co' : 'https://openrouter.ai/api/v1'}
                 className="w-full bg-[#0A0A0A] border border-white/10 px-3 py-2 text-xs text-white font-mono outline-none focus:border-[#002FA7]" data-testid="provider-url-input" />
             </div>
             <div>

@@ -32,10 +32,14 @@ async def _post_with_fallback(
     The body is a JSON object with a ``"model"`` key.  Each retry swaps in the
     next model name.  Returns the last response regardless of status.
     """
-    async with httpx.AsyncClient(timeout=httpx.Timeout(300.0, connect=10.0)) as client:
-        resp = await client.post(url, content=body, headers=headers)
-        if resp.status_code < 500 or not fallback_models:
-            return resp
+    try:
+        async with httpx.AsyncClient(timeout=httpx.Timeout(300.0, connect=10.0)) as client:
+            resp = await client.post(url, content=body, headers=headers)
+    except httpx.ConnectError as exc:
+        raise HTTPException(status_code=503, detail=f"LLM backend unreachable: {exc}") from exc
+
+    if resp.status_code < 500 or not fallback_models:
+        return resp
 
     for fallback in fallback_models:
         log.warning(
@@ -50,8 +54,11 @@ async def _post_with_fallback(
             break
         payload["model"] = fallback
         retry_body = json.dumps(payload).encode("utf-8")
-        async with httpx.AsyncClient(timeout=httpx.Timeout(300.0, connect=10.0)) as client:
-            resp = await client.post(url, content=retry_body, headers=headers)
+        try:
+            async with httpx.AsyncClient(timeout=httpx.Timeout(300.0, connect=10.0)) as client:
+                resp = await client.post(url, content=retry_body, headers=headers)
+        except httpx.ConnectError as exc:
+            raise HTTPException(status_code=503, detail=f"LLM backend unreachable: {exc}") from exc
         if resp.status_code < 500:
             return resp
 
@@ -413,7 +420,8 @@ def _parse_openai_sse(buffer: bytes) -> tuple[str, int, int, int]:
                 text_parts.append(delta["content"])
     out = "".join(text_parts)
     if total_tokens and not prompt_tokens and not completion_tokens:
-        completion_tokens = max(total_tokens - prompt_tokens, 0)
+        # prompt_tokens is 0 here, so completion ≈ total
+        completion_tokens = total_tokens
     return out, prompt_tokens, completion_tokens, total_tokens
 
 

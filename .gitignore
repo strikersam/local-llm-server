@@ -22,6 +22,7 @@ dist/
 .idea/
 *.swp
 *.swo
+*.tsbuildinfo
 
 # OS
 .DS_Store
@@ -29,6 +30,11 @@ Thumbs.db
 
 # Logs
 *.log
+logs/
+*.pid
+
+# Agent tooling (local)
+.agents/
 
 # Database
 *.db
@@ -44,9 +50,18 @@ keys.json
 # Memory (internal)
 memory/
 
+# Runtime data (auto-generated on startup, may contain user API keys)
+.data/
+
+# Agent session memory snapshots
+.agent_memory/
+
 # Test reports
 test_reports/
 -e 
 # Environment files
 *.env
 *.env.*
+
+# Runtime data (SQLite databases, persisted state)
+.data/

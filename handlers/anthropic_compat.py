@@ -17,7 +17,13 @@ Auth:
 
 Limitations vs real Anthropic API:
   - Images in content blocks are skipped (Ollama text models don't support vision).
-  - Computer use / beta features are silently ignored.
+  - Server-side beta tools (advisor_20260301, computer_use, web_search, text_editor,
+    bash) are stripped before forwarding — Ollama does not support them.
+    For advisor_20260301 specifically: the proxy cannot execute the Anthropic
+    server-side Opus sub-inference. Any advisor advice text already present in
+    the message history (advisor_tool_result blocks) is preserved as plain-text
+    context so the local model still benefits from it on follow-up turns.
+    See docs/architecture/advisor-strategy.md for the local equivalent pattern.
   - Caching / prompt caching headers are accepted but not functional.
 """
 
@@ -51,8 +57,12 @@ async def _post_anthropic_with_fallback(
     fallback_models: list[str],
 ) -> Any:  # returns httpx.Response
     """POST to Ollama; on 5xx retry with each model in *fallback_models*."""
-    async with httpx.AsyncClient(timeout=httpx.Timeout(300.0, connect=10.0)) as client:
-        resp = await client.post(url, content=body, headers=headers)
+    try:
+        async with httpx.AsyncClient(timeout=httpx.Timeout(300.0, connect=10.0)) as client:
+            resp = await client.post(url, content=body, headers=headers)
+    except httpx.ConnectError as exc:
+        raise HTTPException(status_code=503, detail=f"LLM backend unreachable: {exc}") from exc
+
     if resp.status_code < 500 or not fallback_models:
         return resp
 
@@ -65,8 +75,11 @@ async def _post_anthropic_with_fallback(
         payload = dict(openai_payload)
         payload["model"] = fallback
         retry_body = json.dumps(payload).encode("utf-8")
-        async with httpx.AsyncClient(timeout=httpx.Timeout(300.0, connect=10.0)) as client:
-            resp = await client.post(url, content=retry_body, headers=headers)
+        try:
+            async with httpx.AsyncClient(timeout=httpx.Timeout(300.0, connect=10.0)) as client:
+                resp = await client.post(url, content=retry_body, headers=headers)
+        except httpx.ConnectError as exc:
+            raise HTTPException(status_code=503, detail=f"LLM backend unreachable: {exc}") from exc
         if resp.status_code < 500:
             return resp
 
@@ -118,6 +131,23 @@ def _content_block_to_text(block: dict[str, Any]) -> str:
         return f"[Tool result ({tool_id})]: {content}"
     if btype == "tool_use":
         return f"[Called {block.get('name', 'unknown')} with {json.dumps(block.get('input', {}))}]"
+    # Advisor strategy blocks — produced by the real Anthropic API when the
+    # advisor_20260301 beta tool is used.  We preserve the advice text so the
+    # local model still has that context on follow-up turns.
+    if btype == "server_tool_use":
+        name = block.get("name", "unknown")
+        return f"[{name} consultation requested]"
+    if btype == "advisor_tool_result":
+        inner = block.get("content") or {}
+        if isinstance(inner, dict):
+            inner_type = inner.get("type", "")
+            if inner_type == "advisor_result":
+                return f"[Advisor guidance]: {inner.get('text', '')}"
+            if inner_type == "advisor_redacted_result":
+                return "[Advisor guidance: redacted by server]"
+            if inner_type == "advisor_tool_result_error":
+                return f"[Advisor error: {inner.get('error_code', 'unknown')}]"
+        return "[Advisor result]"
     return ""
 
 
@@ -146,11 +176,33 @@ def _messages_to_openai(
     return out
 
 
+# Anthropic server-side / beta tool types that cannot be forwarded to Ollama.
+# These are handled server-side by the real Anthropic API and have no OpenAI equivalent.
+_SERVER_TOOL_TYPES: frozenset[str] = frozenset({
+    "advisor_20260301",        # Advisor strategy — Opus sub-inference (server-side only)
+    "computer_use_20241022",   # Computer use beta
+    "computer_use_20250124",
+    "text_editor_20241022",    # Text editor tool (Claude Code)
+    "text_editor_20250124",    # Text editor tool (Claude Code — 2025 variant)
+    "bash_20241022",           # Bash tool (Claude Code)
+    "bash_20250124",           # Bash tool (Claude Code — 2025 variant)
+    "web_search_20250305",     # Web search (server-side)
+})
+
+
 def _tools_to_openai(tools: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    """Convert Anthropic tool definitions to OpenAI function tool definitions."""
+    """Convert Anthropic tool definitions to OpenAI function tool definitions.
+
+    Server-side beta tools (advisor, computer_use, web_search, etc.) are filtered
+    out — Ollama does not support them and passing them causes downstream errors.
+    """
     out: list[dict[str, Any]] = []
     for tool in tools:
         if not isinstance(tool, dict):
+            continue
+        tool_type = tool.get("type", "")
+        if tool_type in _SERVER_TOOL_TYPES:
+            log.debug("Stripping server-side tool %r (type=%r) — not supported by Ollama", tool.get("name"), tool_type)
             continue
         out.append({
             "type": "function",

@@ -1,31 +1,35 @@
 FROM node:20-alpine AS build
 
-WORKDIR /app/frontend
+WORKDIR /app/webui/frontend
 
-COPY frontend/package.json frontend/yarn.lock* ./
-RUN yarn install --frozen-lockfile 2>/dev/null || yarn install
+COPY webui/frontend/package.json webui/frontend/package-lock.json* ./
+RUN npm ci
 
-COPY frontend/ .
+COPY webui/frontend/ ./
 
-ENV REACT_APP_BACKEND_URL=http://localhost:8001
-RUN yarn build
+ARG VITE_API_BASE=""
+ARG VITE_APP_BASE="/"
+ENV VITE_API_BASE=${VITE_API_BASE}
+ENV VITE_APP_BASE=${VITE_APP_BASE}
+
+RUN npm run build
 
 FROM nginx:alpine
-COPY --from=build /app/frontend/build /usr/share/nginx/html
+COPY --from=build /app/webui/frontend/dist /usr/share/nginx/html
 
-# Nginx config to proxy /api to backend
-RUN echo 'server { \
-    listen 80; \
-    location / { \
-        root /usr/share/nginx/html; \
-        try_files $uri $uri/ /index.html; \
-    } \
-    location /api/ { \
-        proxy_pass http://backend:8001; \
-        proxy_set_header Host $host; \
-        proxy_set_header X-Real-IP $remote_addr; \
-    } \
-}' > /etc/nginx/conf.d/default.conf
+# SPA fallback + optional API proxy to FastAPI backend
+RUN printf 'server {\n\
+    listen 80;\n\
+    root /usr/share/nginx/html;\n\
+    location / {\n\
+        try_files $uri $uri/ /index.html;\n\
+    }\n\
+    location ~ ^/(v1|api|agent|admin|health|ui)/ {\n\
+        proxy_pass http://proxy:8000;\n\
+        proxy_set_header Host $host;\n\
+        proxy_set_header X-Real-IP $remote_addr;\n\
+    }\n\
+}\n' > /etc/nginx/conf.d/default.conf
 
 EXPOSE 80
 CMD ["nginx", "-g", "daemon off;"]

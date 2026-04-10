@@ -11,14 +11,18 @@ from typing import Any
 
 import httpx
 
+from agent.context_manager import ContextManager
 from agent.models import AgentPlan, ToolCall, VerificationResult
 from agent.prompts import (
+    build_compaction_prompt,
     build_execution_prompt,
     build_planning_prompt,
     build_tool_prompt,
     build_verification_prompt,
 )
+from agent.state import AgentSessionStore
 from agent.tools import WorkspaceTools
+from agent.user_memory import UserMemoryStore
 from router import get_router
 
 log = logging.getLogger("qwen-agent")
@@ -36,6 +40,7 @@ class AgentRunner:
         workspace_root: str | Path | None = None,
         provider_headers: dict[str, str] | None = None,
         provider_temperature: float | None = None,
+        session_store: AgentSessionStore | None = None,
     ) -> None:
         # NOTE: "ollama_base" is kept for backwards compatibility; this runner only needs an
         # OpenAI-compatible base URL with /v1/chat/completions.
@@ -43,6 +48,11 @@ class AgentRunner:
         self.provider_headers = dict(provider_headers or {})
         self.provider_temperature = provider_temperature
         self.tools = WorkspaceTools(workspace_root)
+        self.ctx = ContextManager()
+        # Optional session store for event-log writes (append-only durable log).
+        # When provided the harness logs key events so the session is
+        # recoverable and queryable outside the LLM context window.
+        self._session_store = session_store
 
     async def run(
         self,
@@ -52,14 +62,38 @@ class AgentRunner:
         requested_model: str | None,
         auto_commit: bool,
         max_steps: int,
+        user_id: str | None = None,
+        memory_store: UserMemoryStore | None = None,
+        session_id: str | None = None,
     ) -> dict[str, Any]:
-        plan = await self._generate_plan(instruction, history, requested_model, max_steps)
+        # Context compaction: if history is long, summarise the old portion
+        # before planning so the planner doesn't spend tokens on verbatim
+        # repetition.  (Anthropic managed-agents: preserve architectural
+        # decisions, discard redundant tool outputs.)
+        effective_history = history
+        if self.ctx.needs_compaction(history):
+            effective_history = await self._compact_history(
+                history, requested_model, session_id
+            )
+
+        self._log_event(session_id, "user_message", {"instruction": instruction})
+
+        plan = await self._generate_plan(
+            instruction, effective_history, requested_model, max_steps, user_id, memory_store
+        )
+        self._log_event(session_id, "step_start", {"goal": plan.goal, "steps": len(plan.steps)})
+
         step_results: list[dict[str, Any]] = []
         commits: list[str] = []
 
         for step in plan.steps[:max_steps]:
             step_data = step.model_dump()
-            result = await self._execute_step(plan.goal, step_data, requested_model)
+            self._log_event(session_id, "step_start", {"step_id": step_data["id"], "description": step_data["description"]})
+            result = await self._execute_step(plan.goal, step_data, requested_model, user_id, memory_store)
+            # Sub-agent condensed summary: trim step results before storing so
+            # the orchestrator's context stays lean.  (1-2k token budget.)
+            condensed = ContextManager.condense_step_result(result)
+            self._log_event(session_id, "step_complete", condensed)
             step_results.append(result)
             if auto_commit and result["status"] == "applied" and result["changed_files"]:
                 commit = self._commit_step(step_data["description"], result["changed_files"])
@@ -67,6 +101,7 @@ class AgentRunner:
                     commits.append(commit)
 
         summary = self._build_summary(plan.goal, step_results, commits)
+        self._log_event(session_id, "assistant_message", {"summary": summary})
         return {
             "goal": plan.goal,
             "plan": plan.model_dump(),
@@ -81,8 +116,11 @@ class AgentRunner:
         history: list[dict[str, str]],
         requested_model: str | None,
         max_steps: int,
+        user_id: str | None = None,
+        memory_store: UserMemoryStore | None = None,
     ) -> AgentPlan:
-        messages = build_planning_prompt(instruction, history)
+        user_memories = memory_store.recall_all(user_id) if memory_store and user_id else {}
+        messages = build_planning_prompt(instruction, history, user_memories=user_memories)
         planner_decision = get_router().route(
             requested_model=requested_model,
             messages=messages,
@@ -101,7 +139,14 @@ class AgentRunner:
         plan.steps = plan.steps[:max_steps]
         return plan
 
-    async def _execute_step(self, goal: str, step: dict[str, Any], requested_model: str | None) -> dict[str, Any]:
+    async def _execute_step(
+        self,
+        goal: str,
+        step: dict[str, Any],
+        requested_model: str | None,
+        user_id: str | None = None,
+        memory_store: UserMemoryStore | None = None,
+    ) -> dict[str, Any]:
         observations: list[dict[str, Any]] = []
         context_items: list[dict[str, Any]] = []
         changed_files: list[str] = []
@@ -135,9 +180,13 @@ class AgentRunner:
 
         for remaining in range(4, 0, -1):
             try:
+                # Observation masking: pass truncated older observations to
+                # keep the tool-selection prompt lean.  Recent observations are
+                # passed verbatim; older ones are summarised.
+                masked_obs = self.ctx.mask_observations(observations)
                 tool_call = await self._chat_json(
                     executor_model,
-                    build_tool_prompt(goal=goal, step=step, observations=observations, remaining_calls=remaining),
+                    build_tool_prompt(goal=goal, step=step, observations=masked_obs, remaining_calls=remaining),
                 )
                 call = ToolCall.model_validate(tool_call)
             except Exception as exc:
@@ -146,7 +195,7 @@ class AgentRunner:
             if call.tool == "finish":
                 observations.append({"tool": "finish", "result": call.args.get("reason", "done inspecting")})
                 break
-            result = self._run_tool(call.tool, call.args)
+            result = self._run_tool(call.tool, call.args, user_id=user_id, memory_store=memory_store)
             observations.append({"tool": call.tool, "args": call.args, "result": result})
             context_items.append({"tool": call.tool, "result": result})
 
@@ -284,14 +333,93 @@ class AgentRunner:
             "models": {"executor": executor_model, "verifier": verifier_model},
         }
 
-    def _run_tool(self, tool: str, args: dict[str, Any]) -> Any:
+    def _run_tool(
+        self,
+        tool: str,
+        args: dict[str, Any],
+        user_id: str | None = None,
+        memory_store: UserMemoryStore | None = None,
+    ) -> Any:
+        try:
+            return self._dispatch_tool(tool, args, user_id=user_id, memory_store=memory_store)
+        except Exception as exc:
+            # The harness catches tool failures as tool-call errors and feeds
+            # them back to the model — it never surfaces raw exceptions.
+            # (Anthropic managed-agents: decoupled sandbox; if the container
+            # dies the harness returns the failure as a tool result.)
+            log.warning("tool %r failed: %s", tool, exc)
+            return f"[tool error: {exc}]"
+
+    def _dispatch_tool(
+        self,
+        tool: str,
+        args: dict[str, Any],
+        user_id: str | None = None,
+        memory_store: UserMemoryStore | None = None,
+    ) -> Any:
         if tool == "read_file":
             return self.tools.read_file(str(args.get("path", "")))
+        if tool == "head_file":
+            # JIT retrieval: read only the first N lines so the context window
+            # stays lean during the inspection phase.
+            return self.tools.head_file(str(args.get("path", "")), int(args.get("lines", 50)))
+        if tool == "file_index":
+            # Lightweight index tier: always-loaded, ~150 chars per entry.
+            return self.tools.file_index(str(args.get("path", ".")), int(args.get("max_entries", 100)))
         if tool == "list_files":
             return self.tools.list_files(str(args.get("path", ".")), int(args.get("limit", 200)))
         if tool == "search_code":
             return self.tools.search_code(str(args.get("query", "")), int(args.get("limit", 20)))
+        if tool == "recall_memory":
+            if not memory_store or not user_id:
+                return "(memory not available)"
+            return self.tools.recall_memory(str(args.get("key", "")), user_id=user_id, memory_store=memory_store)
+        if tool == "save_memory":
+            if not memory_store or not user_id:
+                return "(memory not available)"
+            return self.tools.save_memory(str(args.get("key", "")), str(args.get("value", "")), user_id=user_id, memory_store=memory_store)
         raise ValueError(f"Unsupported tool: {tool}")
+
+    # ------------------------------------------------------------------
+    # Event log helpers  (stateless harness / durable session log)
+    # ------------------------------------------------------------------
+
+    def _log_event(self, session_id: str | None, event_type: str, payload: dict[str, Any]) -> None:
+        """Append an event to the durable session log if a store is wired in."""
+        if session_id and self._session_store:
+            try:
+                self._session_store.append_event(session_id, event_type, payload)
+            except Exception as exc:
+                log.debug("event log write failed (non-fatal): %s", exc)
+
+    # ------------------------------------------------------------------
+    # Context compaction
+    # ------------------------------------------------------------------
+
+    async def _compact_history(
+        self,
+        history: list[dict[str, Any]],
+        requested_model: str | None,
+        session_id: str | None,
+    ) -> list[dict[str, Any]]:
+        """Summarise a long history and compact it.
+
+        Asks the planner model to write a concise summary, then replaces the
+        old messages with that summary + the most recent context.
+        """
+        try:
+            summary_text = await self._chat_text(
+                requested_model or DEFAULT_PLANNER_MODEL,
+                build_compaction_prompt(history),
+            )
+            self._log_event(
+                session_id, "compaction",
+                {"original_length": len(history), "summary_length": len(summary_text)},
+            )
+            return self.ctx.compact_history(history, compaction_summary=summary_text)
+        except Exception as exc:
+            log.warning("context compaction failed (continuing uncompacted): %s", exc)
+            return history
 
     async def _chat_text(self, model: str, messages: list[dict[str, str]]) -> str:
         payload: dict[str, Any] = {"model": model, "messages": messages, "stream": False}

@@ -92,7 +92,7 @@ export default function LoginPage() {
               </button>
             </form>
             <div className="border-t border-white/10 px-6 py-3 text-xs text-[#737373] font-mono">
-              Default: admin@llmwiki.local
+              Default: admin@llmrelay.local
             </div>
           </div>
         </div>

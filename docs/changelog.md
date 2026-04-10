@@ -8,6 +8,240 @@
 
 ## [Unreleased]
 
+### Fixed
+
+- **`@app.on_event("startup")` deprecation warning** (`backend/server.py`): Replaced the
+  deprecated FastAPI startup event hook with a proper `@asynccontextmanager` lifespan
+  handler, eliminating the deprecation warning on every import.
+
+- **Anthropic compat + OpenAI chat return 500 when Ollama is unreachable** (`handlers/anthropic_compat.py`,
+  `chat_handlers.py`): `httpx.ConnectError` was unhandled in `_post_anthropic_with_fallback`
+  and the OpenAI chat fallback loop. Both now catch `httpx.ConnectError` and raise HTTP 503
+  with a readable `"LLM backend unreachable: …"` message — consistent with `webui/router.py`.
+
+- **`bash` and `text_editor` 2025 variants not stripped from Anthropic tool list**
+  (`handlers/anthropic_compat.py`): `_SERVER_TOOL_TYPES` was missing `bash_20250124` and
+  `text_editor_20250124`. These newer Claude Code tool variants were forwarded to Ollama
+  unchanged, causing downstream errors. Both variants are now stripped alongside their
+  2024 counterparts.
+
+- **`/agent/terminal/run` field named `cmd` instead of `command`** (`proxy.py`):
+  `TerminalRunRequest.cmd` renamed to `command` (list of strings) to match the naming
+  convention used across every other command-running endpoint in the codebase and the
+  README description.
+
+- **`/agent/commits` returns phantom entries from multiline commit bodies** (`agent/commit_tracker.py`):
+  `CommitTracker.log()` was splitting `git log` output on `\n\n` which also matches blank
+  lines inside multi-paragraph commit bodies. Switched to a NUL-byte record separator
+  (`--format=%x00%H|%s|%b`, split on `\x00`) so blank lines in bodies are harmless.
+
+- **`/admin/api/status` crashes on Linux** (`service_manager.py`): `_find_pid()` now
+  returns `None` immediately on non-Windows platforms instead of attempting to invoke
+  `powershell`, which does not exist on Linux/macOS. The endpoint now returns a valid
+  JSON response with all services reported as `running: false` on non-Windows hosts.
+
+- **`/ui/api/providers/{id}/models` returns 500 when provider unreachable** (`webui/router.py`):
+  `httpx.ConnectError` and other network errors are now caught and re-raised as HTTP 503
+  with a human-readable `detail` message instead of leaking an internal server error.
+
+### Added
+
+- **OpenRouter + Together AI cloud providers** (`backend/server.py`):
+  Both providers are now seeded automatically as `openrouter` and `together-ai`. Set
+  `OPENROUTER_API_KEY` or `TOGETHER_API_KEY` env vars on Render; the seed logic picks them up
+  and applies them to the DB records on every restart (fixing the HF_TOKEN drift bug too).
+
+- **Predefined model catalog** (`backend/server.py`):
+  `PREDEFINED_MODELS` lists flagship, balanced, and fast models for every supported provider
+  (OpenRouter, HuggingFace, Ollama, Together AI). `GET /api/models/catalog` exposes the full
+  catalog with role and tier metadata. `GET /api/providers/{id}/models` now merges live
+  models with the predefined catalog so models are always shown even if the API call fails.
+
+- **Multi-agent Planner → Executor → Verifier orchestration** (`backend/server.py`):
+  Chat messages are automatically classified as `simple` or `complex`. Complex requests (≥25
+  words or containing keywords like "write", "create", "analyze") route through the three-role
+  orchestration loop: DeepSeek-R1 plans, Qwen3 executes, DeepSeek-R1 verifies. Each provider
+  type maps to optimal role models via `AGENT_ROLE_MODELS`. Applies Anthropic context
+  efficiency principles: observation masking (truncate old outputs to ≤300 chars) and context
+  compaction (LLM-summarize history >16 messages).
+
+- **Agent mode toggle in chat UI** (`frontend/src/pages/ChatPage.js`, `frontend/src/api.js`):
+  A "Agent ON/OFF" button (with a Zap icon) in the chat header forces multi-agent
+  orchestration for any message regardless of auto-classification. State persists in
+  localStorage. The `agent_mode` flag is sent in every `POST /api/chat/send` request.
+
+### Fixed
+
+- **HF_TOKEN env-var changes not applied to existing DB records** (`backend/server.py`):
+  `seed_default_providers` now syncs `api_key` and `base_url` from env vars against existing
+  provider records on every startup. Previously, setting `HF_TOKEN` on Render after the first
+  deployment had no effect because the seeder skipped existing records.
+
+- **"Input should be a valid string" error on new agent chat sessions** (`backend/server.py`):
+  `ChatMessage.session_id` and `ChatMessage.model` were typed as `str` with default `None`,
+  which Pydantic v2 rejects when the frontend sends `null`. Fixed both to `str | None = None`.
+
+- **`[object Object]` error in LLM RELAY agent chat** (`frontend/src/pages/ChatPage.js`):
+  Used the existing `fmtErr()` helper (already in `api.js`) to format FastAPI's `detail` array
+  in the chat error display. Previously the raw array was coerced to string in the template
+  literal, producing `Error: [object Object]`.
+
+- **`[object Object],[object Object]` error in agent chat UI** (`webui/frontend/src/api.ts`):
+  All API error handlers now parse FastAPI's `{"detail": ...}` response format — plain string
+  details are shown as-is, and validation error arrays (Pydantic 422 responses) have their
+  `msg` fields joined with `; ` separators. Previously the raw array was coerced to string,
+  producing the useless `[object Object],[object Object]` message.
+
+### Added
+
+- **Dashboard provider support: Hugging Face (serverless) + Ollama** (`backend/server.py`, `backend/llm_providers.py`, `frontend/src/pages/ChatPage.js`, `frontend/src/api.js`):
+  The dashboard chat can now select a provider + model, with a seeded **Hugging Face (Serverless)** provider (HF router)
+  and a robust **Ollama** default (OpenAI-compat with fallback to native `/api/chat`).
+
+- **Context compaction** (`agent/context_manager.py`, `agent/loop.py`, `agent/prompts.py`):
+  When session history exceeds the compaction threshold (default 16 messages) the harness
+  asks the planner model to summarise the old portion into a concise note.  The summary
+  replaces old messages; the most recent context is kept verbatim.  Implements the
+  compaction strategy described in Anthropic's "Scaling Managed Agents" article (April 2026).
+
+- **Observation masking** (`agent/context_manager.py`, `agent/loop.py`):
+  Old tool outputs in the executor inspection loop are now truncated to ≤300 chars while
+  tool-call records remain visible.  The last 4 observations are passed verbatim; earlier
+  ones are summarised.  Pattern from JetBrains Junie, cited in the Anthropic managed-agents
+  article.
+
+- **Just-in-time retrieval tools** (`agent/tools.py`, `agent/prompts.py`, `agent/models.py`):
+  Two new executor tools implement the three-tier JIT hierarchy:
+  - `head_file(path, lines=50)` — reads only the first N lines; avoids bloating context with
+    large files during the inspection phase.
+  - `file_index(path, max_entries=100)` — lightweight listing with line counts and byte sizes
+    (~150 chars per entry); always-loaded tier for workspace orientation.
+  The tool-selection prompt now guides the executor to start with `file_index`/`search_code`,
+  escalate to `head_file`, and only call `read_file` when the full file is truly needed.
+
+- **Append-only event log** (`agent/state.py`, `agent/models.py`):
+  `AgentSessionStore` now maintains a durable `agent_events` table — a positional, append-only
+  event stream that lives outside the LLM context window.  Mirrors the session design in
+  Anthropic's Managed Agents architecture.  New public API:
+  - `append_event(session_id, event_type, payload)` — append a typed event
+  - `get_events(session_id, from_position=0, limit=200)` — positional slice query
+  The harness logs key events (`user_message`, `step_start`, `step_complete`, `compaction`,
+  `assistant_message`) automatically during `AgentRunner.run()`.
+
+- **Sub-agent condensed summaries** (`agent/context_manager.py`, `agent/loop.py`):
+  `ContextManager.condense_step_result()` trims step results to ~2k tokens before storing
+  in the event log, keeping the orchestrator's context lean.  Implements the 1–2k token
+  sub-agent summary pattern from the Anthropic managed-agents article.
+
+- **Resilient tool dispatch** (`agent/loop.py`):
+  `_run_tool` now wraps all tool invocations in a try/except and returns `[tool error: ...]`
+  strings instead of raising.  The harness catches sandbox failures as tool-call errors and
+  feeds them back to the model — matching Anthropic's decoupled Brain/Hands model where
+  container failures are handled gracefully.
+
+- **`ContextManager` class** (`agent/context_manager.py`):
+  New standalone module implementing all context-engineering strategies.  Tuneable via
+  constructor kwargs (`mask_after`, `compact_after`, `jit_file_limit`).
+
+- **`AgentEvent` model** (`agent/models.py`):
+  New Pydantic model for event log entries with `event_type`, `payload`, `timestamp`,
+  and monotonic `position` fields.
+
+- **`AgentSession.event_count`** (`agent/models.py`, `agent/state.py`):
+  Sessions now track the total number of events appended so the harness can know the
+  current log position without loading all events.
+
+- **New test files**:
+  - `tests/test_context_manager.py` — 14 tests covering masking, compaction, JIT hints,
+    and condensed summaries.
+  - `tests/test_event_log.py` — 8 tests covering append, positional slicing, isolation,
+    and persistence across store restarts.
+  - `tests/test_agent_tools.py` — extended with 6 new tests for `head_file` and
+    `file_index` including path-escape rejection.
+
+
+
+- **Advisor strategy support in Anthropic compat layer** (`handlers/anthropic_compat.py`):
+  Server-side beta tool types (`advisor_20260301`, `computer_use_*`, `web_search_20250305`,
+  `text_editor_20241022`, `bash_20241022`) are now stripped before forwarding to Ollama
+  instead of being passed through (which caused downstream errors). Advisor result blocks
+  in message history (`server_tool_use`, `advisor_tool_result`) are converted to plain-text
+  context so local models still benefit from advice generated by the real Anthropic API.
+- **`docs/architecture/advisor-strategy.md`**: New doc explaining the Anthropic advisor
+  strategy, how this proxy handles it (graceful degradation), and how the local
+  Planner/Executor/Verifier system parallels the advisor pattern.
+
+### Fixed
+
+- **Dashboard OpenAI-compatible calls fixed** (`backend/server.py`): providers now call their OpenAI-compatible base URL directly (no extra SDK), with `Authorization: Bearer ...` support when an API key is configured.
+- **Docker dashboard profile added** (`docker-compose.yml`, `Dockerfile.backend`, `Dockerfile.dashboard.frontend`): `docker compose --profile dashboard up` starts Mongo + API + Web UI on ports 27017/8001/3000.
+- **Browser automation stability** (`agent/browser.py`): browser automation is disabled by default unless `BROWSER_AUTOMATION_ENABLED=true`, preventing flaky Playwright shutdown hangs in tests/CI.
+
+- **render.yaml completely rewritten**: Previous file deployed a MongoDB-based wiki project instead of the actual FastAPI proxy. Now correctly uses the main `Dockerfile`, correct health-check path (`/health`), and the right env vars (`OLLAMA_BASE`, `API_KEYS`, `ADMIN_SECRET`, `KEYS_FILE`, etc.).
+- **docker-compose.yml rewritten**: Removed stale MongoDB/LLM-wiki services. Default stack is now `ollama` + `proxy`. Optional profiles: `--profile tunnel` (Cloudflare Tunnel, free) and `--profile ngrok`. The proxy is now the default service instead of being buried under the `full` profile.
+- **deploy-frontend.yml workflow fixed**: Was deploying the old `frontend/` (llm-wiki CRA project) instead of `webui/frontend/` (the actual Vite-based web UI). Fixed all paths, replaced `REACT_APP_*` env vars with `VITE_*`, corrected build output from `build/` to `dist/`.
+- **Dockerfile.frontend updated**: Now builds the correct `webui/frontend/` Vite project (was building `frontend/` stale CRA project). Supports `VITE_API_BASE` build arg for GitHub Pages deployment.
+- **`/v1/models` now includes Claude model aliases**: The endpoint previously only listed live Ollama models and registry entries. Claude Code and Anthropic SDK clients now see all configured model aliases (e.g. `claude-sonnet-4-6`, `claude-opus-4-6`) in the model list, enabling automatic model discovery.
+- **.env.example cleaned up**: Removed stale `MONGO_URL` / `DB_NAME` vars. Added Cloudflare Tunnel and ngrok setup instructions, Claude Code / Cursor / Aider configuration guide.
+- **`MODEL_MAP` parser bug fixed** (`router/model_router.py`): `pair.index(":")` was used to split alias pairs, which only works when the destination model name contains no colons. Model names like `qwen3-coder:30b` contain a colon, so `MODEL_MAP=claude-sonnet-4-6:qwen3-coder:30b` was silently misparsed. Fixed to `pair.split(":", 1)`.
+- **`KeyStore` corruption handling added** (`key_store.py`): `_load_unlocked` previously crashed silently if `keys.json` contained invalid JSON (disk corruption, partial write, etc.). Now catches `JSONDecodeError` / `OSError`, logs a warning, and resets to an empty store instead of leaving keys in an undefined state.
+- **`Dockerfile` health check added**: Container now declares a `HEALTHCHECK` using Python's built-in `urllib` (no extra dependency) so Docker, Render, and `docker-compose` all get live readiness signals from `/health`.
+- **Vercel deployments removed**: Added `vercel.json` with `github.enabled: false` to disable Vercel's GitHub integration and stop failing deployment statuses.
+- **pytest collection fixed**: Added `pytest.ini` restricting test discovery to `tests/` — prevents root-level integration scripts (`backend_test.py`, `backend_test_iteration3.py`) from breaking CI.
+
+### Added
+
+- **`VITE_API_BASE` support in web UI**: `webui/frontend/src/api.ts` now reads `VITE_API_BASE` at build time. When empty (default), all API calls use relative paths (works on Render single-container). When set to an absolute URL (e.g. the Render service URL), the frontend can be hosted separately on GitHub Pages and still reach the backend.
+- **Cloudflare Tunnel profile in docker-compose.yml**: `docker compose --profile tunnel up` starts a `cloudflared` container providing a free public HTTPS URL for the proxy — no account or port-forwarding required for quick tunnels.
+- **Persistent agent memory** (`agent/user_memory.py`): SQLite-backed `UserMemoryStore` lets agents save and recall per-user key/value facts across sessions and server restarts. New `save_memory` / `recall_memory` tools are available to the agent executor.
+- **Durable session history** (`agent/state.py`): `AgentSessionStore` now writes sessions and message history to SQLite (`.data/agent.db`, overridable via `AGENT_DB_PATH`). All sessions survive server restarts.
+- **Memory-aware planning** (`agent/prompts.py`): the planner system prompt is injected with the user's stored profile preferences so the agent can personalise responses from the first message.
+- **`.claude/agents/scout.md`** — Scout agent: 5-dimension confidence scoring returns GO (≥70) or HOLD (<70) with gap list. Supports DEV/REVIEW/RESEARCH context modes.
+- **`.claude/skills/pro-workflow/SKILL.md`** — Master workflow skill: Research → Plan → Implement with 8 core patterns, model selection guide, and validation gates between phases.
+- **9 additional `.claude/skills/`** — smart-commit, wrap-up, learn-rule, replay-learnings, parallel-worktrees, session-handoff, insights, deslop, plus `CLAUDE.md` updated with full skill reference.
+
+### Added — 19 new agent features (fully implemented + tested)
+
+New modules in `agent/`:
+
+- **`agent/memory.py`** (`SessionMemory`) — snapshot and restore agent session state to/from disk; no external DB required
+- **`agent/context.py`** (`ContextCompressor`) — three context compression strategies: `reactive` (drop oldest), `micro` (deduplicate), `inspect` (stats only)
+- **`agent/permissions.py`** (`AdaptivePermissions`) — infer `read_only` / `read_write` / `full_access` from session transcript
+- **`agent/token_budget.py`** (`TokenBudget`, `BudgetExceededError`) — per-session token spend cap with `record()` / `check()` / `reset()`
+- **`agent/coordinator.py`** (`AgentCoordinator`, `WorkerSpec`) — run N worker AgentRunners in parallel under one coordinator with `max_concurrent` semaphore
+- **`agent/background.py`** (`BackgroundAgent`, `BackgroundTask`) — always-on worker thread that drains a task queue; wires webhooks, scheduler, and watchdog events
+- **`agent/scheduler.py`** (`AgentScheduler`, `ScheduledJob`) — cron-based job scheduling via APScheduler; manual webhook trigger via `trigger(job_id)`
+- **`agent/playbook.py`** (`PlaybookLibrary`, `Playbook`, `PlaybookRun`) — named multi-step automation playbooks; register from code or JSON files, start/finish runs
+- **`agent/watchdog.py`** (`ResourceWatchdog`, `WatchedResource`, `WatchEvent`) — poll URLs/files by SHA-256 hash; fire `on_change` callback on state change
+- **`agent/commit_tracker.py`** (`CommitTracker`, `CommitAttribution`) — add `Agent-Session / Agent-Model / Agent-Tool / Agent-Timestamp` git trailers to attributed commits
+- **`agent/scaffolding.py`** (`ProjectScaffolder`, `Template`) — three built-in project templates (`python-library`, `fastapi-service`, `cli-tool`); custom JSON templates supported
+- **`agent/skills.py`** (`SkillLibrary`, `Skill`) — auto-index `.claude/skills/**/SKILL.md`; keyword search; MCP-hosted skill registration
+- **`agent/terminal.py`** (`TerminalPanel`, `TerminalSnapshot`) — capture rendered terminal buffer via `tmux capture-pane`; run+capture helper for commands
+- **`agent/browser.py`** (`BrowserSession`, `BrowserAction`) — Playwright-backed browser automation (navigate, click, fill, screenshot, evaluate); stub mode when Playwright not installed
+- **`agent/voice.py`** (`VoiceCommandInterface`, `TranscriptionResult`) — base64 audio → text transcription via Whisper API or local `openai-whisper`; stub mode when neither available
+
+New API routes in `proxy.py` (45 new endpoints across 10 groups):
+- `/agent/memory/*` — snapshot, restore, list, delete session memory
+- `/agent/context/*` — compress and inspect context history
+- `/agent/sessions/{id}/snip` — conversation surgery (remove messages by index)
+- `/agent/sessions/{id}/permissions` — adaptive permission assessment
+- `/agent/budget/*` — set/get/list token spend caps
+- `/agent/coordinate` — multi-agent coordinator dispatch
+- `/agent/background/*` — background task queue
+- `/agent/scheduler/*` — cron job CRUD + trigger
+- `/agent/playbooks/*` — playbook CRUD + run lifecycle
+- `/agent/watchdog/*` — resource watch CRUD + manual check
+- `/agent/scaffolding/*` — template list + apply
+- `/agent/skills/*` — skill list, search, MCP registration
+- `/agent/commits` — AI-attributed commit log
+- `/agent/terminal/*` — terminal snapshot + command capture
+- `/agent/browser/*` — browser start/stop/action
+- `/agent/voice/*` — voice status + transcription
+
+Tests: 155 new tests across 11 new test files; total suite 210 tests, all passing.
+
+- `README.md`: updated with all 19 features documented in plain language with API reference tables for each group.
+
 ### Security
 
 - `README.md`: removed hardcoded tunnel domain from documentation; use `NGROK_DOMAIN`

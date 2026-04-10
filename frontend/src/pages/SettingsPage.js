@@ -83,7 +83,7 @@ export default function SettingsPage() {
               <div>git clone https://github.com/strikersam/local-llm-server</div>
               <div>docker compose up -d</div>
               <div className="text-[#737373] mt-2"># Default credentials</div>
-              <div>Email: admin@llmwiki.local</div>
+              <div>Email: admin@llmrelay.local</div>
               <div>Password: WikiAdmin2026!</div>
             </div>
             <a href="https://github.com/strikersam/local-llm-server" target="_blank" rel="noopener noreferrer"

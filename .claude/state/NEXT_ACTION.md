@@ -1,34 +1,28 @@
-# NEXT ACTION — Web UI (No Vercel)
+# NEXT ACTION — Hugging Face + Ollama Providers (Dashboard + Proxy)
 
-**Session:** `webui-no-vercel` (2026-04-01)
-**Resume command:** `python scripts/ai_runner.py resume`
-**Status file:** `.claude/state/agent-state.json`
+**Session:** `hf-ollama-providers` (2026-04-10)
 **Checkpoint log:** `.claude/state/checkpoint.jsonl`
 
 ---
 
 ## Current Objective
 
-Maintain a built-in Claude Code–style Web UI + Admin app inside this repo, without any
-Vercel-specific artifacts or documentation references.
+Ship first-class provider support for **Hugging Face serverless** and **Ollama** so the dashboard
+(`http://localhost:3000`) can select providers/models without manual setup.
 
 ---
 
 ## Completed Steps
 
-- [x] Repo-native AI engineering system: skills, hooks, state, CI, docs
-- [x] Built-in Web UI served by FastAPI at `/` and `/app`
-- [x] Built-in Admin app at `/admin/app` (providers/workspaces/commands)
-- [x] Provider/workspace support for agent routes
-- [x] No Vercel-specific config files or docs
+- [x] Fixed Playwright shutdown hang by default-disabling browser automation unless `BROWSER_AUTOMATION_ENABLED=true`
+- [x] Added dashboard provider client helpers (`backend/llm_providers.py`) + unit tests
+- [x] Wired dashboard chat UI to select provider + model (`frontend/src/pages/ChatPage.js`)
+- [x] Added Docker profile for dashboard stack (Mongo + API + Web UI)
+- [x] Updated `.env.example`, docs, and changelog
+- [x] `pytest -x` green
+- [x] Manual sanity-check: login + chat via Ollama (`tinyllama:latest`) through the dashboard API
 
 ## Next Step
 
-- [ ] Optional: deploy container (`docs/deploy/cloud-run.md` or `docs/deploy/docker.md`)
-
-## If Interrupted
-
-1. Read `.claude/state/agent-state.json` for full plan state
-2. Read `.claude/state/checkpoint.jsonl` for last successful checkpoint
-3. Run `python scripts/ai_runner.py status` to see current state
-4. Run `python scripts/ai_runner.py resume` to continue from last checkpoint
+- [ ] Stop local dev processes started for sanity-check (Ollama, dashboard backend, dashboard frontend)
+- [ ] Commit changes in logical chunks, merge to `master`, and push (only if tests still pass)

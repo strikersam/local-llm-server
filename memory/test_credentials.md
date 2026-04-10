@@ -1,6 +1,6 @@
 # Test Credentials
 
-- **Email**: admin@llmwiki.local
+- **Email**: admin@llmrelay.local
 - **Password**: WikiAdmin2026!
 - **Role**: admin
 
