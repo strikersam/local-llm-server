@@ -4,8 +4,16 @@ import json
 from typing import Any
 
 
-def build_planning_prompt(instruction: str, history: list[dict[str, str]]) -> list[dict[str, str]]:
+def build_planning_prompt(
+    instruction: str,
+    history: list[dict[str, str]],
+    user_memories: dict[str, str] | None = None,
+) -> list[dict[str, str]]:
     history_text = "\n".join(f"{item['role']}: {item['content']}" for item in history[-8:])
+    memory_section = ""
+    if user_memories:
+        pairs = "\n".join(f"  {k}: {v}" for k, v in user_memories.items())
+        memory_section = f"\n\nUser profile (remembered preferences):\n{pairs}"
     return [
         {
             "role": "system",
@@ -32,6 +40,7 @@ def build_planning_prompt(instruction: str, history: list[dict[str, str]]) -> li
                 "- If a new file is needed, include the intended path.\n"
                 "- For module-wide tasks, include every file that must change for the result to work.\n"
                 "- If the task asks for a shared utility, include a create step or include the utility file in the edit step."
+                f"{memory_section}"
             ),
         },
         {
@@ -48,26 +57,40 @@ def build_tool_prompt(
     observations: list[dict[str, Any]],
     remaining_calls: int,
 ) -> list[dict[str, str]]:
-    observed = json.dumps(observations[-6:], indent=2)
+    # Observations may already be masked by the ContextManager; pass them
+    # directly without further slicing.
+    observed = json.dumps(observations, indent=2)
     return [
         {
             "role": "system",
             "content": (
                 "You are preparing to execute one coding step.\n"
-                "You may inspect the workspace with tools before writing code.\n\n"
-                "Available tools:\n"
-                "- read_file(path)\n"
-                "- list_files(path='.', limit=200)\n"
-                "- search_code(query, limit=20)\n"
-                "- finish(reason)\n\n"
+                "Inspect the workspace with tools before writing code.\n\n"
+                "Available tools — use the CHEAPEST one that answers your question:\n"
+                "- file_index(path='.', max_entries=100)"
+                "  → lightweight list of every text file with line counts; use this FIRST\n"
+                "- head_file(path, lines=50)"
+                "  → first N lines only; prefer this over read_file for large files\n"
+                "- read_file(path)"
+                "  → full file content; only use when you need the complete file\n"
+                "- list_files(path='.', limit=200)"
+                "  → raw filename list with no metadata\n"
+                "- search_code(query, limit=20)"
+                "  → grep-style keyword search across all text files\n"
+                "- recall_memory(key)"
+                "  → retrieve a saved user preference\n"
+                "- save_memory(key, value)"
+                "  → persist a user preference for future sessions\n"
+                "- finish(reason)"
+                "  → stop inspecting and proceed to implementation\n\n"
                 "Return ONLY JSON:\n"
-                '{ "tool": "read_file|list_files|search_code|finish", "args": { ... } }\n\n'
+                "{ \"tool\": \"<name>\", \"args\": { ... } }\n\n"
                 "Rules:\n"
-                "- Use one tool per response.\n"
-                "- Prefer targeted reads.\n"
-                "- Stop once you have enough context.\n"
+                "- One tool per response.\n"
+                "- Start with file_index or search_code; escalate to head_file then read_file only if needed.\n"
+                "- Call finish as soon as you have enough context — do NOT read every file.\n"
                 f"- Remaining tool calls: {remaining_calls}.\n"
-                "- For multi-file tasks, inspect enough files to avoid partial updates."
+                "- For multi-file tasks, verify enough files to avoid partial updates."
             ),
         },
         {
@@ -121,6 +144,50 @@ def build_execution_prompt(
                 f"Context:\n{context_blob}\n\n"
                 f"Fix these issues if present:\n{feedback}"
             ),
+        },
+    ]
+
+
+def build_compaction_prompt(history: list[dict[str, Any]]) -> list[dict[str, str]]:
+    """Ask the model to produce a concise summary of a long conversation history.
+
+    This implements the 'context compaction' strategy from Anthropic's managed-
+    agents article: when the session history exceeds the compaction threshold
+    the harness asks the model to summarise what happened so far.  The summary
+    replaces the old messages; the most recent messages are kept verbatim.
+
+    The model is instructed to preserve:
+    - the overall goal and any architectural decisions made
+    - which files were changed and why
+    - any constraints or user preferences discovered
+    - current status / what still needs to be done
+    """
+    history_text = "\n".join(
+        f"[{msg.get('role', 'unknown').upper()}] {msg.get('content', '')[:800]}"
+        for msg in history
+    )
+    return [
+        {
+            "role": "system",
+            "content": (
+                "You are a context compaction assistant.\n\n"
+                "Summarise the coding session below into a concise note (max 400 words).\n\n"
+                "You MUST preserve:\n"
+                "- The overall goal\n"
+                "- Architectural decisions and constraints discovered\n"
+                "- Which files were changed and what was done\n"
+                "- Any user preferences or rules found\n"
+                "- Current status and what still needs to be done\n\n"
+                "Discard:\n"
+                "- Verbatim file contents\n"
+                "- Redundant tool outputs\n"
+                "- Step-by-step retry details\n\n"
+                "Return ONLY the plain-text summary."
+            ),
+        },
+        {
+            "role": "user",
+            "content": f"Session history to compact:\n\n{history_text}",
         },
     ]
 

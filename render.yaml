@@ -1,24 +1,73 @@
 services:
   - type: web
-    name: llm-wiki-backend
+    name: local-llm-server
     env: docker
-    dockerfilePath: ./Dockerfile.backend
+    dockerfilePath: ./Dockerfile
     plan: free
-    healthCheckPath: /api/health
+    healthCheckPath: /health
+
+    # ── Required ──────────────────────────────────────────────────────────────
     envVars:
-      - key: MONGO_URL
-        sync: false          # Set to your MongoDB Atlas connection string
-      - key: DB_NAME
-        value: llm_wiki_dashboard
-      - key: JWT_SECRET
-        generateValue: true
-      - key: ADMIN_EMAIL
-        value: admin@llmwiki.local
-      - key: ADMIN_PASSWORD
-        sync: false          # Set a strong password
-      - key: LLM_PROVIDER
-        value: ollama
-      - key: OLLAMA_BASE_URL
-        sync: false          # Set to your Ollama instance URL (or leave blank)
-      - key: FRONTEND_URL
-        value: https://strikersam.github.io
+      # URL of your Ollama instance.
+      # For a Windows machine running Ollama:
+      #   1. Install cloudflared on Windows (https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/downloads/)
+      #   2. Run: cloudflared tunnel --url http://localhost:11434
+      #   3. Copy the generated *.trycloudflare.com URL and paste it here.
+      # For a permanent tunnel: create a named Cloudflare Tunnel (free).
+      - key: OLLAMA_BASE
+        sync: false          # Set to your Ollama tunnel URL e.g. https://xxx.trycloudflare.com
+
+      # Comma-separated Bearer tokens for API clients (Claude Code, Cursor, etc.)
+      # Generate with: python -c "import secrets; print(secrets.token_urlsafe(32))"
+      - key: API_KEYS
+        sync: false
+
+      # Secret for the /admin/* management endpoints.
+      # Generate with: python -c "import secrets; print(secrets.token_urlsafe(32))"
+      - key: ADMIN_SECRET
+        sync: false
+
+      # ── Optional but recommended ────────────────────────────────────────────
+
+      # Path to the JSON key-store file inside the container (writable /tmp only on free tier)
+      - key: KEYS_FILE
+        value: /tmp/keys.json
+
+      # Your Render service URL — used as allowed CORS origin for the web UI.
+      # Set after the first deploy once you know the URL.
+      - key: CORS_ORIGINS
+        value: "*"
+
+      # Log verbosity: DEBUG | INFO | WARNING | ERROR
+      - key: LOG_LEVEL
+        value: INFO
+
+      # ── Langfuse observability (optional) ───────────────────────────────────
+      - key: LANGFUSE_PUBLIC_KEY
+        sync: false
+      - key: LANGFUSE_SECRET_KEY
+        sync: false
+      - key: LANGFUSE_BASE_URL
+        value: https://cloud.langfuse.com
+
+      # ── Model routing overrides (optional) ──────────────────────────────────
+      # Override which local model handles each Claude alias, e.g.:
+      #   MODEL_MAP=claude-sonnet-4-6:qwen3-coder:14b,claude-opus-4-6:deepseek-r1:14b
+      - key: MODEL_MAP
+        sync: false
+
+      # Default model when no alias matches
+      - key: AGENT_EXECUTOR_MODEL
+        value: qwen3-coder:30b
+      - key: AGENT_PLANNER_MODEL
+        value: deepseek-r1:32b
+
+      # ── Rate limiting ────────────────────────────────────────────────────────
+      - key: RATE_LIMIT_RPM
+        value: "60"
+
+      # ── Proxy behaviour ──────────────────────────────────────────────────────
+      - key: PROXY_STRIP_THINK_TAGS
+        value: "false"
+      - key: PROXY_DEFAULT_MAX_TOKENS
+        value: "8192"

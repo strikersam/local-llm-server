@@ -413,7 +413,8 @@ def _parse_openai_sse(buffer: bytes) -> tuple[str, int, int, int]:
                 text_parts.append(delta["content"])
     out = "".join(text_parts)
     if total_tokens and not prompt_tokens and not completion_tokens:
-        completion_tokens = max(total_tokens - prompt_tokens, 0)
+        # prompt_tokens is 0 here, so completion ≈ total
+        completion_tokens = total_tokens
     return out, prompt_tokens, completion_tokens, total_tokens
 
 

@@ -1,29 +1,39 @@
 version: '3.8'
 
-services:
-  mongodb:
-    image: mongo:7
-    container_name: llm-wiki-mongo
-    restart: unless-stopped
-    ports:
-      - "27017:27017"
-    volumes:
-      - mongo_data:/data/db
-    healthcheck:
-      test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
+# ─────────────────────────────────────────────────────────────────────────────
+# local-llm-server — Docker Compose
+#
+# Default stack (docker compose up):
+#   ollama   — local LLM runtime
+#   proxy    — authenticated OpenAI/Anthropic-compatible proxy + web UI
+#
+# Optional profiles:
+#   docker compose --profile tunnel up   → adds cloudflared public HTTPS URL
+#   docker compose --profile ngrok up    → adds ngrok tunnel (requires NGROK_AUTHTOKEN)
+#
+# Quick start:
+#   cp .env.example .env && $EDITOR .env   (set API_KEYS and ADMIN_SECRET)
+#   docker compose up
+#   open http://localhost:8000
+# ─────────────────────────────────────────────────────────────────────────────
 
+services:
+
+  # ── Ollama LLM runtime ─────────────────────────────────────────────────────
   ollama:
     image: ollama/ollama:latest
-    container_name: llm-wiki-ollama
+    container_name: llm-server-ollama
     restart: unless-stopped
     ports:
       - "11434:11434"
     volumes:
       - ollama_data:/root/.ollama
-    # Uncomment for GPU support:
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:11434/api/tags"]
+      interval: 15s
+      timeout: 10s
+      retries: 5
+    # Uncomment for NVIDIA GPU support:
     # deploy:
     #   resources:
     #     reservations:
@@ -31,85 +41,59 @@ services:
     #         - driver: nvidia
     #           count: all
     #           capabilities: [gpu]
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:11434/api/tags"]
-      interval: 15s
-      timeout: 10s
-      retries: 5
 
-  ollama-init:
-    image: curlimages/curl:latest
-    container_name: llm-wiki-ollama-init
-    depends_on:
-      ollama:
-        condition: service_healthy
-    restart: "no"
-    entrypoint: >
-      sh -c 'echo "Pulling llama3.2..."; curl -s http://ollama:11434/api/pull -d "{\"name\": \"llama3.2\"}" ; echo "Done."'
-
-  backend:
-    build:
-      context: .
-      dockerfile: Dockerfile.backend
-    container_name: llm-wiki-backend
-    restart: unless-stopped
-    ports:
-      - "8001:8001"
-    env_file: .env
-    environment:
-      - MONGO_URL=mongodb://mongodb:27017
-      - DB_NAME=llm_wiki_dashboard
-      - OLLAMA_BASE_URL=http://ollama:11434
-      - LLM_PROVIDER=ollama
-      - FRONTEND_URL=http://localhost:3000
-    depends_on:
-      mongodb:
-        condition: service_healthy
-
-  frontend:
-    build:
-      context: .
-      dockerfile: Dockerfile.frontend
-    container_name: llm-wiki-frontend
-    restart: unless-stopped
-    ports:
-      - "3000:80"
-    depends_on:
-      - backend
-
-  # ngrok tunnel for public access
-  ngrok:
-    image: ngrok/ngrok:latest
-    container_name: llm-wiki-ngrok
-    restart: unless-stopped
-    command:
-      - "http"
-      - "--domain=${NGROK_DOMAIN}"
-      - "frontend:80"
-    environment:
-      - NGROK_AUTHTOKEN=${NGROK_AUTHTOKEN}
-    depends_on:
-      - frontend
-    profiles:
-      - public
-
-  # Original proxy for Claude Code / Cursor / Aider compatibility
+  # ── Proxy (FastAPI + built web UI) ────────────────────────────────────────
   proxy:
     build:
       context: .
       dockerfile: Dockerfile
-    container_name: llm-wiki-proxy
+    container_name: llm-server-proxy
     restart: unless-stopped
     ports:
       - "8000:8000"
-    env_file: .env
+    env_file:
+      - .env
     environment:
       - OLLAMA_BASE=http://ollama:11434
     depends_on:
-      - ollama
+      ollama:
+        condition: service_healthy
+
+  # ── Cloudflare Tunnel (free, no account needed for quick tunnels) ─────────
+  # Provides a public HTTPS URL instantly. No NGROK_AUTHTOKEN needed for
+  # quick tunnels. For a persistent subdomain, create a named tunnel:
+  #   https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/
+  #
+  # Usage: docker compose --profile tunnel up
+  cloudflared:
+    image: cloudflare/cloudflared:latest
+    container_name: llm-server-tunnel
+    restart: unless-stopped
+    command: tunnel --url http://proxy:8000
+    depends_on:
+      - proxy
     profiles:
-      - full
+      - tunnel
+
+  # ── ngrok tunnel (alternative — requires free ngrok account) ──────────────
+  # Get a token at https://dashboard.ngrok.com/get-started/your-authtoken
+  # Set NGROK_AUTHTOKEN in .env. Optionally set NGROK_DOMAIN for a fixed URL.
+  #
+  # Usage: docker compose --profile ngrok up
+  ngrok:
+    image: ngrok/ngrok:latest
+    container_name: llm-server-ngrok
+    restart: unless-stopped
+    command:
+      - "http"
+      - "--log=stdout"
+      - "proxy:8000"
+    environment:
+      - NGROK_AUTHTOKEN=${NGROK_AUTHTOKEN}
+    depends_on:
+      - proxy
+    profiles:
+      - ngrok
 
 volumes:
-  mongo_data:
   ollama_data:

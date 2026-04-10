@@ -34,9 +34,25 @@ from starlette.middleware.sessions import SessionMiddleware
 
 from admin_auth import AdminAuthManager, AdminIdentity
 from admin_gui import register_admin_gui
+from agent.background import BackgroundAgent, BackgroundTask
+from agent.browser import BrowserSession
+from agent.commit_tracker import CommitAttribution, CommitTracker
+from agent.context import ContextCompressor
+from agent.coordinator import AgentCoordinator, WorkerSpec
 from agent.loop import AgentRunner
+from agent.memory import SessionMemory
 from agent.models import AgentRunRequest, AgentSessionCreateRequest
+from agent.permissions import AdaptivePermissions
+from agent.playbook import PlaybookLibrary
+from agent.scaffolding import ProjectScaffolder
+from agent.scheduler import AgentScheduler
+from agent.skills import SkillLibrary
 from agent.state import AgentSessionStore
+from agent.terminal import TerminalPanel
+from agent.token_budget import BudgetExceededError, TokenBudget
+from agent.user_memory import UserMemoryStore
+from agent.voice import VoiceCommandInterface
+from agent.watchdog import ResourceWatchdog
 from chat_handlers import handle_ollama_native_chat, handle_openai_chat_completions
 from handlers.anthropic_compat import handle_anthropic_messages
 from key_store import issue_new_api_key, load_key_store
@@ -272,6 +288,41 @@ if ADMIN_AUTH.enabled:
 register_admin_gui(app, KEY_STORE, ADMIN_AUTH, SERVICE_MANAGER)
 AGENT_RUNNER = AgentRunner(ollama_base=OLLAMA_BASE, workspace_root=Path(__file__).resolve().parent)
 AGENT_SESSIONS = AgentSessionStore()
+USER_MEMORY = UserMemoryStore()
+
+# ─── Feature singletons ────────────────────────────────────────────────────────
+SESSION_MEMORY    = SessionMemory()
+CTX_COMPRESSOR    = ContextCompressor()
+PERMISSIONS       = AdaptivePermissions()
+TOKEN_BUDGET      = TokenBudget()
+PLAYBOOKS         = PlaybookLibrary()
+SCAFFOLDER        = ProjectScaffolder()
+SKILL_LIBRARY     = SkillLibrary()
+TERMINAL_PANEL    = TerminalPanel()
+COMMIT_TRACKER    = CommitTracker(repo_root=Path(__file__).resolve().parent)
+VOICE_INTERFACE   = VoiceCommandInterface()
+WATCHDOG          = ResourceWatchdog()
+SCHEDULER         = AgentScheduler()
+BACKGROUND_AGENT  = BackgroundAgent()
+COORDINATOR       = AgentCoordinator(ollama_base=OLLAMA_BASE, workspace_root=str(Path(__file__).resolve().parent))
+BROWSER_SESSION   = BrowserSession()
+
+# ─── Feature singletons ────────────────────────────────────────────────────────
+SESSION_MEMORY    = SessionMemory()
+CTX_COMPRESSOR    = ContextCompressor()
+PERMISSIONS       = AdaptivePermissions()
+TOKEN_BUDGET      = TokenBudget()
+PLAYBOOKS         = PlaybookLibrary()
+SCAFFOLDER        = ProjectScaffolder()
+SKILL_LIBRARY     = SkillLibrary()
+TERMINAL_PANEL    = TerminalPanel()
+COMMIT_TRACKER    = CommitTracker(repo_root=Path(__file__).resolve().parent)
+VOICE_INTERFACE   = VoiceCommandInterface()
+WATCHDOG          = ResourceWatchdog()
+SCHEDULER         = AgentScheduler()
+BACKGROUND_AGENT  = BackgroundAgent()
+COORDINATOR       = AgentCoordinator(ollama_base=OLLAMA_BASE, workspace_root=str(Path(__file__).resolve().parent))
+BROWSER_SESSION   = BrowserSession()
 
 WEBUI_STORE = JsonConfigStore()
 WEBUI_PROVIDERS = ProviderManager(WEBUI_STORE)
@@ -515,6 +566,8 @@ async def run_agent_task(
             requested_model=requested_model,
             auto_commit=body.auto_commit,
             max_steps=body.max_steps,
+            user_id=auth.email,
+            memory_store=USER_MEMORY,
         )
     except Exception as exc:
         log.exception("Agent run failed")
@@ -573,6 +626,8 @@ async def run_agent_once(body: AgentRunRequest, auth: AuthContext = Depends(veri
             requested_model=requested_model,
             auto_commit=body.auto_commit,
             max_steps=body.max_steps,
+            user_id=auth.email,
+            memory_store=USER_MEMORY,
         )
     except Exception as exc:
         log.exception("Agent one-off run failed")
@@ -623,6 +678,447 @@ async def rollback_agent_commit(session_id: str, auth: AuthContext = Depends(ver
         ) from exc
     AGENT_SESSIONS.append_message(session_id, "system", f"Rolled back commit {target}")
     return {"status": "ok", "reverted_commit": target, "git_output": proc.stdout.strip()}
+
+# ─── Session Memory ───────────────────────────────────────────────────────────
+
+@app.post("/agent/memory/{session_id}/snapshot")
+async def memory_snapshot(session_id: str, auth: AuthContext = Depends(verify_api_key)):
+    session = AGENT_SESSIONS.get(session_id)
+    if session is None:
+        raise HTTPException(status_code=404, detail="Unknown session")
+    state = session.model_dump()
+    path = SESSION_MEMORY.snapshot(session_id, state)
+    return {"session_id": session_id, "path": str(path)}
+
+
+@app.get("/agent/memory/{session_id}")
+async def memory_restore(session_id: str, auth: AuthContext = Depends(verify_api_key)):
+    state = SESSION_MEMORY.restore(session_id)
+    if state is None:
+        raise HTTPException(status_code=404, detail="No snapshot for this session")
+    return state
+
+
+@app.get("/agent/memory")
+async def memory_list(auth: AuthContext = Depends(verify_api_key)):
+    return {"snapshots": SESSION_MEMORY.list_snapshots()}
+
+
+@app.delete("/agent/memory/{session_id}")
+async def memory_delete(session_id: str, auth: AuthContext = Depends(verify_api_key)):
+    deleted = SESSION_MEMORY.delete(session_id)
+    return {"deleted": deleted}
+
+
+# ─── Context Compression ──────────────────────────────────────────────────────
+
+class ContextCompressRequest(BaseModel):
+    messages: list[dict] = Field(..., min_length=1)
+    strategy: str = Field(default="reactive", pattern="^(reactive|micro|inspect)$")
+
+
+@app.post("/agent/context/compress")
+async def context_compress(body: ContextCompressRequest, auth: AuthContext = Depends(verify_api_key)):
+    compressed = CTX_COMPRESSOR.compress(body.messages, strategy=body.strategy)  # type: ignore[arg-type]
+    stats = CTX_COMPRESSOR.inspect(compressed)
+    return {"messages": compressed, "stats": stats.as_dict()}
+
+
+@app.post("/agent/context/inspect")
+async def context_inspect(body: ContextCompressRequest, auth: AuthContext = Depends(verify_api_key)):
+    stats = CTX_COMPRESSOR.inspect(body.messages)
+    needs = CTX_COMPRESSOR.needs_compression(body.messages)
+    return {"stats": stats.as_dict(), "needs_compression": needs}
+
+
+# ─── Conversation Surgery ─────────────────────────────────────────────────────
+
+class HistorySnipRequest(BaseModel):
+    indices: list[int] = Field(..., min_length=1)
+
+
+@app.post("/agent/sessions/{session_id}/snip")
+async def history_snip(
+    session_id: str,
+    body: HistorySnipRequest,
+    auth: AuthContext = Depends(verify_api_key),
+):
+    """Remove specific messages from session history by index."""
+    session = AGENT_SESSIONS.get(session_id)
+    if session is None:
+        raise HTTPException(status_code=404, detail="Unknown session")
+    indices_set = set(body.indices)
+    kept = [msg for i, msg in enumerate(session.history) if i not in indices_set]
+    removed = len(session.history) - len(kept)
+    with AGENT_SESSIONS._lock:
+        s = AGENT_SESSIONS._sessions.get(session_id)
+        if s:
+            s.history = kept
+    return {"removed": removed, "remaining": len(kept)}
+
+
+# ─── Adaptive Permissions ─────────────────────────────────────────────────────
+
+@app.get("/agent/sessions/{session_id}/permissions")
+async def session_permissions(session_id: str, auth: AuthContext = Depends(verify_api_key)):
+    session = AGENT_SESSIONS.get(session_id)
+    if session is None:
+        raise HTTPException(status_code=404, detail="Unknown session")
+    msgs = [m.model_dump() for m in session.history]
+    assessment = PERMISSIONS.assess(msgs)
+    return assessment.as_dict()
+
+
+# ─── Token Budget ─────────────────────────────────────────────────────────────
+
+class BudgetSetRequest(BaseModel):
+    cap: int = Field(..., ge=1)
+
+
+@app.put("/agent/budget/{session_id}")
+async def budget_set(session_id: str, body: BudgetSetRequest, auth: AuthContext = Depends(verify_api_key)):
+    usage = TOKEN_BUDGET.set_cap(session_id, body.cap)
+    return usage.as_dict()
+
+
+@app.get("/agent/budget/{session_id}")
+async def budget_get(session_id: str, auth: AuthContext = Depends(verify_api_key)):
+    usage = TOKEN_BUDGET.get(session_id)
+    if usage is None:
+        raise HTTPException(status_code=404, detail="No budget set for this session")
+    return usage.as_dict()
+
+
+@app.get("/agent/budget")
+async def budget_list(auth: AuthContext = Depends(verify_api_key)):
+    return {"budgets": [u.as_dict() for u in TOKEN_BUDGET.list_all()]}
+
+
+# ─── Multi-Agent Coordinator ──────────────────────────────────────────────────
+
+class CoordinateRequest(BaseModel):
+    goal: str = Field(..., min_length=1, max_length=2000)
+    workers: list[dict] = Field(..., min_length=1, max_length=10)
+    max_concurrent: int = Field(default=3, ge=1, le=10)
+
+
+@app.post("/agent/coordinate")
+async def coordinate(body: CoordinateRequest, auth: AuthContext = Depends(verify_api_key)):
+    specs = [
+        WorkerSpec(
+            worker_id=w.get("worker_id", f"w{i}"),
+            instruction=w["instruction"],
+            model=w.get("model"),
+            max_steps=int(w.get("max_steps", 3)),
+        )
+        for i, w in enumerate(body.workers)
+    ]
+    result = await COORDINATOR.run(body.goal, specs, max_concurrent=body.max_concurrent)
+    return result.as_dict()
+
+
+# ─── Background Agent ─────────────────────────────────────────────────────────
+
+class BackgroundTaskRequest(BaseModel):
+    kind: str = Field(default="manual", max_length=64)
+    payload: dict = Field(default_factory=dict)
+
+
+@app.post("/agent/background/tasks")
+async def background_submit(body: BackgroundTaskRequest, auth: AuthContext = Depends(verify_api_key)):
+    task = BACKGROUND_AGENT.create_and_submit(kind=body.kind, payload=body.payload)
+    return task.as_dict()
+
+
+@app.get("/agent/background/tasks")
+async def background_list(
+    status: str | None = None,
+    auth: AuthContext = Depends(verify_api_key),
+):
+    tasks = BACKGROUND_AGENT.list_tasks(status=status)
+    return {"tasks": [t.as_dict() for t in tasks]}
+
+
+@app.get("/agent/background/tasks/{task_id}")
+async def background_get(task_id: str, auth: AuthContext = Depends(verify_api_key)):
+    task = BACKGROUND_AGENT.get_task(task_id)
+    if task is None:
+        raise HTTPException(status_code=404, detail="Task not found")
+    return task.as_dict()
+
+
+# ─── Scheduled Jobs ───────────────────────────────────────────────────────────
+
+class ScheduleJobRequest(BaseModel):
+    name: str = Field(..., min_length=1, max_length=200)
+    cron: str = Field(..., min_length=9, max_length=100)
+    instruction: str = Field(..., min_length=1, max_length=4000)
+
+
+@app.post("/agent/scheduler/jobs")
+async def scheduler_create(body: ScheduleJobRequest, auth: AuthContext = Depends(verify_api_key)):
+    job = SCHEDULER.create(name=body.name, cron=body.cron, instruction=body.instruction)
+    return job.as_dict()
+
+
+@app.get("/agent/scheduler/jobs")
+async def scheduler_list(auth: AuthContext = Depends(verify_api_key)):
+    return {"jobs": [j.as_dict() for j in SCHEDULER.list()]}
+
+
+@app.get("/agent/scheduler/jobs/{job_id}")
+async def scheduler_get(job_id: str, auth: AuthContext = Depends(verify_api_key)):
+    job = SCHEDULER.get(job_id)
+    if job is None:
+        raise HTTPException(status_code=404, detail="Job not found")
+    return job.as_dict()
+
+
+@app.post("/agent/scheduler/jobs/{job_id}/trigger")
+async def scheduler_trigger(job_id: str, auth: AuthContext = Depends(verify_api_key)):
+    try:
+        job = SCHEDULER.trigger(job_id)
+    except KeyError:
+        raise HTTPException(status_code=404, detail="Job not found")
+    return job.as_dict()
+
+
+@app.delete("/agent/scheduler/jobs/{job_id}")
+async def scheduler_delete(job_id: str, auth: AuthContext = Depends(verify_api_key)):
+    deleted = SCHEDULER.delete(job_id)
+    return {"deleted": deleted}
+
+
+# ─── Automation Playbooks ─────────────────────────────────────────────────────
+
+class PlaybookRegisterRequest(BaseModel):
+    name: str = Field(..., min_length=1, max_length=200)
+    description: str = Field(default="", max_length=1000)
+    steps: list[dict] = Field(..., min_length=1, max_length=20)
+    tags: list[str] = Field(default_factory=list)
+
+
+@app.post("/agent/playbooks")
+async def playbook_register(body: PlaybookRegisterRequest, auth: AuthContext = Depends(verify_api_key)):
+    pb = PLAYBOOKS.register(
+        name=body.name,
+        description=body.description,
+        steps=body.steps,
+        tags=body.tags,
+    )
+    return pb.as_dict()
+
+
+@app.get("/agent/playbooks")
+async def playbook_list(tag: str | None = None, auth: AuthContext = Depends(verify_api_key)):
+    return {"playbooks": [p.as_dict() for p in PLAYBOOKS.list(tag=tag)]}
+
+
+@app.get("/agent/playbooks/{playbook_id}")
+async def playbook_get(playbook_id: str, auth: AuthContext = Depends(verify_api_key)):
+    pb = PLAYBOOKS.get(playbook_id)
+    if pb is None:
+        raise HTTPException(status_code=404, detail="Playbook not found")
+    return pb.as_dict()
+
+
+@app.delete("/agent/playbooks/{playbook_id}")
+async def playbook_delete(playbook_id: str, auth: AuthContext = Depends(verify_api_key)):
+    deleted = PLAYBOOKS.delete(playbook_id)
+    return {"deleted": deleted}
+
+
+@app.post("/agent/playbooks/{playbook_id}/run")
+async def playbook_run(playbook_id: str, auth: AuthContext = Depends(verify_api_key)):
+    try:
+        run = PLAYBOOKS.start_run(playbook_id)
+    except KeyError:
+        raise HTTPException(status_code=404, detail="Playbook not found")
+    return run.as_dict()
+
+
+@app.get("/agent/playbooks/{playbook_id}/runs")
+async def playbook_runs(playbook_id: str, auth: AuthContext = Depends(verify_api_key)):
+    return {"runs": [r.as_dict() for r in PLAYBOOKS.list_runs(playbook_id=playbook_id)]}
+
+
+# ─── Resource Watchdog ────────────────────────────────────────────────────────
+
+class WatchRequest(BaseModel):
+    name: str = Field(..., min_length=1, max_length=200)
+    kind: str = Field(..., pattern="^(url|file)$")
+    target: str = Field(..., min_length=1, max_length=2000)
+    action: str = Field(default="", max_length=500)
+
+
+@app.post("/agent/watchdog/resources")
+async def watchdog_add(body: WatchRequest, auth: AuthContext = Depends(verify_api_key)):
+    resource = WATCHDOG.watch(name=body.name, kind=body.kind, target=body.target, action=body.action)
+    return resource.as_dict()
+
+
+@app.get("/agent/watchdog/resources")
+async def watchdog_list(auth: AuthContext = Depends(verify_api_key)):
+    return {"resources": [r.as_dict() for r in WATCHDOG.list()]}
+
+
+@app.delete("/agent/watchdog/resources/{resource_id}")
+async def watchdog_remove(resource_id: str, auth: AuthContext = Depends(verify_api_key)):
+    removed = WATCHDOG.unwatch(resource_id)
+    return {"removed": removed}
+
+
+@app.post("/agent/watchdog/resources/{resource_id}/check")
+async def watchdog_check(resource_id: str, auth: AuthContext = Depends(verify_api_key)):
+    event = WATCHDOG.check_once(resource_id)
+    return {"changed": event is not None, "event": event.as_dict() if event else None}
+
+
+# ─── Project Scaffolding ──────────────────────────────────────────────────────
+
+class ScaffoldRequest(BaseModel):
+    template: str = Field(..., min_length=1, max_length=200)
+    target_dir: str = Field(..., min_length=1, max_length=500)
+    overwrite: bool = False
+
+
+@app.get("/agent/scaffolding/templates")
+async def scaffolding_list(auth: AuthContext = Depends(verify_api_key)):
+    return {"templates": [t.as_dict() for t in SCAFFOLDER.list()]}
+
+
+@app.post("/agent/scaffolding/apply")
+async def scaffolding_apply(body: ScaffoldRequest, auth: AuthContext = Depends(verify_api_key)):
+    result = SCAFFOLDER.apply(body.template, body.target_dir, overwrite=body.overwrite)
+    return result.as_dict()
+
+
+# ─── Skill Library ────────────────────────────────────────────────────────────
+
+class MpcSkillRequest(BaseModel):
+    name: str = Field(..., min_length=1, max_length=200)
+    description: str = Field(default="", max_length=1000)
+    content: str = Field(default="", max_length=50000)
+    tags: list[str] = Field(default_factory=list)
+
+
+@app.get("/agent/skills")
+async def skills_list(source: str | None = None, auth: AuthContext = Depends(verify_api_key)):
+    return {"skills": [s.as_dict() for s in SKILL_LIBRARY.list(source=source)]}
+
+
+@app.get("/agent/skills/search")
+async def skills_search(q: str, auth: AuthContext = Depends(verify_api_key)):
+    return {"skills": [s.as_dict() for s in SKILL_LIBRARY.search(q)]}
+
+
+@app.post("/agent/skills/mcp")
+async def skills_register_mcp(body: MpcSkillRequest, auth: AuthContext = Depends(verify_api_key)):
+    skill = SKILL_LIBRARY.register_mcp(
+        name=body.name,
+        description=body.description,
+        content=body.content,
+        tags=body.tags,
+    )
+    return skill.as_dict()
+
+
+# ─── AI Commit Tracking ───────────────────────────────────────────────────────
+
+@app.get("/agent/commits")
+async def commit_log(limit: int = 10, auth: AuthContext = Depends(verify_api_key)):
+    entries = COMMIT_TRACKER.log(limit=min(limit, 100))
+    return {"commits": entries}
+
+
+# ─── Terminal Panel ───────────────────────────────────────────────────────────
+
+@app.get("/agent/terminal/snapshot")
+async def terminal_snapshot(auth: AuthContext = Depends(verify_api_key)):
+    snap = TERMINAL_PANEL.snapshot()
+    return snap.as_dict()
+
+
+class TerminalRunRequest(BaseModel):
+    cmd: list[str] = Field(..., min_length=1, max_length=20)
+    timeout: int = Field(default=30, ge=1, le=120)
+
+
+@app.post("/agent/terminal/run")
+async def terminal_run(body: TerminalRunRequest, auth: AuthContext = Depends(verify_api_key)):
+    return TERMINAL_PANEL.run_and_capture(body.cmd, timeout=body.timeout)
+
+
+# ─── Browser Automation ───────────────────────────────────────────────────────
+
+class BrowserActionRequest(BaseModel):
+    action: str = Field(..., pattern="^(navigate|click|fill|screenshot|evaluate|get_state)$")
+    url: str | None = None
+    selector: str | None = None
+    value: str | None = None
+    path: str | None = None
+    expression: str | None = None
+
+
+@app.post("/agent/browser/action")
+async def browser_action(body: BrowserActionRequest, auth: AuthContext = Depends(verify_api_key)):
+    if not BROWSER_SESSION.available:
+        return {"available": False, "hint": "pip install playwright && playwright install chromium"}
+    if body.action == "navigate" and body.url:
+        result = await BROWSER_SESSION.navigate(body.url)
+    elif body.action == "click" and body.selector:
+        result = await BROWSER_SESSION.click(body.selector)
+    elif body.action == "fill" and body.selector and body.value is not None:
+        result = await BROWSER_SESSION.fill(body.selector, body.value)
+    elif body.action == "screenshot" and body.path:
+        result = await BROWSER_SESSION.screenshot(body.path)
+    elif body.action == "evaluate" and body.expression:
+        result = await BROWSER_SESSION.evaluate(body.expression)
+    elif body.action == "get_state":
+        state = await BROWSER_SESSION.get_state()
+        return state.as_dict() if state else {"url": None, "title": None, "content_preview": ""}
+    else:
+        raise HTTPException(status_code=400, detail="Invalid action or missing required parameters")
+    return result.as_dict()
+
+
+@app.post("/agent/browser/start")
+async def browser_start(auth: AuthContext = Depends(verify_api_key)):
+    await BROWSER_SESSION.start()
+    return {"started": True, "available": BROWSER_SESSION.available}
+
+
+@app.post("/agent/browser/stop")
+async def browser_stop(auth: AuthContext = Depends(verify_api_key)):
+    await BROWSER_SESSION.stop()
+    return {"stopped": True}
+
+
+# ─── Voice Commands ───────────────────────────────────────────────────────────
+
+class VoiceTranscribeRequest(BaseModel):
+    audio_b64: str = Field(..., description="Base64-encoded raw PCM audio bytes")
+    duration_hint_s: float = Field(default=5.0, ge=0.1, le=60.0)
+
+
+@app.get("/agent/voice/status")
+async def voice_status(auth: AuthContext = Depends(verify_api_key)):
+    return {
+        "mic_available": VOICE_INTERFACE.mic_available,
+        "whisper_url": bool(VOICE_INTERFACE._whisper_url),
+    }
+
+
+@app.post("/agent/voice/transcribe")
+async def voice_transcribe(body: VoiceTranscribeRequest, auth: AuthContext = Depends(verify_api_key)):
+    import base64
+    try:
+        audio_bytes = base64.b64decode(body.audio_b64)
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid base64 audio data")
+    result = VOICE_INTERFACE.transcribe(audio_bytes)
+    return result.as_dict()
+
 
 # ─── Streaming proxy helper ─────────────────────────────────────────────────────
 
@@ -690,7 +1186,12 @@ async def anthropic_messages(request: Request, auth: AuthContext = Depends(verif
 
 @app.get("/v1/models")
 async def list_models_openai(auth: AuthContext = Depends(verify_api_key)):
-    """List available models — union of live Ollama models and the router registry."""
+    """List available models — union of live Ollama models, router registry, and Claude aliases.
+
+    Claude aliases (e.g. claude-sonnet-4-6) are included so that Claude Code and
+    other Anthropic SDK clients can discover and select them without manual config.
+    """
+    from router.model_router import _get_model_map
     from router.registry import get_registry
     try:
         async with httpx.AsyncClient(timeout=5) as client:
@@ -713,7 +1214,15 @@ async def list_models_openai(auth: AuthContext = Depends(verify_api_key)):
         for name in registry
         if name not in ollama_set
     ]
-    return {"object": "list", "data": local_entries + registry_only}
+    # Claude/Anthropic model aliases from MODEL_MAP — lets Claude Code and
+    # Anthropic SDK clients discover which model names this proxy accepts.
+    alias_set = set(m["id"] for m in local_entries + registry_only)
+    alias_entries = [
+        {"id": alias, "object": "model", "owned_by": "proxy-alias"}
+        for alias in _get_model_map()
+        if alias not in alias_set
+    ]
+    return {"object": "list", "data": local_entries + registry_only + alias_entries}
 
 
 # ─── Ollama native routes (/api/*) ─────────────────────────────────────────────
