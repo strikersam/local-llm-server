@@ -10,6 +10,10 @@
 
 ### Fixed
 
+- **`@app.on_event("startup")` deprecation warning** (`backend/server.py`): Replaced the
+  deprecated FastAPI startup event hook with a proper `@asynccontextmanager` lifespan
+  handler, eliminating the deprecation warning on every import.
+
 - **`/admin/api/status` crashes on Linux** (`service_manager.py`): `_find_pid()` now
   returns `None` immediately on non-Windows platforms instead of attempting to invoke
   `powershell`, which does not exist on Linux/macOS. The endpoint now returns a valid

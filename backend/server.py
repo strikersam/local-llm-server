@@ -6,6 +6,7 @@ import re
 import json
 import secrets
 import asyncio
+from contextlib import asynccontextmanager
 import bcrypt
 import jwt
 import httpx
@@ -121,7 +122,14 @@ AGENT_ROLE_MODELS: dict[str, dict[str, str]] = {
     },
 }
 
-app = FastAPI(title="LLM Relay — Unified Platform", version="2.0.0")
+@asynccontextmanager
+async def lifespan(app_: "FastAPI"):
+    await ensure_bootstrap()
+    log.info("LLM Relay Platform started — provider=%s", LLM_PROVIDER)
+    yield
+
+
+app = FastAPI(title="LLM Relay — Unified Platform", version="2.0.0", lifespan=lifespan)
 
 frontend_url = os.environ.get("FRONTEND_URL", "http://localhost:3000")
 
@@ -220,12 +228,7 @@ async def get_current_user(request: Request) -> dict:
         raise HTTPException(status_code=401, detail="Invalid token")
 
 
-# ─── Startup ────────────────────────────────────────────────────────────────────
-
-@app.on_event("startup")
-async def startup():
-    await ensure_bootstrap()
-    log.info("LLM Relay Platform started — provider=%s", LLM_PROVIDER)
+# Startup is handled by the lifespan context manager defined above.
 
 
 async def seed_admin():
