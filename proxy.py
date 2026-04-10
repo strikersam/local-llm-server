@@ -1040,13 +1040,13 @@ async def terminal_snapshot(auth: AuthContext = Depends(verify_api_key)):
 
 
 class TerminalRunRequest(BaseModel):
-    cmd: list[str] = Field(..., min_length=1, max_length=20)
+    command: list[str] = Field(..., min_length=1, max_length=20)
     timeout: int = Field(default=30, ge=1, le=120)
 
 
 @app.post("/agent/terminal/run")
 async def terminal_run(body: TerminalRunRequest, auth: AuthContext = Depends(verify_api_key)):
-    return TERMINAL_PANEL.run_and_capture(body.cmd, timeout=body.timeout)
+    return TERMINAL_PANEL.run_and_capture(body.command, timeout=body.timeout)
 
 
 # ─── Browser Automation ───────────────────────────────────────────────────────

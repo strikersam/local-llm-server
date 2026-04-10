@@ -57,8 +57,12 @@ async def _post_anthropic_with_fallback(
     fallback_models: list[str],
 ) -> Any:  # returns httpx.Response
     """POST to Ollama; on 5xx retry with each model in *fallback_models*."""
-    async with httpx.AsyncClient(timeout=httpx.Timeout(300.0, connect=10.0)) as client:
-        resp = await client.post(url, content=body, headers=headers)
+    try:
+        async with httpx.AsyncClient(timeout=httpx.Timeout(300.0, connect=10.0)) as client:
+            resp = await client.post(url, content=body, headers=headers)
+    except httpx.ConnectError as exc:
+        raise HTTPException(status_code=503, detail=f"LLM backend unreachable: {exc}") from exc
+
     if resp.status_code < 500 or not fallback_models:
         return resp
 
@@ -71,8 +75,11 @@ async def _post_anthropic_with_fallback(
         payload = dict(openai_payload)
         payload["model"] = fallback
         retry_body = json.dumps(payload).encode("utf-8")
-        async with httpx.AsyncClient(timeout=httpx.Timeout(300.0, connect=10.0)) as client:
-            resp = await client.post(url, content=retry_body, headers=headers)
+        try:
+            async with httpx.AsyncClient(timeout=httpx.Timeout(300.0, connect=10.0)) as client:
+                resp = await client.post(url, content=retry_body, headers=headers)
+        except httpx.ConnectError as exc:
+            raise HTTPException(status_code=503, detail=f"LLM backend unreachable: {exc}") from exc
         if resp.status_code < 500:
             return resp
 
@@ -176,7 +183,9 @@ _SERVER_TOOL_TYPES: frozenset[str] = frozenset({
     "computer_use_20241022",   # Computer use beta
     "computer_use_20250124",
     "text_editor_20241022",    # Text editor tool (Claude Code)
+    "text_editor_20250124",    # Text editor tool (Claude Code — 2025 variant)
     "bash_20241022",           # Bash tool (Claude Code)
+    "bash_20250124",           # Bash tool (Claude Code — 2025 variant)
     "web_search_20250305",     # Web search (server-side)
 })
 

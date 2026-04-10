@@ -14,6 +14,27 @@
   deprecated FastAPI startup event hook with a proper `@asynccontextmanager` lifespan
   handler, eliminating the deprecation warning on every import.
 
+- **Anthropic compat + OpenAI chat return 500 when Ollama is unreachable** (`handlers/anthropic_compat.py`,
+  `chat_handlers.py`): `httpx.ConnectError` was unhandled in `_post_anthropic_with_fallback`
+  and the OpenAI chat fallback loop. Both now catch `httpx.ConnectError` and raise HTTP 503
+  with a readable `"LLM backend unreachable: …"` message — consistent with `webui/router.py`.
+
+- **`bash` and `text_editor` 2025 variants not stripped from Anthropic tool list**
+  (`handlers/anthropic_compat.py`): `_SERVER_TOOL_TYPES` was missing `bash_20250124` and
+  `text_editor_20250124`. These newer Claude Code tool variants were forwarded to Ollama
+  unchanged, causing downstream errors. Both variants are now stripped alongside their
+  2024 counterparts.
+
+- **`/agent/terminal/run` field named `cmd` instead of `command`** (`proxy.py`):
+  `TerminalRunRequest.cmd` renamed to `command` (list of strings) to match the naming
+  convention used across every other command-running endpoint in the codebase and the
+  README description.
+
+- **`/agent/commits` returns phantom entries from multiline commit bodies** (`agent/commit_tracker.py`):
+  `CommitTracker.log()` was splitting `git log` output on `\n\n` which also matches blank
+  lines inside multi-paragraph commit bodies. Switched to a NUL-byte record separator
+  (`--format=%x00%H|%s|%b`, split on `\x00`) so blank lines in bodies are harmless.
+
 - **`/admin/api/status` crashes on Linux** (`service_manager.py`): `_find_pid()` now
   returns `None` immediately on non-Windows platforms instead of attempting to invoke
   `powershell`, which does not exist on Linux/macOS. The endpoint now returns a valid

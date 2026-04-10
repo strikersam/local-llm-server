@@ -305,7 +305,7 @@ def test_terminal_snapshot(client):
 def test_terminal_run(client):
     r = client.post(
         "/agent/terminal/run",
-        json={"cmd": ["echo", "hello"]},
+        json={"command": ["echo", "hello"]},
     )
     assert r.status_code == 200
     assert "hello" in r.json()["stdout"]

@@ -118,13 +118,13 @@ class CommitTracker:
         """Return recent commits with agent attribution trailers parsed out."""
         try:
             proc = subprocess.run(
-                ["git", "log", f"-{limit}", "--format=%H|%s|%b"],
+                ["git", "log", f"-{limit}", "--format=%x00%H|%s|%b"],
                 cwd=self.repo_root,
                 capture_output=True,
                 text=True,
             )
             entries: list[dict[str, Any]] = []
-            for block in proc.stdout.strip().split("\n\n"):
+            for block in proc.stdout.split("\x00"):
                 lines = block.strip().split("\n")
                 if not lines or not lines[0].strip():
                     continue

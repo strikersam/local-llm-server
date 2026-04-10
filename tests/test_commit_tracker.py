@@ -66,3 +66,53 @@ def test_commit_failure_returns_none(tmp_path: Path):
     # No files exist — commit should fail gracefully
     sha = tracker.commit(files=["nonexistent.txt"], message="fail", attribution=attr)
     assert sha is None
+
+
+def test_log_multiline_body_does_not_produce_phantom_entries(tmp_path: Path):
+    """Regression: commit bodies with blank lines must not be parsed as extra commits.
+
+    The old code split on \\n\\n which meant a multi-paragraph commit body would
+    produce phantom entries in the returned list.  The fix uses a NUL-byte record
+    separator so blank lines inside a body are harmless.
+    """
+    repo = _init_repo(tmp_path)
+    tracker = CommitTracker(repo_root=repo)
+
+    f = repo / "a.txt"
+    f.write_text("a\n", encoding="utf-8")
+    # Commit message with multiple blank-line-separated paragraphs in the body
+    multiline_msg = (
+        "feat: something\n\n"
+        "First paragraph of the body.\n\n"
+        "Second paragraph — this blank line used to cause a phantom entry.\n\n"
+        "Third paragraph."
+    )
+    attr = CommitAttribution(session_id="as_ml", model="test-model")
+    tracker.commit(files=["a.txt"], message=multiline_msg, attribution=attr)
+
+    entries = tracker.log(limit=5)
+    # There is exactly ONE real commit — the old bug would produce 3-4 entries.
+    assert len(entries) == 1, (
+        f"Expected 1 entry but got {len(entries)}: {entries}"
+    )
+    assert entries[0]["subject"] == "feat: something"
+
+
+def test_log_multiple_commits_correct_count(tmp_path: Path):
+    """Two commits with multiline bodies must produce exactly two log entries."""
+    repo = _init_repo(tmp_path)
+    tracker = CommitTracker(repo_root=repo)
+
+    attr = CommitAttribution(session_id="as_a", model="m")
+
+    (repo / "a.txt").write_text("a\n")
+    tracker.commit(files=["a.txt"], message="first\n\nBody line 1.\n\nBody line 2.", attribution=attr)
+
+    (repo / "b.txt").write_text("b\n")
+    tracker.commit(files=["b.txt"], message="second\n\nAnother body.", attribution=attr)
+
+    entries = tracker.log(limit=5)
+    assert len(entries) == 2
+    subjects = [e["subject"] for e in entries]
+    assert "first" in subjects
+    assert "second" in subjects
