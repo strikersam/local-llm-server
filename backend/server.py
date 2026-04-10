@@ -139,6 +139,10 @@ async def lifespan(app_: "FastAPI"):
 
 app = FastAPI(title="LLM Relay — Unified Platform", version="2.0.0", lifespan=lifespan)
 
+@app.get("/debug-routes")
+async def debug_routes():
+    return [{"path": route.path, "name": route.name, "methods": list(route.methods)} for route in app.routes]
+
 
 frontend_url = os.environ.get("FRONTEND_URL", "http://localhost:3000").rstrip("/")
 
