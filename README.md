@@ -24,7 +24,14 @@
 
 ## What's New
 
-19 new capabilities drawn from the Claude Code architecture analysis — all implemented, tested, and live on this server.
+**Latest additions (April 2026)**
+
+- **User Memory Store** — the agent remembers things about each user across sessions (preferences, project paths, conventions). Stored in SQLite; injected into the planner automatically.
+- **Anthropic Managed-Agents best practices** — five harness-level reliability techniques (observation masking, context compaction, JIT file retrieval, durable event log, condensed sub-agent summaries) baked in transparently.
+- **Anthropic advisor strategy** — the Anthropic compat layer now strips server-side beta tool types (`advisor_20260301`, `computer_use`, `web_search`, `text_editor`, `bash`) before forwarding to Ollama, and preserves advisor content blocks as plain-text context on follow-up turns.
+- **Commit Rollback** — revert the last AI-authored git commit in one API call.
+
+**Previously shipped (19 capabilities from Claude Code architecture analysis)**
 
 **Agent Modes** — Background Agent · Multi-Agent Swarms · Self-Resuming Agents · Voice Commands
 
@@ -121,6 +128,8 @@ The agent stays useful over long tasks and long sessions.
 | Feature | What It Does |
 |---------|-------------|
 | **Session Memory** | Save a snapshot of the agent's current session state to disk. On restart the agent restores its history, last plan, and result from the snapshot — no external database needed, no re-explaining the project from scratch. |
+| **Persistent SQLite Sessions** | All agent sessions and message history are written to `.data/agent.db` automatically. Sessions survive server restarts — no snapshot needed. The event log is also stored here for post-mortem inspection. |
+| **User Memory Store** | A per-user key/value store backed by SQLite. The agent can call `save_memory` and `recall_memory` tools during a run to persist and recall facts about a user across sessions and server restarts. Stored preferences are automatically injected into the planner system prompt on every run, so the agent remembers things like "always use TypeScript" or "my repo is at ~/project" without being told again. |
 | **Smart Context Compression** | Three strategies when conversation history gets too long: **reactive** (drop oldest non-system messages until under the token threshold), **micro** (remove exact duplicates and near-empty messages), **inspect** (return statistics without modifying anything). |
 | **Conversation Surgery** | Remove specific messages from session history by index without wiping everything. Good for cutting out a bad exchange, an outdated instruction, or a confusing tangent. |
 
@@ -157,6 +166,20 @@ PUT    /agent/budget/{session_id}               Set a token cap  {"cap": 50000}
 GET    /agent/budget/{session_id}               Get current usage and remaining budget
 GET    /agent/budget                            List all session budgets
 ```
+
+---
+
+### Agent Engine Reliability
+
+Five internal best practices from Anthropic's April 2026 "Scaling Managed Agents" article are baked into the agent harness. These run automatically — no configuration required.
+
+| Technique | What Happens |
+|-----------|-------------|
+| **Observation Masking** | Tool call *records* stay visible in the context window (the model knows what it already tried), but the *content* of old tool results is truncated to ≤ 300 chars. Keeps context lean without losing execution history. Inspired by JetBrains Junie (cited in the Anthropic article). |
+| **Context Compaction** | When conversation history grows past 16 messages, the harness asks the model to summarise the session so far. The summary replaces old messages; the most recent exchanges are kept verbatim. The model retains the gist without burning tokens on verbatim repetition. |
+| **Just-In-Time Retrieval** | Three-tier file-access hierarchy: `file_index` (lightweight directory listing, always loaded) → `head_file` (first N lines when content is large) → `read_file` (full content only when truly needed). The executor is prompted to escalate progressively, avoiding context bloat from large files the model doesn't fully need. |
+| **Append-Only Event Log** | Every agent step (user message, plan start, tool call, compaction, assistant reply) is written to a durable SQLite `agent_events` table with a positional index. Sessions are recoverable outside the LLM context window. Browse events at `.data/agent.db`. |
+| **Condensed Sub-Agent Summaries** | When a sub-agent (worker in a swarm) returns its result to the coordinator, the harness trims the result to ~2 000 tokens automatically. Keeps the coordinator's context window lean across large parallel runs. Tool errors are caught and returned as `[tool error: ...]` strings so sandbox failures are handled gracefully by the model rather than crashing the run. |
 
 ---
 
@@ -349,6 +372,14 @@ docker compose --profile tunnel up -d  # also starts free Cloudflare public URL
 
 The Cloudflare tunnel container prints a `*.trycloudflare.com` URL — that's your public URL. Open **http://localhost:8000/app** locally.
 
+**Alternative: ngrok tunnel** (persistent subdomain, requires a free ngrok account)
+```bash
+# Get your token at https://dashboard.ngrok.com/get-started/your-authtoken
+# Add NGROK_AUTHTOKEN=your_token to .env, then:
+docker compose --profile ngrok up -d
+```
+ngrok gives you a stable `*.ngrok-free.app` subdomain — useful when you want a consistent URL across restarts.
+
 **Expose your Windows Ollama to Render** (so cloud-deployed proxy can reach local models):
 ```powershell
 winget install Cloudflare.cloudflared
@@ -450,6 +481,7 @@ Beyond basic chat, the agent supports advanced modes accessible via the REST API
 | **Browser Automation** | Controls real Chromium via Playwright for navigate, click, screenshot, evaluate. |
 | **Voice Transcription** | Submit base64 audio; get text back via Whisper API or local openai-whisper. |
 | **Token Budget Caps** | Set max token spend per session; raises BudgetExceededError at the cap. |
+| **Commit Rollback** | One-click revert of the last AI-authored git commit in a session. Uses `git revert` (non-destructive), updates session history, and works per-workspace. |
 
 ---
 
@@ -473,9 +505,11 @@ All features degrade gracefully when dependencies are absent.
 | **Frontend** | 3000 | Unified React dashboard |
 | **Backend** | 8001 | FastAPI — all API endpoints |
 | **Proxy** | 8000 | OpenAI/Anthropic-compatible proxy |
-| **MongoDB** | 27017 | Document store |
+| **MongoDB** | 27017 | Document store (wiki, sources, chat sessions) |
+| **SQLite** | — | Agent session store (`.data/agent.db` — auto-created) |
 | **Ollama** | 11434 | Local LLM runtime |
-| **Cloudflare Tunnel** | — | Public HTTPS endpoint (optional) |
+| **Cloudflare Tunnel** | — | Public HTTPS endpoint (optional, `--profile tunnel`) |
+| **ngrok** | — | Alternative public tunnel (optional, `--profile ngrok`) |
 
 ---
 
@@ -561,14 +595,37 @@ All features degrade gracefully when dependencies are absent.
 </details>
 
 <details>
+<summary><strong>Admin API</strong> (requires <code>ADMIN_SECRET</code> auth)</summary>
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| POST | `/admin/api/login` | Admin login |
+| POST | `/admin/api/logout` | Admin logout |
+| GET | `/admin/api/status` | Service status (Ollama, tunnel, proxy PID) |
+| POST | `/admin/api/control` | Start/stop/restart a service (`action`, `target`) |
+| GET | `/admin/api/users` | List all API key holders |
+| POST | `/admin/api/users` | Create new API key |
+| PATCH | `/admin/api/users/:key_id` | Update email/department metadata |
+| DELETE | `/admin/api/users/:key_id` | Revoke API key |
+| POST | `/admin/api/users/:key_id/rotate` | Rotate API key (new secret, same metadata) |
+| POST | `/admin/keys` | Legacy key creation endpoint |
+
+</details>
+
+<details>
 <summary><strong>Agent — Advanced</strong></summary>
 
 | Method | Endpoint | Description |
 |--------|----------|-------------|
+| POST | `/agent/sessions` | Create a named agent session |
+| GET | `/agent/sessions/:id` | Get session state and history |
+| POST | `/agent/sessions/:id/run` | Run a task inside a session (persistent history) |
+| POST | `/agent/sessions/:id/rollback-last-commit` | Revert the last AI-authored git commit |
+| POST | `/agent/run` | One-shot agent run (no persistent session) |
 | POST | `/agent/coordinate` | Multi-agent swarm |
 | POST | `/agent/background/tasks` | Submit background task |
 | GET | `/agent/background/tasks` | List tasks |
-| POST | `/agent/memory/:session/snapshot` | Save session state |
+| POST | `/agent/memory/:session/snapshot` | Save session state to disk |
 | GET | `/agent/memory/:session` | Restore session state |
 | POST | `/agent/context/compress` | Compress message history |
 | POST | `/agent/scheduler/jobs` | Create scheduled job |
@@ -588,10 +645,11 @@ All features degrade gracefully when dependencies are absent.
 |-------|-----------|
 | Frontend | React 18, Tailwind CSS, React Router, React Markdown, Lucide |
 | Backend | Python 3.11, FastAPI, Motor (async MongoDB), PyJWT, bcrypt, httpx |
-| Database | MongoDB 7 |
+| Document Store | MongoDB 7 (wiki pages, sources, activity log, chat sessions) |
+| Agent Store | SQLite (`.data/agent.db` — sessions, message history, event log, user memories) |
 | LLM Runtime | Ollama (local) + any OpenAI-compatible API |
 | Observability | Langfuse |
-| Tunnel | Cloudflare Tunnel |
+| Tunnel | Cloudflare Tunnel or ngrok |
 | Containers | Docker Compose |
 
 ---
