@@ -10,6 +10,10 @@
 
 ### Fixed
 
+- **"Input should be a valid string" error on new agent chat sessions** (`backend/server.py`):
+  `ChatMessage.session_id` and `ChatMessage.model` were typed as `str` with default `None`,
+  which Pydantic v2 rejects when the frontend sends `null`. Fixed both to `str | None = None`.
+
 - **`[object Object]` error in LLM RELAY agent chat** (`frontend/src/pages/ChatPage.js`):
   Used the existing `fmtErr()` helper (already in `api.js`) to format FastAPI's `detail` array
   in the chat error display. Previously the raw array was coerced to string in the template

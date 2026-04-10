@@ -319,8 +319,8 @@ async def call_llm(
 
 class ChatMessage(BaseModel):
     content: str
-    session_id: str = None
-    model: str = None
+    session_id: str | None = None
+    model: str | None = None
     provider_id: str | None = None
     temperature: float | None = Field(default=None, ge=0.0, le=2.0)
 
