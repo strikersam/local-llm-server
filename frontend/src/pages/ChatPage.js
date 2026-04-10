@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import { chatSend, listSessions, getSession, deleteSession, listProviders, listProviderModels } from '../api';
+import { chatSend, listSessions, getSession, deleteSession, listProviders, listProviderModels, fmtErr } from '../api';
 import { Send, Plus, Trash2, MessageSquare, Bot, User, Loader2 } from 'lucide-react';
 
 const LS_PROVIDER_ID = 'llmrelay_provider_id';
@@ -125,7 +125,7 @@ export default function ChatPage() {
     } catch (err) {
       setMessages(prev => [...prev, {
         role: 'assistant',
-        content: `Error: ${err?.response?.data?.detail || 'Failed to get response. Check LLM provider.'}`
+        content: `Error: ${fmtErr(err?.response?.data?.detail) || err?.message || 'Failed to get response. Check LLM provider.'}`
       }]);
     } finally {
       setSending(false);

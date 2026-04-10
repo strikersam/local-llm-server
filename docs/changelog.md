@@ -10,6 +10,11 @@
 
 ### Fixed
 
+- **`[object Object]` error in LLM RELAY agent chat** (`frontend/src/pages/ChatPage.js`):
+  Used the existing `fmtErr()` helper (already in `api.js`) to format FastAPI's `detail` array
+  in the chat error display. Previously the raw array was coerced to string in the template
+  literal, producing `Error: [object Object]`.
+
 - **`[object Object],[object Object]` error in agent chat UI** (`webui/frontend/src/api.ts`):
   All API error handlers now parse FastAPI's `{"detail": ...}` response format — plain string
   details are shown as-is, and validation error arrays (Pydantic 422 responses) have their
