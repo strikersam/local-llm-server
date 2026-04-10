@@ -121,9 +121,11 @@ def _get_model_map() -> dict[str, str]:
             pair = pair.strip()
             if not pair:
                 continue
-            colon = pair.index(":")
-            src = pair[:colon].strip()
-            dst = pair[colon + 1:].strip()
+            if ":" not in pair:
+                continue
+            # split on first ":" only — dst may itself contain colons (e.g. "qwen3-coder:30b")
+            src, dst = pair.split(":", 1)
+            src, dst = src.strip(), dst.strip()
             if src and dst:
                 merged[src] = dst
 

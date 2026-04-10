@@ -3,6 +3,10 @@ from __future__ import annotations
 import difflib
 import os
 from pathlib import Path
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from agent.user_memory import UserMemoryStore
 
 
 TEXT_EXTENSIONS = {
@@ -61,6 +65,29 @@ class WorkspaceTools:
         )
         self.write_file(path, new_content)
         return {"path": str(target.relative_to(self.root)), "diff": diff}
+
+    def recall_memory(
+        self,
+        key: str,
+        *,
+        user_id: str,
+        memory_store: UserMemoryStore,
+    ) -> str:
+        """Return a previously saved memory value, or an empty string if absent."""
+        value = memory_store.recall(user_id, key)
+        return value if value is not None else ""
+
+    def save_memory(
+        self,
+        key: str,
+        value: str,
+        *,
+        user_id: str,
+        memory_store: UserMemoryStore,
+    ) -> str:
+        """Persist a key/value pair to the user's profile store."""
+        memory_store.save(user_id, key, value)
+        return f"Saved '{key}' for {user_id}."
 
     def search_code(self, query: str, limit: int = 20) -> list[dict[str, str | int]]:
         matches: list[dict[str, str | int]] = []

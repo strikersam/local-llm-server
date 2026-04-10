@@ -21,5 +21,8 @@ COPY --from=webui /src/webui/frontend/dist /app/webui/frontend/dist
 ENV PROXY_PORT=8000
 EXPOSE 8000
 
+HEALTHCHECK --interval=30s --timeout=10s --start-period=15s --retries=3 \
+  CMD python -c "import urllib.request; urllib.request.urlopen('http://localhost:${PORT:-8000}/health', timeout=5)" || exit 1
+
 CMD ["sh", "-lc", "uvicorn proxy:app --host 0.0.0.0 --port ${PORT:-8000} --log-level ${LOG_LEVEL:-info}"]
 

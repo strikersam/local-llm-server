@@ -60,8 +60,17 @@ class KeyStore:
             self._mtime = self._path.stat().st_mtime
 
     def _load_unlocked(self) -> None:
+        import logging as _logging
         assert self._path is not None
-        raw = json.loads(self._path.read_text(encoding="utf-8"))
+        try:
+            raw = json.loads(self._path.read_text(encoding="utf-8"))
+        except (json.JSONDecodeError, OSError, ValueError) as exc:
+            _logging.getLogger("qwen-proxy").warning(
+                "KeyStore: could not read %s (%s) — key store reset to empty",
+                self._path, exc,
+            )
+            self._by_hash.clear()
+            return
         keys = raw.get("keys") if isinstance(raw, dict) else None
         if not isinstance(keys, list):
             return

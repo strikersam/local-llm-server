@@ -8,6 +8,31 @@
 
 ## [Unreleased]
 
+### Fixed
+
+- **render.yaml completely rewritten**: Previous file deployed a MongoDB-based wiki project instead of the actual FastAPI proxy. Now correctly uses the main `Dockerfile`, correct health-check path (`/health`), and the right env vars (`OLLAMA_BASE`, `API_KEYS`, `ADMIN_SECRET`, `KEYS_FILE`, etc.).
+- **docker-compose.yml rewritten**: Removed stale MongoDB/LLM-wiki services. Default stack is now `ollama` + `proxy`. Optional profiles: `--profile tunnel` (Cloudflare Tunnel, free) and `--profile ngrok`. The proxy is now the default service instead of being buried under the `full` profile.
+- **deploy-frontend.yml workflow fixed**: Was deploying the old `frontend/` (llm-wiki CRA project) instead of `webui/frontend/` (the actual Vite-based web UI). Fixed all paths, replaced `REACT_APP_*` env vars with `VITE_*`, corrected build output from `build/` to `dist/`.
+- **Dockerfile.frontend updated**: Now builds the correct `webui/frontend/` Vite project (was building `frontend/` stale CRA project). Supports `VITE_API_BASE` build arg for GitHub Pages deployment.
+- **`/v1/models` now includes Claude model aliases**: The endpoint previously only listed live Ollama models and registry entries. Claude Code and Anthropic SDK clients now see all configured model aliases (e.g. `claude-sonnet-4-6`, `claude-opus-4-6`) in the model list, enabling automatic model discovery.
+- **.env.example cleaned up**: Removed stale `MONGO_URL` / `DB_NAME` vars. Added Cloudflare Tunnel and ngrok setup instructions, Claude Code / Cursor / Aider configuration guide.
+- **`MODEL_MAP` parser bug fixed** (`router/model_router.py`): `pair.index(":")` was used to split alias pairs, which only works when the destination model name contains no colons. Model names like `qwen3-coder:30b` contain a colon, so `MODEL_MAP=claude-sonnet-4-6:qwen3-coder:30b` was silently misparsed. Fixed to `pair.split(":", 1)`.
+- **`KeyStore` corruption handling added** (`key_store.py`): `_load_unlocked` previously crashed silently if `keys.json` contained invalid JSON (disk corruption, partial write, etc.). Now catches `JSONDecodeError` / `OSError`, logs a warning, and resets to an empty store instead of leaving keys in an undefined state.
+- **`Dockerfile` health check added**: Container now declares a `HEALTHCHECK` using Python's built-in `urllib` (no extra dependency) so Docker, Render, and `docker-compose` all get live readiness signals from `/health`.
+- **Vercel deployments removed**: Added `vercel.json` with `github.enabled: false` to disable Vercel's GitHub integration and stop failing deployment statuses.
+- **pytest collection fixed**: Added `pytest.ini` restricting test discovery to `tests/` — prevents root-level integration scripts (`backend_test.py`, `backend_test_iteration3.py`) from breaking CI.
+
+### Added
+
+- **`VITE_API_BASE` support in web UI**: `webui/frontend/src/api.ts` now reads `VITE_API_BASE` at build time. When empty (default), all API calls use relative paths (works on Render single-container). When set to an absolute URL (e.g. the Render service URL), the frontend can be hosted separately on GitHub Pages and still reach the backend.
+- **Cloudflare Tunnel profile in docker-compose.yml**: `docker compose --profile tunnel up` starts a `cloudflared` container providing a free public HTTPS URL for the proxy — no account or port-forwarding required for quick tunnels.
+- **Persistent agent memory** (`agent/user_memory.py`): SQLite-backed `UserMemoryStore` lets agents save and recall per-user key/value facts across sessions and server restarts. New `save_memory` / `recall_memory` tools are available to the agent executor.
+- **Durable session history** (`agent/state.py`): `AgentSessionStore` now writes sessions and message history to SQLite (`.data/agent.db`, overridable via `AGENT_DB_PATH`). All sessions survive server restarts.
+- **Memory-aware planning** (`agent/prompts.py`): the planner system prompt is injected with the user's stored profile preferences so the agent can personalise responses from the first message.
+- **`.claude/agents/scout.md`** — Scout agent: 5-dimension confidence scoring returns GO (≥70) or HOLD (<70) with gap list. Supports DEV/REVIEW/RESEARCH context modes.
+- **`.claude/skills/pro-workflow/SKILL.md`** — Master workflow skill: Research → Plan → Implement with 8 core patterns, model selection guide, and validation gates between phases.
+- **9 additional `.claude/skills/`** — smart-commit, wrap-up, learn-rule, replay-learnings, parallel-worktrees, session-handoff, insights, deslop, plus `CLAUDE.md` updated with full skill reference.
+
 ### Added — 19 new agent features (fully implemented + tested)
 
 New modules in `agent/`:

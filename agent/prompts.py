@@ -4,8 +4,16 @@ import json
 from typing import Any
 
 
-def build_planning_prompt(instruction: str, history: list[dict[str, str]]) -> list[dict[str, str]]:
+def build_planning_prompt(
+    instruction: str,
+    history: list[dict[str, str]],
+    user_memories: dict[str, str] | None = None,
+) -> list[dict[str, str]]:
     history_text = "\n".join(f"{item['role']}: {item['content']}" for item in history[-8:])
+    memory_section = ""
+    if user_memories:
+        pairs = "\n".join(f"  {k}: {v}" for k, v in user_memories.items())
+        memory_section = f"\n\nUser profile (remembered preferences):\n{pairs}"
     return [
         {
             "role": "system",
@@ -32,6 +40,7 @@ def build_planning_prompt(instruction: str, history: list[dict[str, str]]) -> li
                 "- If a new file is needed, include the intended path.\n"
                 "- For module-wide tasks, include every file that must change for the result to work.\n"
                 "- If the task asks for a shared utility, include a create step or include the utility file in the edit step."
+                f"{memory_section}"
             ),
         },
         {
@@ -59,9 +68,11 @@ def build_tool_prompt(
                 "- read_file(path)\n"
                 "- list_files(path='.', limit=200)\n"
                 "- search_code(query, limit=20)\n"
+                "- recall_memory(key) — retrieve a saved user preference\n"
+                "- save_memory(key, value) — persist a user preference for future sessions\n"
                 "- finish(reason)\n\n"
                 "Return ONLY JSON:\n"
-                '{ "tool": "read_file|list_files|search_code|finish", "args": { ... } }\n\n'
+                '{ "tool": "read_file|list_files|search_code|recall_memory|save_memory|finish", "args": { ... } }\n\n'
                 "Rules:\n"
                 "- Use one tool per response.\n"
                 "- Prefer targeted reads.\n"
