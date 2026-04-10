@@ -8,6 +8,14 @@
 
 ## [Unreleased]
 
+### Fixed
+
+- **`[object Object],[object Object]` error in agent chat UI** (`webui/frontend/src/api.ts`):
+  All API error handlers now parse FastAPI's `{"detail": ...}` response format — plain string
+  details are shown as-is, and validation error arrays (Pydantic 422 responses) have their
+  `msg` fields joined with `; ` separators. Previously the raw array was coerced to string,
+  producing the useless `[object Object],[object Object]` message.
+
 ### Added
 
 - **Dashboard provider support: Hugging Face (serverless) + Ollama** (`backend/server.py`, `backend/llm_providers.py`, `frontend/src/pages/ChatPage.js`, `frontend/src/api.js`):
