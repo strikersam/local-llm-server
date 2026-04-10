@@ -341,7 +341,7 @@ Control your entire stack from your phone. No browser, no VPN.
 
 | Provider | `OPENAI_COMPAT_BASE_URL` | `OPENAI_COMPAT_API_KEY` | `OPENAI_COMPAT_MODEL` |
 |---|---|---|---|
-| **HuggingFace** (free) | `https://api-inference.huggingface.co/v1` | `hf_xxx` from huggingface.co/settings/tokens | `Qwen/Qwen2.5-Coder-32B-Instruct` |
+| **Hugging Face** (free/serverless) | `https://router.huggingface.co` | `hf_xxx` from huggingface.co/settings/tokens *(optional but recommended)* | `Qwen/Qwen2.5-Coder-7B-Instruct` |
 | **Groq** (free, fast) | `https://api.groq.com/openai/v1` | Groq API key | `llama-3.3-70b-versatile` |
 | **OpenRouter** (free models) | `https://openrouter.ai/api/v1` | OpenRouter key | `meta-llama/llama-3.3-70b-instruct:free` |
 
@@ -435,13 +435,43 @@ Some features require additional packages. All degrade gracefully when not insta
 
 | Feature | Install command | Env var |
 |---------|-----------------|---------|
-| Browser Automation | `pip install playwright && playwright install chromium` | — |
+| Browser Automation | `pip install playwright && playwright install chromium` | `BROWSER_AUTOMATION_ENABLED=true` |
 | Voice (Whisper API) | — | `WHISPER_BASE_URL=http://localhost:9000` |
 | Voice (local Whisper) | `pip install openai-whisper` | — |
 | Voice recording | `pip install pyaudio` | — |
 | Scheduled Jobs (cron) | `pip install apscheduler` *(bundled)* | — |
 
 ---
+
+### Option C — Run the Dashboard locally (Mongo + API + Web UI)
+
+The dashboard lives at `http://localhost:3000` and talks to the API on `http://localhost:8001`.
+
+**Docker (recommended)**
+
+```bash
+cp .env.example .env
+# Edit .env — at minimum set ADMIN_PASSWORD, and optionally HF_TOKEN
+
+docker compose --profile dashboard up -d
+open http://localhost:3000
+```
+
+**Manual dev (hot reload)**
+
+```bash
+# Terminal 1 (Mongo)
+docker run --rm -p 27017:27017 mongo:7
+
+# Terminal 2 (API)
+python -m venv .venv && source .venv/bin/activate
+pip install -r backend/requirements.txt
+uvicorn backend.server:app --reload --port 8001
+
+# Terminal 3 (Web UI)
+cd frontend
+REACT_APP_BACKEND_URL=http://localhost:8001 npm start
+```
 
 ## Provider Setup
 
@@ -457,8 +487,10 @@ docker exec llm-server-ollama ollama pull deepseek-r1:32b
 - API Key: your OpenRouter key
 
 ### HuggingFace Inference API
-- Base URL: `https://api-inference.huggingface.co/v1`
-- API Key: your HuggingFace token
+### Hugging Face (Serverless / OpenAI-compatible)
+- Base URL: `https://router.huggingface.co`
+- API Key: your Hugging Face token (`HF_TOKEN` / `HUGGINGFACE_API_TOKEN`) *(optional but recommended)*
+- Model: any public HF model ID (example: `Qwen/Qwen2.5-Coder-7B-Instruct`)
 
 ### Remote Ollama (another machine)
 - Type: `Ollama`
@@ -491,7 +523,7 @@ All features degrade gracefully when dependencies are absent.
 
 | Feature | Install | Env var |
 |---------|---------|---------|
-| Browser Automation | `pip install playwright && playwright install chromium` | — |
+| Browser Automation | `pip install playwright && playwright install chromium` | `BROWSER_AUTOMATION_ENABLED=true` |
 | Voice (Whisper API) | — | `WHISPER_BASE_URL=http://localhost:9000` |
 | Voice (local Whisper) | `pip install openai-whisper` | — |
 | Scheduled Jobs | `pip install apscheduler` *(bundled)* | — |
