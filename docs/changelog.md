@@ -8,6 +8,29 @@
 
 ## [Unreleased]
 
+### Added
+
+- **GitHub Integration** (`backend/server.py`, `frontend/src/pages/GitHubPage.js`,
+  `frontend/src/pages/SettingsPage.js`, `frontend/src/api.js`): Full GitHub repo
+  integration available from the GitHub Pages dashboard after login.
+  - **Settings → GitHub**: paste a Personal Access Token (PAT) with `repo` scope;
+    token is validated against `GET /api/github/user` and stored server-side in
+    MongoDB — it never appears in the browser after submission.
+  - New `GITHUB` nav item opens the GitHub page: browse all repos you own or
+    collaborate on, search by name, select a branch.
+  - File-tree explorer with recursive directory expansion via the GitHub Contents API.
+  - Inline file editor — read any text file, modify it, and commit directly back to
+    GitHub with a custom commit message (uses `PUT /contents/:path`).
+  - Pull-request panel: view open PRs and create new ones (head → base branch, title,
+    description) without leaving the dashboard.
+  - Backend routes added: `GET/PUT/DELETE /api/github/token`,
+    `GET /api/github/repos`, `GET /api/github/repos/{owner}/{repo}/branches`,
+    `GET /api/github/repos/{owner}/{repo}/tree`,
+    `GET /api/github/repos/{owner}/{repo}/file`,
+    `PUT /api/github/repos/{owner}/{repo}/file`,
+    `GET/POST /api/github/repos/{owner}/{repo}/pulls`.
+  - All GitHub actions are logged to the activity feed.
+
 ### Fixed
 
 - **`@app.on_event("startup")` deprecation warning** (`backend/server.py`): Replaced the

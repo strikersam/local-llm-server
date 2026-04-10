@@ -178,6 +178,7 @@ async def ensure_bootstrap() -> None:
         await db.chat_sessions.create_index("user_id")
         await db.providers.create_index("provider_id", unique=True)
         await db.api_keys.create_index("key_id", unique=True)
+        await db.github_settings.create_index("user_id", unique=True)
         await seed_admin()
         await seed_default_providers()
         _BOOTSTRAP_DONE = True
@@ -1231,3 +1232,301 @@ async def health():
     except Exception:
         pass
     return {"status": "ok" if mongo_ok else "degraded", "mongo": mongo_ok, "ollama": ollama_ok, "provider": LLM_PROVIDER}
+
+
+# ─── GitHub Integration ─────────────────────────────────────────────────────────
+# All GitHub API calls are proxied through the backend so the PAT never
+# leaves the server. The token is stored per-user in db.github_settings.
+
+GITHUB_API = "https://api.github.com"
+
+
+async def _get_github_token(user_id: str) -> str | None:
+    doc = await db.github_settings.find_one({"user_id": user_id})
+    return doc.get("token") if doc else None
+
+
+def _gh_headers(token: str) -> dict:
+    return {
+        "Authorization": f"Bearer {token}",
+        "Accept": "application/vnd.github+json",
+        "X-GitHub-Api-Version": "2022-11-28",
+    }
+
+
+class GitHubTokenBody(BaseModel):
+    token: str = Field(..., min_length=1, max_length=500)
+
+
+@app.get("/api/github/status")
+async def github_status(user: dict = Depends(get_current_user)):
+    token = await _get_github_token(user["_id"])
+    if not token:
+        return {"connected": False}
+    try:
+        async with httpx.AsyncClient(timeout=10) as c:
+            r = await c.get(f"{GITHUB_API}/user", headers=_gh_headers(token))
+        if r.status_code == 200:
+            d = r.json()
+            return {"connected": True, "login": d.get("login"), "name": d.get("name"), "avatar_url": d.get("avatar_url")}
+        return {"connected": False}
+    except Exception:
+        return {"connected": False}
+
+
+@app.put("/api/github/token")
+async def set_github_token(body: GitHubTokenBody, user: dict = Depends(get_current_user)):
+    uid = user["_id"]
+    try:
+        async with httpx.AsyncClient(timeout=10) as c:
+            r = await c.get(f"{GITHUB_API}/user", headers=_gh_headers(body.token))
+        if r.status_code != 200:
+            raise HTTPException(status_code=400, detail=f"GitHub token rejected (HTTP {r.status_code}). Check the token has repo scope.")
+        gh_user = r.json()
+    except httpx.HTTPError as exc:
+        raise HTTPException(status_code=400, detail=f"GitHub token validation failed: {exc}") from exc
+    await db.github_settings.update_one(
+        {"user_id": uid},
+        {"$set": {"user_id": uid, "token": body.token, "github_login": gh_user.get("login"), "updated_at": datetime.now(timezone.utc).isoformat()}},
+        upsert=True,
+    )
+    await log_activity("github", f"GitHub token connected for @{gh_user.get('login')}", user_id=uid)
+    return {"ok": True, "login": gh_user.get("login")}
+
+
+@app.delete("/api/github/token")
+async def delete_github_token(user: dict = Depends(get_current_user)):
+    await db.github_settings.delete_one({"user_id": user["_id"]})
+    return {"ok": True}
+
+
+@app.get("/api/github/repos")
+async def list_github_repos(
+    user: dict = Depends(get_current_user),
+    q: str = "",
+    page: int = 1,
+):
+    token = await _get_github_token(user["_id"])
+    if not token:
+        raise HTTPException(status_code=400, detail="GitHub not connected. Add a token in Settings → GitHub.")
+    try:
+        async with httpx.AsyncClient(timeout=20) as c:
+            if q:
+                doc = await db.github_settings.find_one({"user_id": user["_id"]})
+                login = doc.get("github_login", "") if doc else ""
+                r = await c.get(
+                    f"{GITHUB_API}/search/repositories",
+                    headers=_gh_headers(token),
+                    params={"q": f"{q} user:{login}" if login else q, "per_page": 30},
+                )
+            else:
+                r = await c.get(
+                    f"{GITHUB_API}/user/repos",
+                    headers=_gh_headers(token),
+                    params={"per_page": 30, "page": page, "sort": "updated", "affiliation": "owner,collaborator"},
+                )
+        r.raise_for_status()
+        raw = r.json().get("items", r.json()) if q else r.json()
+        repos = [
+            {
+                "full_name": repo["full_name"],
+                "name": repo["name"],
+                "owner": repo["owner"]["login"],
+                "description": repo.get("description") or "",
+                "private": repo.get("private", False),
+                "default_branch": repo.get("default_branch", "main"),
+                "updated_at": repo.get("updated_at", ""),
+                "language": repo.get("language") or "",
+                "stars": repo.get("stargazers_count", 0),
+            }
+            for repo in (raw if isinstance(raw, list) else [])
+        ]
+        return {"repos": repos}
+    except httpx.HTTPStatusError as exc:
+        raise HTTPException(status_code=exc.response.status_code, detail=f"GitHub API error: {exc.response.text}") from exc
+
+
+@app.get("/api/github/repos/{owner}/{repo}/branches")
+async def list_github_branches(owner: str, repo: str, user: dict = Depends(get_current_user)):
+    token = await _get_github_token(user["_id"])
+    if not token:
+        raise HTTPException(status_code=400, detail="GitHub not connected")
+    try:
+        async with httpx.AsyncClient(timeout=15) as c:
+            r = await c.get(f"{GITHUB_API}/repos/{owner}/{repo}/branches", headers=_gh_headers(token), params={"per_page": 50})
+        r.raise_for_status()
+        return {"branches": [b["name"] for b in r.json()]}
+    except httpx.HTTPStatusError as exc:
+        raise HTTPException(status_code=exc.response.status_code, detail=f"GitHub API error: {exc.response.text}") from exc
+
+
+@app.get("/api/github/repos/{owner}/{repo}/tree")
+async def get_github_tree(
+    owner: str,
+    repo: str,
+    ref: str = "HEAD",
+    path: str = "",
+    user: dict = Depends(get_current_user),
+):
+    token = await _get_github_token(user["_id"])
+    if not token:
+        raise HTTPException(status_code=400, detail="GitHub not connected")
+    try:
+        async with httpx.AsyncClient(timeout=20) as c:
+            r = await c.get(
+                f"{GITHUB_API}/repos/{owner}/{repo}/contents/{path}",
+                headers=_gh_headers(token),
+                params={"ref": ref},
+            )
+        r.raise_for_status()
+        raw = r.json()
+        items = raw if isinstance(raw, list) else [raw]
+        return {
+            "path": path,
+            "items": [
+                {"name": i["name"], "path": i["path"], "type": i["type"], "size": i.get("size", 0), "sha": i.get("sha", "")}
+                for i in items
+            ],
+        }
+    except httpx.HTTPStatusError as exc:
+        raise HTTPException(status_code=exc.response.status_code, detail=f"GitHub API error: {exc.response.text}") from exc
+
+
+@app.get("/api/github/repos/{owner}/{repo}/file")
+async def read_github_file(
+    owner: str,
+    repo: str,
+    path: str,
+    ref: str = "HEAD",
+    user: dict = Depends(get_current_user),
+):
+    token = await _get_github_token(user["_id"])
+    if not token:
+        raise HTTPException(status_code=400, detail="GitHub not connected")
+    import base64 as _b64
+    try:
+        async with httpx.AsyncClient(timeout=20) as c:
+            r = await c.get(
+                f"{GITHUB_API}/repos/{owner}/{repo}/contents/{path}",
+                headers=_gh_headers(token),
+                params={"ref": ref},
+            )
+        r.raise_for_status()
+        data = r.json()
+        content = _b64.b64decode(data.get("content", "").replace("\n", "")).decode("utf-8", errors="replace")
+        return {"path": path, "content": content, "sha": data.get("sha", ""), "size": data.get("size", 0)}
+    except httpx.HTTPStatusError as exc:
+        raise HTTPException(status_code=exc.response.status_code, detail=f"GitHub API error: {exc.response.text}") from exc
+
+
+class GitHubFileWrite(BaseModel):
+    path: str = Field(..., min_length=1, max_length=2000)
+    content: str
+    message: str = Field(..., min_length=1, max_length=1000)
+    sha: str | None = None  # required for updates, omit for new files
+    branch: str = Field(default="main", min_length=1, max_length=200)
+
+
+@app.put("/api/github/repos/{owner}/{repo}/file")
+async def write_github_file(
+    owner: str,
+    repo: str,
+    body: GitHubFileWrite,
+    user: dict = Depends(get_current_user),
+):
+    token = await _get_github_token(user["_id"])
+    if not token:
+        raise HTTPException(status_code=400, detail="GitHub not connected")
+    import base64 as _b64
+    try:
+        content_b64 = _b64.b64encode(body.content.encode("utf-8")).decode("ascii")
+        payload: dict = {"message": body.message, "content": content_b64, "branch": body.branch}
+        if body.sha:
+            payload["sha"] = body.sha
+        async with httpx.AsyncClient(timeout=30) as c:
+            r = await c.put(
+                f"{GITHUB_API}/repos/{owner}/{repo}/contents/{body.path}",
+                headers=_gh_headers(token),
+                json=payload,
+            )
+        r.raise_for_status()
+        data = r.json()
+        commit_sha = data.get("commit", {}).get("sha", "")
+        file_sha = data.get("content", {}).get("sha", "")
+        await log_activity(
+            "github",
+            f"Committed {body.path} to {owner}/{repo}@{body.branch}",
+            user_id=user["_id"],
+            meta={"repo": f"{owner}/{repo}", "path": body.path, "commit_sha": commit_sha},
+        )
+        return {"ok": True, "commit_sha": commit_sha, "file_sha": file_sha}
+    except httpx.HTTPStatusError as exc:
+        raise HTTPException(status_code=exc.response.status_code, detail=f"GitHub API error: {exc.response.text}") from exc
+
+
+@app.get("/api/github/repos/{owner}/{repo}/pulls")
+async def list_github_pulls(
+    owner: str,
+    repo: str,
+    state: str = "open",
+    user: dict = Depends(get_current_user),
+):
+    token = await _get_github_token(user["_id"])
+    if not token:
+        raise HTTPException(status_code=400, detail="GitHub not connected")
+    try:
+        async with httpx.AsyncClient(timeout=15) as c:
+            r = await c.get(
+                f"{GITHUB_API}/repos/{owner}/{repo}/pulls",
+                headers=_gh_headers(token),
+                params={"state": state, "per_page": 30},
+            )
+        r.raise_for_status()
+        pulls = [
+            {
+                "number": pr["number"],
+                "title": pr["title"],
+                "state": pr["state"],
+                "user": pr["user"]["login"],
+                "head": pr["head"]["ref"],
+                "base": pr["base"]["ref"],
+                "created_at": pr["created_at"],
+                "html_url": pr["html_url"],
+            }
+            for pr in r.json()
+        ]
+        return {"pulls": pulls}
+    except httpx.HTTPStatusError as exc:
+        raise HTTPException(status_code=exc.response.status_code, detail=f"GitHub API error: {exc.response.text}") from exc
+
+
+class GitHubPRCreate(BaseModel):
+    title: str = Field(..., min_length=1, max_length=500)
+    body: str = ""
+    head: str = Field(..., min_length=1, max_length=200)
+    base: str = Field(default="main", min_length=1, max_length=200)
+
+
+@app.post("/api/github/repos/{owner}/{repo}/pulls")
+async def create_github_pr(
+    owner: str,
+    repo: str,
+    body: GitHubPRCreate,
+    user: dict = Depends(get_current_user),
+):
+    token = await _get_github_token(user["_id"])
+    if not token:
+        raise HTTPException(status_code=400, detail="GitHub not connected")
+    try:
+        async with httpx.AsyncClient(timeout=20) as c:
+            r = await c.post(
+                f"{GITHUB_API}/repos/{owner}/{repo}/pulls",
+                headers=_gh_headers(token),
+                json={"title": body.title, "body": body.body, "head": body.head, "base": body.base},
+            )
+        r.raise_for_status()
+        pr = r.json()
+        await log_activity("github", f"Created PR #{pr['number']} in {owner}/{repo}", user_id=user["_id"])
+        return {"ok": True, "number": pr["number"], "html_url": pr["html_url"], "title": pr["title"]}
+    except httpx.HTTPStatusError as exc:
+        raise HTTPException(status_code=exc.response.status_code, detail=f"GitHub API error: {exc.response.text}") from exc

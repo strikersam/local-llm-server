@@ -120,4 +120,21 @@ export const getObservabilityDashboard = () => API.get('/api/observability/dashb
 export const getPlatformInfo = () => API.get('/api/platform');
 export const healthCheck = () => API.get('/api/health');
 
+// GitHub Integration
+export const githubStatus = () => API.get('/api/github/status');
+export const setGithubToken = (token) => API.put('/api/github/token', { token });
+export const deleteGithubToken = () => API.delete('/api/github/token');
+export const listGithubRepos = (q = '', page = 1) => API.get('/api/github/repos', { params: { q, page } });
+export const listGithubBranches = (owner, repo) => API.get(`/api/github/repos/${owner}/${repo}/branches`);
+export const getGithubTree = (owner, repo, ref = 'HEAD', path = '') =>
+  API.get(`/api/github/repos/${owner}/${repo}/tree`, { params: { ref, path } });
+export const readGithubFile = (owner, repo, path, ref = 'HEAD') =>
+  API.get(`/api/github/repos/${owner}/${repo}/file`, { params: { path, ref } });
+export const writeGithubFile = (owner, repo, data) =>
+  API.put(`/api/github/repos/${owner}/${repo}/file`, data);
+export const listGithubPulls = (owner, repo, state = 'open') =>
+  API.get(`/api/github/repos/${owner}/${repo}/pulls`, { params: { state } });
+export const createGithubPR = (owner, repo, data) =>
+  API.post(`/api/github/repos/${owner}/${repo}/pulls`, data);
+
 export default API;

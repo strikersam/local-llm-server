@@ -3,7 +3,7 @@ import { Routes, Route, NavLink, Navigate, useNavigate } from 'react-router-dom'
 import { useAuth } from '../AuthContext';
 import {
   LayoutDashboard, MessageSquare, BookOpen, Upload, Activity,
-  Settings, LogOut, Menu, X, Cpu, ChevronRight, Layers, Key, BarChart3, Box
+  Settings, LogOut, Menu, X, Cpu, ChevronRight, Layers, Key, BarChart3, Box, Github
 } from 'lucide-react';
 import DashboardHome from './DashboardHome';
 import ChatPage from './ChatPage';
@@ -15,6 +15,7 @@ import ModelsPage from './ModelsPage';
 import ApiKeysPage from './ApiKeysPage';
 import ObservabilityPage from './ObservabilityPage';
 import SettingsPage from './SettingsPage';
+import GitHubPage from './GitHubPage';
 
 const navSections = [
   {
@@ -23,6 +24,7 @@ const navSections = [
       { to: '/chat', icon: MessageSquare, label: 'AGENT CHAT' },
       { to: '/wiki', icon: BookOpen, label: 'WIKI' },
       { to: '/sources', icon: Upload, label: 'SOURCES' },
+      { to: '/github', icon: Github, label: 'GITHUB' },
     ]
   },
   {
@@ -108,6 +110,7 @@ export default function DashboardLayout() {
           <Route path="/providers" element={<ProvidersPage />} />
           <Route path="/models" element={<ModelsPage />} />
           <Route path="/keys" element={<ApiKeysPage />} />
+          <Route path="/github" element={<GitHubPage />} />
           <Route path="/observability" element={<ObservabilityPage />} />
           <Route path="/activity" element={<ActivityPage />} />
           <Route path="/settings" element={<SettingsPage />} />
