@@ -100,7 +100,7 @@ These settings apply to the "LLM Relay" dashboard (`frontend/` + `backend/server
 | `ADMIN_EMAIL` | `admin@llmrelay.local` | Seeded admin email for the dashboard login. |
 | `ADMIN_PASSWORD` | (none) | Seeded admin password. Set this explicitly before exposing the dashboard. |
 | `FRONTEND_URL` | `http://localhost:3000` | Default CORS origin when a request has no Origin header. |
-| `LLM_PROVIDER` | `ollama` | Which seeded provider should be default (`ollama` or `huggingface`). |
+| `LLM_PROVIDER` | `deepseek` | Which seeded provider should be default (`deepseek`, `ollama`, `huggingface`, `openrouter`, `together`). |
 | `OLLAMA_BASE_URL` | `http://localhost:11434` | Ollama base URL for the default provider. |
 | `OLLAMA_MODEL` | `llama3.2` | Default model for the seeded Ollama provider. |
 | `HF_TOKEN` | (unset) | Hugging Face token for the seeded HF provider (also accepted as `HUGGINGFACE_API_TOKEN`). Optional but recommended. |

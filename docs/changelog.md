@@ -8,7 +8,12 @@
 
 ## [Unreleased]
 
-_(nothing pending)_
+- **Cloud Model Expansion** (`backend/server.py`, `commercial_equivalent.py`):
+  - Added official cloud providers: **DeepSeek API**, **Zhipu AI (GLM)**, **AliCloud DashScope (Qwen)**, **MiniMax**, **Google Gemini**, and **Moonshot AI (Kimi)**.
+  - Configured flagship models: **DeepSeek-V3/R1**, **GLM-4.5 Air**, **Qwen3.5 397B**, **Gemma 4**, **Kimi-K2.5**, and **MiMo-V2-Flash**.
+  - Set **DeepSeek** as the default LLM provider for the platform.
+  - Added commercial equivalent pricing for accurate savings estimation on all new models.
+  - Updated test suite and documentation to cover all new providers.
 
 ## [2.4.1] — 2026-04-11
 

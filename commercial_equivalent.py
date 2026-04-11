@@ -98,6 +98,47 @@ def _load_from_env() -> dict[str, CommercialEquivalent]:
             input_per_million_usd=0.14,
             output_per_million_usd=0.14,
         ),
+        # ── 2026 Cloud-native models (DeepSeek, Zhipu, DashScope) ────────────────
+        "deepseek-chat": CommercialEquivalent(
+            commercial_name="DeepSeek V3 API (official)",
+            input_per_million_usd=0.27,
+            output_per_million_usd=1.10,
+        ),
+        "deepseek-reasoner": CommercialEquivalent(
+            commercial_name="DeepSeek R1 API (official)",
+            input_per_million_usd=0.55,
+            output_per_million_usd=2.19,
+        ),
+        "glm-4.5-air": CommercialEquivalent(
+            commercial_name="GLM-4.5 Air API (official)",
+            input_per_million_usd=0.14,
+            output_per_million_usd=0.14,
+        ),
+        "qwen3-coder-30b-a3b": CommercialEquivalent(
+            commercial_name="Qwen3 Coder 30B API (DashScope)",
+            input_per_million_usd=0.30,
+            output_per_million_usd=0.30,
+        ),
+        "mimo-v2-flash": CommercialEquivalent(
+            commercial_name="MiniMax MiMo-V2-Flash API",
+            input_per_million_usd=0.015,
+            output_per_million_usd=0.03,
+        ),
+        "qwen3.5-397b-a17b": CommercialEquivalent(
+            commercial_name="Qwen3.5 397B API (DashScope flagship)",
+            input_per_million_usd=0.50,
+            output_per_million_usd=0.50,
+        ),
+        "gemma-4": CommercialEquivalent(
+            commercial_name="Gemma 4 API (Google)",
+            input_per_million_usd=0.15,
+            output_per_million_usd=0.15,
+        ),
+        "kimi-k2.5": CommercialEquivalent(
+            commercial_name="Kimi-K2.5 API (Moonshot flagship)",
+            input_per_million_usd=0.20,
+            output_per_million_usd=0.60,
+        ),
     }
 
     merged: dict[str, CommercialEquivalent] = dict(defaults)

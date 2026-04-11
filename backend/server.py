@@ -44,7 +44,7 @@ HF_TOKEN = os.environ.get("HF_TOKEN") or os.environ.get("HUGGINGFACE_API_TOKEN",
 HF_BASE_URL = os.environ.get("HF_BASE_URL", "https://router.huggingface.co")
 HF_MODEL_ID = os.environ.get("HF_MODEL_ID", "Qwen/Qwen2.5-Coder-7B-Instruct")
 
-LLM_PROVIDER = os.environ.get("LLM_PROVIDER", "ollama")
+LLM_PROVIDER = os.environ.get("LLM_PROVIDER", "deepseek")
 LANGFUSE_PK = os.environ.get("LANGFUSE_PUBLIC_KEY", "")
 LANGFUSE_SK = os.environ.get("LANGFUSE_SECRET_KEY", "")
 LANGFUSE_BASE = os.environ.get("LANGFUSE_BASE_URL", "https://cloud.langfuse.com")
@@ -56,6 +56,20 @@ OPENROUTER_API_KEY = os.environ.get("OPENROUTER_API_KEY", "")
 OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"
 TOGETHER_API_KEY = os.environ.get("TOGETHER_API_KEY", "")
 TOGETHER_BASE_URL = "https://api.together.xyz/v1"
+
+DEEPSEEK_API_KEY = os.environ.get("DEEPSEEK_API_KEY", "")
+DEEPSEEK_BASE_URL = "https://api.deepseek.com"
+ZHIPU_API_KEY = os.environ.get("ZHIPU_API_KEY", "")
+ZHIPU_BASE_URL = "https://open.bigmodel.cn/api/paas/v4"
+DASHSCOPE_API_KEY = os.environ.get("DASHSCOPE_API_KEY", "")
+DASHSCOPE_BASE_URL = "https://dashscope.aliyuncs.com/compatible-mode/v1"
+
+MINIMAX_API_KEY = os.environ.get("MINIMAX_API_KEY", "")
+MINIMAX_BASE_URL = "https://api.minimax.chat/v1"
+GOOGLE_API_KEY = os.environ.get("GOOGLE_API_KEY", "")
+GOOGLE_BASE_URL = "https://generativelanguage.googleapis.com/v1beta/openai"
+MOONSHOT_API_KEY = os.environ.get("MOONSHOT_API_KEY", "")
+MOONSHOT_BASE_URL = "https://api.moonshot.cn/v1"
 
 # GitHub OAuth App credentials (optional — enables the one-click "Connect with GitHub"
 # flow; without these the fallback PAT input is shown instead).
@@ -105,6 +119,26 @@ PREDEFINED_MODELS: dict[str, list[dict]] = {
         {"id": "Qwen/Qwen2.5-72B-Instruct-Turbo", "name": "Qwen2.5 72B Turbo", "role": ["executor"], "tier": "balanced"},
         {"id": "deepseek-ai/DeepSeek-R1-Distill-Qwen-32B", "name": "DeepSeek R1 Distill 32B", "role": ["planner"], "tier": "balanced"},
     ],
+    "deepseek": [
+        {"id": "deepseek-chat", "name": "DeepSeek-V3", "role": ["executor"], "tier": "flagship"},
+        {"id": "deepseek-reasoner", "name": "DeepSeek-R1", "role": ["planner", "verifier"], "tier": "flagship"},
+    ],
+    "zhipu": [
+        {"id": "glm-4.5-air", "name": "GLM-4.5 Air", "role": ["planner", "executor", "verifier"], "tier": "balanced"},
+    ],
+    "dashscope": [
+        {"id": "qwen3-coder-30b-a3b", "name": "Qwen3-Coder-30B-A3B", "role": ["planner", "executor", "verifier"], "tier": "balanced"},
+        {"id": "qwen3.5-397b-a17b", "name": "Qwen3.5 397B A17B", "role": ["executor"], "tier": "flagship"},
+    ],
+    "minimax": [
+        {"id": "mimo-v2-flash", "name": "MiMo-V2-Flash", "role": ["planner", "executor", "verifier"], "tier": "balanced"},
+    ],
+    "google": [
+        {"id": "gemma-4", "name": "Gemma 4", "role": ["planner", "executor", "verifier"], "tier": "balanced"},
+    ],
+    "moonshot": [
+        {"id": "kimi-k2.5", "name": "Kimi-K2.5", "role": ["planner", "executor", "verifier"], "tier": "flagship"},
+    ],
 }
 
 # Which model handles each agent role per provider type.
@@ -129,6 +163,36 @@ AGENT_ROLE_MODELS: dict[str, dict[str, str]] = {
         "planner": "deepseek-ai/DeepSeek-R1",
         "executor": "Qwen/Qwen3-235B-A22B",
         "verifier": "deepseek-ai/DeepSeek-R1",
+    },
+    "deepseek": {
+        "planner": "deepseek-reasoner",
+        "executor": "deepseek-chat",
+        "verifier": "deepseek-reasoner",
+    },
+    "zhipu": {
+        "planner": "glm-4.5-air",
+        "executor": "glm-4.5-air",
+        "verifier": "glm-4.5-air",
+    },
+    "dashscope": {
+        "planner": "qwen3-coder-30b-a3b",
+        "executor": "qwen3.5-397b-a17b",
+        "verifier": "qwen3-coder-30b-a3b",
+    },
+    "minimax": {
+        "planner": "mimo-v2-flash",
+        "executor": "mimo-v2-flash",
+        "verifier": "mimo-v2-flash",
+    },
+    "google": {
+        "planner": "gemma-4",
+        "executor": "gemma-4",
+        "verifier": "gemma-4",
+    },
+    "moonshot": {
+        "planner": "kimi-k2.5",
+        "executor": "kimi-k2.5",
+        "verifier": "kimi-k2.5",
     },
 }
 
@@ -719,6 +783,66 @@ async def seed_default_providers():
             "default_model": "Qwen/Qwen3-235B-A22B",
             "is_default": LLM_PROVIDER == "together",
             "status": "configured" if TOGETHER_API_KEY else "unconfigured",
+        },
+        {
+            "provider_id": "deepseek",
+            "name": "DeepSeek API",
+            "type": "openai-compatible",
+            "base_url": DEEPSEEK_BASE_URL,
+            "api_key": DEEPSEEK_API_KEY,
+            "default_model": "deepseek-reasoner",
+            "is_default": LLM_PROVIDER == "deepseek",
+            "status": "configured" if DEEPSEEK_API_KEY else "unconfigured",
+        },
+        {
+            "provider_id": "zhipu",
+            "name": "Zhipu AI (GLM)",
+            "type": "openai-compatible",
+            "base_url": ZHIPU_BASE_URL,
+            "api_key": ZHIPU_API_KEY,
+            "default_model": "glm-4.5-air",
+            "is_default": LLM_PROVIDER == "zhipu",
+            "status": "configured" if ZHIPU_API_KEY else "unconfigured",
+        },
+        {
+            "provider_id": "dashscope",
+            "name": "AliCloud DashScope",
+            "type": "openai-compatible",
+            "base_url": DASHSCOPE_BASE_URL,
+            "api_key": DASHSCOPE_API_KEY,
+            "default_model": "qwen3.5-397b-a17b",
+            "is_default": LLM_PROVIDER == "dashscope",
+            "status": "configured" if DASHSCOPE_API_KEY else "unconfigured",
+        },
+        {
+            "provider_id": "minimax",
+            "name": "MiniMax",
+            "type": "openai-compatible",
+            "base_url": MINIMAX_BASE_URL,
+            "api_key": MINIMAX_API_KEY,
+            "default_model": "mimo-v2-flash",
+            "is_default": LLM_PROVIDER == "minimax",
+            "status": "configured" if MINIMAX_API_KEY else "unconfigured",
+        },
+        {
+            "provider_id": "google-gemini",
+            "name": "Google Gemini (OpenAI compat)",
+            "type": "openai-compatible",
+            "base_url": GOOGLE_BASE_URL,
+            "api_key": GOOGLE_API_KEY,
+            "default_model": "gemma-4",
+            "is_default": LLM_PROVIDER == "google",
+            "status": "configured" if GOOGLE_API_KEY else "unconfigured",
+        },
+        {
+            "provider_id": "moonshot",
+            "name": "Moonshot AI (Kimi)",
+            "type": "openai-compatible",
+            "base_url": MOONSHOT_BASE_URL,
+            "api_key": MOONSHOT_API_KEY,
+            "default_model": "kimi-k2.5",
+            "is_default": LLM_PROVIDER == "moonshot",
+            "status": "configured" if MOONSHOT_API_KEY else "unconfigured",
         },
     ]
     for p in defaults:
