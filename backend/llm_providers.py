@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import re
 from dataclasses import dataclass
 from typing import Any
 
@@ -43,13 +44,28 @@ def _auth_headers(api_key: str | None) -> dict[str, str]:
     return headers
 
 
+def _strip_think_tags(text: str) -> str:
+    """Remove <think>…</think> reasoning blocks from model output.
+
+    Some models (DeepSeek R1, QwQ, Qwen3-thinking) emit their chain-of-thought
+    inside these tags before the real answer. We strip them so the UI always
+    receives clean, actionable text.
+    """
+    if not text:
+        return text
+    stripped = re.sub(r"<think>[\s\S]*?</think>", "", text, flags=re.IGNORECASE)
+    # Also handle an unclosed <think> block at the end (model cut off mid-think)
+    stripped = re.sub(r"<think>[\s\S]*$", "", stripped, flags=re.IGNORECASE)
+    return stripped.strip()
+
+
 async def chat_completion_text(
     provider: LlmProviderConfig,
     *,
     messages: list[dict[str, Any]],
     model: str | None,
     temperature: float,
-    timeout_sec: float = 120.0,
+    timeout_sec: float = 300.0,
     retries: int = 2,
     client: httpx.AsyncClient | None = None,
 ) -> str:
@@ -86,13 +102,25 @@ async def chat_completion_text(
             data = native.json()
             msg = data.get("message") if isinstance(data, dict) else None
             if isinstance(msg, dict) and isinstance(msg.get("content"), str):
-                return msg["content"]
+                return _strip_think_tags(msg["content"])
             if isinstance(data, dict) and isinstance(data.get("response"), str):
-                return data["response"]
+                return _strip_think_tags(data["response"])
             raise ValueError("Unexpected Ollama /api/chat response shape")
         resp.raise_for_status()
         data = resp.json()
-        return data["choices"][0]["message"]["content"]
+
+        # ── Extract content from OpenAI-compatible response ──────────────────
+        choice = data["choices"][0]
+        message = choice.get("message") or {}
+        content: str | None = message.get("content")
+
+        # Some thinking/reasoning models return content=None and put the answer
+        # exclusively in reasoning_content (e.g. deepseek-reasoner via OpenRouter).
+        if not content:
+            content = message.get("reasoning_content") or ""
+
+        # Strip <think>…</think> blocks emitted by reasoning models.
+        return _strip_think_tags(content)
 
     if client is not None:
         return await _do(client)

@@ -1,14 +1,46 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { chatSend, listSessions, getSession, deleteSession, listProviders, listProviderModels, fmtErr } from '../api';
-import { Send, Plus, Trash2, MessageSquare, Bot, User, Loader2, Zap } from 'lucide-react';
+import { Send, Plus, Trash2, MessageSquare, Bot, User, Loader2, Zap, Clock } from 'lucide-react';
 
 const LS_PROVIDER_ID = 'llmrelay_provider_id';
 const LS_MODEL = 'llmrelay_model';
 const LS_TEMPERATURE = 'llmrelay_temperature';
 const LS_AGENT_MODE = 'llmrelay_agent_mode';
+
+// Animated thinking bubble shown while the LLM is processing
+function ThinkingBubble({ elapsed }) {
+  return (
+    <div className="flex gap-3 animate-fade-in">
+      <div className="w-7 h-7 bg-[#002FA7] flex items-center justify-center shrink-0">
+        <Bot size={14} />
+      </div>
+      <div className="bg-[#1A1A1A] border border-white/10 px-4 py-3 flex flex-col gap-1.5">
+        <div className="flex items-center gap-2">
+          <span className="text-[10px] text-[#737373] font-mono uppercase tracking-wider">Thinking</span>
+          {/* Three-dot animation */}
+          <span className="flex gap-1">
+            {[0, 1, 2].map(i => (
+              <span
+                key={i}
+                className="w-1.5 h-1.5 rounded-full bg-[#002FA7]"
+                style={{ animation: `thinkingDot 1.4s ease-in-out ${i * 0.16}s infinite` }}
+              />
+            ))}
+          </span>
+        </div>
+        {elapsed >= 10 && (
+          <div className="flex items-center gap-1.5 text-[9px] text-[#737373] font-mono">
+            <Clock size={9} />
+            <span>{elapsed}s elapsed — model may be reasoning deeply, please wait…</span>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
 
 export default function ChatPage() {
   const { sessionId: paramSid } = useParams();
@@ -18,6 +50,7 @@ export default function ChatPage() {
   const [messages, setMessages] = useState([]);
   const [input, setInput] = useState('');
   const [sending, setSending] = useState(false);
+  const [thinkingElapsed, setThinkingElapsed] = useState(0);
   const [sessionId, setSessionId] = useState(paramSid || null);
   const [providers, setProviders] = useState([]);
   const [providerId, setProviderId] = useState(localStorage.getItem(LS_PROVIDER_ID) || '');
@@ -27,6 +60,7 @@ export default function ChatPage() {
   const [agentMode, setAgentMode] = useState(localStorage.getItem(LS_AGENT_MODE) === 'true');
   const messagesEndRef = useRef(null);
   const inputRef = useRef(null);
+  const elapsedTimerRef = useRef(null);
 
   useEffect(() => {
     loadSessions();
@@ -118,6 +152,11 @@ export default function ChatPage() {
     const content = input.trim();
     setInput('');
     setSending(true);
+    setThinkingElapsed(0);
+    // Start elapsed-time counter
+    elapsedTimerRef.current = setInterval(() => {
+      setThinkingElapsed(prev => prev + 1);
+    }, 1000);
     setMessages(prev => [...prev, { role: 'user', content }]);
 
     try {
@@ -134,7 +173,10 @@ export default function ChatPage() {
         content: `Error: ${fmtErr(err?.response?.data?.detail) || err?.message || 'Failed to get response. Check LLM provider.'}`
       }]);
     } finally {
+      clearInterval(elapsedTimerRef.current);
+      elapsedTimerRef.current = null;
       setSending(false);
+      setThinkingElapsed(0);
     }
   };
 
@@ -303,16 +345,7 @@ export default function ChatPage() {
             </div>
           ))}
 
-          {sending && (
-            <div className="flex gap-3 animate-fade-in">
-              <div className="w-7 h-7 bg-[#002FA7] flex items-center justify-center shrink-0">
-                <Bot size={14} />
-              </div>
-              <div className="bg-[#1A1A1A] border border-white/10 px-4 py-3">
-                <Loader2 size={14} className="animate-spin text-[#002FA7]" />
-              </div>
-            </div>
-          )}
+          {sending && <ThinkingBubble elapsed={thinkingElapsed} />}
           <div ref={messagesEndRef} />
         </div>
 
@@ -332,10 +365,14 @@ export default function ChatPage() {
             <button
               onClick={handleSend}
               disabled={!input.trim() || sending}
-              className="bg-[#002FA7] hover:bg-[#002585] text-white p-3 transition-colors disabled:opacity-30 disabled:cursor-not-allowed shrink-0"
+              className="bg-[#002FA7] hover:bg-[#002585] text-white p-3 transition-colors disabled:opacity-50 disabled:cursor-not-allowed shrink-0 flex items-center gap-2"
               data-testid="chat-send-button"
             >
-              <Send size={16} />
+              {sending ? (
+                <Loader2 size={16} className="animate-spin" />
+              ) : (
+                <Send size={16} />
+              )}
             </button>
           </div>
         </div>

@@ -1022,19 +1022,34 @@ async def chat_send(body: ChatMessage, user: dict = Depends(get_current_user)):
     # Determine whether to use multi-agent orchestration.
     use_agent = body.agent_mode or _classify_complexity(body.content) == "complex"
 
+    # Hard timeouts so a stuck/thinking model never silently hangs the request.
+    _AGENT_TIMEOUT_SEC = 300   # 5 minutes for multi-agent loop
+    _LLM_TIMEOUT_SEC   = 180   # 3 minutes for simple LLM calls
+
     if use_agent:
         provider = await db.providers.find_one({"provider_id": provider_id}) if provider_id else await get_active_provider()
         if not provider:
             provider = {"provider_id": "ollama-local", "type": "ollama", "base_url": OLLAMA_BASE, "api_key": "", "default_model": OLLAMA_MODEL}
         try:
-            response_text = await _run_agent_loop(
-                instruction=body.content,
-                session_messages=messages[:-1],  # exclude the just-appended user msg
-                wiki_index=wiki_index,
-                provider=provider,
-                requested_model=body.model or session.get("model"),
-                github_token=user.get("github_repo_token"),
+            response_text = await asyncio.wait_for(
+                _run_agent_loop(
+                    instruction=body.content,
+                    session_messages=messages[:-1],  # exclude the just-appended user msg
+                    wiki_index=wiki_index,
+                    provider=provider,
+                    requested_model=body.model or session.get("model"),
+                    github_token=user.get("github_repo_token"),
+                ),
+                timeout=_AGENT_TIMEOUT_SEC,
             )
+        except asyncio.TimeoutError:
+            log.warning("Agent loop timed out after %ds — returning timeout message", _AGENT_TIMEOUT_SEC)
+            response_text = (
+                f"⚠️ The agent took too long to respond (exceeded {_AGENT_TIMEOUT_SEC} seconds). "
+                "This usually happens when the model is reasoning through a complex problem. "
+                "Try a simpler query or switch to a faster model."
+            )
+            use_agent = True  # mark handled — skip simple LLM fallback
         except Exception as exc:
             log.error("Agent loop failed, falling back to simple LLM: %s", exc)
             use_agent = False
@@ -1071,12 +1086,22 @@ async def chat_send(body: ChatMessage, user: dict = Depends(get_current_user)):
                 )
                 history_for_llm = await _compact_context(messages, cfg, body.model or session.get("model"))
         llm_messages = [system_msg] + history_for_llm
-        response_text = await call_llm(
-            llm_messages,
-            model=body.model or session.get("model"),
-            temperature=float(temperature),
-            provider_id=provider_id,
-        )
+        try:
+            response_text = await asyncio.wait_for(
+                call_llm(
+                    llm_messages,
+                    model=body.model or session.get("model"),
+                    temperature=float(temperature),
+                    provider_id=provider_id,
+                ),
+                timeout=_LLM_TIMEOUT_SEC,
+            )
+        except asyncio.TimeoutError:
+            log.warning("LLM call timed out after %ds", _LLM_TIMEOUT_SEC)
+            response_text = (
+                f"⚠️ The model took too long to respond (exceeded {_LLM_TIMEOUT_SEC} seconds). "
+                "It may still be generating in the background. Please try again or select a faster model."
+            )
 
     messages.append({"role": "assistant", "content": response_text})
     await db.chat_sessions.update_one(

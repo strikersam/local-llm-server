@@ -14,6 +14,12 @@
   `if body.X is not None: updates[...] = ...` statements were split onto separate
   lines to comply with PEP 8 (pycodestyle E701). No behaviour change.
 
+- **Agent chat infinite loading fixed** (`backend/server.py`, `backend/llm_providers.py`, `frontend/src/pages/ChatPage.js`, `frontend/src/index.css`): 
+  Fixed an issue where the frontend chat would get stuck in a "thinking" state.
+  Added hard `asyncio.wait_for` timeouts (5 min for agent loop, 3 min for simple LLM calls) to prevent backend hangs.
+  Stripping of `<think>` tags in `chat_completion_text` is now robust and falls back to `reasoning_content` if the model does not produce ordinary `content`.
+  Frontend updated with an animated `ThinkingBubble`, showing a time-elapsed warning after 10s of wait time.
+
 - **Orphaned Google OAuth fragment removed** (`backend/server.py`): ~50 lines of
   indented Google user-upsert code (steps 2-4 of the OAuth callback) were floating
   outside any function body between `@app.post("/api/auth/refresh")` and the LLM
