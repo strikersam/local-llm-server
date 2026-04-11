@@ -250,11 +250,18 @@ async def github_callback(request: Request, code: str = None, state: str = None)
             return _oauth_popup_html(False, error_msg="GitHub did not return a username. Please try again.")
         # State consumed — delete now that everything succeeded
         await db.oauth_states.delete_one({"state": state})
+        now_iso = datetime.now(timezone.utc).isoformat()
         await db.github_settings.update_one(
             {"user_id": user_id},
             {"$set": {"user_id": user_id, "token": access_token, "github_login": login,
-                      "updated_at": datetime.now(timezone.utc).isoformat()}},
+                      "updated_at": now_iso}},
             upsert=True,
+        )
+        # Also sync to the user document so the agent runner can read it directly
+        await db.users.update_one(
+            {"_id": ObjectId(user_id)},
+            {"$set": {"github_repo_token": access_token, "github_login": login,
+                      "github_updated_at": now_iso}},
         )
         await log_activity("github", f"GitHub OAuth connected — @{login}", user_id=user_id)
         return _oauth_popup_html(True, login=login)
@@ -731,6 +738,10 @@ _COMPLEX_KEYWORDS = {
     "write", "create", "build", "generate", "analyze", "implement", "refactor",
     "design", "plan", "research", "compare", "summarize", "explain in detail",
     "step by step", "walk me through", "how would you", "what are all",
+    # GitHub / repo operations — always need the agent tools
+    "github", "repository", "repo", "commit", "push", "pull request", "branch",
+    "add changes", "make changes", "edit code", "edit file", "connect to my",
+    "open pr", "open a pr", "merge", "clone",
 }
 _COMPLEX_WORD_THRESHOLD = 25
 _COMPACT_THRESHOLD = 16
@@ -1071,12 +1082,22 @@ async def chat_send(body: ChatMessage, user: dict = Depends(get_current_user)):
             use_agent = False
 
     if not use_agent:
+        github_connected = bool(user.get("github_repo_token"))
+        github_hint = (
+            " You also have GitHub repository access via the connected token — "
+            "to perform repo operations (read files, commit, open PRs), the user must enable Agent Mode (the ⚡ toggle)."
+            if github_connected else
+            " GitHub repo access is not connected. If the user wants you to interact with a repository, "
+            "ask them to go to Settings → GitHub and connect their account, then enable Agent Mode."
+        )
         system_msg = {
             "role": "system",
             "content": (
-                "You are the LLM Wiki Agent. You help build and maintain a persistent knowledge wiki. "
+                "You are an AI assistant with access to a persistent knowledge wiki and, when Agent Mode is on, "
+                "GitHub repository tools (read files, create branches, commit changes, open pull requests). "
                 f"Current wiki pages:\n{wiki_index}\n"
-                "Use [[Page Title]] notation for references. Be concise and helpful."
+                "Use [[Page Title]] notation for wiki references. Be concise and helpful."
+                + github_hint
             ),
         }
         # Compact context if history is long.
@@ -1788,18 +1809,30 @@ async def set_github_token(body: GitHubTokenBody, user: dict = Depends(get_curre
         gh_user = r.json()
     except httpx.HTTPError as exc:
         raise HTTPException(status_code=400, detail=f"GitHub token validation failed: {exc}") from exc
+    now_iso = datetime.now(timezone.utc).isoformat()
+    gh_login = gh_user.get("login", "")
     await db.github_settings.update_one(
         {"user_id": uid},
-        {"$set": {"user_id": uid, "token": body.token, "github_login": gh_user.get("login"), "updated_at": datetime.now(timezone.utc).isoformat()}},
+        {"$set": {"user_id": uid, "token": body.token, "github_login": gh_login, "updated_at": now_iso}},
         upsert=True,
     )
-    await log_activity("github", f"GitHub token connected for @{gh_user.get('login')}", user_id=uid)
-    return {"ok": True, "login": gh_user.get("login")}
+    # Sync to user document so the agent runner can read it directly
+    await db.users.update_one(
+        {"_id": ObjectId(uid)},
+        {"$set": {"github_repo_token": body.token, "github_login": gh_login, "github_updated_at": now_iso}},
+    )
+    await log_activity("github", f"GitHub token connected for @{gh_login}", user_id=uid)
+    return {"ok": True, "login": gh_login}
 
 
 @app.delete("/api/github/token")
 async def delete_github_token(user: dict = Depends(get_current_user)):
     await db.github_settings.delete_one({"user_id": user["_id"]})
+    # Clear from user document too
+    await db.users.update_one(
+        {"_id": ObjectId(user["_id"])},
+        {"$unset": {"github_repo_token": "", "github_login": "", "github_updated_at": ""}},
+    )
     return {"ok": True}
 
 

@@ -122,6 +122,7 @@ export const healthCheck = () => API.get('/api/health');
 
 // GitHub Integration
 export const githubStatus = () => API.get('/api/github/status');
+export const getGithubStatus = githubStatus; // alias used by GitHubAccessSection
 export const startGithubOAuth = () => API.post('/api/github/oauth/start');
 export const setGithubToken = (token) => API.put('/api/github/token', { token });
 export const deleteGithubToken = () => API.delete('/api/github/token');

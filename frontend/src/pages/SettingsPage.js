@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { healthCheck, getPlatformInfo, githubStatus, startGithubOAuth, setGithubToken, deleteGithubToken } from '../api';
+import { healthCheck, getPlatformInfo, githubStatus, getGithubStatus, startGithubOAuth, setGithubToken, deleteGithubToken, listGithubRepos, authorizeGithubRepos } from '../api';
 import { Settings, CheckCircle, XCircle, ExternalLink, Github, Globe, Server, Cpu, Key, Loader2, Trash2, Lock, ChevronDown, ChevronUp } from 'lucide-react';
 
 export default function SettingsPage() {
@@ -337,11 +337,11 @@ function GitHubAccessSection() {
   const [selectedRepos, setSelectedRepos] = useState([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
-  const backendUrl = process.env.REACT_APP_BACKEND_URL || '';
+  const [connecting, setConnecting] = useState(false);
+  const popupRef = useRef(null);
 
-  const refresh = () => {
+  const refresh = useCallback(() => {
     setLoading(true);
-    const { getGithubStatus, listGithubRepos } = require('../api');
     Promise.all([getGithubStatus(), listGithubRepos()])
       .then(([s, r]) => {
         setStatus(s.data);
@@ -350,7 +350,7 @@ function GitHubAccessSection() {
       })
       .catch(err => console.error('Failed to fetch GH status', err))
       .finally(() => setLoading(false));
-  };
+  }, []);
 
   useEffect(() => {
     refresh();
@@ -362,9 +362,32 @@ function GitHubAccessSection() {
     );
   };
 
+  const handleConnect = useCallback(async () => {
+    setConnecting(true);
+    try {
+      const { data } = await startGithubOAuth();
+      const popup = window.open(data.url, 'github_oauth', 'width=600,height=700,scrollbars=yes');
+      if (!popup) { setConnecting(false); return; }
+      popupRef.current = popup;
+      const backendOrigin = process.env.REACT_APP_BACKEND_URL
+        ? new URL(process.env.REACT_APP_BACKEND_URL).origin
+        : window.location.origin;
+      const handler = (event) => {
+        if (event.origin !== backendOrigin) return;
+        if (!event.data || event.data.type !== 'github_oauth') return;
+        window.removeEventListener('message', handler);
+        setConnecting(false);
+        if (event.data.success) refresh();
+      };
+      window.addEventListener('message', handler);
+      const poll = setInterval(() => {
+        if (popup.closed) { clearInterval(poll); window.removeEventListener('message', handler); setConnecting(false); refresh(); }
+      }, 500);
+    } catch { setConnecting(false); }
+  }, [refresh]);
+
   const handleSave = async () => {
     setSaving(true);
-    const { authorizeGithubRepos } = require('../api');
     try {
       await authorizeGithubRepos(selectedRepos);
       refresh();
@@ -395,10 +418,11 @@ function GitHubAccessSection() {
             <p className="text-[11px] text-[#A0A0A0] leading-relaxed">
               Connect your GitHub account with <code className="text-[#002FA7] bg-[#002FA7]/10 px-1">repo</code> scope to allow the agent to manage your repositories directly.
             </p>
-            <a href={`${backendUrl}/api/auth/github/repo-access`} 
-               className="inline-flex items-center gap-2 bg-[#002FA7] hover:bg-[#002585] text-white px-4 py-2 text-[10px] font-mono font-bold tracking-widest uppercase transition-all">
-              <Github size={14} /> Grant Repo Access <ExternalLink size={10} />
-            </a>
+            <button onClick={handleConnect} disabled={connecting}
+               className="inline-flex items-center gap-2 bg-[#002FA7] hover:bg-[#002585] text-white px-4 py-2 text-[10px] font-mono font-bold tracking-widest uppercase transition-all disabled:opacity-50">
+              {connecting ? <Loader2 size={14} className="animate-spin" /> : <Github size={14} />}
+              {connecting ? 'Connecting…' : 'Connect GitHub'}
+            </button>
           </div>
         ) : (
           <div className="space-y-4">
@@ -406,7 +430,7 @@ function GitHubAccessSection() {
               <h3 className="text-[11px] text-white font-bold tracking-tight">Select Authorized Repositories</h3>
               <div className="flex gap-2">
                 <button onClick={refresh} className="text-[9px] text-[#A0A0A0] hover:text-white transition-colors font-mono uppercase">Refresh List</button>
-                <a href={`${backendUrl}/api/auth/github/repo-access`} className="text-[9px] text-[#002FA7] hover:underline font-mono uppercase">Re-Auth</a>
+                <button onClick={handleConnect} disabled={connecting} className="text-[9px] text-[#002FA7] hover:underline font-mono uppercase disabled:opacity-50">Re-Auth</button>
               </div>
             </div>
 
