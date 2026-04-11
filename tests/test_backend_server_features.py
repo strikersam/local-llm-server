@@ -176,161 +176,49 @@ def test_mask_observations_preserves_message_count():
 
 # ── _run_agent_loop ───────────────────────────────────────────────────────────
 
-def _make_mock_transport(responses: list[str]):
-    """Return an httpx transport that cycles through provided response strings."""
-    call_count = {"n": 0}
-
-    def handler(request: httpx.Request) -> httpx.Response:
-        idx = min(call_count["n"], len(responses) - 1)
-        call_count["n"] += 1
-        body = {"choices": [{"message": {"content": responses[idx]}}]}
-        return httpx.Response(200, json=body)
-
-    return httpx.MockTransport(handler)
-
-
 @pytest.mark.anyio
-async def test_run_agent_loop_returns_verifier_response_for_long_executor_output(monkeypatch):
-    """When executor produces ≥200 chars, verifier runs and its output is returned."""
-    planner_resp = "1. Step one\n2. Step two"
-    executor_resp = "E" * 250  # long enough to trigger verifier
-    verifier_resp = "Verified final answer."
+async def test_run_agent_loop_success(monkeypatch):
+    """Verify _run_agent_loop calls AgentRunner.run and returns the summary."""
+    mock_result = {"summary": "Agent reached a conclusion."}
+    
+    class MockRunner:
+        def __init__(self, **kwargs):
+            self.kwargs = kwargs
+        async def run(self, **kwargs):
+            self.run_kwargs = kwargs
+            return mock_result
 
-    call_log: list[str] = []
-
-    async def mock_chat(cfg: LlmProviderConfig, *, messages, model, temperature, client=None):
-        if messages[0]["content"].startswith("You are the Planner"):
-            call_log.append("planner")
-            return planner_resp
-        if messages[0]["content"].startswith("You are the Executor"):
-            call_log.append("executor")
-            return executor_resp
-        if messages[0]["content"].startswith("You are the Verifier"):
-            call_log.append("verifier")
-            return verifier_resp
-        return "unexpected"
-
-    monkeypatch.setattr("backend.server.chat_completion_text", mock_chat)
-
-    provider = {"type": "openrouter", "base_url": "https://openrouter.ai/api", "api_key": "sk-test"}
-    result = await _run_agent_loop(
-        instruction="Write a detailed essay.",
-        session_messages=[{"role": "user", "content": "go"}],
-        wiki_index="",
-        provider=provider,
-        requested_model=None,
-    )
-
-    assert result == verifier_resp
-    assert call_log == ["planner", "executor", "verifier"]
-
-
-@pytest.mark.anyio
-async def test_run_agent_loop_skips_verifier_for_short_executor_output(monkeypatch):
-    """When executor produces <200 chars, verifier is skipped."""
-    call_log: list[str] = []
-
-    async def mock_chat(cfg: LlmProviderConfig, *, messages, model, temperature, client=None):
-        if messages[0]["content"].startswith("You are the Planner"):
-            call_log.append("planner")
-            return "1. Just do it"
-        if messages[0]["content"].startswith("You are the Executor"):
-            call_log.append("executor")
-            return "Short answer."  # < 200 chars → verifier skipped
-        call_log.append("verifier")
-        return "should not be called"
-
-    monkeypatch.setattr("backend.server.chat_completion_text", mock_chat)
-
+    monkeypatch.setattr("agent.loop.AgentRunner", MockRunner)
+    
     provider = {"type": "ollama", "base_url": "http://localhost:11434", "api_key": None}
     result = await _run_agent_loop(
-        instruction="Quick question.",
-        session_messages=[],
-        wiki_index="",
+        instruction="Do something",
+        session_messages=[{"role": "user", "content": "hi"}],
+        wiki_index="Index text",
         provider=provider,
-        requested_model=None,
+        requested_model="m1",
+        github_token="gh-token",
     )
-
-    assert result == "Short answer."
-    assert "verifier" not in call_log
-
+    
+    assert result == "Agent reached a conclusion."
 
 @pytest.mark.anyio
-async def test_run_agent_loop_verifier_failure_falls_back_to_executor(monkeypatch):
-    """If verifier raises, executor's response is returned as fallback."""
-    async def mock_chat(cfg: LlmProviderConfig, *, messages, model, temperature, client=None):
-        if messages[0]["content"].startswith("You are the Planner"):
-            return "1. Step"
-        if messages[0]["content"].startswith("You are the Executor"):
-            return "E" * 250
-        raise RuntimeError("verifier API error")
+async def test_run_agent_loop_failure(monkeypatch):
+    """Verify _run_agent_loop handles AgentRunner exceptions gracefully."""
+    
+    class MockRunner:
+        def __init__(self, **kwargs): pass
+        async def run(self, **kwargs):
+            raise RuntimeError("Crash")
 
-    monkeypatch.setattr("backend.server.chat_completion_text", mock_chat)
-
-    provider = {"type": "openrouter", "base_url": "https://openrouter.ai/api", "api_key": "k"}
+    monkeypatch.setattr("agent.loop.AgentRunner", MockRunner)
+    
+    provider = {"type": "ollama", "base_url": "http://localhost:11434", "api_key": None}
     result = await _run_agent_loop(
-        instruction="Task",
-        session_messages=[],
-        wiki_index="",
-        provider=provider,
-        requested_model=None,
-    )
-
-    assert result == "E" * 250
-
-
-@pytest.mark.anyio
-async def test_run_agent_loop_requested_model_overrides_all_roles(monkeypatch):
-    """Passing requested_model forces all three phases to use that model."""
-    used_models: list[str] = []
-
-    async def mock_chat(cfg: LlmProviderConfig, *, messages, model, temperature, client=None):
-        used_models.append(model)
-        if messages[0]["content"].startswith("You are the Planner"):
-            return "1. One step"
-        if messages[0]["content"].startswith("You are the Executor"):
-            return "E" * 250
-        return "verified"
-
-    monkeypatch.setattr("backend.server.chat_completion_text", mock_chat)
-
-    provider = {"type": "openrouter", "base_url": "https://openrouter.ai/api", "api_key": "k"}
-    await _run_agent_loop(
         instruction="Do something",
         session_messages=[],
         wiki_index="",
         provider=provider,
-        requested_model="my-custom-model",
     )
-
-    assert all(m == "my-custom-model" for m in used_models), (
-        f"Not all phases used the override model: {used_models}"
-    )
-
-
-@pytest.mark.anyio
-async def test_run_agent_loop_uses_correct_role_models_for_together(monkeypatch):
-    """The loop should pick AGENT_ROLE_MODELS['together'] when provider type is 'together'."""
-    used_models: list[str] = []
-
-    async def mock_chat(cfg: LlmProviderConfig, *, messages, model, temperature, client=None):
-        used_models.append(model)
-        if messages[0]["content"].startswith("You are the Planner"):
-            return "Plan"
-        return "R" * 200  # executor short response → no verifier
-
-    monkeypatch.setattr("backend.server.chat_completion_text", mock_chat)
-
-    provider = {"type": "together", "base_url": "https://api.together.xyz", "api_key": "k"}
-    await _run_agent_loop(
-        instruction="Hi",
-        session_messages=[],
-        wiki_index="",
-        provider=provider,
-        requested_model=None,
-    )
-
-    expected_planner = AGENT_ROLE_MODELS["together"]["planner"]
-    expected_executor = AGENT_ROLE_MODELS["together"]["executor"]
-    assert used_models[0] == expected_planner
-    assert used_models[1] == expected_executor
+    
+    assert "Agent error: Crash" in result

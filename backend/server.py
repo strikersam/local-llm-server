@@ -139,6 +139,51 @@ GOOGLE_CLIENT_ID = os.environ.get("GOOGLE_CLIENT_ID", "")
 GOOGLE_CLIENT_SECRET = os.environ.get("GOOGLE_CLIENT_SECRET", "")
 SESSION_SECRET = os.environ.get("SESSION_SECRET", JWT_SECRET)
 
+# ─── Auth Helpers ───────────────────────────────────────────────────────────────
+
+def hash_password(password: str) -> str:
+    return bcrypt.hashpw(password.encode("utf-8"), bcrypt.gensalt()).decode("utf-8")
+
+def verify_password(plain: str, hashed: str) -> bool:
+    return bcrypt.checkpw(plain.encode("utf-8"), hashed.encode("utf-8"))
+
+def create_access_token(user_id: str, email: str) -> str:
+    return jwt.encode(
+        {"sub": user_id, "email": email, "exp": datetime.now(timezone.utc) + timedelta(hours=24), "type": "access"},
+        JWT_SECRET, algorithm=JWT_ALGORITHM,
+    )
+
+def create_refresh_token(user_id: str) -> str:
+    return jwt.encode(
+        {"sub": user_id, "exp": datetime.now(timezone.utc) + timedelta(days=7), "type": "refresh"},
+        JWT_SECRET, algorithm=JWT_ALGORITHM,
+    )
+
+async def get_current_user(request: Request) -> dict:
+    token = None
+    auth = request.headers.get("Authorization", "")
+    if auth.startswith("Bearer "):
+        token = auth[7:]
+    if not token:
+        token = request.cookies.get("access_token")
+    if not token:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+    try:
+        payload = jwt.decode(token, JWT_SECRET, algorithms=[JWT_ALGORITHM])
+        if payload.get("type") != "access":
+            raise HTTPException(status_code=401, detail="Invalid token type")
+        user = await db.users.find_one({"_id": ObjectId(payload["sub"])})
+        if not user:
+            raise HTTPException(status_code=401, detail="User not found")
+        user["_id"] = str(user["_id"])
+        user.pop("password_hash", None)
+        return user
+    except jwt.ExpiredSignatureError:
+        raise HTTPException(status_code=401, detail="Token expired")
+    except (jwt.InvalidTokenError, Exception):
+        raise HTTPException(status_code=401, detail="Invalid token")
+
+
 @asynccontextmanager
 async def lifespan(app_: "FastAPI"):
     await ensure_bootstrap()
@@ -299,6 +344,142 @@ async def github_callback(request: Request, code: str = None, state: str = None)
         access = create_access_token(user_id, email)
         refresh = create_refresh_token(user_id)
         return RedirectResponse(f"{frontend_url}/auth/callback?access_token={access}&refresh_token={refresh}")
+
+
+@app.get("/api/auth/github/repo-access")
+async def github_repo_access(request: Request, user: dict = Depends(get_current_user)):
+    if not GITHUB_CLIENT_ID:
+        raise HTTPException(status_code=503, detail="GitHub login not configured")
+    state = secrets.token_urlsafe(32)
+    request.session["repo_oauth_state"] = state
+    # We request 'repo' scope for read/write access to repositories
+    url = (
+        f"https://github.com/login/oauth/authorize"
+        f"?client_id={GITHUB_CLIENT_ID}&state={state}&scope=repo,user:email"
+        f"&redirect_uri={request.url_for('github_repo_callback')}"
+    )
+    return RedirectResponse(url)
+
+
+@app.get("/api/auth/github/repo-callback")
+async def github_repo_callback(request: Request, code: str = None, state: str = None):
+    if not code or not state:
+        raise HTTPException(status_code=400, detail="Missing code or state")
+    if state != request.session.pop("repo_oauth_state", None):
+        raise HTTPException(status_code=400, detail="Invalid OAuth state")
+
+    async with httpx.AsyncClient() as client:
+        # 1. Exchange code for token
+        resp = await client.post(
+            "https://github.com/login/oauth/access_token",
+            data={
+                "client_id": GITHUB_CLIENT_ID,
+                "client_secret": GITHUB_CLIENT_SECRET,
+                "code": code,
+            },
+            headers={"Accept": "application/json"},
+        )
+        resp.raise_for_status()
+        token_data = resp.json()
+        access_token = token_data.get("access_token")
+        if not access_token:
+            raise HTTPException(status_code=400, detail="GitHub token exchange failed")
+
+        # 2. Get user info to identify which user is connecting
+        user_resp = await client.get(
+            "https://api.github.com/user",
+            headers={"Authorization": f"token {access_token}"},
+        )
+        user_resp.raise_for_status()
+        gh_user = user_resp.json()
+        
+        # 3. Get email
+        email = gh_user.get("email")
+        if not email:
+            email_resp = await client.get(
+                "https://api.github.com/user/emails",
+                headers={"Authorization": f"token {access_token}"},
+            )
+            email_resp.raise_for_status()
+            emails = email_resp.json()
+            primary = next((e for e in emails if e.get("primary") and e.get("verified")), None)
+            email = primary.get("email") if primary else (emails[0].get("email") if emails else None)
+
+        if not email:
+             raise HTTPException(status_code=400, detail="Could not retrieve email from GitHub")
+
+        # 4. Update the user with the new token
+        # Note: We associate the token with the authenticated user.
+        # Ideally, we should check if the GitHub email matches the logged-in user email.
+        # For simplicity in this local tool, we just update the user.
+        await db.users.update_one(
+            {"email": email.lower()},
+            {
+                "$set": {
+                    "github_repo_token": access_token,
+                    "github_login": gh_user.get("login"),
+                    "github_updated_at": datetime.now(timezone.utc).isoformat()
+                }
+            }
+        )
+        await log_activity("auth", f"User {email} granted GitHub repo access", meta={"github_login": gh_user.get("login")})
+
+        return RedirectResponse(f"{frontend_url}/settings?github_authorized=true")
+
+
+@app.get("/api/github/repos")
+async def github_list_repos(user: dict = Depends(get_current_user)):
+    token = user.get("github_repo_token")
+    if not token:
+        return {"repos": [], "authorized": False}
+    
+    async with httpx.AsyncClient() as client:
+        try:
+            resp = await client.get(
+                "https://api.github.com/user/repos?per_page=100&sort=updated",
+                headers={"Authorization": f"token {token}"},
+            )
+            if resp.status_code == 401:
+                return {"repos": [], "authorized": False, "error": "Token revoked or expired"}
+            resp.raise_for_status()
+            repos = resp.json()
+            return {
+                "repos": [
+                    {
+                        "id": r["id"],
+                        "full_name": r["full_name"],
+                        "name": r["name"],
+                        "private": r["private"],
+                        "url": r["html_url"],
+                        "description": r["description"]
+                    } for r in repos
+                ],
+                "authorized": True
+            }
+        except Exception as e:
+            return {"repos": [], "authorized": True, "error": str(e)}
+
+
+class AuthorizeReposBody(BaseModel):
+    repo_names: list[str]
+
+@app.post("/api/github/authorize-repos")
+async def github_authorize_repos(body: AuthorizeReposBody, user: dict = Depends(get_current_user)):
+    await db.users.update_one(
+        {"_id": ObjectId(user["_id"])},
+        {"$set": {"authorized_repos": body.repo_names}}
+    )
+    await log_activity("auth", f"User updated authorized repos: {len(body.repo_names)} repos")
+    return {"ok": True}
+
+
+@app.get("/api/github/status")
+async def github_status(user: dict = Depends(get_current_user)):
+    return {
+        "connected": bool(user.get("github_repo_token")),
+        "github_login": user.get("github_login"),
+        "authorized_repos": user.get("authorized_repos", []),
+    }
 
 
 @app.get("/api/auth/google/login")
@@ -462,51 +643,6 @@ async def ensure_bootstrap() -> None:
         _BOOTSTRAP_DONE = True
 
 
-# ─── Auth Helpers ───────────────────────────────────────────────────────────────
-
-def hash_password(password: str) -> str:
-    return bcrypt.hashpw(password.encode("utf-8"), bcrypt.gensalt()).decode("utf-8")
-
-def verify_password(plain: str, hashed: str) -> bool:
-    return bcrypt.checkpw(plain.encode("utf-8"), hashed.encode("utf-8"))
-
-def create_access_token(user_id: str, email: str) -> str:
-    return jwt.encode(
-        {"sub": user_id, "email": email, "exp": datetime.now(timezone.utc) + timedelta(hours=24), "type": "access"},
-        JWT_SECRET, algorithm=JWT_ALGORITHM,
-    )
-
-def create_refresh_token(user_id: str) -> str:
-    return jwt.encode(
-        {"sub": user_id, "exp": datetime.now(timezone.utc) + timedelta(days=7), "type": "refresh"},
-        JWT_SECRET, algorithm=JWT_ALGORITHM,
-    )
-
-async def get_current_user(request: Request) -> dict:
-    token = None
-    auth = request.headers.get("Authorization", "")
-    if auth.startswith("Bearer "):
-        token = auth[7:]
-    if not token:
-        token = request.cookies.get("access_token")
-    if not token:
-        raise HTTPException(status_code=401, detail="Not authenticated")
-    try:
-        payload = jwt.decode(token, JWT_SECRET, algorithms=[JWT_ALGORITHM])
-        if payload.get("type") != "access":
-            raise HTTPException(status_code=401, detail="Invalid token type")
-        user = await db.users.find_one({"_id": ObjectId(payload["sub"])})
-        if not user:
-            raise HTTPException(status_code=401, detail="User not found")
-        user["_id"] = str(user["_id"])
-        user.pop("password_hash", None)
-        return user
-    except jwt.ExpiredSignatureError:
-        raise HTTPException(status_code=401, detail="Token expired")
-    except (jwt.InvalidTokenError, Exception):
-        raise HTTPException(status_code=401, detail="Invalid token")
-
-
 # Startup is handled by the lifespan context manager defined above.
 
 
@@ -664,124 +800,44 @@ async def _run_agent_loop(
     session_messages: list[dict],
     wiki_index: str,
     provider: dict,
-    requested_model: str | None,
+    requested_model: str | None = None,
+    github_token: str | None = None,
 ) -> str:
-    """
-    Three-role orchestration loop:
-      1. Planner  (DeepSeek-R1 / reasoning model) — break the task into steps
-      2. Executor (Qwen3 / coding model)          — execute each step
-      3. Verifier (DeepSeek-R1)                   — validate final output
+    from agent.loop import AgentRunner
+    from agent.user_memory import UserMemoryStore
 
-    Returns the final synthesized response as a string.
-    """
-    ptype = str(provider.get("type") or "openai-compatible")
-    role_models = AGENT_ROLE_MODELS.get(ptype, AGENT_ROLE_MODELS["openrouter"])
+    # Use a workspace root defined by either environment or a default.
+    workspace_root = Path(__file__).resolve().parent
 
-    def _make_cfg(role_model: str) -> LlmProviderConfig:
-        return LlmProviderConfig(
-            type=ptype,
-            base_url=normalize_base_url(str(provider.get("base_url") or OLLAMA_BASE)),
-            api_key=(str(provider.get("api_key") or "").strip() or None),
-            default_model=role_model,
-        )
-
-    # Allow caller to override all roles with a specific model.
-    planner_model = requested_model or role_models["planner"]
-    executor_model = requested_model or role_models["executor"]
-    verifier_model = requested_model or role_models["verifier"]
-
-    # ── Phase 1: Planner ──────────────────────────────────────────────────────
-    history_text = "\n".join(
-        f"[{m['role'].upper()}] {m['content'][:300]}" for m in session_messages[-8:]
+    headers = {"Authorization": f"Bearer {provider.get('api_key')}"} if provider.get("api_key") else None
+    runner = AgentRunner(
+        ollama_base=provider.get("base_url", OLLAMA_BASE),
+        workspace_root=workspace_root,
+        provider_headers=headers,
+        provider_temperature=0.3, # default for agent
+        github_token=github_token,
     )
-    planner_messages = [
-        {
-            "role": "system",
-            "content": (
-                "You are the Planner agent in a three-role AI system (Planner → Executor → Verifier). "
-                "Your job is to break down the user's request into a clear, ordered list of steps "
-                "for the Executor to carry out. Be concise. Number each step. "
-                f"Wiki context:\n{wiki_index}"
-            ),
-        },
-        {
-            "role": "user",
-            "content": (
-                f"Recent conversation:\n{history_text}\n\n"
-                f"New request: {instruction}\n\n"
-                "Produce a numbered execution plan. Each step must be one clear action."
-            ),
-        },
-    ]
 
-    plan_text = await chat_completion_text(
-        _make_cfg(planner_model), messages=planner_messages, model=planner_model, temperature=0.2
+    # Add a hidden system prefix to help the agent understand it's part of a wiki platform.
+    agent_instruction = (
+        f"CONTEXT: You are working inside the LLM Relay Platform. \n"
+        f"WIKI INDEX:\n{wiki_index}\n\n"
+        f"TASK: {instruction}"
     )
-    log.info("[Agent] Planner produced plan (%d chars)", len(plan_text))
-
-    # ── Phase 2: Executor ─────────────────────────────────────────────────────
-    compacted_history = _mask_observations(session_messages[-12:])
-    executor_messages = [
-        {
-            "role": "system",
-            "content": (
-                "You are the Executor agent. You receive a plan from the Planner and carry it out "
-                "step by step, producing a thorough, well-structured response. "
-                "Use Markdown for formatting. Reference wiki pages as [[Page Title]]. "
-                f"Wiki context:\n{wiki_index}"
-            ),
-        },
-        *compacted_history,
-        {
-            "role": "user",
-            "content": (
-                f"User request: {instruction}\n\n"
-                f"Execution plan from Planner:\n{plan_text}\n\n"
-                "Execute the plan and produce the final response."
-            ),
-        },
-    ]
-
-    executor_response = await chat_completion_text(
-        _make_cfg(executor_model), messages=executor_messages, model=executor_model, temperature=0.4
-    )
-    log.info("[Agent] Executor produced response (%d chars)", len(executor_response))
-
-    # ── Phase 3: Verifier ─────────────────────────────────────────────────────
-    # Only run verifier for substantial responses to avoid unnecessary API calls.
-    if len(executor_response) < 200:
-        return executor_response
-
-    verifier_messages = [
-        {
-            "role": "system",
-            "content": (
-                "You are the Verifier agent. Your job is to critically review the Executor's response "
-                "and either approve it (return it as-is with minor corrections) or improve it. "
-                "Check: accuracy, completeness, clarity, and adherence to the user's request. "
-                "Output ONLY the final response — no meta-commentary about your review process."
-            ),
-        },
-        {
-            "role": "user",
-            "content": (
-                f"Original request: {instruction}\n\n"
-                f"Planner's plan:\n{plan_text[:500]}\n\n"
-                f"Executor's response:\n{executor_response}\n\n"
-                "Review and output the verified final response."
-            ),
-        },
-    ]
 
     try:
-        verified_response = await chat_completion_text(
-            _make_cfg(verifier_model), messages=verifier_messages, model=verifier_model, temperature=0.1
+        result = await runner.run(
+            instruction=agent_instruction,
+            history=session_messages,
+            requested_model=requested_model,
+            auto_commit=True,
+            max_steps=10,
+            memory_store=UserMemoryStore(),
         )
-        log.info("[Agent] Verifier approved/improved response (%d chars)", len(verified_response))
-        return verified_response
-    except Exception as e:
-        log.warning("[Agent] Verifier failed (%s) — returning executor response", e)
-        return executor_response
+        return result["summary"]
+    except Exception as exc:
+        log.error("AgentRunner failed: %s", exc)
+        return f"Agent error: {exc}"
 
 
 # ─── Activity Logging ──────────────────────────────────────────────────────────
@@ -1008,6 +1064,7 @@ async def chat_send(body: ChatMessage, user: dict = Depends(get_current_user)):
                 wiki_index=wiki_index,
                 provider=provider,
                 requested_model=body.model or session.get("model"),
+                github_token=user.get("github_repo_token"),
             )
         except Exception as exc:
             log.error("Agent loop failed, falling back to simple LLM: %s", exc)

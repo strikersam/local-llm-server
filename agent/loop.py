@@ -41,6 +41,7 @@ class AgentRunner:
         provider_headers: dict[str, str] | None = None,
         provider_temperature: float | None = None,
         session_store: AgentSessionStore | None = None,
+        github_token: str | None = None,
     ) -> None:
         # NOTE: "ollama_base" is kept for backwards compatibility; this runner only needs an
         # OpenAI-compatible base URL with /v1/chat/completions.
@@ -48,6 +49,8 @@ class AgentRunner:
         self.provider_headers = dict(provider_headers or {})
         self.provider_temperature = provider_temperature
         self.tools = WorkspaceTools(workspace_root)
+        from agent.github_tools import GitHubTools
+        self.github = GitHubTools(github_token)
         self.ctx = ContextManager()
         # Optional session store for event-log writes (append-only durable log).
         # When provided the harness logs key events so the session is
@@ -195,7 +198,7 @@ class AgentRunner:
             if call.tool == "finish":
                 observations.append({"tool": "finish", "result": call.args.get("reason", "done inspecting")})
                 break
-            result = self._run_tool(call.tool, call.args, user_id=user_id, memory_store=memory_store)
+            result = await self._run_tool(call.tool, call.args, user_id=user_id, memory_store=memory_store)
             observations.append({"tool": call.tool, "args": call.args, "result": result})
             context_items.append({"tool": call.tool, "result": result})
 
@@ -333,7 +336,7 @@ class AgentRunner:
             "models": {"executor": executor_model, "verifier": verifier_model},
         }
 
-    def _run_tool(
+    async def _run_tool(
         self,
         tool: str,
         args: dict[str, Any],
@@ -341,7 +344,7 @@ class AgentRunner:
         memory_store: UserMemoryStore | None = None,
     ) -> Any:
         try:
-            return self._dispatch_tool(tool, args, user_id=user_id, memory_store=memory_store)
+            return await self._dispatch_tool(tool, args, user_id=user_id, memory_store=memory_store)
         except Exception as exc:
             # The harness catches tool failures as tool-call errors and feeds
             # them back to the model — it never surfaces raw exceptions.
@@ -350,7 +353,7 @@ class AgentRunner:
             log.warning("tool %r failed: %s", tool, exc)
             return f"[tool error: {exc}]"
 
-    def _dispatch_tool(
+    async def _dispatch_tool(
         self,
         tool: str,
         args: dict[str, Any],
@@ -378,6 +381,43 @@ class AgentRunner:
             if not memory_store or not user_id:
                 return "(memory not available)"
             return self.tools.save_memory(str(args.get("key", "")), str(args.get("value", "")), user_id=user_id, memory_store=memory_store)
+        
+        # GitHub Tools
+        if tool == "github_read_repo_file":
+            return await self.github.read_repo_file(
+                repo_name=str(args.get("repo_name", "")),
+                path=str(args.get("path", "")),
+                branch=str(args.get("branch", "main"))
+            )
+        if tool == "github_create_branch":
+            return await self.github.create_branch(
+                repo_name=str(args.get("repo_name", "")),
+                branch_name=str(args.get("branch_name", "")),
+                base_branch=str(args.get("base_branch", "main"))
+            )
+        if tool == "github_commit_changes":
+            return await self.github.commit_changes(
+                repo_name=str(args.get("repo_name", "")),
+                branch_name=str(args.get("branch_name", "")),
+                message=str(args.get("message", "agent commit")),
+                path=str(args.get("path", "")),
+                content=str(args.get("content", ""))
+            )
+        if tool == "github_open_pull_request":
+            return await self.github.open_pull_request(
+                repo_name=str(args.get("repo_name", "")),
+                title=str(args.get("title", "Pull Request from AI Agent")),
+                head=str(args.get("head", "")),
+                base=str(args.get("base", "main")),
+                body=str(args.get("body", ""))
+            )
+        if tool == "github_list_repos":
+            return await self.github.list_repos()
+        if tool == "github_list_branches":
+            return await self.github.list_branches(
+                repo_name=str(args.get("repo_name", ""))
+            )
+
         raise ValueError(f"Unsupported tool: {tool}")
 
     # ------------------------------------------------------------------

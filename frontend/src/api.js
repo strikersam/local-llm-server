@@ -137,5 +137,6 @@ export const listGithubPulls = (owner, repo, state = 'open') =>
   API.get(`/api/github/repos/${owner}/${repo}/pulls`, { params: { state } });
 export const createGithubPR = (owner, repo, data) =>
   API.post(`/api/github/repos/${owner}/${repo}/pulls`, data);
+export const authorizeGithubRepos = (repoNames) => API.post('/api/github/authorize-repos', { repo_names: repoNames });
 
 export default API;

@@ -7,47 +7,15 @@
 <!-- or to the appropriate version section before merging.                     -->
 
 ## [Unreleased]
-
-### Added
-
-- **GitHub Integration** (`backend/server.py`, `frontend/src/pages/GitHubPage.js`,
-  `frontend/src/pages/SettingsPage.js`, `frontend/src/api.js`): Full GitHub repo
-  integration available from the GitHub Pages dashboard after login.
-  - **Settings → GitHub**: paste a Personal Access Token (PAT) with `repo` scope;
-    token is validated against `GET /api/github/user` and stored server-side in
-    MongoDB — it never appears in the browser after submission.
-  - New `GITHUB` nav item opens the GitHub page: browse all repos you own or
-    collaborate on, search by name, select a branch.
-  - File-tree explorer with recursive directory expansion via the GitHub Contents API.
-  - Inline file editor — read any text file, modify it, and commit directly back to
-    GitHub with a custom commit message (uses `PUT /contents/:path`).
-  - Pull-request panel: view open PRs and create new ones (head → base branch, title,
-    description) without leaving the dashboard.
-  - Backend routes added: `GET/PUT/DELETE /api/github/token`,
-    `GET /api/github/repos`, `GET /api/github/repos/{owner}/{repo}/branches`,
-    `GET /api/github/repos/{owner}/{repo}/tree`,
-    `GET /api/github/repos/{owner}/{repo}/file`,
-    `PUT /api/github/repos/{owner}/{repo}/file`,
-    `GET/POST /api/github/repos/{owner}/{repo}/pulls`.
-  - All GitHub actions are logged to the activity feed.
-
-- **GitHub OAuth one-click connect** (`backend/server.py`, `frontend/src/pages/SettingsPage.js`):
-  Replaced the raw PAT input with a proper OAuth App popup flow similar to Emergent/Claude.
-  - Settings page shows a "Connect with GitHub" button that opens a small popup (600×720).
-  - Backend `POST /api/github/oauth/start` (JWT-authenticated) creates a 10-minute
-    time-limited HMAC state stored in MongoDB (`oauth_states`, TTL index) and returns
-    the GitHub authorization URL. No token is ever passed as a query parameter.
-  - GitHub redirects to `GET /api/github/oauth/callback`; backend exchanges the code for
-    an access token, verifies it with `/user`, stores it per-user, then returns a tiny
-    HTML page that fires `window.opener.postMessage` and self-closes.
-  - SettingsPage listens for the `postMessage` and updates the UI instantly; a polling
-    fallback handles browsers that block cross-origin `postMessage`.
-  - PAT input is preserved as a collapsible fallback (click "Use a Personal Access Token
-    instead") for users who prefer it or whose server has no OAuth App configured.
-  - When `GITHUB_CLIENT_ID` / `GITHUB_CLIENT_SECRET` are not set the button is replaced
-    by a yellow banner explaining what env vars to add, and the PAT form is shown by
-    default.
-  - New env vars: `GITHUB_CLIENT_ID`, `GITHUB_CLIENT_SECRET`, `GITHUB_CALLBACK_URL`.
+- **GitHub Integration** (`backend/server.py`, `agent/loop.py`, `frontend/src/`):
+  - Full GitHub repo integration available from the GitHub Pages dashboard after login.
+  - Expanded GitHub OAuth flow to request `repo` scopes for repository write access and one-click connection.
+  - New endpoints for listing user repositories and authorizing specific repos for agent use (`/api/github/repos`, `/api/github/authorize-repos`).
+  - File-tree explorer with recursive directory expansion and inline file editor for direct commits.
+  - Pull-request panel for viewing and creating PRs without leaving the dashboard.
+  - Agent loop migration: Fully transitioned from the legacy three-role orchestration to a unified, tool-capable `AgentRunner` architecture.
+  - Secure token injection: The authenticated user's `github_repo_token` is now automatically provided to the agent for direct repository operations (read, branch, commit, PR).
+  - UI updates in Settings and chat to manage repository permissions and show connected GitHub identity.
 
 ### Fixed
 

@@ -320,9 +320,142 @@ export default function SettingsPage() {
             <div><span className="text-[#737373]">Version: </span><span className="text-white font-mono">{platform?.version || '—'}</span></div>
             <div><span className="text-[#737373]">Ollama Base: </span><span className="text-white font-mono">{platform?.ollama_base || '—'}</span></div>
             <div><span className="text-[#737373]">Langfuse: </span><span className={platform?.langfuse_configured ? 'text-green-500' : 'text-[#737373]'}>{platform?.langfuse_configured ? 'Configured' : 'Not configured'}</span></div>
-            <div><span className="text-[#737373]">ngrok: </span><span className={platform?.ngrok_configured ? 'text-green-500' : 'text-[#737373]'}>{platform?.ngrok_configured ? 'Configured' : 'Not configured'}</span></div>
+            <div><span className={platform?.ngrok_configured ? 'text-green-500' : 'text-[#737373]'}>{platform?.ngrok_configured ? 'ngrok Configured' : 'ngrok Not configured'}</span></div>
           </div>
         </div>
+
+        {/* GitHub Repository Access */}
+        <GitHubAccessSection />
+      </div>
+    </div>
+  );
+}
+
+function GitHubAccessSection() {
+  const [status, setStatus] = useState(null);
+  const [repos, setRepos] = useState([]);
+  const [selectedRepos, setSelectedRepos] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const backendUrl = process.env.REACT_APP_BACKEND_URL || '';
+
+  const refresh = () => {
+    setLoading(true);
+    const { getGithubStatus, listGithubRepos } = require('../api');
+    Promise.all([getGithubStatus(), listGithubRepos()])
+      .then(([s, r]) => {
+        setStatus(s.data);
+        setRepos(r.data.repos || []);
+        setSelectedRepos(s.data.authorized_repos || []);
+      })
+      .catch(err => console.error('Failed to fetch GH status', err))
+      .finally(() => setLoading(false));
+  };
+
+  useEffect(() => {
+    refresh();
+  }, []);
+
+  const handleToggleRepo = (fullName) => {
+    setSelectedRepos(prev => 
+      prev.includes(fullName) ? prev.filter(r => r !== fullName) : [...prev, fullName]
+    );
+  };
+
+  const handleSave = async () => {
+    setSaving(true);
+    const { authorizeGithubRepos } = require('../api');
+    try {
+      await authorizeGithubRepos(selectedRepos);
+      refresh();
+    } catch (err) {
+      alert('Failed to save repository settings');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div className="border border-white/10 bg-[#141414] stagger-6 overflow-hidden">
+      <div className="px-4 py-2.5 border-b border-white/10 flex items-center justify-between bg-white/[0.02]">
+        <div className="flex items-center gap-2">
+          <Github size={14} className="text-[#002FA7]" />
+          <span className="text-[10px] tracking-[0.15em] uppercase text-[#A0A0A0] font-mono font-bold">GitHub Repository Access</span>
+        </div>
+        {status?.connected && (
+          <div className="flex items-center gap-1.5">
+            <div className="w-1 h-1 bg-green-500 rounded-full animate-pulse" />
+            <span className="text-[9px] text-green-500 font-mono uppercase font-bold tracking-widest">{status.github_login}</span>
+          </div>
+        )}
+      </div>
+      <div className="p-5">
+        {!status?.connected ? (
+          <div className="space-y-4">
+            <p className="text-[11px] text-[#A0A0A0] leading-relaxed">
+              Connect your GitHub account with <code className="text-[#002FA7] bg-[#002FA7]/10 px-1">repo</code> scope to allow the agent to manage your repositories directly.
+            </p>
+            <a href={`${backendUrl}/api/auth/github/repo-access`} 
+               className="inline-flex items-center gap-2 bg-[#002FA7] hover:bg-[#002585] text-white px-4 py-2 text-[10px] font-mono font-bold tracking-widest uppercase transition-all">
+              <Github size={14} /> Grant Repo Access <ExternalLink size={10} />
+            </a>
+          </div>
+        ) : (
+          <div className="space-y-4">
+            <div className="flex items-center justify-between">
+              <h3 className="text-[11px] text-white font-bold tracking-tight">Select Authorized Repositories</h3>
+              <div className="flex gap-2">
+                <button onClick={refresh} className="text-[9px] text-[#A0A0A0] hover:text-white transition-colors font-mono uppercase">Refresh List</button>
+                <a href={`${backendUrl}/api/auth/github/repo-access`} className="text-[9px] text-[#002FA7] hover:underline font-mono uppercase">Re-Auth</a>
+              </div>
+            </div>
+
+            <div className="max-h-60 overflow-y-auto border border-white/5 bg-black/20 divide-y divide-white/5 custom-scrollbar">
+              {loading ? (
+                <div className="p-8 text-center text-[10px] text-[#737373] animate-pulse font-mono uppercase">Loading repositories...</div>
+              ) : repos.length > 0 ? (
+                repos.map(repo => (
+                  <label key={repo.id} className="flex items-center gap-3 px-3 py-2.5 cursor-pointer hover:bg-white/[0.03] transition-colors group">
+                    <input 
+                      type="checkbox" 
+                      className="hidden"
+                      checked={selectedRepos.includes(repo.full_name)}
+                      onChange={() => handleToggleRepo(repo.full_name)}
+                    />
+                    <div className={`w-3.5 h-3.5 border flex items-center justify-center transition-all ${
+                        selectedRepos.includes(repo.full_name) ? 'bg-[#002FA7] border-[#002FA7]' : 'border-white/20 group-hover:border-white/40'
+                      }`}>
+                      {selectedRepos.includes(repo.full_name) && <div className="w-1.5 h-1.5 bg-white" />}
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2">
+                        <span className="text-[11px] text-white font-mono truncate">{repo.full_name}</span>
+                        {repo.private && <span className="text-[8px] bg-white/10 px-1 text-[#737373] font-mono">PRIVATE</span>}
+                      </div>
+                      {repo.description && <div className="text-[9px] text-[#737373] truncate">{repo.description}</div>}
+                    </div>
+                  </label>
+                ))
+              ) : (
+                <div className="p-8 text-center text-[10px] text-[#737373] font-mono whitespace-pre-wrap">
+                  No repositories found or access denied.{"\n"}Try re-authenticating with full scopes.
+                </div>
+              )}
+            </div>
+
+            <div className="flex items-center justify-between pt-2">
+              <span className="text-[9px] text-[#737373] font-mono">
+                {selectedRepos.length} repository granted access
+              </span>
+              <button 
+                onClick={handleSave}
+                disabled={saving || loading}
+                className="bg-white/5 hover:bg-white/10 border border-white/10 px-4 py-2 text-[10px] text-white font-mono font-bold tracking-widest uppercase transition-all disabled:opacity-30">
+                {saving ? 'Saving...' : 'Save Permissions'}
+              </button>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );
