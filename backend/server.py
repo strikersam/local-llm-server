@@ -1683,8 +1683,13 @@ class GitHubTokenBody(BaseModel):
 # ── OAuth flow ─────────────────────────────────────────────────────────────────
 
 @app.post("/api/github/oauth/start")
-async def github_oauth_start(user: dict = Depends(get_current_user)):
-    """Create a time-limited OAuth state and return the GitHub authorization URL."""
+async def github_oauth_start(user: dict = Depends(get_current_user), redirect: bool = False):
+    """Create a time-limited OAuth state and return the GitHub authorization URL.
+
+    When redirect=true the callback will issue a full-page redirect back to the
+    settings page instead of using postMessage — required for mobile browsers that
+    block popup windows.
+    """
     if not GITHUB_CLIENT_ID:
         raise HTTPException(
             status_code=501,
@@ -1695,6 +1700,7 @@ async def github_oauth_start(user: dict = Depends(get_current_user)):
         "state": state,
         "user_id": user["_id"],
         "flow_type": "repo",
+        "redirect": redirect,
         "created_at": datetime.now(timezone.utc),
     })
     # No redirect_uri — GitHub will use the single registered callback URL
@@ -1728,13 +1734,21 @@ async def github_oauth_callback(
     error_description: str | None = None,
 ):
     """GitHub redirects here after the user authorises (or denies) the OAuth App."""
+    # Helper that respects redirect mode for error responses.
+    async def _error(msg: str, redirect_mode: bool = False) -> HTMLResponse:
+        if redirect_mode:
+            from urllib.parse import quote
+            return RedirectResponse(f"{frontend_url}/settings?github_error={quote(msg)}")
+        return _oauth_popup_html(False, error_msg=msg)
+
     if error or not code or not state:
-        return _oauth_popup_html(False, error_msg=error_description or error or "Authorization denied")
+        return await _error(error_description or error or "Authorization denied")
 
     state_doc = await db.oauth_states.find_one({"state": state})
     if not state_doc:
-        return _oauth_popup_html(False, error_msg="OAuth state expired or invalid — please try again.")
+        return await _error("OAuth state expired or invalid — please try again.")
 
+    is_redirect: bool = state_doc.get("redirect", False)
     user_id: str = state_doc["user_id"]
     await db.oauth_states.delete_one({"state": state})
 
@@ -1754,12 +1768,12 @@ async def github_oauth_callback(
         token_data = r.json()
     except Exception as exc:
         log.error("GitHub token exchange failed: %s", exc)
-        return _oauth_popup_html(False, error_msg="Token exchange with GitHub failed. Check server logs.")
+        return await _error("Token exchange with GitHub failed. Check server logs.", is_redirect)
 
     access_token = token_data.get("access_token")
     if not access_token:
         err = token_data.get("error_description") or token_data.get("error") or "No token returned"
-        return _oauth_popup_html(False, error_msg=err)
+        return await _error(err, is_redirect)
 
     # Fetch the GitHub user to confirm the token works.
     try:
@@ -1769,7 +1783,7 @@ async def github_oauth_callback(
         gh_user = r.json()
     except Exception as exc:
         log.error("GitHub /user fetch failed after token exchange: %s", exc)
-        return _oauth_popup_html(False, error_msg="Could not fetch GitHub user info after authorisation.")
+        return await _error("Could not fetch GitHub user info after authorisation.", is_redirect)
 
     login: str = gh_user.get("login", "")
 
@@ -1784,6 +1798,8 @@ async def github_oauth_callback(
         upsert=True,
     )
     await log_activity("github", f"GitHub OAuth connected — @{login}", user_id=user_id)
+    if state_doc.get("redirect"):
+        return RedirectResponse(f"{frontend_url}/settings?github_authorized=true")
     return _oauth_popup_html(True, login=login)
 
 

@@ -19,6 +19,16 @@
 
 ### Fixed
 
+- **GitHub OAuth blocked on mobile browsers** (`backend/server.py`, `frontend/src/api.js`, `frontend/src/pages/SettingsPage.js`):
+  Mobile browsers block all popup windows, making the OAuth flow completely non-functional.
+  Added a redirect-based OAuth fallback: when `window.open()` returns null (popup blocked),
+  both the main Settings connect button and the Re-Auth button now automatically start a new
+  OAuth request with `redirect=true` and navigate the current tab to the GitHub authorization
+  URL. The backend callback detects the flag from the stored state document and issues a
+  `RedirectResponse` to `/settings?github_authorized=true` (or `?github_error=<msg>` on
+  failure) instead of the popup postMessage page. The settings page detects these query
+  params on mount, refreshes GitHub status, shows feedback, and cleans up the URL.
+
 - **Settings page GitHub buttons broken** (`frontend/src/pages/SettingsPage.js`):
   - "Open GitHub Repos" button used a plain `<a href="/github">` anchor causing a full
     page reload in the React SPA; replaced with React Router `<Link to="/github">` for

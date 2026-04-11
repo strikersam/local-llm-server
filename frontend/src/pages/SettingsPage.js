@@ -1,9 +1,11 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { healthCheck, getPlatformInfo, githubStatus, getGithubStatus, startGithubOAuth, setGithubToken, deleteGithubToken, listGithubRepos, authorizeGithubRepos } from '../api';
 import { Settings, CheckCircle, XCircle, ExternalLink, Github, Globe, Server, Cpu, Key, Loader2, Trash2, Lock, ChevronDown, ChevronUp } from 'lucide-react';
 
 export default function SettingsPage() {
+  const location = useLocation();
+  const navigate = useNavigate();
   const [health, setHealth] = useState(null);
   const [platform, setPlatform] = useState(null);
   const [ghStatus, setGhStatus] = useState(null);
@@ -30,6 +32,21 @@ export default function SettingsPage() {
     refreshGhStatus();
   }, [refreshGhStatus]);
 
+  // Handle return from redirect-based OAuth flow (mobile fallback).
+  // Backend redirects to /settings?github_authorized=true on success
+  // or /settings?github_error=<msg> on failure.
+  useEffect(() => {
+    const params = new URLSearchParams(location.search);
+    if (params.get('github_authorized') === 'true') {
+      refreshGhStatus();
+      setGhOk('GitHub connected successfully.');
+      navigate('/settings', { replace: true });
+    } else if (params.get('github_error')) {
+      setGhErr(decodeURIComponent(params.get('github_error')));
+      navigate('/settings', { replace: true });
+    }
+  }, [location.search, navigate, refreshGhStatus]);
+
   // Clean up any open popup + message listener when the component unmounts
   useEffect(() => {
     return () => {
@@ -54,8 +71,14 @@ export default function SettingsPage() {
       popupRef.current = popup;
 
       if (!popup) {
-        setGhErr('Popup was blocked. Allow popups for this site and try again.');
+        // Popup blocked (common on mobile) — fall back to full-page redirect flow.
         setOauthLoading(false);
+        try {
+          const { data: rData } = await startGithubOAuth(true);
+          window.location.href = rData.url;
+        } catch {
+          setGhErr('Popup was blocked and redirect fallback failed. Allow popups and try again.');
+        }
         return;
       }
 
@@ -375,8 +398,14 @@ function GitHubAccessSection() {
       const { data } = await startGithubOAuth();
       const popup = window.open(data.url, 'github_oauth', 'width=600,height=700,scrollbars=yes');
       if (!popup) {
-        setConnErr('Popup was blocked. Allow popups for this site and try again.');
+        // Popup blocked (common on mobile) — fall back to full-page redirect flow.
         setConnecting(false);
+        try {
+          const { data: rData } = await startGithubOAuth(true);
+          window.location.href = rData.url;
+        } catch {
+          setConnErr('Popup was blocked and redirect fallback failed. Allow popups and try again.');
+        }
         return;
       }
       popupRef.current = popup;
