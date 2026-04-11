@@ -482,9 +482,21 @@ async def github_authorize_repos(body: AuthorizeReposBody, user: dict = Depends(
 
 @app.get("/api/github/status")
 async def github_status(user: dict = Depends(get_current_user)):
+    oauth_enabled = bool(GITHUB_CLIENT_ID and GITHUB_CLIENT_SECRET)
+    # Token may live in the user doc (set by redirect/PAT flow) or in
+    # github_settings (set by popup OAuth).  Check both so older accounts work.
+    token = user.get("github_repo_token")
+    gh_login = user.get("github_login")
+    if not token:
+        doc = await db.github_settings.find_one({"user_id": user["_id"]})
+        if doc:
+            token = doc.get("token")
+            gh_login = gh_login or doc.get("github_login")
     return {
-        "connected": bool(user.get("github_repo_token")),
-        "github_login": user.get("github_login"),
+        "connected": bool(token),
+        "oauth_enabled": oauth_enabled,
+        "login": gh_login,          # used by main GitHub Integration section
+        "github_login": gh_login,   # used by GitHubAccessSection
         "authorized_repos": user.get("authorized_repos", []),
     }
 
@@ -1666,29 +1678,6 @@ def _gh_headers(token: str) -> dict:
 
 class GitHubTokenBody(BaseModel):
     token: str = Field(..., min_length=1, max_length=500)
-
-
-@app.get("/api/github/status")
-async def github_status(user: dict = Depends(get_current_user)):
-    oauth_enabled = bool(GITHUB_CLIENT_ID and GITHUB_CLIENT_SECRET)
-    token = await _get_github_token(user["_id"])
-    if not token:
-        return {"connected": False, "oauth_enabled": oauth_enabled}
-    try:
-        async with httpx.AsyncClient(timeout=10) as c:
-            r = await c.get(f"{GITHUB_API}/user", headers=_gh_headers(token))
-        if r.status_code == 200:
-            d = r.json()
-            return {
-                "connected": True,
-                "oauth_enabled": oauth_enabled,
-                "login": d.get("login"),
-                "name": d.get("name"),
-                "avatar_url": d.get("avatar_url"),
-            }
-        return {"connected": False, "oauth_enabled": oauth_enabled}
-    except Exception:
-        return {"connected": False, "oauth_enabled": oauth_enabled}
 
 
 # ── OAuth flow ─────────────────────────────────────────────────────────────────
