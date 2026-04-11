@@ -1,21 +1,97 @@
-import React, { useState, useEffect } from 'react';
-import { healthCheck, getPlatformInfo, githubStatus, setGithubToken, deleteGithubToken } from '../api';
-import { Settings, CheckCircle, XCircle, ExternalLink, Github, Globe, Server, Cpu, Key, Loader2, Trash2 } from 'lucide-react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
+import { healthCheck, getPlatformInfo, githubStatus, startGithubOAuth, setGithubToken, deleteGithubToken } from '../api';
+import { Settings, CheckCircle, XCircle, ExternalLink, Github, Globe, Server, Cpu, Key, Loader2, Trash2, Lock, ChevronDown, ChevronUp } from 'lucide-react';
 
 export default function SettingsPage() {
   const [health, setHealth] = useState(null);
   const [platform, setPlatform] = useState(null);
   const [ghStatus, setGhStatus] = useState(null);
+
+  // PAT fallback state
+  const [showPat, setShowPat] = useState(false);
   const [ghToken, setGhToken] = useState('');
   const [ghSaving, setGhSaving] = useState(false);
   const [ghErr, setGhErr] = useState('');
   const [ghOk, setGhOk] = useState('');
 
+  // OAuth state
+  const [oauthLoading, setOauthLoading] = useState(false);
+  const popupRef = useRef(null);
+  const messageListenerRef = useRef(null);
+
+  const refreshGhStatus = useCallback(() => {
+    githubStatus().then(r => setGhStatus(r.data)).catch(() => setGhStatus({ connected: false, oauth_enabled: false }));
+  }, []);
+
   useEffect(() => {
     healthCheck().then(r => setHealth(r.data)).catch(() => {});
     getPlatformInfo().then(r => setPlatform(r.data)).catch(() => {});
-    githubStatus().then(r => setGhStatus(r.data)).catch(() => setGhStatus({ connected: false }));
+    refreshGhStatus();
+  }, [refreshGhStatus]);
+
+  // Clean up any open popup + message listener when the component unmounts
+  useEffect(() => {
+    return () => {
+      if (messageListenerRef.current) window.removeEventListener('message', messageListenerRef.current);
+      if (popupRef.current && !popupRef.current.closed) popupRef.current.close();
+    };
   }, []);
+
+  const handleOAuthConnect = async () => {
+    setGhErr('');
+    setOauthLoading(true);
+    try {
+      const { data } = await startGithubOAuth();
+      const w = 600, h = 720;
+      const left = Math.max(0, (window.screen.width - w) / 2);
+      const top = Math.max(0, (window.screen.height - h) / 2);
+      const popup = window.open(
+        data.url,
+        'github-oauth',
+        `width=${w},height=${h},top=${top},left=${left},toolbar=no,menubar=no,scrollbars=yes`,
+      );
+      popupRef.current = popup;
+
+      if (!popup) {
+        setGhErr('Popup was blocked. Allow popups for this site and try again.');
+        setOauthLoading(false);
+        return;
+      }
+
+      // Listen for the postMessage fired by the backend callback page
+      const handler = (event) => {
+        if (!event.data || event.data.type !== 'github_oauth') return;
+        window.removeEventListener('message', handler);
+        messageListenerRef.current = null;
+        setOauthLoading(false);
+        if (event.data.success) {
+          setGhStatus(prev => ({ ...prev, connected: true, login: event.data.login }));
+          setGhOk(`Connected as @${event.data.login}`);
+        } else {
+          setGhErr(event.data.error || 'Authorization failed');
+        }
+      };
+      messageListenerRef.current = handler;
+      window.addEventListener('message', handler);
+
+      // Fallback: poll until popup closes in case postMessage is blocked
+      const poll = setInterval(() => {
+        if (popup.closed) {
+          clearInterval(poll);
+          if (messageListenerRef.current) {
+            window.removeEventListener('message', messageListenerRef.current);
+            messageListenerRef.current = null;
+          }
+          setOauthLoading(false);
+          // Re-fetch status to see if connection succeeded
+          refreshGhStatus();
+        }
+      }, 500);
+    } catch (e) {
+      setGhErr(e?.response?.data?.detail || e.message || 'Failed to start OAuth flow');
+      setOauthLoading(false);
+    }
+  };
 
   const handleSaveToken = async () => {
     if (!ghToken.trim()) return;
@@ -24,11 +100,12 @@ export default function SettingsPage() {
     setGhOk('');
     try {
       const { data } = await setGithubToken(ghToken.trim());
-      setGhStatus({ connected: true, login: data.login });
+      setGhStatus(prev => ({ ...prev, connected: true, login: data.login }));
       setGhToken('');
       setGhOk(`Connected as @${data.login}`);
+      setShowPat(false);
     } catch (e) {
-      setGhErr(e?.response?.data?.detail || e.message || 'Failed to save token');
+      setGhErr(e?.response?.data?.detail || e.message || 'Invalid token');
     } finally {
       setGhSaving(false);
     }
@@ -37,7 +114,7 @@ export default function SettingsPage() {
   const handleDisconnect = async () => {
     try {
       await deleteGithubToken();
-      setGhStatus({ connected: false });
+      setGhStatus(prev => ({ ...prev, connected: false, login: undefined }));
       setGhOk('');
     } catch { }
   };
@@ -111,62 +188,103 @@ export default function SettingsPage() {
             <Github size={13} className="text-[#A0A0A0]" />
             <span className="text-[10px] tracking-[0.15em] uppercase text-[#A0A0A0] font-mono font-bold">GitHub Integration</span>
           </div>
-          <div className="p-4 space-y-3">
-            {ghStatus?.connected ? (
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                  <CheckCircle size={14} className="text-green-500" />
-                  <div>
-                    <div className="text-[11px] text-white font-bold">Connected</div>
-                    <div className="text-[10px] text-[#737373] font-mono">@{ghStatus.login}</div>
-                  </div>
-                </div>
-                <button onClick={handleDisconnect}
-                  className="flex items-center gap-1 text-[9px] text-[#737373] hover:text-[#FF3333] transition-colors font-mono uppercase tracking-wider">
-                  <Trash2 size={11} /> Disconnect
-                </button>
-              </div>
-            ) : (
-              <div className="flex items-center gap-2">
-                <XCircle size={14} className="text-[#737373]" />
-                <div className="text-[11px] text-[#737373]">Not connected</div>
-              </div>
-            )}
+          <div className="p-4 space-y-4">
 
-            {!ghStatus?.connected && (
-              <div className="space-y-2">
-                <p className="text-[10px] text-[#737373] leading-relaxed">
-                  Paste a GitHub Personal Access Token (classic) with <code className="text-[#002FA7]">repo</code> scope.
-                  <a href="https://github.com/settings/tokens/new?scopes=repo&description=local-llm-server"
-                    target="_blank" rel="noopener noreferrer"
-                    className="ml-1 text-[#002FA7] hover:underline inline-flex items-center gap-0.5">
-                    Create token <ExternalLink size={9} />
-                  </a>
-                </p>
-                <div className="flex gap-2">
-                  <input
-                    type="password"
-                    value={ghToken}
-                    onChange={e => setGhToken(e.target.value)}
-                    placeholder="ghp_…"
-                    className="flex-1 bg-[#0A0A0A] border border-white/10 px-3 py-2 text-xs text-white font-mono outline-none focus:border-[#002FA7]"
-                    onKeyDown={e => e.key === 'Enter' && handleSaveToken()}
-                  />
-                  <button onClick={handleSaveToken} disabled={ghSaving || !ghToken.trim()}
-                    className="flex items-center gap-1.5 bg-[#002FA7] hover:bg-[#002585] text-white px-4 py-2 text-[10px] tracking-wider uppercase font-mono disabled:opacity-40 shrink-0">
-                    {ghSaving ? <Loader2 size={11} className="animate-spin" /> : <Key size={11} />} Connect
+            {/* ── Connected state ── */}
+            {ghStatus?.connected ? (
+              <div className="space-y-3">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-3">
+                    <div className="w-8 h-8 bg-[#002FA7]/20 border border-[#002FA7]/40 flex items-center justify-center">
+                      <Github size={15} className="text-[#002FA7]" />
+                    </div>
+                    <div>
+                      <div className="flex items-center gap-1.5">
+                        <CheckCircle size={11} className="text-green-500" />
+                        <span className="text-[11px] text-white font-bold">GitHub connected</span>
+                      </div>
+                      <div className="text-[10px] text-[#737373] font-mono mt-0.5">@{ghStatus.login}</div>
+                    </div>
+                  </div>
+                  <button onClick={handleDisconnect}
+                    className="flex items-center gap-1 text-[9px] text-[#737373] hover:text-[#FF3333] transition-colors font-mono uppercase tracking-wider border border-white/10 hover:border-[#FF3333]/30 px-2 py-1">
+                    <Trash2 size={10} /> Disconnect
                   </button>
                 </div>
+                <a href="/github"
+                  className="inline-flex items-center gap-1.5 bg-[#002FA7] hover:bg-[#002585] text-white px-4 py-2 text-[10px] tracking-wider uppercase font-mono transition-colors">
+                  <Github size={11} /> Open GitHub Repos
+                </a>
+              </div>
+            ) : (
+              /* ── Not connected state ── */
+              <div className="space-y-3">
+                <p className="text-[11px] text-[#737373] leading-relaxed">
+                  Connect your GitHub account to browse repos, edit files, and create pull requests directly from this dashboard.
+                </p>
+
+                {/* OAuth button — shown when the server has GITHUB_CLIENT_ID configured */}
+                {ghStatus?.oauth_enabled ? (
+                  <button
+                    onClick={handleOAuthConnect}
+                    disabled={oauthLoading}
+                    className="w-full flex items-center justify-center gap-2 border border-white/20 hover:border-[#002FA7] bg-[#141414] hover:bg-[#002FA7]/10 text-white py-2.5 text-[11px] tracking-wider uppercase font-mono transition-all disabled:opacity-50 group"
+                  >
+                    {oauthLoading
+                      ? <Loader2 size={14} className="animate-spin" />
+                      : <Github size={14} className="group-hover:text-[#002FA7] transition-colors" />}
+                    {oauthLoading ? 'Waiting for GitHub…' : 'Connect with GitHub'}
+                  </button>
+                ) : (
+                  /* Server not configured for OAuth — show PAT directly */
+                  <div className="border border-yellow-500/20 bg-yellow-500/5 p-3 text-[10px] text-yellow-400/80 font-mono leading-relaxed">
+                    OAuth not configured on this server. Set <code>GITHUB_CLIENT_ID</code> &amp; <code>GITHUB_CLIENT_SECRET</code> to enable one-click connect, or use a token below.
+                  </div>
+                )}
+
                 {ghErr && <div className="text-[10px] text-[#FF3333] font-mono">{ghErr}</div>}
                 {ghOk && <div className="text-[10px] text-green-400 font-mono">{ghOk}</div>}
-              </div>
-            )}
 
-            {ghStatus?.connected && (
-              <a href="/github"
-                className="inline-flex items-center gap-1.5 text-[10px] text-[#002FA7] hover:underline font-mono">
-                <Github size={11} /> Open GitHub Repos
-              </a>
+                {/* PAT fallback — always available as an alternative */}
+                <div>
+                  <button
+                    onClick={() => setShowPat(v => !v)}
+                    className="flex items-center gap-1.5 text-[9px] text-[#737373] hover:text-[#A0A0A0] transition-colors font-mono uppercase tracking-wider"
+                  >
+                    <Lock size={10} />
+                    {ghStatus?.oauth_enabled ? 'Use a Personal Access Token instead' : 'Enter Personal Access Token'}
+                    {showPat ? <ChevronUp size={10} /> : <ChevronDown size={10} />}
+                  </button>
+
+                  {showPat && (
+                    <div className="mt-2 space-y-2 animate-fade-in">
+                      <p className="text-[10px] text-[#737373]">
+                        Generate a classic token with <code className="text-[#002FA7]">repo</code> scope at{' '}
+                        <a href="https://github.com/settings/tokens/new?scopes=repo&description=local-llm-server"
+                          target="_blank" rel="noopener noreferrer"
+                          className="text-[#002FA7] hover:underline inline-flex items-center gap-0.5">
+                          github.com/settings/tokens <ExternalLink size={9} />
+                        </a>
+                      </p>
+                      <div className="flex gap-2">
+                        <input
+                          type="password"
+                          value={ghToken}
+                          onChange={e => setGhToken(e.target.value)}
+                          placeholder="ghp_…"
+                          className="flex-1 bg-[#0A0A0A] border border-white/10 px-3 py-2 text-xs text-white font-mono outline-none focus:border-[#002FA7]"
+                          onKeyDown={e => e.key === 'Enter' && handleSaveToken()}
+                          autoComplete="off"
+                        />
+                        <button onClick={handleSaveToken} disabled={ghSaving || !ghToken.trim()}
+                          className="flex items-center gap-1.5 bg-[#002FA7] hover:bg-[#002585] text-white px-4 py-2 text-[10px] tracking-wider uppercase font-mono disabled:opacity-40 shrink-0">
+                          {ghSaving ? <Loader2 size={11} className="animate-spin" /> : <Key size={11} />} Save
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </div>
             )}
           </div>
         </div>

@@ -15,7 +15,7 @@ from datetime import datetime, timezone, timedelta
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException, Request, Depends, UploadFile, File, Form
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, HTMLResponse
 from pydantic import BaseModel, Field
 from motor.motor_asyncio import AsyncIOMotorClient
 from bson import ObjectId
@@ -55,6 +55,15 @@ OPENROUTER_API_KEY = os.environ.get("OPENROUTER_API_KEY", "")
 OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"
 TOGETHER_API_KEY = os.environ.get("TOGETHER_API_KEY", "")
 TOGETHER_BASE_URL = "https://api.together.xyz/v1"
+
+# GitHub OAuth App credentials (optional — enables the one-click "Connect with GitHub"
+# flow; without these the fallback PAT input is shown instead).
+# Register an OAuth App at https://github.com/settings/developers
+GITHUB_CLIENT_ID = os.environ.get("GITHUB_CLIENT_ID", "")
+GITHUB_CLIENT_SECRET = os.environ.get("GITHUB_CLIENT_SECRET", "")
+# Set this to the full callback URL registered in your OAuth App, e.g.
+# https://my-backend.onrender.com/api/github/oauth/callback
+GITHUB_CALLBACK_URL = os.environ.get("GITHUB_CALLBACK_URL", "")
 
 # ─── Model Catalog ────────────────────────────────────────────────────────────────
 # Best-in-class models per provider, tagged by role and tier.
@@ -179,6 +188,8 @@ async def ensure_bootstrap() -> None:
         await db.providers.create_index("provider_id", unique=True)
         await db.api_keys.create_index("key_id", unique=True)
         await db.github_settings.create_index("user_id", unique=True)
+        # oauth_states has a 10-minute TTL — MongoDB drops stale records automatically
+        await db.oauth_states.create_index("created_at", expireAfterSeconds=600)
         await seed_admin()
         await seed_default_providers()
         _BOOTSTRAP_DONE = True
@@ -1260,18 +1271,133 @@ class GitHubTokenBody(BaseModel):
 
 @app.get("/api/github/status")
 async def github_status(user: dict = Depends(get_current_user)):
+    oauth_enabled = bool(GITHUB_CLIENT_ID and GITHUB_CLIENT_SECRET)
     token = await _get_github_token(user["_id"])
     if not token:
-        return {"connected": False}
+        return {"connected": False, "oauth_enabled": oauth_enabled}
     try:
         async with httpx.AsyncClient(timeout=10) as c:
             r = await c.get(f"{GITHUB_API}/user", headers=_gh_headers(token))
         if r.status_code == 200:
             d = r.json()
-            return {"connected": True, "login": d.get("login"), "name": d.get("name"), "avatar_url": d.get("avatar_url")}
-        return {"connected": False}
+            return {
+                "connected": True,
+                "oauth_enabled": oauth_enabled,
+                "login": d.get("login"),
+                "name": d.get("name"),
+                "avatar_url": d.get("avatar_url"),
+            }
+        return {"connected": False, "oauth_enabled": oauth_enabled}
     except Exception:
-        return {"connected": False}
+        return {"connected": False, "oauth_enabled": oauth_enabled}
+
+
+# ── OAuth flow ─────────────────────────────────────────────────────────────────
+
+@app.post("/api/github/oauth/start")
+async def github_oauth_start(user: dict = Depends(get_current_user)):
+    """Create a time-limited OAuth state and return the GitHub authorization URL."""
+    if not GITHUB_CLIENT_ID:
+        raise HTTPException(
+            status_code=501,
+            detail="GitHub OAuth not configured on this server. Set GITHUB_CLIENT_ID and GITHUB_CLIENT_SECRET, then restart.",
+        )
+    state = secrets.token_urlsafe(32)
+    await db.oauth_states.insert_one({
+        "state": state,
+        "user_id": user["_id"],
+        "created_at": datetime.now(timezone.utc),
+    })
+    params: dict[str, str] = {
+        "client_id": GITHUB_CLIENT_ID,
+        "scope": "repo",
+        "state": state,
+    }
+    if GITHUB_CALLBACK_URL:
+        params["redirect_uri"] = GITHUB_CALLBACK_URL
+    qs = "&".join(f"{k}={v}" for k, v in params.items())
+    return {"url": f"https://github.com/login/oauth/authorize?{qs}"}
+
+
+def _oauth_popup_html(success: bool, login: str = "", error_msg: str = "") -> HTMLResponse:
+    """Tiny HTML page that fires postMessage to the opener then self-closes."""
+    if success:
+        payload = json.dumps({"type": "github_oauth", "success": True, "login": login})
+        body = "<p style='font-family:monospace;padding:2rem'>GitHub connected! Closing…</p>"
+    else:
+        payload = json.dumps({"type": "github_oauth", "success": False, "error": error_msg})
+        body = f"<p style='font-family:monospace;padding:2rem;color:red'>Error: {error_msg}</p>"
+    js = f"try{{window.opener&&window.opener.postMessage({payload},'*')}}catch(e){{}}window.close();"
+    return HTMLResponse(
+        f"<!doctype html><html><body>{body}<script>{js}</script></body></html>"
+    )
+
+
+@app.get("/api/github/oauth/callback")
+async def github_oauth_callback(
+    code: str | None = None,
+    state: str | None = None,
+    error: str | None = None,
+    error_description: str | None = None,
+):
+    """GitHub redirects here after the user authorises (or denies) the OAuth App."""
+    if error or not code or not state:
+        return _oauth_popup_html(False, error_msg=error_description or error or "Authorization denied")
+
+    state_doc = await db.oauth_states.find_one({"state": state})
+    if not state_doc:
+        return _oauth_popup_html(False, error_msg="OAuth state expired or invalid — please try again.")
+
+    user_id: str = state_doc["user_id"]
+    await db.oauth_states.delete_one({"state": state})
+
+    # Exchange the temporary code for a long-lived access token.
+    try:
+        async with httpx.AsyncClient(timeout=15) as c:
+            r = await c.post(
+                "https://github.com/login/oauth/access_token",
+                headers={"Accept": "application/json"},
+                json={
+                    "client_id": GITHUB_CLIENT_ID,
+                    "client_secret": GITHUB_CLIENT_SECRET,
+                    "code": code,
+                },
+            )
+        r.raise_for_status()
+        token_data = r.json()
+    except Exception as exc:
+        log.error("GitHub token exchange failed: %s", exc)
+        return _oauth_popup_html(False, error_msg="Token exchange with GitHub failed. Check server logs.")
+
+    access_token = token_data.get("access_token")
+    if not access_token:
+        err = token_data.get("error_description") or token_data.get("error") or "No token returned"
+        return _oauth_popup_html(False, error_msg=err)
+
+    # Fetch the GitHub user to confirm the token works.
+    try:
+        async with httpx.AsyncClient(timeout=10) as c:
+            r = await c.get(f"{GITHUB_API}/user", headers=_gh_headers(access_token))
+        r.raise_for_status()
+        gh_user = r.json()
+    except Exception as exc:
+        log.error("GitHub /user fetch failed after token exchange: %s", exc)
+        return _oauth_popup_html(False, error_msg="Could not fetch GitHub user info after authorisation.")
+
+    login: str = gh_user.get("login", "")
+
+    await db.github_settings.update_one(
+        {"user_id": user_id},
+        {"$set": {
+            "user_id": user_id,
+            "token": access_token,
+            "github_login": login,
+            "updated_at": datetime.now(timezone.utc).isoformat(),
+        }},
+        upsert=True,
+    )
+    await log_activity("github", f"GitHub OAuth connected — @{login}", user_id=user_id)
+    return _oauth_popup_html(True, login=login)
 
 
 @app.put("/api/github/token")

@@ -31,6 +31,24 @@
     `GET/POST /api/github/repos/{owner}/{repo}/pulls`.
   - All GitHub actions are logged to the activity feed.
 
+- **GitHub OAuth one-click connect** (`backend/server.py`, `frontend/src/pages/SettingsPage.js`):
+  Replaced the raw PAT input with a proper OAuth App popup flow similar to Emergent/Claude.
+  - Settings page shows a "Connect with GitHub" button that opens a small popup (600×720).
+  - Backend `POST /api/github/oauth/start` (JWT-authenticated) creates a 10-minute
+    time-limited HMAC state stored in MongoDB (`oauth_states`, TTL index) and returns
+    the GitHub authorization URL. No token is ever passed as a query parameter.
+  - GitHub redirects to `GET /api/github/oauth/callback`; backend exchanges the code for
+    an access token, verifies it with `/user`, stores it per-user, then returns a tiny
+    HTML page that fires `window.opener.postMessage` and self-closes.
+  - SettingsPage listens for the `postMessage` and updates the UI instantly; a polling
+    fallback handles browsers that block cross-origin `postMessage`.
+  - PAT input is preserved as a collapsible fallback (click "Use a Personal Access Token
+    instead") for users who prefer it or whose server has no OAuth App configured.
+  - When `GITHUB_CLIENT_ID` / `GITHUB_CLIENT_SECRET` are not set the button is replaced
+    by a yellow banner explaining what env vars to add, and the PAT form is shown by
+    default.
+  - New env vars: `GITHUB_CLIENT_ID`, `GITHUB_CLIENT_SECRET`, `GITHUB_CALLBACK_URL`.
+
 ### Fixed
 
 - **`@app.on_event("startup")` deprecation warning** (`backend/server.py`): Replaced the
