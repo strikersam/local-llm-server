@@ -170,6 +170,47 @@ async def github_login(request: Request):
 async def github_callback(request: Request, code: str = None, state: str = None):
     if not code or not state:
         raise HTTPException(status_code=400, detail="Missing code or state")
+
+    # Repo-connect flow: state was stored in MongoDB by /api/github/oauth/start
+    state_doc = await db.oauth_states.find_one({"state": state})
+    if state_doc and state_doc.get("flow_type") == "repo":
+        await db.oauth_states.delete_one({"state": state})
+        user_id: str = state_doc["user_id"]
+        try:
+            async with httpx.AsyncClient(timeout=15) as c:
+                r = await c.post(
+                    "https://github.com/login/oauth/access_token",
+                    headers={"Accept": "application/json"},
+                    json={"client_id": GITHUB_CLIENT_ID, "client_secret": GITHUB_CLIENT_SECRET, "code": code},
+                )
+            r.raise_for_status()
+            token_data = r.json()
+        except Exception as exc:
+            log.error("GitHub repo token exchange failed: %s", exc)
+            return _oauth_popup_html(False, error_msg="Token exchange with GitHub failed.")
+        access_token = token_data.get("access_token")
+        if not access_token:
+            err = token_data.get("error_description") or token_data.get("error") or "No token returned"
+            return _oauth_popup_html(False, error_msg=err)
+        try:
+            async with httpx.AsyncClient(timeout=10) as c:
+                r = await c.get(f"{GITHUB_API}/user", headers=_gh_headers(access_token))
+            r.raise_for_status()
+            gh_user = r.json()
+        except Exception as exc:
+            log.error("GitHub /user fetch failed after repo token exchange: %s", exc)
+            return _oauth_popup_html(False, error_msg="Could not fetch GitHub user info.")
+        login: str = gh_user.get("login", "")
+        await db.github_settings.update_one(
+            {"user_id": user_id},
+            {"$set": {"user_id": user_id, "token": access_token, "github_login": login,
+                      "updated_at": datetime.now(timezone.utc).isoformat()}},
+            upsert=True,
+        )
+        await log_activity("github", f"GitHub OAuth connected — @{login}", user_id=user_id)
+        return _oauth_popup_html(True, login=login)
+
+    # Login flow: state was stored in the session by /api/auth/github/login
     if state != request.session.pop("oauth_state", None):
         raise HTTPException(status_code=400, detail="Invalid OAuth state")
 
@@ -1582,16 +1623,12 @@ async def github_oauth_start(user: dict = Depends(get_current_user)):
     await db.oauth_states.insert_one({
         "state": state,
         "user_id": user["_id"],
+        "flow_type": "repo",
         "created_at": datetime.now(timezone.utc),
     })
-    params: dict[str, str] = {
-        "client_id": GITHUB_CLIENT_ID,
-        "scope": "repo",
-        "state": state,
-    }
-    if GITHUB_CALLBACK_URL:
-        params["redirect_uri"] = GITHUB_CALLBACK_URL
-    qs = "&".join(f"{k}={v}" for k, v in params.items())
+    # No redirect_uri — GitHub will use the single registered callback URL
+    # (/api/auth/github/callback), which handles both login and repo-connect flows.
+    qs = f"client_id={GITHUB_CLIENT_ID}&scope=repo&state={state}"
     return {"url": f"https://github.com/login/oauth/authorize?{qs}"}
 
 
