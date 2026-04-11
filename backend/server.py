@@ -174,7 +174,7 @@ async def github_callback(request: Request, code: str = None, state: str = None)
     # Repo-connect flow: state was stored in MongoDB by /api/github/oauth/start
     state_doc = await db.oauth_states.find_one({"state": state})
     if state_doc and state_doc.get("flow_type") == "repo":
-        await db.oauth_states.delete_one({"state": state})
+        # Don't delete state until token exchange succeeds — allows clean retry on failure
         user_id: str = state_doc["user_id"]
         try:
             async with httpx.AsyncClient(timeout=15) as c:
@@ -201,6 +201,10 @@ async def github_callback(request: Request, code: str = None, state: str = None)
             log.error("GitHub /user fetch failed after repo token exchange: %s", exc)
             return _oauth_popup_html(False, error_msg="Could not fetch GitHub user info.")
         login: str = gh_user.get("login", "")
+        if not login:
+            return _oauth_popup_html(False, error_msg="GitHub did not return a username. Please try again.")
+        # State consumed — delete now that everything succeeded
+        await db.oauth_states.delete_one({"state": state})
         await db.github_settings.update_one(
             {"user_id": user_id},
             {"$set": {"user_id": user_id, "token": access_token, "github_login": login,
@@ -1640,7 +1644,10 @@ def _oauth_popup_html(success: bool, login: str = "", error_msg: str = "") -> HT
     else:
         payload = json.dumps({"type": "github_oauth", "success": False, "error": error_msg})
         body = f"<p style='font-family:monospace;padding:2rem;color:red'>Error: {error_msg}</p>"
-    js = f"try{{window.opener&&window.opener.postMessage({payload},'*')}}catch(e){{}}window.close();"
+    # Use the known frontend origin so the browser only delivers the message there,
+    # not to arbitrary openers (prevents cross-origin message interception).
+    target_origin = json.dumps(frontend_url)
+    js = f"try{{window.opener&&window.opener.postMessage({payload},{target_origin})}}catch(e){{}}window.close();"
     return HTMLResponse(
         f"<!doctype html><html><body>{body}<script>{js}</script></body></html>"
     )
@@ -1782,7 +1789,8 @@ async def list_github_repos(
         ]
         return {"repos": repos}
     except httpx.HTTPStatusError as exc:
-        raise HTTPException(status_code=exc.response.status_code, detail=f"GitHub API error: {exc.response.text}") from exc
+        log.error("GitHub API %s error: %s", exc.response.status_code, exc.response.text)
+        raise HTTPException(status_code=exc.response.status_code, detail="GitHub API error") from exc
 
 
 @app.get("/api/github/repos/{owner}/{repo}/branches")
@@ -1796,7 +1804,8 @@ async def list_github_branches(owner: str, repo: str, user: dict = Depends(get_c
         r.raise_for_status()
         return {"branches": [b["name"] for b in r.json()]}
     except httpx.HTTPStatusError as exc:
-        raise HTTPException(status_code=exc.response.status_code, detail=f"GitHub API error: {exc.response.text}") from exc
+        log.error("GitHub API %s error: %s", exc.response.status_code, exc.response.text)
+        raise HTTPException(status_code=exc.response.status_code, detail="GitHub API error") from exc
 
 
 @app.get("/api/github/repos/{owner}/{repo}/tree")
@@ -1828,7 +1837,8 @@ async def get_github_tree(
             ],
         }
     except httpx.HTTPStatusError as exc:
-        raise HTTPException(status_code=exc.response.status_code, detail=f"GitHub API error: {exc.response.text}") from exc
+        log.error("GitHub API %s error: %s", exc.response.status_code, exc.response.text)
+        raise HTTPException(status_code=exc.response.status_code, detail="GitHub API error") from exc
 
 
 @app.get("/api/github/repos/{owner}/{repo}/file")
@@ -1855,7 +1865,8 @@ async def read_github_file(
         content = _b64.b64decode(data.get("content", "").replace("\n", "")).decode("utf-8", errors="replace")
         return {"path": path, "content": content, "sha": data.get("sha", ""), "size": data.get("size", 0)}
     except httpx.HTTPStatusError as exc:
-        raise HTTPException(status_code=exc.response.status_code, detail=f"GitHub API error: {exc.response.text}") from exc
+        log.error("GitHub API %s error: %s", exc.response.status_code, exc.response.text)
+        raise HTTPException(status_code=exc.response.status_code, detail="GitHub API error") from exc
 
 
 class GitHubFileWrite(BaseModel):
@@ -1900,7 +1911,8 @@ async def write_github_file(
         )
         return {"ok": True, "commit_sha": commit_sha, "file_sha": file_sha}
     except httpx.HTTPStatusError as exc:
-        raise HTTPException(status_code=exc.response.status_code, detail=f"GitHub API error: {exc.response.text}") from exc
+        log.error("GitHub API %s error: %s", exc.response.status_code, exc.response.text)
+        raise HTTPException(status_code=exc.response.status_code, detail="GitHub API error") from exc
 
 
 @app.get("/api/github/repos/{owner}/{repo}/pulls")
@@ -1936,7 +1948,8 @@ async def list_github_pulls(
         ]
         return {"pulls": pulls}
     except httpx.HTTPStatusError as exc:
-        raise HTTPException(status_code=exc.response.status_code, detail=f"GitHub API error: {exc.response.text}") from exc
+        log.error("GitHub API %s error: %s", exc.response.status_code, exc.response.text)
+        raise HTTPException(status_code=exc.response.status_code, detail="GitHub API error") from exc
 
 
 class GitHubPRCreate(BaseModel):
@@ -1968,4 +1981,5 @@ async def create_github_pr(
         await log_activity("github", f"Created PR #{pr['number']} in {owner}/{repo}", user_id=user["_id"])
         return {"ok": True, "number": pr["number"], "html_url": pr["html_url"], "title": pr["title"]}
     except httpx.HTTPStatusError as exc:
-        raise HTTPException(status_code=exc.response.status_code, detail=f"GitHub API error: {exc.response.text}") from exc
+        log.error("GitHub API %s error: %s", exc.response.status_code, exc.response.text)
+        raise HTTPException(status_code=exc.response.status_code, detail="GitHub API error") from exc

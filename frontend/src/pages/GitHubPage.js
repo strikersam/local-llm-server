@@ -16,14 +16,17 @@ function RepoSelector({ onSelect }) {
   const [loading, setLoading] = useState(true);
   const [q, setQ] = useState('');
   const [searching, setSearching] = useState(false);
+  const [loadErr, setLoadErr] = useState('');
 
   const load = useCallback(async (query = '') => {
     query ? setSearching(true) : setLoading(true);
+    setLoadErr('');
     try {
       const { data } = await listGithubRepos(query);
       setRepos(data.repos || []);
-    } catch { }
-    finally { setLoading(false); setSearching(false); }
+    } catch (e) {
+      setLoadErr(fmtErr(e?.response?.data?.detail) || e.message || 'Failed to load repositories');
+    } finally { setLoading(false); setSearching(false); }
   }, []);
 
   useEffect(() => { load(); }, [load]);
@@ -48,6 +51,7 @@ function RepoSelector({ onSelect }) {
         </button>
       </form>
 
+      {loadErr && <div className="text-[10px] text-[#FF3333] font-mono py-2">{loadErr}</div>}
       {loading ? (
         <div className="flex items-center gap-2 text-xs text-[#737373] py-4"><Loader2 size={14} className="animate-spin" /> Loading repos…</div>
       ) : (
@@ -158,9 +162,11 @@ function FileEditor({ owner, repo, branch, filePath, onCommitted }) {
     setSaving(true);
     setErr('');
     try {
-      await writeGithubFile(owner, repo, { path: filePath, content, message: commitMsg, sha, branch });
+      const { data } = await writeGithubFile(owner, repo, { path: filePath, content, message: commitMsg, sha, branch });
       setSaved(true);
       setOriginalContent(content);
+      // Update SHA so the next save doesn't fail with a stale SHA conflict
+      if (data.file_sha) setSha(data.file_sha);
       onCommitted && onCommitted(filePath, commitMsg);
       setTimeout(() => setSaved(false), 3000);
     } catch (e) {

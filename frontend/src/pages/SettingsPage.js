@@ -58,8 +58,13 @@ export default function SettingsPage() {
         return;
       }
 
-      // Listen for the postMessage fired by the backend callback page
+      // Listen for the postMessage fired by the backend callback page.
+      // Validate origin so forged messages from other windows are ignored.
+      const backendOrigin = process.env.REACT_APP_BACKEND_URL
+        ? new URL(process.env.REACT_APP_BACKEND_URL).origin
+        : window.location.origin;
       const handler = (event) => {
+        if (event.origin !== backendOrigin) return;
         if (!event.data || event.data.type !== 'github_oauth') return;
         window.removeEventListener('message', handler);
         messageListenerRef.current = null;
