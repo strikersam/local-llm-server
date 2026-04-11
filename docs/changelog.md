@@ -10,6 +10,16 @@
 
 _(nothing pending)_
 
+## [2.4.1] — 2026-04-11
+
+### Added
+
+- **Enhanced Langfuse Tracking** (`langfuse_obs.py`, `agent/loop.py`, `agent/coordinator.py`, `proxy.py`):
+  - Standardised `emit_chat_observation` to support granular `task_name` metadata, enabling better categorization in Langfuse (e.g., "agent-plan", "agent-execute", "generation").
+  - Universal Auth Propagation: Passing authenticated user context (`email`, `department`, `key_id`) down into internal agent model calls. Internal agent planning, execution, and verification steps are now correctly attributed to the calling user in Langfuse.
+  - Legacy Endpoint Tracking: Added tracking for direct (non-streaming) model calls to `/api/generate` and `/v1/completions` in `proxy.py`.
+  - Instrumented `AgentRunner` and `AgentCoordinator` to ensure all internal LLM interactions are recorded with token usage, latency, and user metadata.
+
 ## [2.4.0] — 2026-04-11
 
 ### Fixed

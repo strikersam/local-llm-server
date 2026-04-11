@@ -78,6 +78,9 @@ class AgentCoordinator:
         worker_specs: list[WorkerSpec],
         *,
         max_concurrent: int = 3,
+        email: str | None = None,
+        department: str | None = None,
+        key_id: str | None = None,
     ) -> CoordinatorResult:
         started = time.monotonic()
         log.info(
@@ -94,6 +97,9 @@ class AgentCoordinator:
                 runner = AgentRunner(
                     ollama_base=self.ollama_base,
                     workspace_root=self.workspace_root,
+                    email=email,
+                    department=department,
+                    key_id=key_id,
                 )
                 try:
                     result = await runner.run(
@@ -102,6 +108,7 @@ class AgentCoordinator:
                         requested_model=spec.model,
                         auto_commit=False,
                         max_steps=spec.max_steps,
+                        user_id=email,
                     )
                     return {"worker_id": spec.worker_id, "status": "ok", "result": result}
                 except Exception as exc:

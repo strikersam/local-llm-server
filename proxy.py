@@ -12,9 +12,12 @@ import sys
 import json
 import time
 import logging
+import asyncio
 import hashlib
 import subprocess
 from pathlib import Path
+
+from langfuse_obs import emit_chat_observation
 
 from dotenv import load_dotenv
 
@@ -559,6 +562,9 @@ async def run_agent_task(
                 workspace_root=ws.path,
                 provider_headers=headers,
                 provider_temperature=secret.default_temperature,
+                email=auth.email,
+                department=auth.department,
+                key_id=auth.key_id,
             )
         result = await runner.run(
             instruction=body.instruction,
@@ -567,6 +573,8 @@ async def run_agent_task(
             auto_commit=body.auto_commit,
             max_steps=body.max_steps,
             user_id=auth.email,
+            department=auth.department,
+            key_id=auth.key_id,
             memory_store=USER_MEMORY,
         )
     except Exception as exc:
@@ -619,6 +627,9 @@ async def run_agent_once(body: AgentRunRequest, auth: AuthContext = Depends(veri
                 workspace_root=ws.path,
                 provider_headers=headers,
                 provider_temperature=secret.default_temperature,
+                email=auth.email,
+                department=auth.department,
+                key_id=auth.key_id,
             )
         result = await runner.run(
             instruction=body.instruction,
@@ -627,6 +638,8 @@ async def run_agent_once(body: AgentRunRequest, auth: AuthContext = Depends(veri
             auto_commit=body.auto_commit,
             max_steps=body.max_steps,
             user_id=auth.email,
+            department=auth.department,
+            key_id=auth.key_id,
             memory_store=USER_MEMORY,
         )
     except Exception as exc:
@@ -813,7 +826,10 @@ async def coordinate(body: CoordinateRequest, auth: AuthContext = Depends(verify
         )
         for i, w in enumerate(body.workers)
     ]
-    result = await COORDINATOR.run(body.goal, specs, max_concurrent=body.max_concurrent)
+    result = await COORDINATOR.run(
+        body.goal, specs, max_concurrent=body.max_concurrent,
+        email=auth.email, department=auth.department, key_id=auth.key_id
+    )
     return result.as_dict()
 
 
@@ -1132,7 +1148,7 @@ async def stream_response(url: str, method: str, headers: dict, body: bytes) -> 
             async for chunk in resp.aiter_bytes(chunk_size=512):
                 yield chunk
 
-async def proxy_request(request: Request, target_path: str):
+async def proxy_request(request: Request, target_path: str, auth: AuthContext | None = None):
     body = await request.body()
     content_type = request.headers.get("content-type", "application/json")
 
@@ -1149,6 +1165,7 @@ async def proxy_request(request: Request, target_path: str):
     forward_headers = {"Content-Type": content_type}
 
     log.info("→ %s %s (stream=%s)", request.method, target_path, is_stream)
+    start_time = time.perf_counter()
 
     if is_stream:
         return StreamingResponse(
@@ -1164,8 +1181,52 @@ async def proxy_request(request: Request, target_path: str):
                 content=body,
                 headers=forward_headers,
             )
+        
+        duration_ms = int((time.perf_counter() - start_time) * 1000)
+        data = resp.json() if resp.headers.get("content-type", "").startswith("application/json") else resp.text
+
+        # Track legacy generation/completion usage
+        if auth and target_path in ("api/generate", "v1/completions") and request.method == "POST":
+            try:
+                payload = json.loads(body)
+                model = payload.get("model", "unknown")
+                prompt = payload.get("prompt", "")
+                
+                out_text = ""
+                pt = 0
+                ct = 0
+                
+                if target_path == "api/generate" and isinstance(data, dict):
+                    out_text = data.get("response", "")
+                    pt = int(data.get("prompt_eval_count") or 0)
+                    ct = int(data.get("eval_count") or 0)
+                elif target_path == "v1/completions" and isinstance(data, dict):
+                    choices = data.get("choices", [])
+                    if choices and isinstance(choices[0], dict):
+                        out_text = choices[0].get("text", "")
+                    usage = data.get("usage", {})
+                    pt = int(usage.get("prompt_tokens") or 0)
+                    ct = int(usage.get("completion_tokens") or 0)
+                
+                if out_text:
+                    await asyncio.to_thread(
+                        emit_chat_observation,
+                        email=auth.email,
+                        department=auth.department,
+                        key_id=auth.key_id,
+                        model=model,
+                        messages=[{"role": "user", "content": prompt}] if isinstance(prompt, str) else prompt,
+                        output_text=out_text,
+                        prompt_tokens=pt,
+                        completion_tokens=ct,
+                        latency_ms=duration_ms,
+                        task_name="generation",
+                    )
+            except Exception as exc:
+                log.debug("Trackable proxy observation failed: %s", exc)
+
         return JSONResponse(
-            content=resp.json() if resp.headers.get("content-type", "").startswith("application/json") else resp.text,
+            content=data,
             status_code=resp.status_code,
         )
 
@@ -1237,7 +1298,7 @@ async def ollama_api(path: str, request: Request, auth: AuthContext = Depends(ve
             department=auth.department,
             key_id=auth.key_id,
         )
-    return await proxy_request(request, f"api/{path}")
+    return await proxy_request(request, f"api/{path}", auth=auth)
 
 # ─── OpenAI-compatible routes (/v1/*) ──────────────────────────────────────────
 # Ollama natively serves OpenAI-compatible endpoints at /v1/*
@@ -1252,7 +1313,7 @@ async def openai_compat(path: str, request: Request, auth: AuthContext = Depends
             department=auth.department,
             key_id=auth.key_id,
         )
-    return await proxy_request(request, f"v1/{path}")
+    return await proxy_request(request, f"v1/{path}", auth=auth)
 
 # ─── Entry point ────────────────────────────────────────────────────────────────
 

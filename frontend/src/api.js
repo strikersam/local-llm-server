@@ -114,6 +114,7 @@ export const deleteApiKey = (keyId) => API.delete(`/api/keys/${keyId}`);
 
 // Observability
 export const getObservabilityStatus = () => API.get('/api/observability/status');
+export const getObservabilityMetrics = () => API.get('/api/observability/metrics');
 export const getObservabilityDashboard = () => API.get('/api/observability/dashboard-url');
 
 // Platform

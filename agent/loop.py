@@ -9,6 +9,8 @@ import subprocess
 from pathlib import Path
 from typing import Any
 
+import time
+import asyncio
 import httpx
 
 from agent.context_manager import ContextManager
@@ -42,6 +44,9 @@ class AgentRunner:
         provider_temperature: float | None = None,
         session_store: AgentSessionStore | None = None,
         github_token: str | None = None,
+        email: str | None = None,
+        department: str | None = None,
+        key_id: str | None = None,
     ) -> None:
         # NOTE: "ollama_base" is kept for backwards compatibility; this runner only needs an
         # OpenAI-compatible base URL with /v1/chat/completions.
@@ -56,6 +61,10 @@ class AgentRunner:
         # When provided the harness logs key events so the session is
         # recoverable and queryable outside the LLM context window.
         self._session_store = session_store
+        # Legacy auth storage (prefer passing to run())
+        self.email = email
+        self.department = department
+        self.key_id = key_id
 
     async def run(
         self,
@@ -66,6 +75,8 @@ class AgentRunner:
         auto_commit: bool,
         max_steps: int,
         user_id: str | None = None,
+        department: str | None = None,
+        key_id: str | None = None,
         memory_store: UserMemoryStore | None = None,
         session_id: str | None = None,
     ) -> dict[str, Any]:
@@ -105,6 +116,15 @@ class AgentRunner:
 
         summary = self._build_summary(plan.goal, step_results, commits)
         self._log_event(session_id, "assistant_message", {"summary": summary})
+
+        # Update auth context if passed in run()
+        if user_id:
+            self.email = user_id
+        if department:
+            self.department = department
+        if key_id:
+            self.key_id = key_id
+
         return {
             "goal": plan.goal,
             "plan": plan.model_dump(),
@@ -466,11 +486,39 @@ class AgentRunner:
         if self.provider_temperature is not None:
             payload["temperature"] = self.provider_temperature
         headers = {"Content-Type": "application/json", **self.provider_headers}
+        start = time.perf_counter()
         async with httpx.AsyncClient(timeout=httpx.Timeout(300.0, connect=10.0)) as client:
             resp = await client.post(f"{self.ollama_base}/v1/chat/completions", json=payload, headers=headers)
+        duration_ms = int((time.perf_counter() - start) * 1000)
         resp.raise_for_status()
         data = resp.json()
-        return data["choices"][0]["message"]["content"]
+        out_text = data["choices"][0]["message"]["content"]
+        
+        # Emit Langfuse observation
+        if self.email:
+            usage = data.get("usage", {})
+            pt = int(usage.get("prompt_tokens") or 0)
+            ct = int(usage.get("completion_tokens") or 0)
+            try:
+                from langfuse_obs import emit_chat_observation
+                import asyncio
+                await asyncio.to_thread(
+                    emit_chat_observation,
+                    email=self.email,
+                    department=self.department or "agent",
+                    key_id=self.key_id,
+                    model=model,
+                    messages=messages,
+                    output_text=out_text,
+                    prompt_tokens=pt,
+                    completion_tokens=ct,
+                    latency_ms=duration_ms,
+                    task_name="agent-task",
+                )
+            except Exception as exc:
+                log.debug("Agent Langfuse emit failed: %s", exc)
+
+        return out_text
 
     async def _chat_json(self, model: str, messages: list[dict[str, str]]) -> dict[str, Any]:
         raw = await self._chat_text(model, messages)

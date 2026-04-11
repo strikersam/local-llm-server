@@ -5,11 +5,16 @@ from __future__ import annotations
 import json
 import logging
 import os
+import secrets
 import uuid
 from datetime import datetime, timezone
 from typing import Any
 
 import httpx
+try:
+    from pymongo import MongoClient
+except ImportError:
+    MongoClient = None
 
 from commercial_equivalent import estimate_commercial_equivalent_usd
 
@@ -121,6 +126,7 @@ def _emit_langfuse_http(
     prompt_tokens: int,
     completion_tokens: int,
     meta: dict[str, Any],
+    task_name: str,
 ) -> None:
     base = _base_url()
     pk, sk = _env_val("LANGFUSE_PUBLIC_KEY"), _env_val("LANGFUSE_SECRET_KEY")
@@ -131,7 +137,7 @@ def _emit_langfuse_http(
     trace_body: dict[str, Any] = {
         "id": trace_id,
         "timestamp": now,
-        "name": "chat-completion",
+        "name": task_name,
         "userId": email,
         "metadata": {"department": department},
         "tags": _department_trace_tags(department),
@@ -139,7 +145,7 @@ def _emit_langfuse_http(
     gen_body: dict[str, Any] = {
         "id": gen_id,
         "traceId": trace_id,
-        "name": "chat completion",
+        "name": task_name,
         "startTime": now,
         "endTime": now,
         "model": model or "unknown",
@@ -174,24 +180,25 @@ def _emit_sdk(
     prompt_tokens: int,
     completion_tokens: int,
     meta: dict[str, Any],
+    task_name: str,
 ) -> None:
     msg_in = _truncate_for_langfuse(messages)
     out = _truncate_for_langfuse(output_text)
     try:
         trace = lf.trace(
-            name="chat-completion",
+            name=task_name,
             user_id=email,
             metadata={"department": department},
             tags=_department_trace_tags(department),
         )
     except TypeError:
         trace = lf.trace(
-            name="chat-completion",
+            name=task_name,
             user_id=email,
             metadata={"department": department},
         )
     trace.generation(
-        name="chat completion",
+        name=task_name,
         model=model or "unknown",
         input=msg_in,
         output=out,
@@ -218,6 +225,7 @@ def emit_chat_observation(
     latency_ms: int = 0,
     ttft_ms: int = 0,
     routing_meta: dict[str, Any] | None = None,
+    task_name: str = "chat completion",
 ) -> None:
     """Record one generation in Langfuse (SDK first, then REST fallback).
 
@@ -227,6 +235,7 @@ def emit_chat_observation(
         routing_meta:  Optional dict from ``RoutingDecision.to_meta()`` — records
                        model selection mode, task category, selection source, etc.
                        Pass ``None`` to omit routing fields (legacy callers).
+        task_name:     The name of the action (e.g. "chat completion", "agent planning").
     """
     if not _langfuse_enabled():
         return
@@ -263,6 +272,29 @@ def emit_chat_observation(
     if routing_meta:
         meta.update(routing_meta)
 
+    # Local Metrics Persistence (for Dashboard)
+    mongo_url = os.environ.get("MONGO_URL")
+    if mongo_url and MongoClient:
+        try:
+            db_name = os.environ.get("DB_NAME", "llm_wiki_dashboard")
+            client = MongoClient(mongo_url, serverSelectionTimeoutMS=2000)
+            db = client[db_name]
+            db.local_metrics.insert_one({
+                "timestamp": datetime.now(timezone.utc),
+                "email": email,
+                "department": department,
+                "model": model,
+                "prompt_tokens": prompt_tokens,
+                "completion_tokens": completion_tokens,
+                "latency_ms": latency_ms,
+                "cost_usd": round(cost_usd, 6),
+                "task_name": task_name,
+                "trace_id": meta.get("trace_id") or str(uuid.uuid4())
+            })
+            client.close()
+        except Exception as e:
+            log.debug("Local metrics persistence failed: %s", e)
+
     use_http = _env_val("LANGFUSE_USE_HTTP_ONLY").lower() in ("1", "true", "yes")
     if use_http:
         try:
@@ -276,6 +308,7 @@ def emit_chat_observation(
                 prompt_tokens=prompt_tokens,
                 completion_tokens=completion_tokens,
                 meta=meta,
+                task_name=task_name,
             )
         except Exception as e:
             log.warning("Langfuse HTTP-only emit failed: %s", e)
@@ -295,6 +328,7 @@ def emit_chat_observation(
             prompt_tokens=prompt_tokens,
             completion_tokens=completion_tokens,
             meta=meta,
+            task_name=task_name,
         )
     except Exception as e:
         log.info("Langfuse SDK emit failed, trying HTTP API: %s", e)
@@ -309,6 +343,7 @@ def emit_chat_observation(
                 prompt_tokens=prompt_tokens,
                 completion_tokens=completion_tokens,
                 meta=meta,
+                task_name=task_name,
             )
         except Exception as e2:
             log.warning("Langfuse HTTP fallback failed: %s", e2)

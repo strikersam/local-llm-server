@@ -1597,6 +1597,39 @@ async def observability_status(user: dict = Depends(get_current_user)):
 async def observability_dashboard(user: dict = Depends(get_current_user)):
     return {"url": LANGFUSE_BASE, "configured": bool(LANGFUSE_PK)}
 
+@app.get("/api/observability/metrics")
+async def observability_metrics(user: dict = Depends(get_current_user)):
+    """Fetch basic usage metrics from the local_metrics collection."""
+    now = datetime.now(timezone.utc)
+    day_ago = now - timedelta(days=1)
+    
+    # 24h Aggregation
+    pipeline = [
+        {"$match": {"timestamp": {"$gte": day_ago}}},
+        {"$group": {
+            "_id": None,
+            "total_requests": {"$sum": 1},
+            "total_tokens": {"$sum": {"$add": ["$prompt_tokens", "$completion_tokens"]}},
+            "total_savings_usd": {"$sum": "$cost_usd"},
+        }}
+    ]
+    cursor = db.local_metrics.aggregate(pipeline)
+    agg = await cursor.to_list(length=1)
+    summary = agg[0] if agg else {"total_requests": 0, "total_tokens": 0, "total_savings_usd": 0}
+    summary.pop("_id", None)
+    
+    # Recent activity
+    recent = []
+    async for m in db.local_metrics.find({}).sort("timestamp", -1).limit(10):
+        m["_id"] = str(m["_id"])
+        m["timestamp"] = m["timestamp"].isoformat()
+        recent.append(m)
+        
+    return {
+        "summary_24h": summary,
+        "recent_traces": recent
+    }
+
 
 # ─── System / Platform Info ─────────────────────────────────────────────────────
 
