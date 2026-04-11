@@ -7,6 +7,19 @@
 <!-- or to the appropriate version section before merging.                     -->
 
 ## [Unreleased]
+
+### Fixed
+
+- **E701 lint errors in `update_wiki_page`** (`backend/server.py`): Three inline
+  `if body.X is not None: updates[...] = ...` statements were split onto separate
+  lines to comply with PEP 8 (pycodestyle E701). No behaviour change.
+
+- **Orphaned Google OAuth fragment removed** (`backend/server.py`): ~50 lines of
+  indented Google user-upsert code (steps 2-4 of the OAuth callback) were floating
+  outside any function body between `@app.post("/api/auth/refresh")` and the LLM
+  Engine section — a merge artifact that was unreachable at runtime. The identical
+  logic already exists inside the proper `google_oauth_callback` handler; the dead
+  copy has been removed.
 - **GitHub Integration** (`backend/server.py`, `agent/loop.py`, `frontend/src/`):
   - Full GitHub repo integration available from the GitHub Pages dashboard after login.
   - Expanded GitHub OAuth flow to request `repo` scopes for repository write access and one-click connection.

@@ -925,60 +925,6 @@ async def refresh_token(request: Request):
         raise HTTPException(status_code=401, detail="Invalid refresh token")
 
 
-        access_token = token_data.get("access_token")
-
-        # 2. Get user info
-        user_resp = await client.get(
-            "https://www.googleapis.com/oauth2/v3/userinfo",
-            headers={"Authorization": f"Bearer {access_token}"},
-        )
-        user_resp.raise_for_status()
-        g_user = user_resp.json()
-        email = g_user.get("email")
-
-        if not email:
-            raise HTTPException(status_code=400, detail="Could not retrieve email from Google")
-
-        # 3. Find or create user
-        user = await db.users.find_one({"email": email.lower()})
-        uid_str = g_user["sub"]
-        now = datetime.now(timezone.utc).isoformat()
-
-        if not user:
-            new_user = {
-                "email": email.lower(),
-                "name": g_user.get("name"),
-                "avatar_url": g_user.get("picture"),
-                "provider": "google",
-                "provider_user_id": uid_str,
-                "role": "user",
-                "created_at": now,
-                "last_login": now,
-            }
-            result = await db.users.insert_one(new_user)
-            user_id = str(result.inserted_id)
-            await log_activity("auth", f"New user {email} registered via Google", user_id=user_id)
-        else:
-            user_id = str(user["_id"])
-            await db.users.update_one(
-                {"_id": user["_id"]},
-                {
-                    "$set": {
-                        "last_login": now,
-                        "provider": user.get("provider", "google"),
-                        "provider_user_id": user.get("provider_user_id", uid_str),
-                        "avatar_url": user.get("avatar_url") or g_user.get("picture"),
-                    }
-                },
-            )
-            await log_activity("auth", f"User {email} logged in via Google", user_id=user_id)
-
-        # 4. Generate tokens and redirect to frontend
-        access = create_access_token(user_id, email)
-        refresh = create_refresh_token(user_id)
-        return RedirectResponse(f"{frontend_url}/auth/callback?access_token={access}&refresh_token={refresh}")
-
-
 # ─── LLM Engine ─────────────────────────────────────────────────────────────────
 
 async def get_active_provider():
@@ -1220,9 +1166,12 @@ async def create_wiki_page(body: WikiPageCreate, user: dict = Depends(get_curren
 @app.put("/api/wiki/pages/{slug}")
 async def update_wiki_page(slug: str, body: WikiPageUpdate, user: dict = Depends(get_current_user)):
     updates = {"updated_at": datetime.now(timezone.utc).isoformat()}
-    if body.title is not None: updates["title"] = body.title
-    if body.content is not None: updates["content"] = body.content
-    if body.tags is not None: updates["tags"] = body.tags
+    if body.title is not None:
+        updates["title"] = body.title
+    if body.content is not None:
+        updates["content"] = body.content
+    if body.tags is not None:
+        updates["tags"] = body.tags
     result = await db.wiki_pages.update_one({"slug": slug}, {"$set": updates})
     if result.matched_count == 0:
         raise HTTPException(status_code=404, detail="Page not found")
