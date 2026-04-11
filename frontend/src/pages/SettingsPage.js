@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
+import { Link } from 'react-router-dom';
 import { healthCheck, getPlatformInfo, githubStatus, getGithubStatus, startGithubOAuth, setGithubToken, deleteGithubToken, listGithubRepos, authorizeGithubRepos } from '../api';
 import { Settings, CheckCircle, XCircle, ExternalLink, Github, Globe, Server, Cpu, Key, Loader2, Trash2, Lock, ChevronDown, ChevronUp } from 'lucide-react';
 
@@ -216,10 +217,10 @@ export default function SettingsPage() {
                     <Trash2 size={10} /> Disconnect
                   </button>
                 </div>
-                <a href="/github"
+                <Link to="/github"
                   className="inline-flex items-center gap-1.5 bg-[#002FA7] hover:bg-[#002585] text-white px-4 py-2 text-[10px] tracking-wider uppercase font-mono transition-colors">
                   <Github size={11} /> Open GitHub Repos
-                </a>
+                </Link>
               </div>
             ) : (
               /* ── Not connected state ── */
@@ -338,6 +339,7 @@ function GitHubAccessSection() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [connecting, setConnecting] = useState(false);
+  const [connErr, setConnErr] = useState('');
   const popupRef = useRef(null);
 
   const refresh = useCallback(() => {
@@ -363,11 +365,20 @@ function GitHubAccessSection() {
   };
 
   const handleConnect = useCallback(async () => {
+    setConnErr('');
+    if (!status?.oauth_enabled) {
+      setConnErr('OAuth not configured on this server. Set GITHUB_CLIENT_ID and GITHUB_CLIENT_SECRET in your .env file.');
+      return;
+    }
     setConnecting(true);
     try {
       const { data } = await startGithubOAuth();
       const popup = window.open(data.url, 'github_oauth', 'width=600,height=700,scrollbars=yes');
-      if (!popup) { setConnecting(false); return; }
+      if (!popup) {
+        setConnErr('Popup was blocked. Allow popups for this site and try again.');
+        setConnecting(false);
+        return;
+      }
       popupRef.current = popup;
       const backendOrigin = process.env.REACT_APP_BACKEND_URL
         ? new URL(process.env.REACT_APP_BACKEND_URL).origin
@@ -377,14 +388,26 @@ function GitHubAccessSection() {
         if (!event.data || event.data.type !== 'github_oauth') return;
         window.removeEventListener('message', handler);
         setConnecting(false);
-        if (event.data.success) refresh();
+        if (event.data.success) {
+          refresh();
+        } else {
+          setConnErr(event.data.error || 'Authorization failed');
+        }
       };
       window.addEventListener('message', handler);
       const poll = setInterval(() => {
-        if (popup.closed) { clearInterval(poll); window.removeEventListener('message', handler); setConnecting(false); refresh(); }
+        if (popup.closed) {
+          clearInterval(poll);
+          window.removeEventListener('message', handler);
+          setConnecting(false);
+          refresh();
+        }
       }, 500);
-    } catch { setConnecting(false); }
-  }, [refresh]);
+    } catch (e) {
+      setConnErr(e?.response?.data?.detail || e.message || 'Failed to start OAuth flow');
+      setConnecting(false);
+    }
+  }, [refresh, status]);
 
   const handleSave = async () => {
     setSaving(true);
@@ -418,11 +441,18 @@ function GitHubAccessSection() {
             <p className="text-[11px] text-[#A0A0A0] leading-relaxed">
               Connect your GitHub account with <code className="text-[#002FA7] bg-[#002FA7]/10 px-1">repo</code> scope to allow the agent to manage your repositories directly.
             </p>
-            <button onClick={handleConnect} disabled={connecting}
-               className="inline-flex items-center gap-2 bg-[#002FA7] hover:bg-[#002585] text-white px-4 py-2 text-[10px] font-mono font-bold tracking-widest uppercase transition-all disabled:opacity-50">
-              {connecting ? <Loader2 size={14} className="animate-spin" /> : <Github size={14} />}
-              {connecting ? 'Connecting…' : 'Connect GitHub'}
-            </button>
+            {status?.oauth_enabled ? (
+              <button onClick={handleConnect} disabled={connecting}
+                 className="inline-flex items-center gap-2 bg-[#002FA7] hover:bg-[#002585] text-white px-4 py-2 text-[10px] font-mono font-bold tracking-widest uppercase transition-all disabled:opacity-50">
+                {connecting ? <Loader2 size={14} className="animate-spin" /> : <Github size={14} />}
+                {connecting ? 'Connecting…' : 'Connect GitHub'}
+              </button>
+            ) : (
+              <div className="border border-yellow-500/20 bg-yellow-500/5 p-3 text-[10px] text-yellow-400/80 font-mono leading-relaxed">
+                OAuth not configured. Set <code>GITHUB_CLIENT_ID</code> &amp; <code>GITHUB_CLIENT_SECRET</code> in your .env file to enable GitHub connection.
+              </div>
+            )}
+            {connErr && <div className="text-[10px] text-[#FF3333] font-mono">{connErr}</div>}
           </div>
         ) : (
           <div className="space-y-4">
@@ -430,9 +460,14 @@ function GitHubAccessSection() {
               <h3 className="text-[11px] text-white font-bold tracking-tight">Select Authorized Repositories</h3>
               <div className="flex gap-2">
                 <button onClick={refresh} className="text-[9px] text-[#A0A0A0] hover:text-white transition-colors font-mono uppercase">Refresh List</button>
-                <button onClick={handleConnect} disabled={connecting} className="text-[9px] text-[#002FA7] hover:underline font-mono uppercase disabled:opacity-50">Re-Auth</button>
+                {status?.oauth_enabled && (
+                  <button onClick={handleConnect} disabled={connecting} className="text-[9px] text-[#002FA7] hover:underline font-mono uppercase disabled:opacity-50">
+                    {connecting ? 'Re-Authing…' : 'Re-Auth'}
+                  </button>
+                )}
               </div>
             </div>
+            {connErr && <div className="text-[10px] text-[#FF3333] font-mono">{connErr}</div>}
 
             <div className="max-h-60 overflow-y-auto border border-white/5 bg-black/20 divide-y divide-white/5 custom-scrollbar">
               {loading ? (

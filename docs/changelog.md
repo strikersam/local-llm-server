@@ -19,6 +19,20 @@
 
 ### Fixed
 
+- **Settings page GitHub buttons broken** (`frontend/src/pages/SettingsPage.js`):
+  - "Open GitHub Repos" button used a plain `<a href="/github">` anchor causing a full
+    page reload in the React SPA; replaced with React Router `<Link to="/github">` for
+    proper client-side navigation.
+  - Re-Auth / Connect GitHub buttons in `GitHubAccessSection` silently swallowed all
+    errors (`catch { setConnecting(false); }`), leaving the user with no feedback when
+    OAuth was not configured or the popup was blocked. Now shows an inline error message
+    for each failure case (OAuth not configured, popup blocked, postMessage auth failure,
+    API error).
+  - Re-Auth button is now hidden when `oauth_enabled` is false (no GitHub OAuth
+    credentials set) instead of being clickable but non-functional.
+  - "Connect GitHub" button in the not-connected state of `GitHubAccessSection` now
+    shows a configuration hint instead of a broken button when OAuth is not set up.
+
 - **`@app.on_event("startup")` deprecation warning** (`backend/server.py`): Replaced the
   deprecated FastAPI startup event hook with a proper `@asynccontextmanager` lifespan
   handler, eliminating the deprecation warning on every import.
