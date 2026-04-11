@@ -8,6 +8,10 @@
 
 ## [Unreleased]
 
+_(nothing pending)_
+
+## [2.4.0] — 2026-04-11
+
 ### Fixed
 
 - **E701 lint errors in `update_wiki_page`** (`backend/server.py`): Three inline
