@@ -137,22 +137,12 @@ def _apply_chat_defaults(payload: dict[str, Any]) -> dict[str, Any]:
 
 
 def _strip_think_blocks(text: str) -> str:
+    """Rigorous regex-based stripping of <think>...</think> blocks from strings."""
     if not text:
         return text
-
-    out: list[str] = []
-    cursor = 0
-    while cursor < len(text):
-        start = text.find("<think>", cursor)
-        if start == -1:
-            out.append(text[cursor:])
-            break
-        out.append(text[cursor:start])
-        end = text.find("</think>", start + len("<think>"))
-        if end == -1:
-            break
-        cursor = end + len("</think>")
-    return "".join(out).strip()
+    # Non-greedy match of <think> to </think> or end of string
+    text = re.sub(r"<think>[\s\S]*?(?:</think>|$)", "", text, flags=re.IGNORECASE)
+    return text.strip().strip()
 
 
 def _extract_exact_output(messages: Any) -> str | None:

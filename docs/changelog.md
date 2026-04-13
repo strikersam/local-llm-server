@@ -14,6 +14,11 @@
   - Set **DeepSeek** as the default LLM provider for the platform.
   - Added commercial equivalent pricing for accurate savings estimation on all new models.
   - Updated test suite and documentation to cover all new providers.
+- **Verification Fixes** (`backend/server.py`, `router/registry.py`, `chat_handlers.py`):
+  - Added explicit Claude aliases and `MODEL_MAP` dynamic loading integration natively into `router/registry.py`.
+  - Upgraded authentication explicitly verifying `x-api-key` payloads in `get_current_user` (`backend/server.py`).
+  - Switched from custom CORS implementation to native explicit `CORSMiddleware` config.
+  - Enhanced `_strip_think_blocks` within `chat_handlers.py` using robust regex expression parsing.
 
 ## [2.4.1] — 2026-04-11
 

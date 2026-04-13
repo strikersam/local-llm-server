@@ -57,6 +57,23 @@ _DEFAULT_REGISTRY: dict[str, ModelCapability] = {
         cost_tier=1,
         tags=["lightweight"],
     ),
+    # Claude aliases
+    "claude-3-5-sonnet-20241022": ModelCapability(
+        name="claude-3-5-sonnet-20241022",
+        strengths=["code_generation", "code_debugging", "code_review", "tool_use", "long_context", "conversation"],
+        context_window=32768,
+        type="coder",
+        cost_tier=2,
+        tags=["alias"],
+    ),
+    "claude-3-opus-20240229": ModelCapability(
+        name="claude-3-opus-20240229",
+        strengths=["reasoning", "analysis", "planning", "math", "complex_tasks"],
+        context_window=32768,
+        type="reasoning",
+        cost_tier=3,
+        tags=["alias"],
+    ),
 }
 
 
@@ -87,6 +104,24 @@ def get_registry() -> dict[str, ModelCapability]:
                         context_window=32768,
                         type=mtype,
                         cost_tier=2,
+                    )
+
+    # Hook MODEL_MAP so aliases appear in registry natively
+    raw_map = os.environ.get("MODEL_MAP", "").strip()
+    if raw_map:
+        for pair in raw_map.split(","):
+            pair = pair.strip()
+            if ":" in pair:
+                src, dst = pair.split(":", 1)
+                src, dst = src.strip(), dst.strip()
+                if src and dst and dst in registry:
+                    registry[src] = ModelCapability(
+                        name=src,
+                        strengths=registry[dst].strengths,
+                        context_window=registry[dst].context_window,
+                        type=registry[dst].type,
+                        cost_tier=registry[dst].cost_tier,
+                        tags=["alias"]
                     )
 
     return registry

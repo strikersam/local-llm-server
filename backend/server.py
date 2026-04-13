@@ -16,6 +16,7 @@ from pathlib import Path
 
 from fastapi import FastAPI, HTTPException, Request, Depends, UploadFile, File, Form
 from fastapi.responses import JSONResponse, HTMLResponse, RedirectResponse
+from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 from motor.motor_asyncio import AsyncIOMotorClient
 from bson import ObjectId
@@ -226,8 +227,11 @@ def create_refresh_token(user_id: str) -> str:
 async def get_current_user(request: Request) -> dict:
     token = None
     auth = request.headers.get("Authorization", "")
+    x_api_key = request.headers.get("x-api-key", "")
     if auth.startswith("Bearer "):
         token = auth[7:]
+    elif x_api_key:
+        token = x_api_key
     if not token:
         token = request.cookies.get("access_token")
     if not token:
@@ -666,23 +670,13 @@ async def google_callback(request: Request, code: str = None, state: str = None)
         refresh = create_refresh_token(user_id)
         return RedirectResponse(f"{frontend_url}/auth/callback?access_token={access}&refresh_token={refresh}")
 
-# CORS — handled manually to support credentials properly
-@app.middleware("http")
-async def cors_middleware(request: Request, call_next):
-    origin = request.headers.get("origin", "")
-    if request.method == "OPTIONS":
-        response = JSONResponse(content="", status_code=200)
-    else:
-        response = await call_next(request)
-    if origin:
-        response.headers["Access-Control-Allow-Origin"] = origin
-    else:
-        response.headers["Access-Control-Allow-Origin"] = frontend_url
-    response.headers["Access-Control-Allow-Credentials"] = "true"
-    response.headers["Access-Control-Allow-Methods"] = "GET, POST, PUT, DELETE, OPTIONS, PATCH"
-    response.headers["Access-Control-Allow-Headers"] = "Content-Type, Authorization, Cookie"
-    response.headers["Access-Control-Max-Age"] = "600"
-    return response
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=CORS_ORIGINS if "CORS_ORIGINS" in globals() else ["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 app.add_middleware(
     SessionMiddleware,

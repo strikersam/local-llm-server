@@ -1,0 +1,276 @@
+[Unreleased] — Cloud Model Expansion
+
+#	Feature	Files to check	Symbols/Endpoints to verify
+1	DeepSeek API provider	backend/server.py, commercial_equivalent.py	Provider config for deepseek, models DeepSeek-V3, DeepSeek-R1
+2	Zhipu AI (GLM) provider	backend/server.py, commercial_equivalent.py	Provider config for zhipu/glm, model GLM-4.5 Air
+3	AliCloud DashScope (Qwen) provider	backend/server.py, commercial_equivalent.py	Provider for dashscope/qwen, model Qwen3.5 397B
+4	MiniMax provider	backend/server.py, commercial_equivalent.py	Provider for minimax, model MiMo-V2-Flash
+5	Google Gemini provider	backend/server.py, commercial_equivalent.py	Provider for gemini, model Gemma 4
+6	Moonshot AI (Kimi) provider	backend/server.py, commercial_equivalent.py	Provider for moonshot/kimi, model Kimi-K2.5
+7	DeepSeek as default LLM provider	backend/server.py	Default provider setting points to DeepSeek
+8	Commercial equivalent pricing for new models	commercial_equivalent.py	Pricing entries for all 6 new providers
+[2.4.1] — Enhanced Langfuse Tracking
+
+#	Feature	Files to check	Symbols/Endpoints to verify
+9	emit_chat_observation supports task_name	langfuse_obs.py	task_name parameter in emit_chat_observation()
+10	Auth propagation to agent calls	agent/loop.py, agent/coordinator.py	User context (email, department, key_id) passed to internal calls
+11	Legacy endpoint tracking	proxy.py	Langfuse tracking on /api/generate and /v1/completions
+12	AgentRunner/Coordinator instrumented	agent/loop.py, agent/coordinator.py	Token usage, latency, user metadata in Langfuse calls
+[2.4.0] — Agent Chat, GitHub Integration, Context Engineering
+
+Fixes
+
+#	Feature	Files to check	Symbols/Endpoints to verify
+13	E701 lint fix in update_wiki_page	backend/server.py	No inline if x: y statements in update_wiki_page
+14	Agent chat infinite loading fix	backend/server.py, backend/llm_providers.py, frontend/src/pages/ChatPage.js	asyncio.wait_for timeouts (5min agent, 3min LLM), ThinkingBubble component, <think> tag stripping with reasoning_content fallback
+15	Orphaned Google OAuth fragment removed	backend/server.py	No floating OAuth code between /api/auth/refresh and LLM Engine
+16	GitHub OAuth mobile redirect fallback	backend/server.py, frontend/src/api.js, frontend/src/pages/SettingsPage.js	redirect=true param, RedirectResponse to /settings?github_authorized=true
+17	Settings page GitHub buttons fixed	frontend/src/pages/SettingsPage.js	React Router Link (not <a>), error messages for OAuth failures, Re-Auth hidden when oauth_enabled=false
+18	@app.on_event("startup") replaced	backend/server.py	@asynccontextmanager lifespan handler, no on_event("startup")
+19	Anthropic/OpenAI 503 on Ollama unreachable	handlers/anthropic_compat.py, chat_handlers.py	httpx.ConnectError caught, HTTP 503 returned
+20	bash_20250124/text_editor_20250124 stripped	handlers/anthropic_compat.py	_SERVER_TOOL_TYPES includes both 2025 variants
+21	/agent/terminal/run field command (not cmd)	proxy.py	TerminalRunRequest.command (list of strings)
+22	/agent/commits NUL-byte separator	agent/commit_tracker.py	\x00 record separator in git log format
+23	/admin/api/status Linux fix	service_manager.py	_find_pid() returns None on non-Windows
+24	/ui/api/providers/{id}/models 503 handling	webui/router.py	httpx.ConnectError caught → HTTP 503
+Added — GitHub Integration
+
+#	Feature	Files to check	Symbols/Endpoints to verify
+25	GitHub repo listing endpoint	backend/server.py	GET /api/github/repos
+26	GitHub repo authorization endpoint	backend/server.py	POST /api/github/authorize-repos
+27	File-tree explorer	frontend/src/	Recursive directory expansion component
+28	Inline file editor with commits	frontend/src/	File editor component with commit functionality
+29	Pull-request panel	frontend/src/	PR viewing and creation UI
+30	Unified AgentRunner architecture	agent/loop.py	AgentRunner class (not legacy three-role)
+31	github_repo_token injection	agent/loop.py	Token passed to agent for repo operations
+Added — Social Login
+
+#	Feature	Files to check	Symbols/Endpoints to verify
+32	GitHub social login	backend/server.py, frontend/src/	GitHub OAuth flow, /auth/callback route
+33	Google social login	backend/server.py, frontend/src/	Google OAuth flow, auto-registration
+34	CSRF state parameter	backend/server.py	state parameter in OAuth flows
+Added — Cloud Providers & Catalog
+
+#	Feature	Files to check	Symbols/Endpoints to verify
+35	OpenRouter provider	backend/server.py	openrouter seeded, OPENROUTER_API_KEY env var
+36	Together AI provider	backend/server.py	together-ai seeded, TOGETHER_API_KEY env var
+37	Predefined model catalog	backend/server.py	PREDEFINED_MODELS dict, GET /api/models/catalog
+38	Live + predefined model merge	backend/server.py	GET /api/providers/{id}/models merges both
+Added — Multi-Agent Orchestration
+
+#	Feature	Files to check	Symbols/Endpoints to verify
+39	Auto-classification (simple/complex)	backend/server.py	Classification logic (≥25 words or keywords)
+40	Three-role orchestration (plan/execute/verify)	backend/server.py	DeepSeek-R1 plans, Qwen3 executes, DeepSeek-R1 verifies
+41	AGENT_ROLE_MODELS mapping	backend/server.py	Dict mapping provider types to role models
+42	Agent mode toggle in chat UI	frontend/src/pages/ChatPage.js	"Agent ON/OFF" button, agent_mode in localStorage, sent in POST /api/chat/send
+43	Observation masking (≤300 chars)	agent/context_manager.py, agent/loop.py	Old tool outputs truncated, last 4 kept verbatim
+44	Context compaction (>16 messages)	agent/context_manager.py, agent/loop.py	LLM-summarize old history
+Added — Dashboard Provider Support
+
+#	Feature	Files to check	Symbols/Endpoints to verify
+45	HuggingFace serverless in dashboard	backend/server.py, backend/llm_providers.py, frontend/src/pages/ChatPage.js	HF provider seeded, selectable in chat
+46	Ollama fallback (OpenAI-compat → native /api/chat)	backend/llm_providers.py	Fallback logic
+Added — Context Engineering (Anthropic-inspired)
+
+#	Feature	Files to check	Symbols/Endpoints to verify
+47	ContextManager class	agent/context_manager.py	Class with mask_after, compact_after, jit_file_limit kwargs
+48	head_file tool	agent/tools.py	head_file(path, lines=50)
+49	file_index tool	agent/tools.py	file_index(path, max_entries=100)
+50	Append-only event log	agent/state.py, agent/models.py	agent_events table, append_event(), get_events()
+51	AgentEvent model	agent/models.py	Pydantic model with event_type, payload, timestamp, position
+52	AgentSession.event_count	agent/models.py, agent/state.py	event_count field on session
+53	Sub-agent condensed summaries	agent/context_manager.py	condense_step_result() (~2k tokens)
+54	Resilient tool dispatch	agent/loop.py	_run_tool try/except returning [tool error: ...]
+Added — Advisor Strategy
+
+#	Feature	Files to check	Symbols/Endpoints to verify
+55	Advisor tool types stripped	handlers/anthropic_compat.py	advisor_20260301, computer_use_*, web_search_20250305 stripped
+56	Advisor result blocks converted	handlers/anthropic_compat.py	server_tool_use, advisor_tool_result → plain text
+57	docs/architecture/advisor-strategy.md	docs/architecture/advisor-strategy.md	File exists
+Fixed — Misc
+
+#	Feature	Files to check	Symbols/Endpoints to verify
+58	HF_TOKEN env-var sync on startup	backend/server.py	seed_default_providers syncs api_key/base_url from env
+59	ChatMessage.session_id nullable	backend/server.py	`str
+60	[object Object] error in dashboard chat	frontend/src/pages/ChatPage.js	Uses fmtErr() helper
+61	[object Object] error in webui	webui/frontend/src/api.ts	FastAPI detail array parsing
+62	Docker dashboard profile	docker-compose.yml, Dockerfile.backend, Dockerfile.dashboard.frontend	--profile dashboard works
+63	Browser automation disabled by default	agent/browser.py	BROWSER_AUTOMATION_ENABLED env check
+64	render.yaml correct config	render.yaml	FastAPI Dockerfile, /health check, correct env vars
+65	docker-compose.yml correct services	docker-compose.yml	ollama + proxy default, --profile tunnel, --profile ngrok
+66	deploy-frontend.yml correct paths	.github/workflows/deploy-frontend.yml	webui/frontend/, VITE_* env vars, dist/ output
+67	Dockerfile.frontend correct project	Dockerfile.frontend	Builds webui/frontend/, supports VITE_API_BASE
+68	/v1/models includes Claude aliases	Code in models endpoint	Claude model aliases listed
+69	.env.example cleaned	.env.example	No MONGO_URL/DB_NAME, has tunnel instructions
+70	MODEL_MAP parser fix	router/model_router.py	pair.split(":", 1) not pair.index(":")
+71	KeyStore corruption handling	key_store.py	JSONDecodeError/OSError caught in _load_unlocked
+72	Dockerfile HEALTHCHECK	Dockerfile	HEALTHCHECK directive present
+73	Vercel disabled	vercel.json	github.enabled: false
+74	pytest.ini test discovery	pytest.ini	testpaths = tests
+Added — Web UI, VITE_API_BASE, Tunnel, Memory
+
+#	Feature	Files to check	Symbols/Endpoints to verify
+75	VITE_API_BASE support	webui/frontend/src/api.ts	import.meta.env.VITE_API_BASE usage
+76	Cloudflare Tunnel profile	docker-compose.yml	cloudflared service under tunnel profile
+77	Persistent agent memory (SQLite)	agent/user_memory.py	UserMemoryStore, save_memory/recall_memory tools
+78	Durable session history (SQLite)	agent/state.py	AgentSessionStore with SQLite, AGENT_DB_PATH env
+79	Memory-aware planning	agent/prompts.py	User profile preferences injected into planner prompt
+Added — Claude/AI Engineering System
+
+#	Feature	Files to check	Symbols/Endpoints to verify
+80	CLAUDE.md root guide	CLAUDE.md	File exists with codebase map
+81	AGENTS.md + TOOLS.md	AGENTS.md, TOOLS.md	Both files exist
+82	.claude/skills/ (11 skills)	.claude/skills/	At least 11 skill directories
+83	.claude/hooks/ (3 hooks)	.claude/hooks/pre-commit, .claude/hooks/commit-msg, .claude/hooks/pre-push	All 3 exist
+84	.claude/agents/ (4 personas)	.claude/agents/	Planner, Implementer, Reviewer, Judge
+85	.claude/agents/scout.md	.claude/agents/scout.md	5-dimension confidence scoring
+86	.claude/commands/	.claude/commands/	/plan, /review, /resume
+87	.claude/state/	.claude/state/	agent-state.json, NEXT_ACTION.md, checkpoint.jsonl
+88	scripts/ai_runner.py	scripts/ai_runner.py	Auto-resume watchdog with backoff
+89	Makefile	Makefile	test, lint, hooks-install, ai-start, etc.
+90	.github/workflows/ci.yml	.github/workflows/ci.yml	pytest + syntax + secret scan
+91	.github/workflows/changelog-check.yml	.github/workflows/changelog-check.yml	Blocks PR without [Unreleased]
+92	.github/PULL_REQUEST_TEMPLATE.md	.github/PULL_REQUEST_TEMPLATE.md	File exists
+93	.github/CODEOWNERS	.github/CODEOWNERS	File exists
+Added — 19 Agent Features
+
+#	Feature	Files to check	Symbols/Endpoints to verify
+94	agent/memory.py (SessionMemory)	agent/memory.py	SessionMemory class with snapshot/restore
+95	agent/context.py (ContextCompressor)	agent/context.py	3 strategies: reactive, micro, inspect
+96	agent/permissions.py (AdaptivePermissions)	agent/permissions.py	read_only/read_write/full_access inference
+97	agent/token_budget.py (TokenBudget)	agent/token_budget.py	record()/check()/reset(), BudgetExceededError
+98	agent/coordinator.py (AgentCoordinator)	agent/coordinator.py	AgentCoordinator, WorkerSpec, max_concurrent semaphore
+99	agent/background.py (BackgroundAgent)	agent/background.py	BackgroundAgent, BackgroundTask, task queue
+100	agent/scheduler.py (AgentScheduler)	agent/scheduler.py	APScheduler cron, trigger(job_id)
+101	agent/playbook.py (PlaybookLibrary)	agent/playbook.py	PlaybookLibrary, Playbook, PlaybookRun
+102	agent/watchdog.py (ResourceWatchdog)	agent/watchdog.py	SHA-256 polling, on_change callback
+103	agent/commit_tracker.py (CommitTracker)	agent/commit_tracker.py	Git trailers: Agent-Session, Agent-Model, etc.
+104	agent/scaffolding.py (ProjectScaffolder)	agent/scaffolding.py	3 templates: python-library, fastapi-service, cli-tool
+105	agent/skills.py (SkillLibrary)	agent/skills.py	Auto-index .claude/skills/, keyword search
+106	agent/terminal.py (TerminalPanel)	agent/terminal.py	tmux capture-pane, run+capture
+107	agent/browser.py (BrowserSession)	agent/browser.py	Playwright actions, stub mode
+108	agent/voice.py (VoiceCommandInterface)	agent/voice.py	Whisper transcription, stub mode
+45 Agent API Endpoints in proxy.py
+
+#	Endpoint Group	Endpoints to verify
+109	/agent/memory/*	snapshot, restore, list, delete
+110	/agent/context/*	compress, inspect
+111	/agent/sessions/{id}/snip	Message removal by index
+112	/agent/sessions/{id}/permissions	Adaptive permission check
+113	/agent/budget/*	set, get, list
+114	/agent/coordinate	Multi-agent dispatch
+115	/agent/background/*	Task queue CRUD
+116	/agent/scheduler/*	Cron CRUD + trigger
+117	/agent/playbooks/*	CRUD + run lifecycle
+118	/agent/watchdog/*	Watch CRUD + manual check
+119	/agent/scaffolding/*	Template list + apply
+120	/agent/skills/*	List, search, MCP registration
+121	/agent/commits	AI-attributed commit log
+122	/agent/terminal/*	Snapshot + command capture
+123	/agent/browser/*	Start/stop/action
+124	/agent/voice/*	Status + transcription
+Tests
+
+#	Feature	Files to check
+125	Context manager tests (14)	tests/test_context_manager.py
+126	Event log tests (8)	tests/test_event_log.py
+127	Agent tools extended (6 new)	tests/test_agent_tools.py
+128	Model router tests (40)	tests/test_model_router.py
+129	Total suite ≥210 tests	Run pytest --co -q and count
+Security
+
+#	Feature	Files to check	Symbols/Endpoints to verify
+130	No hardcoded tunnel domain in README	README.md	Uses NGROK_DOMAIN placeholder
+131	Provider API keys not returned	webui/providers.py	Only has_api_key in responses
+132	Admin-only command runner	webui/commands.py	Allow-listed commands only
+[2.3.0] — Dynamic Model Routing
+
+#	Feature	Files to check	Symbols/Endpoints to verify
+133	router/ package	router/__init__.py	Package exists
+134	ModelRouter	router/model_router.py	ModelRouter class, route() method
+135	RoutingDecision dataclass	router/model_router.py	All fields: resolved_model, requested_model, mode, routing_reason, etc.
+136	Task classifier	router/classifier.py	8 categories: code_generation, code_debugging, code_review, reasoning, tool_use, long_context, fast_response, conversation
+137	fast_response category	router/classifier.py	<200 chars threshold, ROUTER_FAST_RESPONSE_CHARS
+138	Model capability registry	router/registry.py	Built-in entries for qwen3-coder:30b, deepseek-r1:32b, deepseek-r1:671b, qwen3-coder:7b
+139	ROUTER_EXTRA_MODELS env var	router/registry.py	Runtime model extension
+140	X-Model-Override header	handlers/anthropic_compat.py, chat_handlers.py	Manual model override
+141	Ollama health check	router/health.py	/api/tags query, 60s cache, ROUTER_HEALTH_CACHE_TTL
+142	Fallback execution on 5xx	handlers/anthropic_compat.py, chat_handlers.py	Retry with next model in fallback_chain
+143	Routing metadata in Langfuse	langfuse_obs.py	routing_meta parameter
+144	docs/model-routing.md	docs/model-routing.md	File exists
+[2.2.1] — Screenshots
+
+#	Feature	Files to check
+145	docs/screenshots/ (12 screenshots)	docs/screenshots/ directory with ≥12 files
+146	scripts/gen_screenshots.py	scripts/gen_screenshots.py
+[2.2.0] — Documentation Overhaul
+
+#	Feature	Files to check
+147	docs/claude-code-setup.md	File exists
+148	docs/telegram-bot.md	File exists
+149	docs/admin-dashboard.md	File exists
+150	docs/features.md	File exists
+151	docs/langfuse-observability.md	File exists
+152	docs/configuration-reference.md	File exists
+153	docs/troubleshooting.md	File exists
+154	commercial_equivalent.py updated pricing	commercial_equivalent.py
+[2.1.0] — Model Downloads & Claude 4.6
+
+#	Feature	Files to check
+155	download_models.ps1	File exists with -Lightweight, -IncludeFlagship, -Extended, -CloudProxy flags
+156	Claude 4.6 model IDs in _BUILTIN_MODEL_MAP	handlers/anthropic_compat.py
+157	.env.example updated with Claude 4.6	.env.example
+[2.0.1] — Config Fixes
+
+#	Feature	Files to check
+158	PROXY_DEFAULT_MAX_TOKENS = 8192	.env.example
+159	Agent model env vars documented	.env.example
+160	INFRA_* defaults for Intel AI PC	.env.example
+161	generate_api_key.py shim	generate_api_key.py (root)
+[2.0.0] — Claude Code Compatibility & Core
+
+#	Feature	Files to check	Symbols/Endpoints to verify
+162	POST /v1/messages Anthropic compat	handlers/anthropic_compat.py	Full Messages API
+163	x-api-key header support	Auth middleware	Both Authorization: Bearer and x-api-key
+164	MODEL_MAP env var	handlers/anthropic_compat.py or router/	Built-in defaults for Claude 3/4
+165	GET /v1/models with aliases	Models endpoint	Both Ollama and Claude aliases
+166	infra_cost.py	infra_cost.py	RequestInfraCost, SessionCostProjection
+167	Langfuse infra cost annotations	langfuse_obs.py	infra_electricity_usd, infra_hardware_usd, infra_energy_kwh
+168	latency_ms, ttft_ms, tokens_per_sec	langfuse_obs.py	All 3 metrics emitted
+169	telegram_bot.py	telegram_bot.py	User ID allowlist, admin commands, confirmation
+170	agent/ package structure	agent/__init__.py	Package exists
+171	scripts/generate_api_key.py	scripts/generate_api_key.py	File exists
+172	handlers/ package	handlers/__init__.py	Package exists
+[1.x] — Foundational Features
+
+#	Feature	Files to check
+173	Agent endpoints (session-based)	proxy.py
+174	Admin UI	templates/admin/ or webui/
+175	Langfuse integration	langfuse_obs.py
+176	Rate limiting	Auth/middleware code
+177	CORS configuration	proxy.py or backend/server.py
+178	Think-tag stripping	Relevant handler
+179	Exact-output short-circuit	Relevant handler
+Architecture & Deploy Docs
+
+#	Feature	Files to check
+180	docs/architecture/overview.md	File exists
+181	docs/architecture/agent-orchestration.md	File exists
+182	docs/runbooks/auto-resume.md	File exists
+183	docs/runbooks/release.md	File exists
+184	docs/runbooks/openclaw-setup.md	File exists
+185	docs/adrs/001-local-llm-proxy.md	File exists
+186	docs/adrs/002-model-routing.md	File exists
+187	docs/adrs/003-multi-agent-orchestration.md	File exists
+188	docs/admin/github-branch-protection.md	File exists
+189	docs/deploy/cloud-run.md	File exists
+190	docs/deploy/docker.md	File exists
+Web UI (Claude Code–style)
+
+#	Feature	Files to check
+191	webui/frontend/ SPA	webui/frontend/package.json
+192	webui/router.py	webui/router.py
+193	webui/providers.py	webui/providers.py
+194	webui/workspaces.py	webui/workspaces.py
+195	Dockerfile bundles SPA	Dockerfile
+196	.dockerignore	.dockerignore
