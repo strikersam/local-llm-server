@@ -215,8 +215,8 @@ class AgentRunner:
                 )
                 call = ToolCall.model_validate(tool_call)
             except Exception as exc:
-                observations.append({"tool": "finish", "result": f"tool selection failed: {exc}"})
-                break
+                observations.append({"tool": "error", "result": f"tool selection failed: {exc}"})
+                continue
             if call.tool == "finish":
                 observations.append({"tool": "finish", "result": call.args.get("reason", "done inspecting")})
                 break
@@ -224,11 +224,11 @@ class AgentRunner:
             observations.append({"tool": call.tool, "args": call.args, "result": result})
             context_items.append({"tool": call.tool, "result": result})
 
-        if not target_files and step.get("type") != "github":
+        if not target_files and step.get("type") not in ("github", "analyze"):
             search_hits = self.tools.search_code(step["description"], limit=3)
             target_files = [hit["path"] for hit in search_hits if isinstance(hit.get("path"), str)]
 
-        if not target_files and step.get("type") != "github":
+        if not target_files and step.get("type") not in ("github", "analyze"):
             return {
                 "step_id": step["id"],
                 "description": step["description"],
@@ -239,7 +239,7 @@ class AgentRunner:
                 "models": {"executor": executor_model, "verifier": verifier_model},
             }
 
-        if step.get("type") == "github":
+        if step.get("type") in ("github", "analyze"):
             return {
                 "step_id": step["id"],
                 "description": step["description"],
@@ -565,7 +565,7 @@ class AgentRunner:
 
     def _parse_execution_response(self, raw: str, fallback_path: str) -> tuple[str, str] | None:
         match = re.search(
-            r"FILE:\s*(?P<path>[^\r\n]+)\s*ACTION:\s*(?P<action>create|replace|append)\s*```[^\n]*\n(?P<content>.*)\n```",
+            r"FILE:\s*(?P<path>[^\r\n]+)\s*ACTION:\s*(?P<action>create|replace|append)\s*```[^\n]*\n(?P<content>.*?)\n```",
             raw.strip(),
             re.S,
         )
@@ -581,7 +581,9 @@ class AgentRunner:
 
     def _clean_generated_file_content(self, content: str) -> str:
         cleaned = content.replace("\r\n", "\n")
-        cleaned = re.sub(r"^\s*[A-Za-z0-9_+-]+\s*\n", "", cleaned, count=1)
+        # Remove language identifier if it leaked into the content block
+        if cleaned.startswith("python\n") or cleaned.startswith("javascript\n") or cleaned.startswith("typescript\n") or cleaned.startswith("html\n") or cleaned.startswith("css\n") or cleaned.startswith("json\n") or cleaned.startswith("yaml\n") or cleaned.startswith("sh\n") or cleaned.startswith("bash\n") or cleaned.startswith("text\n"):
+            cleaned = cleaned.split("\n", 1)[1]
         cleaned = cleaned.strip("\n")
         if cleaned and not cleaned.endswith("\n"):
             cleaned += "\n"

@@ -39,7 +39,7 @@ class AgentStep(BaseModel):
     id: int = Field(..., ge=1)
     description: str = Field(..., min_length=1)
     files: list[str] = Field(default_factory=list)
-    type: Literal["edit", "create", "analyze"]
+    type: Literal["edit", "create", "analyze", "github"]
 
 
 class AgentPlan(BaseModel):
@@ -58,6 +58,12 @@ class ToolCall(BaseModel):
         "search_code",
         "recall_memory",
         "save_memory",
+        "github_read_repo_file",
+        "github_list_repos",
+        "github_list_branches",
+        "github_create_branch",
+        "github_commit_changes",
+        "github_open_pull_request",
         "finish",
     ]
     args: dict[str, Any] = Field(default_factory=dict)
