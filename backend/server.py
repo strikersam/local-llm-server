@@ -972,7 +972,7 @@ async def _run_agent_loop(
             history=session_messages,
             requested_model=requested_model,
             auto_commit=True,
-            max_steps=10,
+            max_steps=20,
             memory_store=UserMemoryStore(),
         )
         return result["summary"]
@@ -1138,11 +1138,11 @@ async def chat_send(body: ChatMessage, user: dict = Depends(get_current_user)):
     temperature = body.temperature if body.temperature is not None else (session.get("temperature") or 0.3)
 
     # Determine whether to use multi-agent orchestration.
-    use_agent = body.agent_mode or _classify_complexity(body.content) == "complex"
+    use_agent = True # Always use agent mode
 
     # Hard timeouts so a stuck/thinking model never silently hangs the request.
-    _AGENT_TIMEOUT_SEC = 300   # 5 minutes for multi-agent loop
-    _LLM_TIMEOUT_SEC   = 180   # 3 minutes for simple LLM calls
+    _AGENT_TIMEOUT_SEC = 900   # 15 minutes for multi-agent loop
+    _LLM_TIMEOUT_SEC   = 300   # 5 minutes for simple LLM calls
 
     if use_agent:
         provider = await db.providers.find_one({"provider_id": provider_id}) if provider_id else await get_active_provider()

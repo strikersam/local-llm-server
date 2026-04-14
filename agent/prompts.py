@@ -28,18 +28,19 @@ def build_planning_prompt(
                 '      "id": 1,\n'
                 '      "description": "...",\n'
                 '      "files": ["file1.py"],\n'
-                '      "type": "edit | create | analyze"\n'
+                '      "type": "edit | create | analyze | github"\n'
                 "    }\n"
                 "  ]\n"
                 "}\n\n"
                 "Rules:\n"
-                "- Max 5 steps.\n"
+                "- Max 15 steps.\n"
                 "- Each step touches limited files.\n"
                 "- No execution.\n"
                 "- Prefer existing files when possible.\n"
                 "- If a new file is needed, include the intended path.\n"
                 "- For module-wide tasks, include every file that must change for the result to work.\n"
-                "- If the task asks for a shared utility, include a create step or include the utility file in the edit step."
+                "- If the task asks for a shared utility, include a create step or include the utility file in the edit step.\n"
+                "- If the task involves GitHub operations (commit, push, PR), include a step with type 'github' and leave files empty."
                 f"{memory_section}"
             ),
         },

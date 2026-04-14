@@ -178,6 +178,8 @@ class AgentRunner:
 
         if not target_files and step.get("type") == "create":
             target_files = [f"generated/step_{step['id']}.txt"]
+        elif not target_files and step.get("type") == "github":
+            target_files = ["github_operation"]
 
         executor_decision = get_router().route(
             requested_model=requested_model,
@@ -201,7 +203,7 @@ class AgentRunner:
             executor_model, verifier_model,
         )
 
-        for remaining in range(4, 0, -1):
+        for remaining in range(15, 0, -1):
             try:
                 # Observation masking: pass truncated older observations to
                 # keep the tool-selection prompt lean.  Recent observations are
@@ -222,11 +224,11 @@ class AgentRunner:
             observations.append({"tool": call.tool, "args": call.args, "result": result})
             context_items.append({"tool": call.tool, "result": result})
 
-        if not target_files:
+        if not target_files and step.get("type") != "github":
             search_hits = self.tools.search_code(step["description"], limit=3)
             target_files = [hit["path"] for hit in search_hits if isinstance(hit.get("path"), str)]
 
-        if not target_files:
+        if not target_files and step.get("type") != "github":
             return {
                 "step_id": step["id"],
                 "description": step["description"],
@@ -237,12 +239,22 @@ class AgentRunner:
                 "models": {"executor": executor_model, "verifier": verifier_model},
             }
 
+        if step.get("type") == "github":
+            return {
+                "step_id": step["id"],
+                "description": step["description"],
+                "status": "applied",
+                "changed_files": [],
+                "observations": observations,
+                "models": {"executor": executor_model, "verifier": verifier_model},
+            }
+
         for target_file in target_files:
             original_content = self._safe_read(target_file)
             retries = 0
             feedback_issues: list[str] = []
             file_applied = False
-            while retries <= 2:
+            while retries <= 4:
                 response = await self._chat_text(
                     executor_model,
                     build_execution_prompt(
