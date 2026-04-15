@@ -19,8 +19,11 @@ PROXY_STRIP_THINK_TAGS = "true"
 PROXY_DEFAULT_MAX_TOKENS = "8192"
 PROXY_DEFAULT_SYSTEM_PROMPT_ENABLED = "false"
 RATE_LIMIT_RPM = "60"
-OLLAMA_BASE = "http://localhost:11434"
+OLLAMA_BASE = "https://incalculably-unswaggering-kora.ngrok-free.dev"
 ADMIN_WINDOWS_AUTH = "false"
+LANGFUSE_BASE_URL = "https://cloud.langfuse.com"
+FRONTEND_URL = "https://strikersam.github.io/local-llm-server"
+GITHUB_CALLBACK_URL = "https://local-llm-server.onrender.com/api/github/oauth/callback"
 
 [workflows]
 runButton = "Project"
