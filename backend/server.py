@@ -17,6 +17,7 @@ from pathlib import Path
 from fastapi import FastAPI, HTTPException, Request, Depends, UploadFile, File, Form
 from fastapi.responses import JSONResponse, HTMLResponse, RedirectResponse
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 from motor.motor_asyncio import AsyncIOMotorClient
 from bson import ObjectId
@@ -2203,3 +2204,19 @@ async def create_github_pr(
     except httpx.HTTPStatusError as exc:
         log.error("GitHub API %s error: %s", exc.response.status_code, exc.response.text)
         raise HTTPException(status_code=exc.response.status_code, detail="GitHub API error") from exc
+
+
+# ─── Serve React Frontend (Replit compatibility) ────────────────────────────────
+# Mount the built React app and serve index.html for unknown routes (SPA routing)
+
+_FRONTEND_BUILD = Path(__file__).resolve().parent.parent / "frontend" / "build"
+
+if _FRONTEND_BUILD.exists():
+    app.mount("/static", StaticFiles(directory=str(_FRONTEND_BUILD / "static")), name="static")
+
+    @app.get("/{full_path:path}", include_in_schema=False)
+    async def serve_spa(full_path: str):
+        index = _FRONTEND_BUILD / "index.html"
+        if index.exists():
+            return HTMLResponse(index.read_text())
+        return JSONResponse({"detail": "Frontend not built"}, status_code=404)
