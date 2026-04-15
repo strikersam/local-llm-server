@@ -10,11 +10,17 @@ expertMode = true
 
 [userenv.shared]
 PORT = "5000"
-DB_NAME = "llm_relay"
+DB_NAME = "llm_wiki_dashboard"
 ADMIN_EMAIL = "admin@llmrelay.local"
 LLM_PROVIDER = "ollama"
 CORS_ORIGINS = "*"
 LOG_LEVEL = "INFO"
+PROXY_STRIP_THINK_TAGS = "true"
+PROXY_DEFAULT_MAX_TOKENS = "8192"
+PROXY_DEFAULT_SYSTEM_PROMPT_ENABLED = "false"
+RATE_LIMIT_RPM = "60"
+OLLAMA_BASE = "http://localhost:11434"
+ADMIN_WINDOWS_AUTH = "false"
 
 [workflows]
 runButton = "Project"
