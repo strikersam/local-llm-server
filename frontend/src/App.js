@@ -5,31 +5,33 @@ import LoginPage from './pages/LoginPage';
 import AuthCallback from './pages/AuthCallback';
 import DashboardLayout from './pages/DashboardLayout';
 
-function ProtectedRoute({ children }) {
-  const { user, loading } = useAuth();
-  if (loading) return (
-    <div className="h-screen flex items-center justify-center bg-[#0A0A0A]">
-      <div className="text-[#737373] font-mono text-sm animate-pulse-slow">AUTHENTICATING...</div>
+function LoadingScreen({ message }) {
+  return (
+    <div className="min-h-[100dvh] flex items-center justify-center bg-[#0A0A0A]">
+      <div className="flex flex-col items-center gap-3">
+        <div className="w-8 h-8 border-2 border-[#002FA7] border-t-transparent rounded-full animate-spin" />
+        <p className="text-[#555555] text-xs font-mono tracking-widest uppercase">{message}</p>
+      </div>
     </div>
   );
+}
+
+function ProtectedRoute({ children }) {
+  const { user, loading } = useAuth();
+  if (loading) return <LoadingScreen message="Authenticating" />;
   if (!user) return <Navigate to="/login" replace />;
   return children;
 }
 
 function AppRoutes() {
   const { user, loading } = useAuth();
-  if (loading) return (
-    <div className="h-screen flex items-center justify-center bg-[#0A0A0A]">
-      <div className="text-[#737373] font-mono text-sm animate-pulse-slow">INITIALIZING...</div>
-    </div>
-  );
+  if (loading) return <LoadingScreen message="Initializing" />;
   return (
     <Routes>
       <Route path="/login" element={user ? <Navigate to="/" replace /> : <LoginPage />} />
       <Route path="/auth/callback" element={<AuthCallback />} />
       <Route path="/*" element={<ProtectedRoute><DashboardLayout /></ProtectedRoute>} />
     </Routes>
-
   );
 }
 

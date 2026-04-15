@@ -45,7 +45,7 @@ export default function ModelsPage() {
   return (
     <div className="p-5 lg:p-7 max-w-5xl" data-testid="models-page">
       <div className="mb-6 animate-fade-in">
-        <h1 className="text-2xl font-bold tracking-tighter" style={{ fontFamily: 'Chivo, sans-serif' }}>Models Hub</h1>
+        <h1 className="text-2xl font-bold tracking-tighter" style={{ fontFamily: 'Outfit, sans-serif' }}>Models Hub</h1>
         <p className="text-xs text-[#737373] mt-0.5">Manage local Ollama models and cloud model references</p>
       </div>
 

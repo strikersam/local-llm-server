@@ -295,7 +295,7 @@ export default function ChatPage() {
           {messages.length === 0 && (
             <div className="h-full flex flex-col items-center justify-center text-center animate-fade-in">
               <Bot size={40} className="text-[#002FA7] mb-4" />
-              <h3 className="text-lg font-bold tracking-tight mb-2" style={{ fontFamily: 'Chivo, sans-serif' }}>
+              <h3 className="text-lg font-bold tracking-tight mb-2" style={{ fontFamily: 'Outfit, sans-serif' }}>
                 Wiki Agent Ready
               </h3>
               <p className="text-xs text-[#737373] max-w-md leading-relaxed">

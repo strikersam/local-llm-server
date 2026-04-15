@@ -23,7 +23,7 @@ export default function ObservabilityPage() {
   return (
     <div className="p-5 lg:p-7 max-w-5xl" data-testid="observability-page">
       <div className="mb-6 animate-fade-in">
-        <h1 className="text-2xl font-bold tracking-tighter" style={{ fontFamily: 'Chivo, sans-serif' }}>Observability</h1>
+        <h1 className="text-2xl font-bold tracking-tighter" style={{ fontFamily: 'Outfit, sans-serif' }}>Observability</h1>
         <p className="text-xs text-[#737373] mt-0.5">Langfuse integration for LLM usage tracking, cost analysis, and trace inspection</p>
       </div>
 

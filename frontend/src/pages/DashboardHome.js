@@ -1,18 +1,56 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { getStats, getActivity, healthCheck } from '../api';
-import { BookOpen, MessageSquare, Upload, Activity, ArrowRight, Clock, Layers, Key, BarChart3, Box, CheckCircle, XCircle } from 'lucide-react';
+import {
+  BookOpen, MessageSquare, Upload, Activity, ArrowUpRight, Clock,
+  Layers, Key, BarChart3, Box, CheckCircle, AlertCircle
+} from 'lucide-react';
 
-function StatCard({ icon: Icon, label, value, color, onClick, delay }) {
+const categoryDot = {
+  chat: 'bg-purple-500',
+  wiki: 'bg-[#002FA7]',
+  ingest: 'bg-emerald-500',
+  provider: 'bg-amber-500',
+  keys: 'bg-pink-500',
+};
+
+function StatCard({ icon: Icon, label, value, accent, onClick, delay }) {
   return (
-    <button onClick={onClick} className={`border border-white/10 bg-[#141414] p-4 text-left hover:border-white/20 transition-all group ${delay}`} data-testid={`stat-${label.toLowerCase().replace(/\s/g, '-')}`}>
-      <div className="flex items-center justify-between mb-2">
-        <Icon size={14} style={{ color }} />
-        <ArrowRight size={10} className="text-[#737373] opacity-0 group-hover:opacity-100 transition-opacity" />
+    <button
+      onClick={onClick}
+      className={`group relative bg-[#111111] border border-white/8 rounded-xl p-5 text-left hover:border-white/16 hover:bg-[#141414] transition-all duration-200 hover:shadow-[0_8px_24px_rgba(0,0,0,0.4)] ${delay}`}
+      data-testid={`stat-${label.toLowerCase().replace(/\s/g, '-')}`}
+    >
+      <div className="flex items-start justify-between mb-4">
+        <div className="w-9 h-9 rounded-lg flex items-center justify-center" style={{ background: `${accent}15`, border: `1px solid ${accent}25` }}>
+          <Icon size={16} style={{ color: accent }} />
+        </div>
+        <ArrowUpRight size={14} className="text-[#333333] opacity-0 group-hover:opacity-100 transition-opacity -translate-x-1 group-hover:translate-x-0 duration-200" />
       </div>
-      <div className="text-3xl font-black tracking-tight" style={{ fontFamily: 'Chivo, sans-serif' }}>{value}</div>
-      <div className="text-[9px] tracking-[0.2em] uppercase text-[#737373] mt-0.5 font-mono">{label}</div>
+      <div
+        className="text-[28px] font-bold tracking-tight text-white leading-none mb-1"
+        style={{ fontFamily: 'Outfit, sans-serif' }}
+      >
+        {value}
+      </div>
+      <div className="text-[11px] text-[#555555] font-medium">{label}</div>
     </button>
+  );
+}
+
+function HealthBadge({ label, ok }) {
+  return (
+    <div className={`inline-flex items-center gap-2 px-3 py-1.5 rounded-full text-[11px] font-medium border transition-colors ${
+      ok
+        ? 'border-emerald-500/20 bg-emerald-500/8 text-emerald-400'
+        : 'border-white/8 bg-white/4 text-[#555555]'
+    }`}>
+      {ok
+        ? <CheckCircle size={11} />
+        : <AlertCircle size={11} />
+      }
+      {label}
+    </div>
   );
 }
 
@@ -21,102 +59,156 @@ export default function DashboardHome() {
   const [stats, setStats] = useState(null);
   const [activity, setActivity] = useState([]);
   const [health, setHealth] = useState(null);
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    getStats().then(r => setStats(r.data)).catch(() => {});
-    getActivity(8).then(r => setActivity(r.data.logs || [])).catch(() => {});
-    healthCheck().then(r => setHealth(r.data)).catch(() => {});
+    Promise.allSettled([
+      getStats().then(r => setStats(r.data)),
+      getActivity(10).then(r => setActivity(r.data.logs || [])),
+      healthCheck().then(r => setHealth(r.data)),
+    ]).finally(() => setLoading(false));
   }, []);
 
+  const isHealthy = health?.status === 'ok';
+
   return (
-    <div className="p-5 lg:p-7 max-w-7xl" data-testid="dashboard-home">
-      <div className="mb-6 animate-fade-in">
-        <div className="flex items-center gap-2 text-[9px] tracking-[0.25em] uppercase text-[#737373] mb-1.5 font-mono">
-          <div className={`w-1.5 h-1.5 rounded-full ${health?.status === 'ok' ? 'bg-green-500' : 'bg-amber-500'}`} />
-          {health?.status === 'ok' ? 'ALL SYSTEMS OPERATIONAL' : 'CHECKING STATUS...'}
+    <div className="p-5 sm:p-6 lg:p-8 max-w-7xl mx-auto" data-testid="dashboard-home">
+
+      {/* Header */}
+      <div className="mb-7 animate-fade-in">
+        <div className="flex items-center gap-2 mb-2">
+          <div className={`w-2 h-2 rounded-full transition-colors ${isHealthy ? 'bg-emerald-500' : 'bg-amber-500'} ${!loading ? 'animate-none' : 'animate-pulse-slow'}`} />
+          <span className="text-[11px] font-mono tracking-[0.2em] uppercase text-[#444444]">
+            {loading ? 'Checking status...' : isHealthy ? 'All systems operational' : 'Partial outage'}
+          </span>
         </div>
-        <h1 className="text-2xl font-bold tracking-tighter" style={{ fontFamily: 'Chivo, sans-serif' }}>Control Room</h1>
-        <p className="text-xs text-[#737373] mt-0.5">LLM Relay — Unified AI Platform</p>
+        <h1
+          className="text-3xl sm:text-4xl font-bold tracking-[-0.03em] text-white"
+          style={{ fontFamily: 'Outfit, sans-serif' }}
+        >
+          Control Room
+        </h1>
+        <p className="text-sm text-[#555555] mt-1">LLM Relay — Unified AI Platform</p>
       </div>
 
-      {/* Health Badges */}
-      <div className="flex flex-wrap gap-2 mb-5">
-        {[
-          { label: 'MongoDB', ok: health?.mongo },
-          { label: 'Ollama', ok: health?.ollama },
-          { label: 'Langfuse', ok: stats?.langfuse_configured },
-        ].map(svc => (
-          <div key={svc.label} className="flex items-center gap-1.5 border border-white/10 bg-[#141414] px-3 py-1.5 text-[10px] font-mono">
-            {svc.ok ? <CheckCircle size={11} className="text-green-500" /> : <XCircle size={11} className="text-[#737373]" />}
-            <span className="text-[#A0A0A0]">{svc.label}</span>
-          </div>
-        ))}
+      {/* Health badges */}
+      <div className="flex flex-wrap gap-2 mb-7 stagger-1">
+        <HealthBadge label="MongoDB" ok={health?.mongo} />
+        <HealthBadge label="Ollama" ok={health?.ollama} />
+        <HealthBadge label="Langfuse" ok={stats?.langfuse_configured} />
         {stats?.ngrok_domain && (
-          <div className="flex items-center gap-1.5 border border-[#002FA7]/30 bg-[#002FA7]/10 px-3 py-1.5 text-[10px] font-mono">
-            <span className="text-[#002FA7]">{stats.ngrok_domain}</span>
+          <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full text-[11px] font-mono border border-[#002FA7]/20 bg-[#002FA7]/8 text-[#4477FF]">
+            {stats.ngrok_domain}
           </div>
         )}
       </div>
 
-      {/* Stats Grid */}
-      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3 mb-6">
-        <StatCard icon={BookOpen} label="Wiki Pages" value={stats?.wiki_pages ?? '—'} color="#002FA7" onClick={() => nav('/wiki')} delay="stagger-1" />
-        <StatCard icon={MessageSquare} label="Sessions" value={stats?.chat_sessions ?? '—'} color="#A855F7" onClick={() => nav('/chat')} delay="stagger-2" />
-        <StatCard icon={Upload} label="Sources" value={stats?.sources ?? '—'} color="#22C55E" onClick={() => nav('/sources')} delay="stagger-3" />
-        <StatCard icon={Layers} label="Providers" value={stats?.providers ?? '—'} color="#F59E0B" onClick={() => nav('/providers')} delay="stagger-4" />
-        <StatCard icon={Key} label="API Keys" value={stats?.api_keys ?? '—'} color="#EC4899" onClick={() => nav('/keys')} delay="stagger-5" />
-        <StatCard icon={Activity} label="Events" value={stats?.activity_entries ?? '—'} color="#06B6D4" onClick={() => nav('/activity')} delay="stagger-5" />
+      {/* Stats grid */}
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 mb-7">
+        <StatCard icon={BookOpen}    label="Wiki Pages" value={loading ? '—' : (stats?.wiki_pages ?? 0)}         accent="#3B82F6" onClick={() => nav('/wiki')}         delay="stagger-1" />
+        <StatCard icon={MessageSquare} label="Sessions"  value={loading ? '—' : (stats?.chat_sessions ?? 0)}    accent="#A855F7" onClick={() => nav('/chat')}         delay="stagger-2" />
+        <StatCard icon={Upload}      label="Sources"    value={loading ? '—' : (stats?.sources ?? 0)}            accent="#10B981" onClick={() => nav('/sources')}      delay="stagger-3" />
+        <StatCard icon={Layers}      label="Providers"  value={loading ? '—' : (stats?.providers ?? 0)}          accent="#F59E0B" onClick={() => nav('/providers')}    delay="stagger-4" />
+        <StatCard icon={Key}         label="API Keys"   value={loading ? '—' : (stats?.api_keys ?? 0)}           accent="#EC4899" onClick={() => nav('/keys')}         delay="stagger-5" />
+        <StatCard icon={Activity}    label="Events"     value={loading ? '—' : (stats?.activity_entries ?? 0)}   accent="#06B6D4" onClick={() => nav('/activity')}     delay="stagger-6" />
       </div>
 
-      <div className="grid lg:grid-cols-3 gap-3">
-        {/* Recent Pages */}
-        <div className="border border-white/10 bg-[#141414]">
-          <div className="px-4 py-2.5 border-b border-white/10 flex items-center justify-between">
-            <span className="text-[10px] tracking-[0.15em] uppercase text-[#A0A0A0] font-mono font-bold">Recent Pages</span>
-            <button onClick={() => nav('/wiki')} className="text-[9px] text-[#002FA7] hover:underline font-mono">ALL</button>
+      {/* Content grid */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+
+        {/* Recent Wiki Pages */}
+        <div className="bg-[#111111] border border-white/8 rounded-xl overflow-hidden stagger-4">
+          <div className="px-5 py-3.5 border-b border-white/6 flex items-center justify-between">
+            <span className="text-[12px] font-semibold text-[#888888] tracking-wide">Recent Pages</span>
+            <button onClick={() => nav('/wiki')} className="text-[11px] text-[#002FA7] hover:text-[#4477FF] transition-colors font-medium">
+              View all
+            </button>
           </div>
-          <div className="divide-y divide-white/5">
-            {stats?.recent_pages?.length > 0 ? stats.recent_pages.map(p => (
-              <button key={p.slug} onClick={() => nav(`/wiki/${p.slug}`)} className="w-full flex items-center gap-2 px-4 py-2.5 text-left hover:bg-white/[0.02] transition-colors">
-                <BookOpen size={12} className="text-[#002FA7] shrink-0" />
+          <div className="divide-y divide-white/4">
+            {loading ? (
+              Array.from({ length: 3 }).map((_, i) => (
+                <div key={i} className="px-5 py-3.5">
+                  <div className="skeleton h-3 w-3/4 mb-2" />
+                  <div className="skeleton h-2.5 w-1/3" />
+                </div>
+              ))
+            ) : stats?.recent_pages?.length > 0 ? stats.recent_pages.map(p => (
+              <button
+                key={p.slug}
+                onClick={() => nav(`/wiki/${p.slug}`)}
+                className="w-full flex items-center gap-3 px-5 py-3.5 text-left hover:bg-white/[0.025] transition-colors group"
+              >
+                <div className="w-7 h-7 rounded-md bg-[#002FA7]/10 border border-[#002FA7]/15 flex items-center justify-center shrink-0">
+                  <BookOpen size={12} className="text-[#4477FF]" />
+                </div>
                 <div className="flex-1 min-w-0">
-                  <div className="text-[11px] text-white truncate">{p.title}</div>
-                  <div className="text-[9px] text-[#737373]">{p.updated_at?.split('T')[0]}</div>
+                  <div className="text-[13px] text-[#CCCCCC] group-hover:text-white truncate transition-colors">{p.title}</div>
+                  <div className="text-[10px] text-[#444444] mt-0.5">{p.updated_at?.split('T')[0]}</div>
                 </div>
               </button>
-            )) : <div className="px-4 py-6 text-center text-[11px] text-[#737373]">No wiki pages yet</div>}
+            )) : (
+              <div className="px-5 py-10 text-center">
+                <BookOpen size={20} className="text-[#333333] mx-auto mb-2" />
+                <p className="text-[12px] text-[#444444]">No wiki pages yet</p>
+                <button onClick={() => nav('/wiki')} className="text-[11px] text-[#002FA7] hover:underline mt-1">Create one</button>
+              </div>
+            )}
           </div>
         </div>
 
         {/* Activity Feed */}
-        <div className="lg:col-span-2 border border-white/10 bg-[#141414]">
-          <div className="px-4 py-2.5 border-b border-white/10 flex items-center justify-between">
-            <span className="text-[10px] tracking-[0.15em] uppercase text-[#A0A0A0] font-mono font-bold">Activity Feed</span>
-            <button onClick={() => nav('/activity')} className="text-[9px] text-[#002FA7] hover:underline font-mono">ALL</button>
+        <div className="lg:col-span-2 bg-[#111111] border border-white/8 rounded-xl overflow-hidden stagger-5">
+          <div className="px-5 py-3.5 border-b border-white/6 flex items-center justify-between">
+            <span className="text-[12px] font-semibold text-[#888888] tracking-wide">Recent Activity</span>
+            <button onClick={() => nav('/activity')} className="text-[11px] text-[#002FA7] hover:text-[#4477FF] transition-colors font-medium">
+              View all
+            </button>
           </div>
-          <div className="divide-y divide-white/5 max-h-72 overflow-y-auto">
-            {activity.length > 0 ? activity.map(a => (
-              <div key={a._id} className="flex items-start gap-2 px-4 py-2.5">
-                <div className={`mt-0.5 w-1.5 h-1.5 shrink-0 ${
-                  a.category === 'chat' ? 'bg-purple-500' : a.category === 'wiki' ? 'bg-[#002FA7]' :
-                  a.category === 'ingest' ? 'bg-green-500' : a.category === 'provider' ? 'bg-amber-500' :
-                  a.category === 'keys' ? 'bg-pink-500' : 'bg-[#737373]'
-                }`} />
-                <div className="flex-1 min-w-0">
-                  <div className="text-[11px] text-[#A0A0A0] truncate">{a.message}</div>
-                  <div className="text-[9px] text-[#737373] mt-0.5 flex items-center gap-1.5"><Clock size={9} />{a.created_at?.replace('T', ' ').split('.')[0]}</div>
+          <div className="divide-y divide-white/4 max-h-80 overflow-y-auto">
+            {loading ? (
+              Array.from({ length: 5 }).map((_, i) => (
+                <div key={i} className="flex items-center gap-3 px-5 py-3.5">
+                  <div className="skeleton w-2 h-2 rounded-full shrink-0" />
+                  <div className="flex-1">
+                    <div className="skeleton h-3 w-4/5 mb-1.5" />
+                    <div className="skeleton h-2.5 w-1/4" />
+                  </div>
                 </div>
-                <span className="text-[9px] tracking-wider uppercase text-[#737373] font-mono shrink-0">{a.category}</span>
+              ))
+            ) : activity.length > 0 ? activity.map(a => (
+              <div key={a._id} className="flex items-start gap-3 px-5 py-3.5">
+                <div className={`mt-1.5 w-2 h-2 rounded-full shrink-0 ${categoryDot[a.category] || 'bg-[#333333]'}`} />
+                <div className="flex-1 min-w-0">
+                  <div className="text-[13px] text-[#A0A0A0] truncate">{a.message}</div>
+                  <div className="text-[10px] text-[#444444] mt-0.5 flex items-center gap-1.5 font-mono">
+                    <Clock size={9} />
+                    {a.created_at?.replace('T', ' ').split('.')[0]}
+                  </div>
+                </div>
+                <span className="text-[10px] text-[#444444] font-mono uppercase tracking-wide shrink-0 mt-0.5">{a.category}</span>
               </div>
-            )) : <div className="px-4 py-6 text-center text-[11px] text-[#737373]">No activity yet</div>}
+            )) : (
+              <div className="px-5 py-10 text-center">
+                <Activity size={20} className="text-[#333333] mx-auto mb-2" />
+                <p className="text-[12px] text-[#444444]">No activity recorded yet</p>
+              </div>
+            )}
           </div>
         </div>
       </div>
 
-      {/* Provider Info */}
-      <div className="mt-3 border border-white/10 bg-[#141414] px-4 py-2.5 flex items-center gap-3">
-        <Layers size={13} className="text-[#002FA7]" />
-        <span className="text-[11px] text-[#A0A0A0] font-mono">Active Provider: <span className="text-white">{stats?.llm_provider || '—'}</span></span>
+      {/* Active provider bar */}
+      <div className="mt-4 bg-[#111111] border border-white/8 rounded-xl px-5 py-3 flex flex-wrap items-center gap-3 stagger-6">
+        <div className="w-7 h-7 rounded-md bg-amber-500/10 border border-amber-500/15 flex items-center justify-center">
+          <Layers size={13} className="text-amber-400" />
+        </div>
+        <div className="flex-1 min-w-0">
+          <span className="text-[12px] text-[#666666]">Active provider: </span>
+          <span className="text-[12px] text-[#CCCCCC] font-medium">{stats?.llm_provider || '—'}</span>
+        </div>
+        <button onClick={() => nav('/providers')} className="text-[11px] text-[#002FA7] hover:text-[#4477FF] transition-colors font-medium flex items-center gap-1">
+          Manage <ArrowUpRight size={11} />
+        </button>
       </div>
     </div>
   );

@@ -255,8 +255,12 @@ async def get_current_user(request: Request) -> dict:
 
 @asynccontextmanager
 async def lifespan(app_: "FastAPI"):
-    await ensure_bootstrap()
-    log.info("LLM Relay Platform started — provider=%s", LLM_PROVIDER)
+    try:
+        await ensure_bootstrap()
+        log.info("LLM Relay Platform started — provider=%s", LLM_PROVIDER)
+    except Exception as exc:
+        log.warning("MongoDB bootstrap deferred (no DB connection): %s", exc)
+        log.info("LLM Relay Platform started in limited mode — set MONGO_URL to enable full features")
     yield
 
 

@@ -158,7 +158,7 @@ export default function SettingsPage() {
   return (
     <div className="p-5 lg:p-7 max-w-4xl" data-testid="settings-page">
       <div className="mb-6 animate-fade-in">
-        <h1 className="text-2xl font-bold tracking-tighter" style={{ fontFamily: 'Chivo, sans-serif' }}>Settings</h1>
+        <h1 className="text-2xl font-bold tracking-tighter" style={{ fontFamily: 'Outfit, sans-serif' }}>Settings</h1>
         <p className="text-xs text-[#737373] mt-0.5">System configuration, health status, and deployment info</p>
       </div>
 
@@ -203,7 +203,7 @@ export default function SettingsPage() {
               { n: '03', label: 'AGENT', desc: 'Query, lint, cross-reference, expand' },
             ].map(l => (
               <div key={l.n} className="border border-white/10 p-3">
-                <div className="text-xl font-bold text-[#002FA7] mb-1" style={{ fontFamily: 'Chivo, sans-serif' }}>{l.n}</div>
+                <div className="text-xl font-bold text-[#002FA7] mb-1" style={{ fontFamily: 'Outfit, sans-serif' }}>{l.n}</div>
                 <div className="text-[9px] tracking-[0.15em] uppercase text-white font-mono font-bold mb-0.5">{l.label}</div>
                 <p className="text-[10px] text-[#737373] leading-relaxed">{l.desc}</p>
               </div>

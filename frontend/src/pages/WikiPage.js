@@ -156,7 +156,7 @@ export default function WikiPage() {
           <div className="p-6 max-w-4xl animate-fade-in" data-testid="wiki-create-form">
             <div className="flex items-center gap-3 mb-6">
               <Plus size={16} className="text-[#002FA7]" />
-              <h2 className="text-lg font-bold tracking-tight" style={{ fontFamily: 'Chivo, sans-serif' }}>Create New Page</h2>
+              <h2 className="text-lg font-bold tracking-tight" style={{ fontFamily: 'Outfit, sans-serif' }}>Create New Page</h2>
               <button onClick={() => setCreating(false)} className="ml-auto p-1 text-[#737373] hover:text-white"><X size={16} /></button>
             </div>
             <div className="space-y-4">
@@ -196,7 +196,7 @@ export default function WikiPage() {
             <div className="px-6 py-4 border-b border-white/10 flex items-center gap-3">
               <BookOpen size={16} className="text-[#002FA7]" />
               <div className="flex-1">
-                <h2 className="text-lg font-bold tracking-tight" style={{ fontFamily: 'Chivo, sans-serif' }}>
+                <h2 className="text-lg font-bold tracking-tight" style={{ fontFamily: 'Outfit, sans-serif' }}>
                   {current.title}
                 </h2>
                 <div className="flex items-center gap-3 mt-1">
@@ -260,7 +260,7 @@ export default function WikiPage() {
           <div className="h-full flex flex-col items-center justify-center text-center p-8 animate-fade-in">
             {lintResult ? (
               <div className="w-full max-w-2xl text-left" data-testid="lint-results">
-                <h3 className="text-lg font-bold tracking-tight mb-4" style={{ fontFamily: 'Chivo, sans-serif' }}>Wiki Health Report</h3>
+                <h3 className="text-lg font-bold tracking-tight mb-4" style={{ fontFamily: 'Outfit, sans-serif' }}>Wiki Health Report</h3>
                 {lintResult.summary && <p className="text-xs text-[#A0A0A0] mb-4">{lintResult.summary}</p>}
                 {lintResult.issues?.length > 0 ? (
                   <div className="space-y-2">
@@ -284,7 +284,7 @@ export default function WikiPage() {
             ) : (
               <>
                 <BookOpen size={40} className="text-[#002FA7] mb-4" />
-                <h3 className="text-lg font-bold tracking-tight mb-2" style={{ fontFamily: 'Chivo, sans-serif' }}>Wiki Browser</h3>
+                <h3 className="text-lg font-bold tracking-tight mb-2" style={{ fontFamily: 'Outfit, sans-serif' }}>Wiki Browser</h3>
                 <p className="text-xs text-[#737373] max-w-md">
                   Select a page from the sidebar or create a new one.
                   Use the lint button to check wiki health.

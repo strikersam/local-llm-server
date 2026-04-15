@@ -65,3 +65,6 @@ test_reports/
 
 # Runtime data (SQLite databases, persisted state)
 .data/
+
+# Attached assets (may contain secrets)
+attached_assets/

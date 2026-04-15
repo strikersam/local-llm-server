@@ -219,7 +219,7 @@ export default function SourcesPage() {
         ) : (
           <div className="h-full flex flex-col items-center justify-center text-center p-8 animate-fade-in">
             <Upload size={40} className="text-[#002FA7] mb-4" />
-            <h3 className="text-lg font-bold tracking-tight mb-2" style={{ fontFamily: 'Chivo, sans-serif' }}>Source Ingestion</h3>
+            <h3 className="text-lg font-bold tracking-tight mb-2" style={{ fontFamily: 'Outfit, sans-serif' }}>Source Ingestion</h3>
             <p className="text-xs text-[#737373] max-w-md">
               Upload files, paste URLs, or input text. The AI agent will process and summarize each source for your wiki.
             </p>

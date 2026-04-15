@@ -27,7 +27,7 @@ export default function AuthCallback() {
   }, [location, navigate, checkAuth]);
 
   return (
-    <div className="h-screen flex items-center justify-center bg-[#0A0A0A]">
+    <div className="min-h-[100dvh] flex items-center justify-center bg-[#0A0A0A]">
       <div className="text-[#737373] font-mono text-sm animate-pulse-slow uppercase tracking-widest">
         Finalizing session...
       </div>

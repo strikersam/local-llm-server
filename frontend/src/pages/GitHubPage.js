@@ -359,7 +359,7 @@ export default function GitHubPage() {
     return (
       <div className="p-5 lg:p-7 max-w-2xl">
         <div className="mb-6">
-          <h1 className="text-2xl font-bold tracking-tighter flex items-center gap-2" style={{ fontFamily: 'Chivo, sans-serif' }}>
+          <h1 className="text-2xl font-bold tracking-tighter flex items-center gap-2" style={{ fontFamily: 'Outfit, sans-serif' }}>
             <Github size={22} /> GitHub
           </h1>
           <p className="text-xs text-[#737373] mt-0.5">Connect a GitHub Personal Access Token to browse and edit repos</p>
@@ -489,7 +489,7 @@ export default function GitHubPage() {
             ) : (
               <div className="flex-1 flex flex-col items-center justify-center text-center p-8 animate-fade-in">
                 <FolderOpen size={36} className="text-[#002FA7] mb-4" />
-                <h3 className="text-base font-bold tracking-tight mb-2" style={{ fontFamily: 'Chivo, sans-serif' }}>
+                <h3 className="text-base font-bold tracking-tight mb-2" style={{ fontFamily: 'Outfit, sans-serif' }}>
                   {selectedRepo.name}
                 </h3>
                 <p className="text-xs text-[#737373] max-w-xs leading-relaxed">

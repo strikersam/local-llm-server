@@ -3,80 +3,103 @@ import { getActivity } from '../api';
 import { Activity, Clock, MessageSquare, BookOpen, Upload, Shield, Filter } from 'lucide-react';
 
 const categoryConfig = {
-  chat: { icon: MessageSquare, color: 'bg-purple-500', label: 'CHAT' },
-  wiki: { icon: BookOpen, color: 'bg-[#002FA7]', label: 'WIKI' },
-  ingest: { icon: Upload, color: 'bg-green-500', label: 'INGEST' },
-  auth: { icon: Shield, color: 'bg-amber-500', label: 'AUTH' },
-  lint: { icon: Activity, color: 'bg-cyan-500', label: 'LINT' },
+  chat:   { icon: MessageSquare, dot: 'bg-purple-500',  label: 'Chat'   },
+  wiki:   { icon: BookOpen,      dot: 'bg-[#002FA7]',   label: 'Wiki'   },
+  ingest: { icon: Upload,        dot: 'bg-emerald-500', label: 'Ingest' },
+  auth:   { icon: Shield,        dot: 'bg-amber-500',   label: 'Auth'   },
+  lint:   { icon: Activity,      dot: 'bg-cyan-500',    label: 'Lint'   },
 };
 
 export default function ActivityPage() {
   const [logs, setLogs] = useState([]);
   const [filter, setFilter] = useState('all');
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    getActivity(200).then(r => setLogs(r.data.logs || [])).catch(() => {});
+    getActivity(200)
+      .then(r => setLogs(r.data.logs || []))
+      .catch(() => {})
+      .finally(() => setLoading(false));
   }, []);
 
   const filtered = filter === 'all' ? logs : logs.filter(l => l.category === filter);
 
   return (
-    <div className="p-6 lg:p-8 max-w-5xl" data-testid="activity-page">
+    <div className="p-5 sm:p-6 lg:p-8 max-w-5xl mx-auto" data-testid="activity-page">
+
+      {/* Header */}
       <div className="mb-6 animate-fade-in">
-        <h1 className="text-2xl font-bold tracking-tighter" style={{ fontFamily: 'Chivo, sans-serif' }}>Activity Log</h1>
-        <p className="text-xs text-[#737373] mt-1">System event trail — all operations are recorded</p>
+        <h1 className="text-3xl font-bold tracking-[-0.03em] text-white" style={{ fontFamily: 'Outfit, sans-serif' }}>Activity Log</h1>
+        <p className="text-sm text-[#555555] mt-1">Full system event trail — all operations are recorded</p>
       </div>
 
-      {/* Filters */}
-      <div className="flex items-center gap-2 mb-6 flex-wrap">
-        <Filter size={14} className="text-[#737373]" />
-        {['all', 'chat', 'wiki', 'ingest', 'auth', 'lint'].map(cat => (
+      {/* Filter bar */}
+      <div className="flex flex-wrap items-center gap-2 mb-6 stagger-1">
+        <Filter size={13} className="text-[#555555]" />
+        {['all', 'chat', 'wiki', 'ingest', 'auth', 'lint', 'provider', 'keys'].map(cat => (
           <button
             key={cat}
             onClick={() => setFilter(cat)}
-            className={`text-[10px] tracking-wider uppercase font-mono px-3 py-1.5 border transition-all
-              ${filter === cat
-                ? 'border-[#002FA7] text-white bg-[#002FA7]/20'
-                : 'border-white/10 text-[#737373] hover:text-[#A0A0A0] hover:border-white/20'}`}
             data-testid={`filter-${cat}`}
+            className={`text-[11px] font-medium px-3 py-1.5 rounded-full border transition-all capitalize ${
+              filter === cat
+                ? 'border-[#002FA7]/60 text-white bg-[#002FA7]/15'
+                : 'border-white/8 text-[#555555] hover:text-[#A0A0A0] hover:border-white/14'
+            }`}
           >
             {cat}
           </button>
         ))}
-        <span className="text-[10px] text-[#737373] font-mono ml-auto">{filtered.length} entries</span>
+        <span className="text-[11px] text-[#444444] font-mono ml-auto">{filtered.length} entries</span>
       </div>
 
-      {/* Log table */}
-      <div className="border border-white/10 bg-[#141414]">
-        {/* Header */}
-        <div className="grid grid-cols-[80px_1fr_180px] gap-4 px-5 py-2.5 border-b border-white/10 text-[10px] tracking-[0.15em] uppercase text-[#737373] font-mono font-bold">
-          <span>TYPE</span>
-          <span>EVENT</span>
-          <span>TIMESTAMP</span>
+      {/* Log list */}
+      <div className="bg-[#111111] border border-white/8 rounded-xl overflow-hidden">
+        {/* Desktop column headers */}
+        <div className="hidden sm:grid sm:grid-cols-[100px_1fr_180px] gap-4 px-5 py-3 border-b border-white/6 text-[11px] font-semibold tracking-widest uppercase text-[#444444]">
+          <span>Type</span>
+          <span>Event</span>
+          <span>Timestamp</span>
         </div>
 
-        {/* Rows */}
-        <div className="divide-y divide-white/5 max-h-[calc(100vh-250px)] overflow-y-auto">
-          {filtered.map((entry, i) => {
-            const cfg = categoryConfig[entry.category] || { icon: Activity, color: 'bg-[#737373]', label: entry.category?.toUpperCase() };
+        <div className="divide-y divide-white/4 max-h-[calc(100dvh-280px)] overflow-y-auto">
+          {loading ? (
+            Array.from({ length: 8 }).map((_, i) => (
+              <div key={i} className="flex items-center gap-3 px-5 py-3.5">
+                <div className="skeleton w-2 h-2 rounded-full" />
+                <div className="flex-1 skeleton h-3" />
+                <div className="hidden sm:block skeleton h-3 w-36" />
+              </div>
+            ))
+          ) : filtered.map(entry => {
+            const cfg = categoryConfig[entry.category] || { icon: Activity, dot: 'bg-[#444444]', label: entry.category };
             const Icon = cfg.icon;
             return (
-              <div key={entry._id} className="grid grid-cols-[80px_1fr_180px] gap-4 px-5 py-3 hover:bg-white/[0.02] transition-colors items-center"
-                data-testid={`activity-entry-${entry._id}`}>
+              <div
+                key={entry._id}
+                className="flex flex-col sm:grid sm:grid-cols-[100px_1fr_180px] gap-1 sm:gap-4 px-5 py-3.5 hover:bg-white/[0.02] transition-colors sm:items-center"
+                data-testid={`activity-entry-${entry._id}`}
+              >
+                {/* Type badge */}
                 <div className="flex items-center gap-2">
-                  <div className={`w-1.5 h-1.5 ${cfg.color}`} />
-                  <span className="text-[10px] tracking-wider uppercase text-[#737373] font-mono">{cfg.label}</span>
+                  <div className={`w-2 h-2 rounded-full shrink-0 ${cfg.dot}`} />
+                  <span className="text-[11px] font-medium text-[#666666] capitalize">{cfg.label}</span>
                 </div>
-                <div className="text-xs text-[#A0A0A0] truncate">{entry.message}</div>
-                <div className="text-[10px] text-[#737373] font-mono flex items-center gap-1.5">
-                  <Clock size={10} />
+                {/* Message */}
+                <div className="text-[13px] text-[#A0A0A0] truncate">{entry.message}</div>
+                {/* Timestamp */}
+                <div className="text-[10px] text-[#444444] font-mono flex items-center gap-1.5">
+                  <Clock size={9} />
                   {entry.created_at?.replace('T', ' ').split('.')[0]}
                 </div>
               </div>
             );
           })}
-          {filtered.length === 0 && (
-            <div className="py-12 text-center text-xs text-[#737373]">No activity entries</div>
+          {!loading && filtered.length === 0 && (
+            <div className="py-12 text-center">
+              <Activity size={22} className="text-[#333333] mx-auto mb-2" />
+              <p className="text-sm text-[#555555]">No activity entries {filter !== 'all' ? `for "${filter}"` : ''}</p>
+            </div>
           )}
         </div>
       </div>
