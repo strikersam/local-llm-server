@@ -3,7 +3,7 @@ import { Routes, Route, NavLink, Navigate, useNavigate } from 'react-router-dom'
 import { useAuth } from '../AuthContext';
 import {
   LayoutDashboard, MessageSquare, BookOpen, Upload, Activity,
-  Settings, LogOut, Menu, X, Cpu, ChevronRight, Layers, Key, BarChart3, Box, Github, Terminal
+  Settings, LogOut, Menu, X, Cpu, ChevronRight, Layers, Key, BarChart3, Box, Github, Terminal, Shield
 } from 'lucide-react';
 import DashboardHome from './DashboardHome';
 import ChatPage from './ChatPage';
@@ -17,6 +17,7 @@ import ObservabilityPage from './ObservabilityPage';
 import SettingsPage from './SettingsPage';
 import GitHubPage from './GitHubPage';
 import AgentViewPage from './AgentViewPage';
+import AdminPortalPage from './AdminPortalPage';
 
 const navSections = [
   {
@@ -43,6 +44,7 @@ const navSections = [
     items: [
       { to: '/observability', icon: BarChart3, label: 'Observability' },
       { to: '/activity', icon: Activity, label: 'Activity' },
+      { to: '/admin', icon: Shield, label: 'Admin Portal' },
       { to: '/settings', icon: Settings, label: 'Settings' },
     ],
   },
@@ -195,6 +197,7 @@ export default function DashboardLayout() {
           <Route path="/chat" element={<ChatPage />} />
           <Route path="/chat/:sessionId" element={<ChatPage />} />
           <Route path="/agentview" element={<AgentViewPage />} />
+          <Route path="/admin" element={<AdminPortalPage />} />
           <Route path="/wiki" element={<div className="overflow-y-auto flex-1"><WikiPage /></div>} />
           <Route path="/wiki/:slug" element={<div className="overflow-y-auto flex-1"><WikiPage /></div>} />
           <Route path="/sources" element={<div className="overflow-y-auto flex-1"><SourcesPage /></div>} />
