@@ -72,6 +72,22 @@
   - Mobile: mode toggle and model selector visible in composer area on small screens;
     textarea `font-size: 16px` prevents iOS auto-zoom.
 
+- **Native Agent View page** (`frontend/src/pages/AgentViewPage.js`):
+  Replaces the blocked iframe approach with a full native React agent UI:
+  - Makes direct `fetch()` calls to the configurable backend URL (default
+    `http://localhost:8000`). Browsers allow HTTPS → localhost fetch (localhost is
+    "potentially trustworthy") but block HTTPS → HTTP iframes — the iframe approach
+    was fundamentally broken on GitHub Pages.
+  - Configurable connection bar: backend URL + API key, green/amber/red status dot.
+  - Auto / Manual mode toggle identical to ChatPage. Auto lets the router pick the
+    best model; Manual opens a provider-tabs + model-cards picker modal.
+  - Full chat history display with thinking animation, elapsed timer for long runs,
+    error display, and "New session" button.
+  - All settings persisted to `localStorage` under `agv_*` keys.
+  - UI fully aligned with the parent dashboard: `#002FA7` blue, `#0A0A0A` background,
+    `border-white/10` borders, Outfit font, `font-mono` labels — visually identical
+    to the rest of the admin UI.
+
 ### Fixed
 
 - **Local model list corrected** (`backend/server.py`):
