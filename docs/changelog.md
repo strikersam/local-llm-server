@@ -8,6 +8,14 @@
 
 ## [Unreleased]
 
+### Fixed
+
+- **Local model list corrected** (`backend/server.py`):
+  - Added `deepseek-r1:671b` (flagship 404 GB model) to `PREDEFINED_MODELS["ollama"]` — was missing entirely despite being installed.
+  - Renamed `qwen3:30b` → `qwen3-coder:30b` in `PREDEFINED_MODELS["ollama"]` and `AGENT_ROLE_MODELS["ollama"]` to match the actual installed model name.
+  - Updated `OLLAMA_MODEL` default from `llama3.2` to `qwen3-coder:30b` to reflect the primary installed coder model.
+  - Updated `AGENT_ROLE_MODELS["ollama"]` planner/verifier to use `deepseek-r1:671b` (strongest available model).
+
 - **Cloud Model Expansion** (`backend/server.py`, `commercial_equivalent.py`):
   - Added official cloud providers: **DeepSeek API**, **Zhipu AI (GLM)**, **AliCloud DashScope (Qwen)**, **MiniMax**, **Google Gemini**, and **Moonshot AI (Kimi)**.
   - Configured flagship models: **DeepSeek-V3/R1**, **GLM-4.5 Air**, **Qwen3.5 397B**, **Gemma 4**, **Kimi-K2.5**, and **MiMo-V2-Flash**.

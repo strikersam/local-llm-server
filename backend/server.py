@@ -40,7 +40,7 @@ JWT_ALGORITHM = "HS256"
 ADMIN_EMAIL = os.environ.get("ADMIN_EMAIL", "admin@llmrelay.local")
 ADMIN_PASSWORD = os.environ.get("ADMIN_PASSWORD", "WikiAdmin2026!")
 OLLAMA_BASE = os.environ.get("OLLAMA_BASE_URL", "http://localhost:11434")
-OLLAMA_MODEL = os.environ.get("OLLAMA_MODEL", "llama3.2")
+OLLAMA_MODEL = os.environ.get("OLLAMA_MODEL", "qwen3-coder:30b")
 
 HF_TOKEN = os.environ.get("HF_TOKEN") or os.environ.get("HUGGINGFACE_API_TOKEN", "")
 HF_BASE_URL = os.environ.get("HF_BASE_URL", "https://router.huggingface.co")
@@ -106,8 +106,9 @@ PREDEFINED_MODELS: dict[str, list[dict]] = {
         {"id": "mistralai/Mistral-7B-Instruct-v0.3", "name": "Mistral 7B v0.3", "role": ["executor"], "tier": "fast"},
     ],
     "ollama": [
+        {"id": "deepseek-r1:671b", "name": "DeepSeek R1 671B", "role": ["planner", "verifier"], "tier": "flagship"},
         {"id": "deepseek-r1:32b", "name": "DeepSeek R1 32B", "role": ["planner", "verifier"], "tier": "flagship"},
-        {"id": "qwen3:30b", "name": "Qwen3 30B", "role": ["executor"], "tier": "flagship"},
+        {"id": "qwen3-coder:30b", "name": "Qwen3-Coder 30B", "role": ["executor"], "tier": "flagship"},
         {"id": "qwen3:14b", "name": "Qwen3 14B", "role": ["executor"], "tier": "balanced"},
         {"id": "llama3.3:70b", "name": "Llama 3.3 70B", "role": ["executor"], "tier": "flagship"},
         {"id": "deepseek-r1:14b", "name": "DeepSeek R1 14B", "role": ["planner"], "tier": "balanced"},
@@ -157,9 +158,9 @@ AGENT_ROLE_MODELS: dict[str, dict[str, str]] = {
         "verifier": "deepseek-ai/DeepSeek-R1",
     },
     "ollama": {
-        "planner": "deepseek-r1:32b",
-        "executor": "qwen3:30b",
-        "verifier": "deepseek-r1:32b",
+        "planner": "deepseek-r1:671b",
+        "executor": "qwen3-coder:30b",
+        "verifier": "deepseek-r1:671b",
     },
     "together": {
         "planner": "deepseek-ai/DeepSeek-R1",
