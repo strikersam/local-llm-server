@@ -47,6 +47,7 @@ from agent.memory import SessionMemory
 from agent.models import AgentRunRequest, AgentSessionCreateRequest
 from agent.permissions import AdaptivePermissions
 from agent.playbook import PlaybookLibrary
+from agent.quick_note import QuickNoteQueue, start_processor
 from agent.scaffolding import ProjectScaffolder
 from agent.scheduler import AgentScheduler
 from agent.skills import SkillLibrary
@@ -326,6 +327,8 @@ SCHEDULER         = AgentScheduler()
 BACKGROUND_AGENT  = BackgroundAgent()
 COORDINATOR       = AgentCoordinator(ollama_base=OLLAMA_BASE, workspace_root=str(Path(__file__).resolve().parent))
 BROWSER_SESSION   = BrowserSession()
+QUICK_NOTE_QUEUE  = QuickNoteQueue()
+start_processor(QUICK_NOTE_QUEUE, repo_root=Path(__file__).resolve().parent)
 
 WEBUI_STORE = JsonConfigStore()
 WEBUI_PROVIDERS = ProviderManager(WEBUI_STORE)
@@ -1284,6 +1287,35 @@ async def list_models_openai(auth: AuthContext = Depends(verify_api_key)):
         if alias not in alias_set
     ]
     return {"object": "list", "data": local_entries + registry_only + alias_entries}
+
+
+# ─── iPhone Quick Notes ───────────────────────────────────────────────────────
+
+class QuickNoteRequest(BaseModel):
+    url: str = Field(..., min_length=10, max_length=2048)
+
+
+@app.post("/v1/quick-notes")
+async def quick_note_add(
+    body: QuickNoteRequest,
+    auth: AuthContext = Depends(verify_api_key),
+):
+    note = QUICK_NOTE_QUEUE.add(body.url)
+    log.info("QuickNote added by %s: %s", auth.email, body.url)
+    return note.as_dict()
+
+
+@app.get("/v1/quick-notes")
+async def quick_note_list(auth: AuthContext = Depends(verify_api_key)):
+    notes = QUICK_NOTE_QUEUE.list_all()
+    return {
+        "notes": [n.as_dict() for n in notes],
+        "total": len(notes),
+        "pending": sum(1 for n in notes if n.status == "pending"),
+        "processing": sum(1 for n in notes if n.status == "processing"),
+        "done": sum(1 for n in notes if n.status == "done"),
+        "failed": sum(1 for n in notes if n.status == "failed"),
+    }
 
 
 # ─── Ollama native routes (/api/*) ─────────────────────────────────────────────

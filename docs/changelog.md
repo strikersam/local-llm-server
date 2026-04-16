@@ -10,6 +10,16 @@
 
 ### Added
 
+- **iPhone Quick Note integration** (`agent/quick_note.py`, `proxy.py`):
+  - `POST /v1/quick-notes` — authenticated endpoint; add a URL to the implementation queue from an iPhone Shortcut (or any HTTP client).
+  - `GET /v1/quick-notes` — returns queue state with counts per status.
+  - Background processor thread starts automatically with the proxy; picks one pending note every `QUICK_NOTE_INTERVAL_HOURS` hours (default 4), fetches the URL's text content, runs Claude Code (`claude --print`) to implement the described feature, then commits and pushes to `QUICK_NOTE_PUSH_BRANCH` (default `master`).
+  - Queue is persisted to `tasks/quick_notes.json` and survives restarts.
+  - Configurable via env vars: `QUICK_NOTE_PUSH_BRANCH`, `QUICK_NOTE_INTERVAL_HOURS`.
+  - iPhone Shortcut: Share Sheet action → POST to `http://<your-server>:8000/v1/quick-notes` with `{"url":"<shared URL>"}` and `Authorization: Bearer <api-key>`.
+
+
+
 - **Auto / Manual model-selection in Agent UI** (`webui/frontend/src/pages/ChatApp.tsx`):
   - **Auto mode** (default): the proxy router classifies every message (code, reasoning,
     fast-response, etc.) and routes it to the best available local model automatically.
