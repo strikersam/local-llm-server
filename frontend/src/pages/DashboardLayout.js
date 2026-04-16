@@ -3,7 +3,7 @@ import { Routes, Route, NavLink, Navigate, useNavigate } from 'react-router-dom'
 import { useAuth } from '../AuthContext';
 import {
   LayoutDashboard, MessageSquare, BookOpen, Upload, Activity,
-  Settings, LogOut, Menu, X, Cpu, ChevronRight, Layers, Key, BarChart3, Box, Github
+  Settings, LogOut, Menu, X, Cpu, ChevronRight, Layers, Key, BarChart3, Box, Github, Terminal
 } from 'lucide-react';
 import DashboardHome from './DashboardHome';
 import ChatPage from './ChatPage';
@@ -16,6 +16,7 @@ import ApiKeysPage from './ApiKeysPage';
 import ObservabilityPage from './ObservabilityPage';
 import SettingsPage from './SettingsPage';
 import GitHubPage from './GitHubPage';
+import AgentViewPage from './AgentViewPage';
 
 const navSections = [
   {
@@ -23,6 +24,7 @@ const navSections = [
     items: [
       { to: '/', icon: LayoutDashboard, label: 'Dashboard', end: true },
       { to: '/chat', icon: MessageSquare, label: 'Agent Chat' },
+      { to: '/agentview', icon: Terminal, label: 'Agent View' },
       { to: '/wiki', icon: BookOpen, label: 'Wiki' },
       { to: '/sources', icon: Upload, label: 'Sources' },
       { to: '/github', icon: Github, label: 'GitHub' },
@@ -186,22 +188,23 @@ export default function DashboardLayout() {
         <SidebarContent user={user} onLogout={handleLogout} onClose={closeSidebar} />
       </aside>
 
-      {/* Main content */}
-      <main className="flex-1 min-w-0 overflow-y-auto pt-14 lg:pt-0">
+      {/* Main content — AgentView gets full height without inner scroll */}
+      <main className="flex-1 min-w-0 flex flex-col pt-14 lg:pt-0 overflow-hidden">
         <Routes>
-          <Route path="/" element={<DashboardHome />} />
+          <Route path="/" element={<div className="overflow-y-auto flex-1"><DashboardHome /></div>} />
           <Route path="/chat" element={<ChatPage />} />
           <Route path="/chat/:sessionId" element={<ChatPage />} />
-          <Route path="/wiki" element={<WikiPage />} />
-          <Route path="/wiki/:slug" element={<WikiPage />} />
-          <Route path="/sources" element={<SourcesPage />} />
-          <Route path="/providers" element={<ProvidersPage />} />
-          <Route path="/models" element={<ModelsPage />} />
-          <Route path="/keys" element={<ApiKeysPage />} />
-          <Route path="/github" element={<GitHubPage />} />
-          <Route path="/observability" element={<ObservabilityPage />} />
-          <Route path="/activity" element={<ActivityPage />} />
-          <Route path="/settings" element={<SettingsPage />} />
+          <Route path="/agentview" element={<AgentViewPage />} />
+          <Route path="/wiki" element={<div className="overflow-y-auto flex-1"><WikiPage /></div>} />
+          <Route path="/wiki/:slug" element={<div className="overflow-y-auto flex-1"><WikiPage /></div>} />
+          <Route path="/sources" element={<div className="overflow-y-auto flex-1"><SourcesPage /></div>} />
+          <Route path="/providers" element={<div className="overflow-y-auto flex-1"><ProvidersPage /></div>} />
+          <Route path="/models" element={<div className="overflow-y-auto flex-1"><ModelsPage /></div>} />
+          <Route path="/keys" element={<div className="overflow-y-auto flex-1"><ApiKeysPage /></div>} />
+          <Route path="/github" element={<div className="overflow-y-auto flex-1"><GitHubPage /></div>} />
+          <Route path="/observability" element={<div className="overflow-y-auto flex-1"><ObservabilityPage /></div>} />
+          <Route path="/activity" element={<div className="overflow-y-auto flex-1"><ActivityPage /></div>} />
+          <Route path="/settings" element={<div className="overflow-y-auto flex-1"><SettingsPage /></div>} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
       </main>
