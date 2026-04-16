@@ -61,9 +61,16 @@
   Both `Authorization: Bearer <key>` and `x-api-key: <key>` headers are accepted,
   so Claude Code, Cursor, Aider, Continue, and the web UI all share the same credential.
 
-- **`provider_id` forwarding in `runAgent`** (`api.ts`): the agent run call now
-  optionally forwards `provider_id` alongside `model` so manual-mode sessions can
-  target a specific backend (e.g. an external OpenAI-compatible provider) end-to-end.
+- **Auto / Manual model-selection in dashboard ChatPage** (`frontend/src/pages/ChatPage.js`):
+  Replaces the confusing multi-provider dropdown with the same Auto / Manual pattern:
+  - **Auto mode** (default): both `model` and `provider_id` sent as `null`; backend router
+    classifies the task and picks the best available model. No config required.
+  - **Manual mode**: "Select model" button opens a bottom-sheet modal (same UX as the
+    Agent UI) with provider tabs and model cards.
+  - Agent mode is now **always ON** — every message goes through the full
+    Plan → Execute → Verify loop regardless of which mode is active.
+  - Mobile: mode toggle and model selector visible in composer area on small screens;
+    textarea `font-size: 16px` prevents iOS auto-zoom.
 
 ### Fixed
 

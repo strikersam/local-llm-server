@@ -1,16 +1,32 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { chatSend, listSessions, getSession, deleteSession, listProviders, listProviderModels, fmtErr } from '../api';
-import { Send, Plus, Trash2, MessageSquare, Bot, User, Loader2, Zap, Clock } from 'lucide-react';
+import { Send, Plus, Trash2, MessageSquare, Bot, User, Loader2, Zap, Clock, Settings, X, ChevronDown } from 'lucide-react';
 
 const LS_PROVIDER_ID = 'llmrelay_provider_id';
-const LS_MODEL = 'llmrelay_model';
+const LS_MODEL       = 'llmrelay_model';
 const LS_TEMPERATURE = 'llmrelay_temperature';
-const LS_AGENT_MODE = 'llmrelay_agent_mode';
+const LS_MODE        = 'llmrelay_mode'; // 'auto' | 'manual'
 
-// Animated thinking bubble shown while the LLM is processing
+// ── helpers ───────────────────────────────────────────────────────────────────
+function modelType(name = '') {
+  if (/coder|code/i.test(name))                     return 'coder';
+  if (/r1|reasoner|thinking|deepseek/i.test(name))  return 'reasoning';
+  return 'general';
+}
+function modelTypeBadge(name) {
+  const t = modelType(name);
+  if (t === 'coder')     return 'border-blue-500/40 bg-blue-500/10 text-blue-300';
+  if (t === 'reasoning') return 'border-emerald-500/40 bg-emerald-500/10 text-emerald-300';
+  return 'border-white/20 bg-white/5 text-[#737373]';
+}
+function short(s = '', max = 28) {
+  return s.length <= max ? s : s.slice(0, max - 1) + '…';
+}
+
+// ── ThinkingBubble ────────────────────────────────────────────────────────────
 function ThinkingBubble({ elapsed }) {
   return (
     <div className="flex gap-3 animate-fade-in">
@@ -20,7 +36,6 @@ function ThinkingBubble({ elapsed }) {
       <div className="bg-[#1A1A1A] border border-white/10 px-4 py-3 flex flex-col gap-1.5">
         <div className="flex items-center gap-2">
           <span className="text-[10px] text-[#737373] font-mono uppercase tracking-wider">Thinking</span>
-          {/* Three-dot animation */}
           <span className="flex gap-1">
             {[0, 1, 2].map(i => (
               <span
@@ -34,7 +49,7 @@ function ThinkingBubble({ elapsed }) {
         {elapsed >= 10 && (
           <div className="flex items-center gap-1.5 text-[9px] text-[#737373] font-mono">
             <Clock size={9} />
-            <span>{elapsed}s elapsed — model may be reasoning deeply, please wait…</span>
+            <span>{elapsed}s — model may be reasoning deeply, please wait…</span>
           </div>
         )}
       </div>
@@ -42,65 +57,152 @@ function ThinkingBubble({ elapsed }) {
   );
 }
 
+// ── ModelPickerModal ──────────────────────────────────────────────────────────
+function ModelPickerModal({ providers, onConfirm, onClose, initialProvider, initialModel }) {
+  const [pickerProvider, setPickerProvider] = useState(initialProvider || providers[0]?.provider_id || '');
+  const [pickerModels,   setPickerModels]   = useState([]);
+  const [pickerModel,    setPickerModel]    = useState(initialModel || '');
+  const [loading,        setLoading]        = useState(false);
+
+  useEffect(() => {
+    if (!pickerProvider) return;
+    setLoading(true);
+    listProviderModels(pickerProvider)
+      .then(({ data }) => {
+        const ms = data.models || [];
+        setPickerModels(ms);
+        if (!pickerModel || !ms.includes(pickerModel)) setPickerModel(ms[0] || '');
+      })
+      .catch(() => setPickerModels([]))
+      .finally(() => setLoading(false));
+  }, [pickerProvider]); // eslint-disable-line
+
+  const providerName = providers.find(p => p.provider_id === pickerProvider)?.name || pickerProvider;
+
+  return (
+    <div
+      className="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 flex items-end md:items-center justify-center p-0 md:p-4"
+      onClick={onClose}
+    >
+      <div
+        className="w-full md:max-w-md bg-[#111111] border border-white/10 rounded-t-2xl md:rounded-2xl flex flex-col overflow-hidden shadow-2xl max-h-[90vh]"
+        onClick={e => e.stopPropagation()}
+      >
+        {/* Header */}
+        <div className="flex items-center justify-between px-5 py-4 border-b border-white/10 shrink-0">
+          <span className="text-sm font-bold font-mono tracking-wide">Select Provider &amp; Model</span>
+          <button onClick={onClose} className="text-[#737373] hover:text-white transition-colors p-1">
+            <X size={16} />
+          </button>
+        </div>
+
+        {/* Provider tabs */}
+        <div className="flex gap-2 px-5 py-3 overflow-x-auto border-b border-white/10 shrink-0 scrollbar-hide">
+          {providers.map(p => (
+            <button
+              key={p.provider_id}
+              onClick={() => setPickerProvider(p.provider_id)}
+              className={`px-3 py-1.5 rounded-full text-[10px] font-mono uppercase tracking-wider whitespace-nowrap border transition-colors ${
+                pickerProvider === p.provider_id
+                  ? 'border-[#002FA7] bg-[#002FA7]/20 text-white'
+                  : 'border-white/10 text-[#737373] hover:border-white/20 hover:text-[#A0A0A0]'
+              }`}
+            >
+              {p.name}
+            </button>
+          ))}
+        </div>
+
+        {/* Model list */}
+        <div className="flex-1 overflow-y-auto px-5 py-3 space-y-2 min-h-0">
+          {loading ? (
+            <div className="flex items-center justify-center py-10">
+              <Loader2 size={18} className="animate-spin text-[#737373]" />
+              <span className="ml-2 text-xs text-[#737373] font-mono">Loading models…</span>
+            </div>
+          ) : pickerModels.length === 0 ? (
+            <div className="py-10 text-center text-xs text-[#737373] font-mono">
+              No models available for this provider.
+            </div>
+          ) : (
+            pickerModels.map(m => (
+              <button
+                key={m}
+                onClick={() => setPickerModel(m)}
+                className={`w-full flex items-center justify-between px-4 py-3 border text-left transition-colors ${
+                  pickerModel === m
+                    ? 'border-[#002FA7] bg-[#002FA7]/10'
+                    : 'border-white/10 hover:border-white/20 hover:bg-white/[0.02]'
+                }`}
+              >
+                <span className="text-xs font-mono text-white truncate pr-3">{m}</span>
+                <span className={`text-[9px] font-mono uppercase tracking-wider px-2 py-0.5 border rounded-sm shrink-0 ${modelTypeBadge(m)}`}>
+                  {modelType(m)}
+                </span>
+              </button>
+            ))
+          )}
+        </div>
+
+        {/* Footer */}
+        <div className="flex gap-3 px-5 py-4 border-t border-white/10 shrink-0">
+          <button
+            onClick={onClose}
+            className="flex-1 py-2.5 border border-white/10 text-xs font-mono uppercase tracking-wider text-[#737373] hover:text-white hover:border-white/20 transition-colors"
+          >
+            Cancel
+          </button>
+          <button
+            disabled={!pickerModel}
+            onClick={() => onConfirm(pickerProvider, pickerModel)}
+            className="flex-1 py-2.5 bg-[#002FA7] hover:bg-[#002585] text-white text-xs font-mono uppercase tracking-wider transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+          >
+            Use {pickerModel ? short(pickerModel, 20) : 'model'}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── ChatPage ──────────────────────────────────────────────────────────────────
 export default function ChatPage() {
   const { sessionId: paramSid } = useParams();
   const navigate = useNavigate();
-  const [sessions, setSessions] = useState([]);
-  const [currentSession, setCurrentSession] = useState(null);
-  const [messages, setMessages] = useState([]);
-  const [input, setInput] = useState('');
-  const [sending, setSending] = useState(false);
+
+  const [sessions,        setSessions]        = useState([]);
+  const [currentSession,  setCurrentSession]  = useState(null);
+  const [messages,        setMessages]        = useState([]);
+  const [input,           setInput]           = useState('');
+  const [sending,         setSending]         = useState(false);
   const [thinkingElapsed, setThinkingElapsed] = useState(0);
-  const [sessionId, setSessionId] = useState(paramSid || null);
-  const [providers, setProviders] = useState([]);
-  const [providerId, setProviderId] = useState(localStorage.getItem(LS_PROVIDER_ID) || '');
-  const [models, setModels] = useState([]);
-  const [model, setModel] = useState(localStorage.getItem(LS_MODEL) || '');
+  const [sessionId,       setSessionId]       = useState(paramSid || null);
+
+  const [providers,   setProviders]   = useState([]);
+  const [providerId,  setProviderId]  = useState(localStorage.getItem(LS_PROVIDER_ID) || '');
+  const [model,       setModel]       = useState(localStorage.getItem(LS_MODEL) || '');
   const [temperature, setTemperature] = useState(Number(localStorage.getItem(LS_TEMPERATURE) || '0.3'));
-  const [agentMode, setAgentMode] = useState(localStorage.getItem(LS_AGENT_MODE) === 'true');
+
+  // Auto / Manual mode
+  const [mode,       setMode]       = useState(localStorage.getItem(LS_MODE) || 'auto');
+  const [showPicker, setShowPicker] = useState(false);
+
   const messagesEndRef = useRef(null);
-  const inputRef = useRef(null);
+  const inputRef       = useRef(null);
   const elapsedTimerRef = useRef(null);
 
-  useEffect(() => {
-    loadSessions();
-    loadProviders();
-  }, []);
+  // Persist
+  useEffect(() => { localStorage.setItem(LS_PROVIDER_ID, providerId); }, [providerId]);
+  useEffect(() => { localStorage.setItem(LS_MODEL, model); }, [model]);
+  useEffect(() => { localStorage.setItem(LS_TEMPERATURE, String(temperature)); }, [temperature]);
+  useEffect(() => { localStorage.setItem(LS_MODE, mode); }, [mode]);
 
-  useEffect(() => {
-    if (paramSid) {
-      loadSession(paramSid);
-    }
-  }, [paramSid]);
-
-  useEffect(() => {
-    if (providerId) {
-      localStorage.setItem(LS_PROVIDER_ID, providerId);
-      loadProviderModels(providerId);
-    }
-  }, [providerId]);
-
-  useEffect(() => {
-    if (model != null) localStorage.setItem(LS_MODEL, model);
-  }, [model]);
-
-  useEffect(() => {
-    if (Number.isFinite(temperature)) localStorage.setItem(LS_TEMPERATURE, String(temperature));
-  }, [temperature]);
-
-  useEffect(() => {
-    localStorage.setItem(LS_AGENT_MODE, String(agentMode));
-  }, [agentMode]);
-
-  useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [messages]);
+  useEffect(() => { loadSessions(); loadProviders(); }, []); // eslint-disable-line
+  useEffect(() => { if (paramSid) loadSession(paramSid); }, [paramSid]); // eslint-disable-line
+  useEffect(() => { messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' }); }, [messages]);
 
   const loadSessions = async () => {
-    try {
-      const { data } = await listSessions();
-      setSessions(data.sessions || []);
-    } catch {}
+    try { const { data } = await listSessions(); setSessions(data.sessions || []); } catch {}
   };
 
   const loadProviders = async () => {
@@ -108,23 +210,11 @@ export default function ChatPage() {
       const { data } = await listProviders();
       const list = data.providers || [];
       setProviders(list);
-      // Pick a default provider if none selected yet.
       if (!providerId && list.length) {
-        const def = list.find((p) => p.is_default) || list[0];
+        const def = list.find(p => p.is_default) || list[0];
         setProviderId(def.provider_id);
       }
     } catch {}
-  };
-
-  const loadProviderModels = async (pid) => {
-    try {
-      const { data } = await listProviderModels(pid);
-      const ms = data.models || [];
-      setModels(ms);
-      if (!model && ms.length) setModel(ms[0]);
-    } catch {
-      setModels([]);
-    }
   };
 
   const loadSession = async (sid) => {
@@ -134,7 +224,7 @@ export default function ChatPage() {
       setCurrentSession(data);
       setMessages(data.messages || []);
       if (data.provider_id) setProviderId(data.provider_id);
-      if (data.model) setModel(data.model);
+      if (data.model)       setModel(data.model);
       if (data.temperature != null) setTemperature(Number(data.temperature));
     } catch {}
   };
@@ -153,24 +243,24 @@ export default function ChatPage() {
     setInput('');
     setSending(true);
     setThinkingElapsed(0);
-    // Start elapsed-time counter
-    elapsedTimerRef.current = setInterval(() => {
-      setThinkingElapsed(prev => prev + 1);
-    }, 1000);
+    elapsedTimerRef.current = setInterval(() => setThinkingElapsed(p => p + 1), 1000);
     setMessages(prev => [...prev, { role: 'user', content }]);
 
+    // Auto mode: pass null model+provider → backend router classifies & picks best model.
+    // Agent mode is always ON — full Plan→Execute→Verify loop for every message.
+    const sendModel      = mode === 'auto' ? null : (model || null);
+    const sendProviderId = mode === 'auto' ? null : (providerId || null);
+
     try {
-      const { data } = await chatSend(content, sessionId, model || null, providerId || null, temperature, agentMode);
+      const { data } = await chatSend(content, sessionId, sendModel, sendProviderId, temperature, true /* agent always on */);
       setSessionId(data.session_id);
       setMessages(prev => [...prev, { role: 'assistant', content: data.response }]);
-      if (!sessionId) {
-        navigate(`/chat/${data.session_id}`, { replace: true });
-      }
+      if (!sessionId) navigate(`/chat/${data.session_id}`, { replace: true });
       loadSessions();
     } catch (err) {
       setMessages(prev => [...prev, {
         role: 'assistant',
-        content: `Error: ${fmtErr(err?.response?.data?.detail) || err?.message || 'Failed to get response. Check LLM provider.'}`
+        content: `Error: ${fmtErr(err?.response?.data?.detail) || err?.message || 'Failed — check provider config.'}`,
       }]);
     } finally {
       clearInterval(elapsedTimerRef.current);
@@ -188,16 +278,26 @@ export default function ChatPage() {
   };
 
   const handleKeyDown = (e) => {
-    if (e.key === 'Enter' && !e.shiftKey) {
-      e.preventDefault();
-      handleSend();
-    }
+    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSend(); }
   };
+
+  const providerName = providers.find(p => p.provider_id === providerId)?.name || '';
 
   return (
     <div className="h-full flex" data-testid="chat-page">
-      {/* Sessions sidebar */}
-      <div className="w-64 border-r border-white/10 bg-[#141414] flex flex-col shrink-0 hidden md:flex">
+      {/* Model picker modal */}
+      {showPicker && (
+        <ModelPickerModal
+          providers={providers}
+          initialProvider={providerId}
+          initialModel={model}
+          onClose={() => setShowPicker(false)}
+          onConfirm={(pid, m) => { setProviderId(pid); setModel(m); setShowPicker(false); }}
+        />
+      )}
+
+      {/* Sessions sidebar — desktop only */}
+      <div className="w-64 border-r border-white/10 bg-[#141414] flex-col shrink-0 hidden md:flex">
         <div className="p-4 border-b border-white/10">
           <button
             onClick={startNew}
@@ -237,80 +337,99 @@ export default function ChatPage() {
       </div>
 
       {/* Chat area */}
-      <div className="flex-1 flex flex-col">
-        {/* Header */}
-        <div className="px-6 py-3 border-b border-white/10 flex items-center gap-3">
-          <Bot size={16} className="text-[#002FA7]" />
-          <span className="text-xs tracking-[0.15em] uppercase text-[#A0A0A0] font-mono font-bold">
+      <div className="flex-1 flex flex-col min-w-0">
+
+        {/* ── Header ── */}
+        <div className="px-4 md:px-6 py-3 border-b border-white/10 flex items-center gap-3 flex-wrap">
+          <Bot size={16} className="text-[#002FA7] shrink-0" />
+          <span className="text-xs tracking-[0.15em] uppercase text-[#A0A0A0] font-mono font-bold truncate">
             {currentSession ? currentSession.title?.slice(0, 40) : 'New Agent Session'}
           </span>
-          <div className="ml-4 flex items-center gap-2">
-            <select
-              value={providerId}
-              onChange={(e) => setProviderId(e.target.value)}
-              className="bg-[#0A0A0A] border border-white/10 text-[10px] text-white font-mono px-2 py-1 outline-none focus:border-[#002FA7]"
-              data-testid="chat-provider-select"
-            >
-              {providers.map((p) => (
-                <option key={p.provider_id} value={p.provider_id}>
-                  {p.name}
-                </option>
-              ))}
-            </select>
-            <input
-              list="provider-models"
-              value={model}
-              onChange={(e) => setModel(e.target.value)}
-              placeholder="Model (e.g. llama3.2, Qwen/Qwen2.5-Coder-7B-Instruct)"
-              className="bg-[#0A0A0A] border border-white/10 text-[10px] text-white font-mono px-2 py-1 outline-none focus:border-[#002FA7] w-[260px]"
-              data-testid="chat-model-input"
-            />
-            <datalist id="provider-models">
-              {models.map((m) => (
-                <option key={m} value={m} />
-              ))}
-            </datalist>
-          </div>
-          <div className="ml-auto flex items-center gap-3">
+
+          {/* ── Mode toggle ── */}
+          <div className="flex border border-white/10 rounded overflow-hidden shrink-0">
             <button
-              onClick={() => setAgentMode(m => !m)}
-              title={agentMode ? 'Agent mode ON (Planner→Executor→Verifier)' : 'Agent mode OFF (single LLM call)'}
-              className={`flex items-center gap-1.5 px-2.5 py-1 border text-[10px] font-mono tracking-wider uppercase transition-colors ${
-                agentMode
-                  ? 'border-[#002FA7] bg-[#002FA7]/20 text-white'
-                  : 'border-white/10 text-[#737373] hover:border-white/20'
+              onClick={() => setMode('auto')}
+              className={`flex items-center gap-1.5 px-3 py-1.5 text-[10px] font-mono uppercase tracking-wider transition-colors ${
+                mode === 'auto'
+                  ? 'bg-[#002FA7]/20 border-r border-[#002FA7]/40 text-white'
+                  : 'border-r border-white/10 text-[#737373] hover:text-[#A0A0A0]'
               }`}
-              data-testid="agent-mode-toggle"
+              title="Auto: router picks the best model per message"
             >
-              <Zap size={11} className={agentMode ? 'text-white' : 'text-[#737373]'} />
-              {agentMode ? 'Agent ON' : 'Agent OFF'}
+              <Zap size={10} className={mode === 'auto' ? 'text-white' : 'text-[#737373]'} />
+              Auto
             </button>
+            <button
+              onClick={() => setMode('manual')}
+              className={`flex items-center gap-1.5 px-3 py-1.5 text-[10px] font-mono uppercase tracking-wider transition-colors ${
+                mode === 'manual'
+                  ? 'bg-[#002FA7]/20 text-white'
+                  : 'text-[#737373] hover:text-[#A0A0A0]'
+              }`}
+              title="Manual: choose your provider and model"
+            >
+              <Settings size={10} className={mode === 'manual' ? 'text-white' : 'text-[#737373]'} />
+              Manual
+            </button>
+          </div>
+
+          {/* Manual: show current selection + change button */}
+          {mode === 'manual' && (
+            <button
+              onClick={() => setShowPicker(true)}
+              className="flex items-center gap-1.5 px-3 py-1.5 border border-white/10 hover:border-white/20 text-[10px] font-mono text-[#A0A0A0] hover:text-white transition-colors"
+              data-testid="change-model-btn"
+            >
+              <span className="truncate max-w-[160px]">
+                {model ? `${short(providerName, 12)} · ${short(model, 16)}` : 'Select model'}
+              </span>
+              <ChevronDown size={10} />
+            </button>
+          )}
+
+          {/* Auto: badge showing routing is active */}
+          {mode === 'auto' && (
+            <span className="text-[9px] font-mono text-[#737373] hidden md:inline">
+              Router picks best model per message
+            </span>
+          )}
+
+          {/* Agent always-on badge */}
+          <div className="ml-auto flex items-center gap-2 shrink-0">
+            <div className="flex items-center gap-1.5 px-2.5 py-1 border border-[#002FA7]/40 bg-[#002FA7]/10 text-[10px] font-mono text-white">
+              <Zap size={10} className="text-white" />
+              Agent ON
+            </div>
             <div className="w-1.5 h-1.5 bg-green-500 rounded-full" />
-            <span className="text-[10px] text-[#737373] font-mono">WIKI AGENT ACTIVE</span>
+            <span className="text-[10px] text-[#737373] font-mono hidden md:inline">ACTIVE</span>
           </div>
         </div>
 
-        {/* Messages */}
-        <div className="flex-1 overflow-y-auto p-6 space-y-4">
+        {/* ── Messages ── */}
+        <div className="flex-1 overflow-y-auto p-4 md:p-6 space-y-4">
           {messages.length === 0 && (
-            <div className="h-full flex flex-col items-center justify-center text-center animate-fade-in">
+            <div className="h-full flex flex-col items-center justify-center text-center animate-fade-in px-4">
               <Bot size={40} className="text-[#002FA7] mb-4" />
               <h3 className="text-lg font-bold tracking-tight mb-2" style={{ fontFamily: 'Outfit, sans-serif' }}>
                 Wiki Agent Ready
               </h3>
-              <p className="text-xs text-[#737373] max-w-md leading-relaxed">
-                Ask questions, request wiki page creation, analyze sources, or run wiki health checks.
-                The agent has context of your entire wiki knowledge base.
+              <p className="text-xs text-[#737373] max-w-sm leading-relaxed mb-1">
+                {mode === 'auto'
+                  ? 'Auto mode — the router picks the best model for each message. Agent capabilities always on.'
+                  : model
+                    ? `Using ${short(model, 24)} · ${short(providerName, 20)}`
+                    : 'Manual mode — tap "Select model" in the header to choose a provider and model.'}
               </p>
-              <div className="mt-6 grid grid-cols-2 gap-2">
-                {['What\'s in my wiki?', 'Create a new page about...', 'Analyze this source...', 'Run wiki lint'].map((prompt, i) => (
+              <div className="mt-5 grid grid-cols-2 gap-2 w-full max-w-sm">
+                {["What's in my wiki?", 'Create a new page about…', 'Analyze this source…', 'Run wiki lint'].map((p, i) => (
                   <button
                     key={i}
-                    onClick={() => { setInput(prompt); inputRef.current?.focus(); }}
-                    className="text-[10px] text-[#A0A0A0] border border-white/10 px-3 py-2 hover:border-[#002FA7] hover:text-white transition-all font-mono"
+                    onClick={() => { setInput(p); inputRef.current?.focus(); }}
+                    className="text-[10px] text-[#A0A0A0] border border-white/10 px-3 py-2 hover:border-[#002FA7] hover:text-white transition-all font-mono text-left"
                     data-testid={`quick-prompt-${i}`}
                   >
-                    {prompt}
+                    {p}
                   </button>
                 ))}
               </div>
@@ -324,7 +443,7 @@ export default function ChatPage() {
                   <Bot size={14} />
                 </div>
               )}
-              <div className={`max-w-[70%] ${
+              <div className={`max-w-[85%] md:max-w-[70%] ${
                 m.role === 'user'
                   ? 'bg-[#002FA7]/20 border border-[#002FA7]/30'
                   : 'bg-[#1A1A1A] border border-white/10'
@@ -349,30 +468,50 @@ export default function ChatPage() {
           <div ref={messagesEndRef} />
         </div>
 
-        {/* Input */}
-        <div className="border-t border-white/10 p-4">
+        {/* ── Composer ── */}
+        <div className="border-t border-white/10 p-3 md:p-4">
+          {/* Mobile: show current mode / selection above composer */}
+          <div className="flex items-center gap-2 mb-2 md:hidden">
+            {mode === 'auto' ? (
+              <span className="text-[9px] font-mono text-[#737373] flex items-center gap-1">
+                <Zap size={9} className="text-[#002FA7]" /> Auto routing active
+              </span>
+            ) : (
+              <button
+                onClick={() => setShowPicker(true)}
+                className="flex items-center gap-1.5 text-[9px] font-mono text-[#737373] border border-white/10 px-2 py-1 rounded"
+              >
+                {model ? short(model, 22) : 'Select model'}
+                <ChevronDown size={9} />
+              </button>
+            )}
+          </div>
+
           <div className="flex gap-3 items-end">
             <textarea
               ref={inputRef}
               value={input}
               onChange={(e) => setInput(e.target.value)}
               onKeyDown={handleKeyDown}
-              placeholder="Message the Wiki Agent..."
+              placeholder={
+                mode === 'auto'
+                  ? 'Message the agent — router picks the best model…'
+                  : model
+                    ? `Message the agent using ${short(model, 20)}…`
+                    : 'Select a model first, then message the agent…'
+              }
               rows={1}
+              style={{ fontSize: '16px' }} /* prevent iOS zoom */
               className="flex-1 bg-[#141414] border border-white/10 px-4 py-3 text-sm text-white font-mono outline-none focus:border-[#002FA7] resize-none transition-colors"
               data-testid="chat-input"
             />
             <button
               onClick={handleSend}
-              disabled={!input.trim() || sending}
+              disabled={!input.trim() || sending || (mode === 'manual' && !model)}
               className="bg-[#002FA7] hover:bg-[#002585] text-white p-3 transition-colors disabled:opacity-50 disabled:cursor-not-allowed shrink-0 flex items-center gap-2"
               data-testid="chat-send-button"
             >
-              {sending ? (
-                <Loader2 size={16} className="animate-spin" />
-              ) : (
-                <Send size={16} />
-              )}
+              {sending ? <Loader2 size={16} className="animate-spin" /> : <Send size={16} />}
             </button>
           </div>
         </div>
