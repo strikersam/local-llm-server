@@ -1,0 +1,325 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+
+	<key>WFWorkflowActions</key>
+	<array>
+
+		<!-- ── 0: Server endpoint URL (import question replaces the string) ── -->
+		<dict>
+			<key>WFWorkflowActionIdentifier</key>
+			<string>is.workflow.actions.text</string>
+			<key>WFWorkflowActionParameters</key>
+			<dict>
+				<key>WFTextActionText</key>
+				<dict>
+					<key>Value</key>
+					<dict>
+						<key>string</key>
+						<string>http://192.168.1.100:8000/v1/quick-notes</string>
+					</dict>
+					<key>WFSerializationType</key>
+					<string>WFTextTokenString</string>
+				</dict>
+			</dict>
+		</dict>
+
+		<!-- ── 1: Save endpoint URL as named variable ── -->
+		<dict>
+			<key>WFWorkflowActionIdentifier</key>
+			<string>is.workflow.actions.setvariable</string>
+			<key>WFWorkflowActionParameters</key>
+			<dict>
+				<key>WFVariableName</key>
+				<string>Endpoint</string>
+			</dict>
+		</dict>
+
+		<!-- ── 2: API key text (import question replaces the string) ── -->
+		<dict>
+			<key>WFWorkflowActionIdentifier</key>
+			<string>is.workflow.actions.text</string>
+			<key>WFWorkflowActionParameters</key>
+			<dict>
+				<key>WFTextActionText</key>
+				<dict>
+					<key>Value</key>
+					<dict>
+						<key>string</key>
+						<string>Bearer YOUR_API_KEY</string>
+					</dict>
+					<key>WFSerializationType</key>
+					<string>WFTextTokenString</string>
+				</dict>
+			</dict>
+		</dict>
+
+		<!-- ── 3: Save auth header as named variable ── -->
+		<dict>
+			<key>WFWorkflowActionIdentifier</key>
+			<string>is.workflow.actions.setvariable</string>
+			<key>WFWorkflowActionParameters</key>
+			<dict>
+				<key>WFVariableName</key>
+				<string>Auth</string>
+			</dict>
+		</dict>
+
+		<!-- ── 4: Get Shortcut Input (the shared URL) → coerce to text ── -->
+		<dict>
+			<key>WFWorkflowActionIdentifier</key>
+			<string>is.workflow.actions.coercion</string>
+			<key>WFWorkflowActionParameters</key>
+			<dict>
+				<key>WFInput</key>
+				<dict>
+					<key>Value</key>
+					<dict>
+						<key>Type</key>
+						<string>ExtensionInput</string>
+					</dict>
+					<key>WFSerializationType</key>
+					<string>WFTextTokenAttachment</string>
+				</dict>
+				<key>WFCoercionType</key>
+				<string>Text</string>
+			</dict>
+		</dict>
+
+		<!-- ── 5: Save the shared URL string as named variable ── -->
+		<dict>
+			<key>WFWorkflowActionIdentifier</key>
+			<string>is.workflow.actions.setvariable</string>
+			<key>WFWorkflowActionParameters</key>
+			<dict>
+				<key>WFVariableName</key>
+				<string>NoteURL</string>
+			</dict>
+		</dict>
+
+		<!-- ── 6: POST to /v1/quick-notes ── -->
+		<dict>
+			<key>WFWorkflowActionIdentifier</key>
+			<string>is.workflow.actions.downloadurl</string>
+			<key>WFWorkflowActionParameters</key>
+			<dict>
+
+				<key>WFHTTPMethod</key>
+				<string>POST</string>
+
+				<key>ShowHeaders</key>
+				<true/>
+
+				<!-- URL = Endpoint variable -->
+				<key>WFURL</key>
+				<dict>
+					<key>Value</key>
+					<dict>
+						<key>attachmentsByRange</key>
+						<dict>
+							<key>{0, 1}</key>
+							<dict>
+								<key>Type</key>
+								<string>Variable</string>
+								<key>VariableName</key>
+								<string>Endpoint</string>
+							</dict>
+						</dict>
+						<key>string</key>
+						<string>&#xFFFC;</string>
+					</dict>
+					<key>WFSerializationType</key>
+					<string>WFTextTokenString</string>
+				</dict>
+
+				<key>WFHTTPBodyType</key>
+				<string>JSON</string>
+
+				<!-- Headers: Authorization: <Auth variable> -->
+				<key>WFHTTPHeaders</key>
+				<dict>
+					<key>Value</key>
+					<dict>
+						<key>WFDictionaryFieldValueItems</key>
+						<array>
+							<dict>
+								<key>WFItemType</key>
+								<integer>0</integer>
+								<key>WFKey</key>
+								<dict>
+									<key>Value</key>
+									<dict>
+										<key>string</key>
+										<string>Authorization</string>
+									</dict>
+									<key>WFSerializationType</key>
+									<string>WFTextTokenString</string>
+								</dict>
+								<key>WFValue</key>
+								<dict>
+									<key>Value</key>
+									<dict>
+										<key>attachmentsByRange</key>
+										<dict>
+											<key>{0, 1}</key>
+											<dict>
+												<key>Type</key>
+												<string>Variable</string>
+												<key>VariableName</key>
+												<string>Auth</string>
+											</dict>
+										</dict>
+										<key>string</key>
+										<string>&#xFFFC;</string>
+									</dict>
+									<key>WFSerializationType</key>
+									<string>WFTextTokenString</string>
+								</dict>
+							</dict>
+						</array>
+					</dict>
+					<key>WFSerializationType</key>
+					<string>WFDictionaryFieldValue</string>
+				</dict>
+
+				<!-- Body JSON: {"url": "<NoteURL variable>"} -->
+				<key>WFHTTPRequestBody</key>
+				<dict>
+					<key>Value</key>
+					<dict>
+						<key>WFDictionaryFieldValueItems</key>
+						<array>
+							<dict>
+								<key>WFItemType</key>
+								<integer>0</integer>
+								<key>WFKey</key>
+								<dict>
+									<key>Value</key>
+									<dict>
+										<key>string</key>
+										<string>url</string>
+									</dict>
+									<key>WFSerializationType</key>
+									<string>WFTextTokenString</string>
+								</dict>
+								<key>WFValue</key>
+								<dict>
+									<key>Value</key>
+									<dict>
+										<key>attachmentsByRange</key>
+										<dict>
+											<key>{0, 1}</key>
+											<dict>
+												<key>Type</key>
+												<string>Variable</string>
+												<key>VariableName</key>
+												<string>NoteURL</string>
+											</dict>
+										</dict>
+										<key>string</key>
+										<string>&#xFFFC;</string>
+									</dict>
+									<key>WFSerializationType</key>
+									<string>WFTextTokenString</string>
+								</dict>
+							</dict>
+						</array>
+					</dict>
+					<key>WFSerializationType</key>
+					<string>WFDictionaryFieldValue</string>
+				</dict>
+
+			</dict>
+		</dict>
+
+		<!-- ── 7: Show Notification ── -->
+		<dict>
+			<key>WFWorkflowActionIdentifier</key>
+			<string>is.workflow.actions.notification</string>
+			<key>WFWorkflowActionParameters</key>
+			<dict>
+				<key>WFNotificationActionTitle</key>
+				<string>Quick Note ✓</string>
+				<key>WFNotificationActionBody</key>
+				<string>URL queued for Claude Code implementation</string>
+				<key>WFNotificationActionSound</key>
+				<true/>
+			</dict>
+		</dict>
+
+	</array>
+
+	<!-- ── Shortcut metadata ── -->
+
+	<key>WFWorkflowClientRelease</key>
+	<string>2.0</string>
+
+	<key>WFWorkflowClientVersion</key>
+	<string>1100.10</string>
+
+	<key>WFWorkflowIcon</key>
+	<dict>
+		<key>WFWorkflowIconGlyphNumber</key>
+		<integer>59511</integer>
+		<!-- Purple -->
+		<key>WFWorkflowIconStartColor</key>
+		<integer>1025914879</integer>
+	</dict>
+
+	<!--
+		Import Questions — shown once when the shortcut is first added.
+		Q1 replaces action 0 (the Text action holding the server endpoint URL).
+		Q2 replaces action 2 (the Text action holding the Authorization header).
+	-->
+	<key>WFWorkflowImportQuestions</key>
+	<array>
+		<dict>
+			<key>ActionIndex</key>
+			<integer>0</integer>
+			<key>Category</key>
+			<string>Parameter</string>
+			<key>DefaultValue</key>
+			<string>http://192.168.1.100:8000/v1/quick-notes</string>
+			<key>ParameterKey</key>
+			<string>WFTextActionText</string>
+			<key>Text</key>
+			<string>Server URL (full path — swap the IP for yours, e.g. http://192.168.1.50:8000/v1/quick-notes)</string>
+		</dict>
+		<dict>
+			<key>ActionIndex</key>
+			<integer>2</integer>
+			<key>Category</key>
+			<string>Parameter</string>
+			<key>DefaultValue</key>
+			<string>Bearer </string>
+			<key>ParameterKey</key>
+			<string>WFTextActionText</string>
+			<key>Text</key>
+			<string>API Key — paste your full Bearer token (e.g. Bearer sk-abc123…)</string>
+		</dict>
+	</array>
+
+	<!-- Accept URLs and web pages from the share sheet -->
+	<key>WFWorkflowInputContentItemClasses</key>
+	<array>
+		<string>WFURLContentItem</string>
+		<string>WFStringContentItem</string>
+		<string>WFSafariWebPageContentItem</string>
+	</array>
+
+	<key>WFWorkflowMinimumClientVersion</key>
+	<integer>900</integer>
+
+	<key>WFWorkflowName</key>
+	<string>Quick Note → Claude</string>
+
+	<!-- Appears in Share Sheet and in the Shortcuts widget/app -->
+	<key>WFWorkflowTypes</key>
+	<array>
+		<string>WFShareExtensionWorkflowType</string>
+		<string>WFQuickActionWorkflowType</string>
+	</array>
+
+</dict>
+</plist>
