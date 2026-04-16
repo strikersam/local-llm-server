@@ -248,17 +248,20 @@ export default function AgentViewPage() {
   useEffect(() => localStorage.setItem(LS_MODEL,    model),      [model]);
   useEffect(() => localStorage.setItem(LS_MODE,     mode),       [mode]);
 
+  const [connErr, setConnErr] = useState('');
+
   // ── Load providers on connect ────────────────────────────────────────────────
   useEffect(() => {
     if (!apiKey) { setConnStatus('idle'); return; }
     setConnStatus('checking');
+    setConnErr('');
     getProviders(backendUrl, apiKey)
       .then(ps => {
         setProviders(ps);
         setConnStatus('ok');
         if (!providerId && ps.length) setProviderId(ps[0].provider_id);
       })
-      .catch(() => { setConnStatus('error'); setProviders([]); });
+      .catch(e => { setConnStatus('error'); setProviders([]); setConnErr(e?.message || 'Network error'); });
   }, [backendUrl, apiKey]); // eslint-disable-line
 
   // ── Auto-scroll ──────────────────────────────────────────────────────────────
@@ -409,9 +412,19 @@ export default function AgentViewPage() {
           <div className="flex flex-col items-center justify-center h-full text-center gap-3 px-4">
             <div className="w-2 h-2 rounded-full bg-red-500" />
             <p className="text-[12px] font-mono text-red-400">Cannot reach {backendUrl}</p>
-            <p className="text-[10px] text-[#555] font-mono">
-              Make sure the proxy is running: <code className="bg-white/5 px-1">uvicorn proxy:app --port 8000</code>
-            </p>
+            {connErr && (
+              <p className="text-[10px] font-mono text-red-500/70 bg-red-500/5 border border-red-500/15 px-3 py-1.5 max-w-sm break-all">{connErr}</p>
+            )}
+            <div className="text-[10px] text-[#555] font-mono space-y-1">
+              <p>1. Make sure the proxy is running on Windows:</p>
+              <code className="block bg-white/5 px-2 py-1">uvicorn proxy:app --port 8000</code>
+              <p className="mt-1">2. Make sure ngrok is tunnelling port 8000:</p>
+              <code className="block bg-white/5 px-2 py-1">ngrok http 8000</code>
+            </div>
+            <a href={`${backendUrl.replace(/\/+$/, '')}/ui/api/providers`} target="_blank" rel="noopener noreferrer"
+              className="text-[10px] font-mono text-[#555] hover:text-[#A0A0A0] underline transition-colors">
+              Test endpoint in browser ↗
+            </a>
             <button onClick={() => { setConnStatus('idle'); setTimeout(() => setApiKey(k => k), 0); }}
               className="flex items-center gap-1.5 px-3 py-1.5 border border-white/10 hover:border-white/20 text-[10px] font-mono text-[#555] hover:text-white transition-colors">
               <RefreshCw size={10} /> Retry
