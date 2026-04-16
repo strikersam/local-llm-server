@@ -57,7 +57,35 @@ _DEFAULT_REGISTRY: dict[str, ModelCapability] = {
         cost_tier=1,
         tags=["lightweight"],
     ),
-    # Claude aliases
+    # ── Gemma 4 (Google, April 2026) ─────────────────────────────────────────
+    # Interleaved-attention architecture; strong multimodal + code + tool-use.
+    "gemma4:27b": ModelCapability(
+        name="gemma4:27b",
+        strengths=["code_generation", "code_debugging", "code_review", "tool_use",
+                   "reasoning", "analysis", "long_context", "conversation"],
+        context_window=128000,
+        type="general",
+        cost_tier=2,
+        tags=["multimodal", "google", "gemma4"],
+    ),
+    "gemma4:9b": ModelCapability(
+        name="gemma4:9b",
+        strengths=["code_generation", "code_debugging", "tool_use",
+                   "conversation", "fast_response"],
+        context_window=128000,
+        type="general",
+        cost_tier=1,
+        tags=["multimodal", "google", "gemma4", "lightweight"],
+    ),
+    "gemma4:2b": ModelCapability(
+        name="gemma4:2b",
+        strengths=["conversation", "fast_response"],
+        context_window=32768,
+        type="general",
+        cost_tier=1,
+        tags=["google", "gemma4", "ultra-fast"],
+    ),
+    # ── Claude aliases ────────────────────────────────────────────────────────
     "claude-3-5-sonnet-20241022": ModelCapability(
         name="claude-3-5-sonnet-20241022",
         strengths=["code_generation", "code_debugging", "code_review", "tool_use", "long_context", "conversation"],

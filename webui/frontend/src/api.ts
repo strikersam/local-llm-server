@@ -133,14 +133,46 @@ export async function getAgentSession(apiKey: string, sessionId: string) {
   return (await r.json()) as AgentSession;
 }
 
-export async function runAgent(apiKey: string, sessionId: string, instruction: string, model: string | null) {
+export async function runAgent(
+  apiKey: string,
+  sessionId: string,
+  instruction: string,
+  model: string | null,
+  providerId?: string | null,
+) {
+  const body: Record<string, any> = { instruction, max_steps: 5 };
+  if (model)      body.model       = model;
+  if (providerId) body.provider_id = providerId;
   const r = await fetch(`${API_BASE}/agent/sessions/${encodeURIComponent(sessionId)}/run`, {
     method: "POST",
     headers: { ...authHeaders(apiKey), "Content-Type": "application/json" },
-    body: JSON.stringify({ instruction, model: model ?? undefined, max_steps: 5 }),
+    body: JSON.stringify(body),
   });
   if (!r.ok) return apiError(r);
   return await r.json();
+}
+
+/**
+ * Ask the proxy what model it would route a given message to in auto mode.
+ * Returns { resolved_model, task_category, selection_source } — best-effort,
+ * safe to ignore on error.
+ */
+export async function previewRoute(apiKey: string, text: string): Promise<{
+  resolved_model: string;
+  task_category: string;
+  selection_source: string;
+} | null> {
+  try {
+    const r = await fetch(`${API_BASE}/ui/api/route`, {
+      method: "POST",
+      headers: { ...authHeaders(apiKey), "Content-Type": "application/json" },
+      body: JSON.stringify({ text }),
+    });
+    if (!r.ok) return null;
+    return await r.json();
+  } catch {
+    return null;
+  }
 }
 
 // --- Admin API ---

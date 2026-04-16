@@ -103,6 +103,10 @@ _BUILTIN_MODEL_MAP: dict[str, str] = {
     "claude-3-opus-20240229":     "deepseek-r1:32b",
     "claude-3-sonnet-20240229":   "qwen3-coder:30b",
     "claude-3-haiku-20240307":    "qwen3-coder:30b",
+    # Gemma 4 short-name aliases (Ollama pull names without size suffix)
+    "gemma4":                     "gemma4:27b",
+    "gemma4-9b":                  "gemma4:9b",
+    "gemma4-2b":                  "gemma4:2b",
 }
 
 _resolved_model_map: dict[str, str] | None = None

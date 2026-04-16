@@ -36,6 +36,11 @@ class UiSearchBody(BaseModel):
     limit: int = Field(default=20, ge=1, le=200)
 
 
+class UiRoutePreviewBody(BaseModel):
+    """Body for POST /ui/api/route — preview which model auto-routing would pick."""
+    text: str = Field(..., min_length=1, max_length=8000)
+
+
 class AdminCommandBody(BaseModel):
     workspace_id: str = Field(default="ws_current", max_length=64)
     command: list[str] = Field(..., min_length=1, max_length=32)
@@ -132,6 +137,23 @@ def register_webui(
         data = resp.json()
         content = data["choices"][0]["message"]["content"]
         return {"model": model, "content": content}
+
+    @router.post("/route")
+    async def preview_route(request: Request, body: UiRoutePreviewBody, _: Any = Depends(verify_user)):
+        """Return which model the auto-router would pick for *text* (dry-run, no LLM call)."""
+        try:
+            from router.model_router import get_router
+            messages = [{"role": "user", "content": body.text}]
+            decision = get_router().route(messages=messages, stream=False)
+            return {
+                "resolved_model":   decision.resolved_model,
+                "task_category":    decision.task_category,
+                "selection_source": decision.selection_source,
+                "routing_reason":   decision.routing_reason,
+            }
+        except Exception as exc:
+            log.warning("route preview failed: %s", exc)
+            raise HTTPException(status_code=503, detail=str(exc)) from exc
 
     @router.get("/workspaces")
     async def list_workspaces(request: Request, _: Any = Depends(verify_user)):
