@@ -34,7 +34,13 @@ async function api(path, options = {}) {
   });
   const data = await response.json().catch(() => ({}));
   if (!response.ok) {
-    throw new Error(data.detail || data.message || `Request failed: ${response.status}`);
+    let detail = data.detail || data.message || `Request failed: ${response.status}`;
+    if (typeof detail !== "string") {
+      detail = Array.isArray(detail)
+        ? detail.map((e) => e.msg || JSON.stringify(e)).join("; ")
+        : JSON.stringify(detail);
+    }
+    throw new Error(detail);
   }
   return data;
 }

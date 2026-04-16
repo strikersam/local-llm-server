@@ -39,6 +39,11 @@ class WindowsServiceManager:
         )
 
     def _spawn_file(self, filename: str) -> None:
+        if sys.platform != "win32":
+            raise ValueError(
+                f"Cannot start '{filename}' — batch files are Windows-only. "
+                "Restart the proxy manually: uvicorn proxy:app --reload --port 8000"
+            )
         subprocess.Popen(
             ["cmd.exe", "/c", str(self.root / filename)],
             cwd=self.root,
@@ -48,12 +53,28 @@ class WindowsServiceManager:
         )
 
     def _spawn_cmd(self, command: str) -> None:
+        if sys.platform != "win32":
+            raise ValueError(
+                "PowerShell commands are Windows-only. "
+                "Restart the proxy manually: uvicorn proxy:app --reload --port 8000"
+            )
         subprocess.Popen(
             ["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", command],
             cwd=self.root,
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
             creationflags=_creationflags(),
+        )
+
+    def _spawn_unix(self) -> None:
+        """Spawn a new proxy process on Linux/Mac using the current Python interpreter."""
+        port = str(self.proxy_port)
+        subprocess.Popen(
+            [sys.executable, "-m", "uvicorn", "proxy:app", "--port", port],
+            cwd=self.root,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            start_new_session=True,
         )
 
     def _read_pid_map(self) -> dict[str, int]:
@@ -162,7 +183,10 @@ class WindowsServiceManager:
             if pid:
                 pid_map["ollama"] = pid
         elif target == "proxy" and not self._find_pid("proxy"):
-            self._spawn_file("run_proxy.bat")
+            if sys.platform == "win32":
+                self._spawn_file("run_proxy.bat")
+            else:
+                self._spawn_unix()
             time.sleep(1)
             pid = self._find_pid("proxy")
             if pid:
@@ -209,10 +233,21 @@ class WindowsServiceManager:
                 "message": "Restart requested for stack. The admin connection will drop while the proxy restarts.",
             }
         if action == "restart" and target == "proxy" and current_proxy_pid:
-            self._spawn_cmd(
-                f"Start-Sleep -Seconds 1; Stop-Process -Id {current_proxy_pid} -Force; "
-                f"Start-Sleep -Seconds 2; cmd.exe /c '{self.root / 'run_proxy.bat'}'"
-            )
+            if sys.platform == "win32":
+                self._spawn_cmd(
+                    f"Start-Sleep -Seconds 1; Stop-Process -Id {current_proxy_pid} -Force; "
+                    f"Start-Sleep -Seconds 2; cmd.exe /c '{self.root / 'run_proxy.bat'}'"
+                )
+            else:
+                self._spawn_unix()
+                import threading
+                def _kill_after() -> None:
+                    time.sleep(1)
+                    try:
+                        os.kill(current_proxy_pid, 15)  # SIGTERM
+                    except OSError:
+                        pass
+                threading.Thread(target=_kill_after, daemon=True).start()
             return {
                 "ok": True,
                 "message": "Proxy restart requested. The admin connection will drop briefly.",
