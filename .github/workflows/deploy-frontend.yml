@@ -5,6 +5,7 @@ on:
     branches: [master]
     paths:
       - 'frontend/**'
+      - 'remote-admin/**'
       - '.github/workflows/deploy-frontend.yml'
   workflow_dispatch:
 
@@ -42,6 +43,9 @@ jobs:
 
       - name: Add 404 → SPA redirect
         run: cp frontend/build/index.html frontend/build/404.html
+
+      - name: Copy remote-admin into build
+        run: cp -r remote-admin frontend/build/remote-admin
 
       - name: Upload Pages artifact
         uses: actions/upload-pages-artifact@v3
