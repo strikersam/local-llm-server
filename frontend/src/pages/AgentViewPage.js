@@ -24,17 +24,19 @@ const LS_SESSION  = 'agv_session';
 const DEFAULT_BACKEND = 'http://localhost:8000';
 
 // ── API helpers ───────────────────────────────────────────────────────────────
-function makeHeaders(apiKey) {
+function makeHeaders(apiKey, backendUrl = '') {
   return {
     'Content-Type': 'application/json',
     ...(apiKey ? { Authorization: `Bearer ${apiKey}` } : {}),
+    // Bypass ngrok's browser-warning interstitial when accessed from code
+    ...(backendUrl.includes('ngrok') ? { 'ngrok-skip-browser-warning': 'true' } : {}),
   };
 }
 
 async function apiFetch(backendUrl, path, apiKey, opts = {}) {
   const base = backendUrl.replace(/\/+$/, '');
   const res  = await fetch(`${base}${path}`, {
-    headers: makeHeaders(apiKey),
+    headers: makeHeaders(apiKey, backendUrl),
     ...opts,
   });
   if (!res.ok) {
