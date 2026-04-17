@@ -1,4 +1,5 @@
 from fastapi.testclient import TestClient
+from types import SimpleNamespace
 
 import proxy
 from admin_auth import AdminIdentity
@@ -100,6 +101,91 @@ def test_agent_session_endpoints_require_and_return_state(monkeypatch):
     )
     assert run.status_code == 200
     assert run.json()["result"]["summary"] == "ok"
+
+    proxy.app.dependency_overrides.clear()
+
+
+def test_agent_session_run_reuses_bearer_key_for_same_origin_provider(monkeypatch, tmp_path):
+    def fake_verify():
+        return proxy.AuthContext(
+            key="test-key",
+            email="tester@example.com",
+            department="engineering",
+            key_id="kid_test",
+            source="legacy",
+        )
+
+    captured: dict[str, object] = {}
+
+    class FakeRunner:
+        def __init__(
+            self,
+            *,
+            ollama_base: str,
+            workspace_root,
+            provider_headers=None,
+            provider_temperature=None,
+            email=None,
+            department=None,
+            key_id=None,
+        ) -> None:
+            captured["ollama_base"] = ollama_base
+            captured["workspace_root"] = workspace_root
+            captured["provider_headers"] = provider_headers
+            captured["provider_temperature"] = provider_temperature
+            captured["email"] = email
+            captured["department"] = department
+            captured["key_id"] = key_id
+
+        async def run(self, **kwargs):
+            return {
+                "goal": kwargs["instruction"],
+                "plan": {"goal": kwargs["instruction"], "steps": []},
+                "steps": [],
+                "commits": [],
+                "summary": "ok",
+            }
+
+    monkeypatch.setattr(proxy, "AgentRunner", FakeRunner)
+    monkeypatch.setattr(
+        proxy.WEBUI_PROVIDERS,
+        "get_secret",
+        lambda provider_id: SimpleNamespace(
+            base_url="http://testserver/v1",
+            api_key=None,
+            default_model="qwen3-coder:30b",
+            default_temperature=0.25,
+        ),
+    )
+    monkeypatch.setattr(
+        proxy.WEBUI_WORKSPACES,
+        "get",
+        lambda workspace_id: SimpleNamespace(path=str(tmp_path)),
+    )
+    proxy.app.dependency_overrides[proxy.verify_api_key] = fake_verify
+
+    client = TestClient(proxy.app)
+    create = client.post(
+        "/agent/sessions",
+        json={"title": "Test Session", "provider_id": "prov_proxy", "workspace_id": "ws_proxy"},
+    )
+    assert create.status_code == 200
+    session_id = create.json()["session_id"]
+
+    run = client.post(
+        f"/agent/sessions/{session_id}/run",
+        json={
+            "instruction": "Do the thing",
+            "provider_id": "prov_proxy",
+            "workspace_id": "ws_proxy",
+            "auto_commit": False,
+            "max_steps": 2,
+        },
+    )
+    assert run.status_code == 200
+    assert run.json()["result"]["summary"] == "ok"
+    assert captured["ollama_base"] == "http://testserver/v1"
+    assert captured["provider_headers"] == {"Authorization": "Bearer test-key"}
 
     proxy.app.dependency_overrides.clear()
 

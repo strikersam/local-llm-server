@@ -10,6 +10,7 @@
 
 ### Fixed
 
+- **Agent view now forwards the caller's API key to same-origin provider URLs**: When an Ollama-backed provider points back at the proxy origin and no provider-specific key is stored, sessioned agent runs reuse the authenticated user's token so `/v1/chat/completions` no longer returns `401 Unauthorized`.
 - **`Dockerfile.backend` missing agent/router modules**: Added `COPY agent/ agent/` and `COPY router/ router/` so the deployed backend can import `AgentRunner` — fixes `ModuleNotFoundError: No module named 'agent'` in cloud deployments.
 - **`_run_agent_loop` ImportError now surfaces a helpful message**: Wraps the lazy `from agent.loop import AgentRunner` import in a `try/except ImportError` and returns a structured troubleshooting message instead of silently falling back to the LLM.
 - **Admin portal shows actionable error when backend URL is stale**: "Load failed" (Safari) / "Failed to fetch" (Chrome) network errors in `AdminPortalPage.js` now display "Cannot reach [URL] — is the proxy running? Click Config to update the backend URL."

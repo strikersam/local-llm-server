@@ -16,6 +16,7 @@ import asyncio
 import hashlib
 import subprocess
 from pathlib import Path
+from urllib.parse import urlsplit
 
 from langfuse_obs import emit_chat_observation
 
@@ -266,6 +267,31 @@ def _get_admin_identity_from_request(
         source = str(request.session.get("admin_auth_source") or "session")
         return AdminIdentity(username=username, auth_source=source)
     raise HTTPException(status_code=401, detail="Unauthorized")
+
+
+def _origin_tuple(url: str) -> tuple[str, str, int | None]:
+    parsed = urlsplit(url)
+    scheme = parsed.scheme.lower()
+    host = (parsed.hostname or "").lower()
+    port = parsed.port
+    if port is None:
+        if scheme == "http":
+            port = 80
+        elif scheme == "https":
+            port = 443
+    return scheme, host, port
+
+
+def _provider_headers_for_request(secret: object, request: Request, auth: AuthContext) -> dict[str, str] | None:
+    api_key = str(getattr(secret, "api_key", "") or "").strip()
+    if api_key:
+        return {"Authorization": f"Bearer {api_key}"}
+
+    secret_base_url = str(getattr(secret, "base_url", "") or "").strip()
+    if secret_base_url and _origin_tuple(secret_base_url) == _origin_tuple(str(request.base_url)):
+        return {"Authorization": f"Bearer {auth.key}"}
+
+    return None
 
 # ─── App ────────────────────────────────────────────────────────────────────────
 
@@ -534,6 +560,7 @@ async def get_agent_session(session_id: str, auth: AuthContext = Depends(verify_
 async def run_agent_task(
     session_id: str,
     body: AgentRunRequest,
+    request: Request,
     auth: AuthContext = Depends(verify_api_key),
 ):
     session = AGENT_SESSIONS.get(session_id)
@@ -558,11 +585,10 @@ async def run_agent_task(
                 raise HTTPException(status_code=404, detail=f"Unknown workspace: {workspace_id}")
             if requested_model is None and provider_id != "prov_local" and secret.default_model:
                 requested_model = secret.default_model
-            headers = {"Authorization": f"Bearer {secret.api_key}"} if secret.api_key else None
             runner = AgentRunner(
                 ollama_base=secret.base_url,
                 workspace_root=ws.path,
-                provider_headers=headers,
+                provider_headers=_provider_headers_for_request(secret, request, auth),
                 provider_temperature=secret.default_temperature,
                 email=auth.email,
                 department=auth.department,
@@ -599,7 +625,11 @@ async def run_agent_task(
 
 
 @app.post("/agent/run")
-async def run_agent_once(body: AgentRunRequest, auth: AuthContext = Depends(verify_api_key)):
+async def run_agent_once(
+    body: AgentRunRequest,
+    request: Request,
+    auth: AuthContext = Depends(verify_api_key),
+):
     temp = AGENT_SESSIONS.create(
         title=f"One-off run for {auth.email}",
         provider_id=body.provider_id,
@@ -623,11 +653,10 @@ async def run_agent_once(body: AgentRunRequest, auth: AuthContext = Depends(veri
                 raise HTTPException(status_code=404, detail=f"Unknown workspace: {workspace_id}")
             if requested_model is None and provider_id != "prov_local" and secret.default_model:
                 requested_model = secret.default_model
-            headers = {"Authorization": f"Bearer {secret.api_key}"} if secret.api_key else None
             runner = AgentRunner(
                 ollama_base=secret.base_url,
                 workspace_root=ws.path,
-                provider_headers=headers,
+                provider_headers=_provider_headers_for_request(secret, request, auth),
                 provider_temperature=secret.default_temperature,
                 email=auth.email,
                 department=auth.department,
