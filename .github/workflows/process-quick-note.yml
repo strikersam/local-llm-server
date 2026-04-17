@@ -133,15 +133,23 @@ jobs:
           response = message.choices[0].message.content
           print("Response length:", len(response))
 
+          print("--- LLM RESPONSE START ---")
+          print(response[:3000])
+          print("--- LLM RESPONSE END ---")
+
           if "NOTHING_TO_IMPLEMENT" in response:
               print("Nothing actionable to implement.")
               sys.exit(0)
 
+          # Try === FILE: === format first, then fall back to markdown fenced blocks
           pattern = r"=== FILE: (.+?) ===\n(.*?)=== END FILE ==="
           matches = re.findall(pattern, response, re.DOTALL)
           if not matches:
-              print("No FILE blocks found. Raw output:")
-              print(response[:2000])
+              # Try markdown: ```lang\n# filepath\n...``` or ```\n// filepath\n...```
+              pattern2 = r"```[^\n]*\n(?:#|//|--)\s*([^\n]+)\n(.*?)```"
+              matches = re.findall(pattern2, response, re.DOTALL)
+          if not matches:
+              print("No file blocks found in response — LLM may need clearer format instructions.")
               sys.exit(0)
 
           for filepath, contents in matches:
