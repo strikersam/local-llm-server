@@ -34,7 +34,16 @@ async function apiFetch(backendUrl, path, token, opts = {}) {
   const res = await fetch(`${base}${path}`, { headers: hdrs(token, backendUrl), ...opts });
   if (!res.ok) {
     let detail = `HTTP ${res.status}`;
-    try { const d = await res.json(); detail = d.detail || detail; } catch {}
+    try {
+      const d = await res.json();
+      if (d.detail) {
+        detail = typeof d.detail === 'string'
+          ? d.detail
+          : Array.isArray(d.detail)
+            ? d.detail.map(e => e.msg || JSON.stringify(e)).join('; ')
+            : JSON.stringify(d.detail);
+      }
+    } catch {}
     throw new Error(detail);
   }
   return res.json();
