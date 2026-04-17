@@ -11,7 +11,9 @@ which disables availability filtering — routing continues normally.
 Configuration:
     ROUTER_HEALTH_CHECK_ENABLED  true/false  (default: true)
     ROUTER_HEALTH_CACHE_TTL      seconds     (default: 60)
-    OLLAMA_BASE                  base URL    (default: http://localhost:11434)
+    OLLAMA_BASE / OLLAMA_BASE_URL base URL  (default: http://localhost:11434)
+    ROUTER_HEALTH_CONNECT_TIMEOUT seconds   (default: 10 — time to wait for Ollama to accept TCP;
+                                              raise when loading large models)
 """
 
 from __future__ import annotations
@@ -64,9 +66,17 @@ def get_available_models() -> set[str]:
     if _ever_fetched and (now - _cache_ts) < _ttl():
         return _cache_models
 
-    base = os.environ.get("OLLAMA_BASE", "http://localhost:11434").rstrip("/")
+    base = (
+        os.environ.get("OLLAMA_BASE")
+        or os.environ.get("OLLAMA_BASE_URL")
+        or "http://localhost:11434"
+    ).rstrip("/")
     try:
-        with httpx.Client(timeout=httpx.Timeout(2.0, connect=1.0)) as client:
+        connect_timeout = float(os.environ.get("ROUTER_HEALTH_CONNECT_TIMEOUT") or "10")
+    except ValueError:
+        connect_timeout = 10.0
+    try:
+        with httpx.Client(timeout=httpx.Timeout(connect_timeout + 5.0, connect=connect_timeout)) as client:
             resp = client.get(f"{base}/api/tags")
             resp.raise_for_status()
             data = resp.json()

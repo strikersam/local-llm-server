@@ -39,8 +39,33 @@ JWT_SECRET = os.environ.get("JWT_SECRET", secrets.token_hex(32))
 JWT_ALGORITHM = "HS256"
 ADMIN_EMAIL = os.environ.get("ADMIN_EMAIL", "admin@llmrelay.local")
 ADMIN_PASSWORD = os.environ.get("ADMIN_PASSWORD", "WikiAdmin2026!")
-OLLAMA_BASE = os.environ.get("OLLAMA_BASE_URL", "http://localhost:11434")
+OLLAMA_BASE = (
+    os.environ.get("OLLAMA_BASE_URL")
+    or os.environ.get("OLLAMA_BASE")
+    or "http://localhost:11434"
+)
 OLLAMA_MODEL = os.environ.get("OLLAMA_MODEL", "qwen3-coder:30b")
+
+
+def _resolve_ollama_url(url: str | None) -> str:
+    """Swap localhost → `ollama` when running inside Docker.
+
+    Inside a container, 127.0.0.1/localhost refers to the container itself,
+    not the host running Ollama. Compose usually exposes Ollama at the
+    service name "ollama"; respect an explicit override via OLLAMA_HOST_IN_DOCKER.
+    """
+    if not url:
+        return url or "http://localhost:11434"
+    # Detect Docker: presence of /.dockerenv is the canonical signal.
+    in_docker = Path("/.dockerenv").exists() or os.environ.get("IN_DOCKER", "").lower() in ("1", "true", "yes")
+    if not in_docker:
+        return url
+    host_alias = os.environ.get("OLLAMA_HOST_IN_DOCKER", "ollama").strip() or "ollama"
+    # Only rewrite the host portion, not the whole URL.
+    for needle in ("://localhost:", "://127.0.0.1:"):
+        if needle in url:
+            return url.replace(needle, f"://{host_alias}:", 1)
+    return url
 
 HF_TOKEN = os.environ.get("HF_TOKEN") or os.environ.get("HUGGINGFACE_API_TOKEN", "")
 HF_BASE_URL = os.environ.get("HF_BASE_URL", "https://router.huggingface.co")
@@ -748,7 +773,7 @@ async def seed_default_providers():
             "provider_id": "ollama-local",
             "name": "Ollama (Local)",
             "type": "ollama",
-            "base_url": OLLAMA_BASE,
+            "base_url": _resolve_ollama_url(OLLAMA_BASE),
             "api_key": "",
             "default_model": OLLAMA_MODEL,
             "is_default": LLM_PROVIDER == "ollama",
@@ -958,7 +983,7 @@ async def _run_agent_loop(
 
     headers = {"Authorization": f"Bearer {provider.get('api_key')}"} if provider.get("api_key") else None
     runner = AgentRunner(
-        ollama_base=provider.get("base_url", OLLAMA_BASE),
+        ollama_base=_resolve_ollama_url(provider.get("base_url") or OLLAMA_BASE),
         workspace_root=workspace_root,
         provider_headers=headers,
         provider_temperature=0.3, # default for agent
@@ -1175,8 +1200,19 @@ async def chat_send(body: ChatMessage, user: dict = Depends(get_current_user)):
             )
             use_agent = True  # mark handled — skip simple LLM fallback
         except Exception as exc:
-            log.error("Agent loop failed, falling back to simple LLM: %s", exc)
-            use_agent = False
+            # Bug 5: Previously we silently fell back to a plain LLM call,
+            # which then told the user "I can't do GitHub". Instead, surface the
+            # real failure so the user knows why the tool call didn't happen.
+            log.error("Agent loop failed: %s", exc, exc_info=True)
+            response_text = (
+                "⚠️ The agent run failed before it could use any tools.\n\n"
+                f"Error: {type(exc).__name__}: {exc}\n\n"
+                "Troubleshooting:\n"
+                "• Check that the selected LLM provider is reachable (Providers page → Test).\n"
+                "• If using Ollama in Docker, ensure OLLAMA_BASE_URL points to the container hostname (e.g. http://ollama:11434).\n"
+                "• For GitHub operations, verify a token is connected at Settings → GitHub and Agent Mode (⚡) is ON."
+            )
+            use_agent = True  # mark handled — skip the silent LLM fallback
 
     if not use_agent:
         github_connected = bool(user.get("github_repo_token"))
@@ -1524,8 +1560,9 @@ async def test_provider(provider_id: str, user: dict = Depends(get_current_user)
         raise HTTPException(status_code=404, detail="Provider not found")
     try:
         if prov["type"] == "ollama":
-            async with httpx.AsyncClient(timeout=10) as c:
-                r = await c.get(f"{prov['base_url']}/api/tags")
+            resolved_base = _resolve_ollama_url(prov.get("base_url") or OLLAMA_BASE).rstrip("/")
+            async with httpx.AsyncClient(timeout=15) as c:
+                r = await c.get(f"{resolved_base}/api/tags")
                 models = [m["name"] for m in r.json().get("models", [])]
             await db.providers.update_one({"provider_id": provider_id}, {"$set": {"status": "online"}})
             return {"ok": True, "models": models}

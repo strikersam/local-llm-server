@@ -68,9 +68,14 @@ class AgentCoordinator:
         *,
         ollama_base: str,
         workspace_root: str | None = None,
+        github_token: str | None = None,
     ) -> None:
         self.ollama_base = ollama_base
         self.workspace_root = workspace_root
+        # Bug 5: Multi-agent tasks previously failed silently on GitHub tool
+        # calls because the token was only set on the top-level runner.
+        # Forward it to every worker so they can call GitHub tools too.
+        self.github_token = github_token
 
     async def run(
         self,
@@ -100,6 +105,7 @@ class AgentCoordinator:
                     email=email,
                     department=department,
                     key_id=key_id,
+                    github_token=self.github_token,
                 )
                 try:
                     result = await runner.run(

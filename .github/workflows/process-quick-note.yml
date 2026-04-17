@@ -2,12 +2,13 @@ name: Process Quick Note
 
 on:
   issues:
-    types: [opened]
+    types: [opened, reopened]
   workflow_dispatch:
     inputs:
       issue_number:
-        description: Issue number to process
+        description: "Issue number to process"
         required: true
+        type: string
 
 concurrency:
   group: quick-note-processor
@@ -19,8 +20,11 @@ permissions:
 
 jobs:
   process:
-    if: startsWith(github.event.issue.title, 'quick-note:') || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
+    if: >
+      (github.event_name == 'issues' &&
+       startsWith(github.event.issue.title, 'quick-note:')) ||
+      github.event_name == 'workflow_dispatch'
 
     steps:
       - uses: actions/checkout@v4
@@ -28,7 +32,7 @@ jobs:
           token: ${{ secrets.GITHUB_TOKEN }}
           fetch-depth: 0
 
-      - name: Resolve issue
+      - name: Resolve issue number and URL
         id: issue
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -38,67 +42,157 @@ jobs:
           else
             NUM="${{ github.event.issue.number }}"
           fi
-          echo "number=$NUM" >> $GITHUB_OUTPUT
-          BODY=$(gh issue view "$NUM" --repo ${{ github.repository }} --json body -q .body)
-          # Extract first URL from body
-          URL=$(echo "$BODY" | grep -oE 'https?://[^ ]+' | head -1)
-          echo "url=$URL" >> $GITHUB_OUTPUT
-          echo "Resolved issue #$NUM → $URL"
+          echo "number=$NUM" >> "$GITHUB_OUTPUT"
+          BODY=$(gh issue view "$NUM" --repo "${{ github.repository }}" --json body -q .body)
+          URL=$(echo "$BODY" | grep -oE 'https?://[^[:space:]]+' | head -1)
+          TASK=$(echo "$BODY" | grep -i "^Task:" | sed 's/^[Tt]ask:[[:space:]]*//')
+          echo "url=$URL" >> "$GITHUB_OUTPUT"
+          echo "task=$TASK" >> "$GITHUB_OUTPUT"
+          echo "Resolved issue #$NUM → $URL | task: $TASK"
 
-      - name: Label as processing
+      - name: Comment processing started
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          gh issue edit "${{ steps.issue.outputs.number }}" \
-            --repo ${{ github.repository }} \
-            --add-label "processing" 2>/dev/null || true
           gh issue comment "${{ steps.issue.outputs.number }}" \
-            --repo ${{ github.repository }} \
-            --body "⏳ Processing started — fetching content from ${{ steps.issue.outputs.url }}"
+            --repo "${{ github.repository }}" \
+            --body "⏳ Processing started — fetching ${{ steps.issue.outputs.url }}"
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-python@v5
         with:
-          node-version: '20'
+          python-version: "3.12"
 
-      - name: Install Claude CLI
-        run: npm install -g @anthropic-ai/claude-code
+      - name: Install Anthropic SDK
+        run: pip install anthropic
 
       - name: Fetch URL content
-        id: fetch
         run: |
           URL="${{ steps.issue.outputs.url }}"
           if [ -z "$URL" ]; then
             echo "ERROR: no URL found in issue body" >&2
             exit 1
           fi
-          # Fetch up to 12 KB of content
-          CONTENT=$(curl -sL --max-time 30 --user-agent "Mozilla/5.0" "$URL" 2>&1 | head -c 12000)
-          # Write to file to avoid shell quoting issues
-          echo "$CONTENT" > /tmp/note_content.txt
-          echo "Fetched $(wc -c < /tmp/note_content.txt) bytes"
+          # Fetch and strip HTML tags → plain text is 4x more token-efficient
+          curl -sL --max-time 30 --user-agent "Mozilla/5.0" "$URL" \
+            | sed 's/<[^>]*>/ /g' \
+            | tr -s ' \t' ' ' \
+            | grep -v '^\s*$' \
+            | head -c 5000 > /tmp/note_content.txt
+          echo "Extracted $(wc -c < /tmp/note_content.txt) chars of plain text from $URL"
 
-      - name: Run Claude Code
+      - name: Write LLM script
+        run: |
+          cat > /tmp/run_llm.py << 'PYEOF'
+          import os, subprocess, sys, re
+
+          url = sys.argv[1]
+          issue_num = sys.argv[2]
+          task = sys.argv[3] if len(sys.argv) > 3 else ""
+
+          page_content = open("/tmp/note_content.txt").read()
+
+          result = subprocess.run(
+              ["git", "ls-files", "--", "*.py", "*.js", "*.ts", "*.tsx", "*.yml", "*.yaml", "*.md"],
+              capture_output=True, text=True
+          )
+          file_tree = result.stdout[:1500]
+
+          task_line = f"User instruction: {task}\n\n" if task else ""
+
+          prompt = (
+              "You are implementing a coding task queued by the repository owner via an iPhone shortcut.\n"
+              f"Issue #{issue_num} -- URL: {url}\n\n"
+              + task_line
+              + "Repository files (partial):\n"
+              + file_tree + "\n\n"
+              "Fetched page content from the URL:\n---\n"
+              + page_content[:4000] + "\n---\n\n"
+              "Your task:\n"
+              "1. Follow the user instruction above. Use the URL content as reference.\n"
+              "   If no instruction given, infer what to implement from the URL content.\n"
+              "2. Output EVERY file change using this EXACT format (no other format accepted):\n\n"
+              "=== FILE: path/to/file.ext ===\n"
+              "<complete file contents here>\n"
+              "=== END FILE ===\n\n"
+              "3. Add a short entry to docs/changelog.md under [Unreleased].\n"
+              "4. Be focused -- only implement what is clearly described.\n"
+              "5. If nothing actionable, output only: NOTHING_TO_IMPLEMENT"
+          )
+
+          # Smart model routing: complex tasks -> Claude Sonnet, simple -> Groq Llama
+          complex_keywords = [
+              "architect", "implement", "design", "system", "integrate", "refactor",
+              "feature", "cloud", "vercel", "deploy", "agent", "migration", "auth",
+              "security", "performance", "scalab", "multi", "async", "pipeline"
+          ]
+          task_lower = (task + " " + url).lower()
+          is_complex = any(kw in task_lower for kw in complex_keywords) or len(task) > 80
+
+          anthropic_key = os.environ.get("ANTHROPIC_API_KEY", "")
+          groq_key = os.environ.get("GROQ_API_KEY", "")
+
+          if is_complex and anthropic_key:
+              import anthropic
+              print(f"Complex task detected — using Claude Sonnet (Anthropic API)")
+              client = anthropic.Anthropic(api_key=anthropic_key)
+              msg = client.messages.create(
+                  model="claude-sonnet-4-6",
+                  max_tokens=8192,
+                  messages=[{"role": "user", "content": prompt}]
+              )
+              response = msg.content[0].text
+          elif groq_key:
+              from openai import OpenAI
+              print(f"Simple task or no Anthropic key — using Groq (Llama 3.3 70B)")
+              client = OpenAI(base_url="https://api.groq.com/openai/v1", api_key=groq_key)
+              msg = client.chat.completions.create(
+                  model="llama-3.3-70b-versatile",
+                  max_tokens=8192,
+                  messages=[{"role": "user", "content": prompt}]
+              )
+              response = msg.choices[0].message.content
+          else:
+              print("ERROR: No API key available (ANTHROPIC_API_KEY or GROQ_API_KEY required)")
+              sys.exit(1)
+
+          print(f"Response length: {len(response)} chars")
+          print("--- LLM RESPONSE START ---")
+          print(response[:3000])
+          print("--- LLM RESPONSE END ---")
+
+          if "NOTHING_TO_IMPLEMENT" in response:
+              print("Nothing actionable to implement.")
+              sys.exit(0)
+
+          pattern = r"=== FILE: (.+?) ===\n(.*?)=== END FILE ==="
+          matches = re.findall(pattern, response, re.DOTALL)
+          if not matches:
+              pattern2 = r"```[^\n]*\n(?:#|//|--)\s*([^\n]+)\n(.*?)```"
+              matches = re.findall(pattern2, response, re.DOTALL)
+          if not matches:
+              print("No file blocks found — writing response to /tmp/llm_response.txt")
+              with open("/tmp/llm_response.txt", "w") as f:
+                  f.write(response)
+              sys.exit(0)
+
+          for filepath, contents in matches:
+              filepath = filepath.strip()
+              os.makedirs(os.path.dirname(filepath) if os.path.dirname(filepath) else ".", exist_ok=True)
+              with open(filepath, "w") as f:
+                  f.write(contents)
+              print(f"Wrote: {filepath}")
+
+          print("Done applying changes.")
+          PYEOF
+
+      - name: Run LLM (smart routing — Sonnet for complex, Groq for simple)
+        id: llm
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
         run: |
-          URL="${{ steps.issue.outputs.url }}"
-          ISSUE="${{ steps.issue.outputs.number }}"
-          cat > /tmp/prompt.txt <<PROMPT
-You are implementing a task from a GitHub issue queue. Issue #${ISSUE}.
-
-The user shared this URL: ${URL}
-
-Here is the fetched content of that page:
----
-$(cat /tmp/note_content.txt)
----
-
-Analyse what needs to be implemented or changed in this repository based on the content above.
-Implement the changes. Keep the scope focused — only implement what is clearly described.
-Update docs/changelog.md under [Unreleased] with a brief entry.
-Do not ask for clarification. Make your best judgement and implement it.
-PROMPT
-          claude --print --dangerously-skip-permissions "$(cat /tmp/prompt.txt)"
+          pip install openai anthropic -q
+          python3 /tmp/run_llm.py "${{ steps.issue.outputs.url }}" "${{ steps.issue.outputs.number }}" "${{ steps.issue.outputs.task }}" 2>&1 | tee /tmp/llm_output.txt
 
       - name: Commit and push
         id: commit
@@ -107,31 +201,33 @@ PROMPT
           git config user.name "Claude Actions [bot]"
           git add -A
           if git diff --staged --quiet; then
-            echo "changed=false" >> $GITHUB_OUTPUT
-            echo "No file changes — nothing to commit"
+            echo "changed=false" >> "$GITHUB_OUTPUT"
           else
-            git commit -m "feat: implement quick note from issue #${{ steps.issue.outputs.number }}
-
-            Source: ${{ steps.issue.outputs.url }}
-            Processed by Claude Code via GitHub Actions."
+            git commit -m "feat: implement quick-note from issue #${{ steps.issue.outputs.number }}"
             git push origin master
-            echo "changed=true" >> $GITHUB_OUTPUT
+            echo "changed=true" >> "$GITHUB_OUTPUT"
           fi
 
-      - name: Close issue as completed
+      - name: Close issue
         if: always()
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          CHANGED="${{ steps.commit.outputs.changed }}"
-          if [ "$CHANGED" = "true" ]; then
-            MSG="✅ Done! Changes committed and pushed to master."
+          if [ "${{ steps.commit.outputs.changed }}" = "true" ]; then
+            echo "✅ Done — changes committed and pushed to master." > /tmp/issue_msg.txt
+          elif [ -f /tmp/llm_output.txt ] && grep -q "Error\|Exception\|Traceback" /tmp/llm_output.txt; then
+            echo "❌ LLM step failed:" > /tmp/issue_msg.txt
+            tail -20 /tmp/llm_output.txt >> /tmp/issue_msg.txt
+          elif [ -f /tmp/llm_response.txt ]; then
+            echo "⚠️ LLM ran but produced no parseable file changes. Raw response (first 1500 chars):" > /tmp/issue_msg.txt
+            head -c 1500 /tmp/llm_response.txt >> /tmp/issue_msg.txt
           else
-            MSG="✅ Done — Claude Code ran but made no file changes (task may already be implemented or content was not actionable)."
+            echo "✅ Done — LLM ran but made no file changes." > /tmp/issue_msg.txt
           fi
+          MSG=$(cat /tmp/issue_msg.txt)
           gh issue comment "${{ steps.issue.outputs.number }}" \
-            --repo ${{ github.repository }} \
+            --repo "${{ github.repository }}" \
             --body "$MSG"
           gh issue close "${{ steps.issue.outputs.number }}" \
-            --repo ${{ github.repository }} \
+            --repo "${{ github.repository }}" \
             --reason completed

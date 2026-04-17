@@ -17,6 +17,10 @@
 
 ### Added
 
+- **Advanced RAG context layer** (`agent/rag_context.py`): Three retrieval modes (keyword BM25-style, TF-IDF cosine similarity, hybrid Reciprocal Rank Fusion), conversation memory with exponential recency decay, extractive sentence-level compression to fit a configurable token budget, and a `RAGContextBuilder.build()` returning a `ContextResult` with a `system_block` ready for LLM injection. Pure Python (stdlib only).
+- Basic navigation metrics and performance measurements.
+
+
 - **Claude Opus 4.7 support** (`router/model_router.py`):
   - Added `claude-opus-4-7` to the built-in model alias map; routes to `deepseek-r1:671b` (flagship reasoning model) for local execution.
   - Haiku variants (`claude-haiku-4-5-20251001`, `claude-3-5-haiku-20241022`, `claude-3-haiku-20240307`) now correctly route to `qwen3-coder:7b` (lightweight) rather than the larger 30B coder, matching their speed-first tier.
