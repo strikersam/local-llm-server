@@ -1,6 +1,6 @@
-```python
 import time
 from typing import Dict
+
 
 class NavigationMetrics:
     def __init__(self):
@@ -12,7 +12,9 @@ class NavigationMetrics:
     def get_metrics(self):
         return self.metrics
 
+
 navigation_metrics = NavigationMetrics()
+
 
 def record_content_visible():
     navigation_metrics.record_measure("content_visible", {
@@ -20,10 +22,6 @@ def record_content_visible():
         "data": "TemplateDetailsPage"
     })
 
+
 def get_navigation_metrics():
     return navigation_metrics.get_metrics()
-
-# Example usage:
-record_content_visible()
-print(get_navigation_metrics())
-```
