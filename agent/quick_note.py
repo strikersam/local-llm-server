@@ -113,9 +113,12 @@ class QuickNoteQueue:
 
 def _fetch_text(url: str, max_chars: int = 8000) -> str:
     """GET *url* and return plain text (HTML tags stripped, max *max_chars*)."""
+    from webui.url_guard import validate_outbound_url
+
+    safe_url = validate_outbound_url(url, scheme="http")
     headers = {"User-Agent": "QuickNote-Bot/1.0 (local-llm-server)"}
     with httpx.Client(follow_redirects=True, timeout=30) as client:
-        resp = client.get(url, headers=headers)
+        resp = client.get(safe_url, headers=headers)
         resp.raise_for_status()
     text = resp.text
     if "html" in resp.headers.get("content-type", "").lower():

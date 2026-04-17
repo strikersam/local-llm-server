@@ -8,10 +8,15 @@ from typing import Any, Literal
 from pydantic import BaseModel, Field
 
 from webui.config_store import JsonConfigStore
+from webui.url_guard import validate_outbound_url
 
 
 def _now() -> str:
     return time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+
+
+def _validate_provider_base_url(url: str) -> str:
+    return validate_outbound_url(url, scheme="http")
 
 
 class ProviderCreate(BaseModel):
@@ -83,6 +88,7 @@ class ProviderManager:
         items = self._items()
         provider_id = "prov_" + secrets.token_hex(6)
         now = _now()
+        _validate_provider_base_url(body.base_url)
         items.append(
             {
                 "provider_id": provider_id,
@@ -107,6 +113,7 @@ class ProviderManager:
             if body.name is not None:
                 item["name"] = body.name.strip()
             if body.base_url is not None:
+                _validate_provider_base_url(body.base_url)
                 item["base_url"] = _normalize_base_url(body.base_url)
             if body.api_key is not None:
                 item["api_key"] = body.api_key

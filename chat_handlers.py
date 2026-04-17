@@ -12,7 +12,7 @@ from typing import Any, AsyncIterator
 
 import httpx
 from fastapi import HTTPException, Request
-from fastapi.responses import JSONResponse, StreamingResponse
+from fastapi.responses import JSONResponse, Response, StreamingResponse
 
 from langfuse_obs import emit_chat_observation
 from router import get_router
@@ -312,10 +312,18 @@ async def handle_openai_chat_completions(
 
     resp = await _post_with_fallback(target_url, forward, headers, routing.fallback_chain)
 
-    if resp.headers.get("content-type", "").startswith("application/json"):
+    upstream_ct = resp.headers.get("content-type", "")
+    if upstream_ct.startswith("application/json"):
         data = resp.json()
     else:
-        return JSONResponse(content=resp.text, status_code=resp.status_code)
+        # Non-JSON error body (HTML from a proxy, plain-text 5xx, etc.): forward
+        # verbatim so the caller can read it — do NOT wrap in JSONResponse, which
+        # would double-encode the string literal.
+        return Response(
+            content=resp.content,
+            status_code=resp.status_code,
+            media_type=upstream_ct or "text/plain; charset=utf-8",
+        )
 
     out_text, pt, ct = _openai_usage_from_response(data)
     await _emit_safely(email, department, key_id, model, messages, out_text, pt, ct, routing_meta=routing_meta)
@@ -518,8 +526,15 @@ async def handle_ollama_native_chat(
 
     resp = await _post_with_fallback(target_url, body, headers, routing.fallback_chain)
 
-    if not resp.headers.get("content-type", "").startswith("application/json"):
-        return JSONResponse(content=resp.text, status_code=resp.status_code)
+    upstream_ct = resp.headers.get("content-type", "")
+    if not upstream_ct.startswith("application/json"):
+        # Forward non-JSON upstream bodies verbatim instead of JSONResponse-wrapping
+        # a raw string (which would double-encode).
+        return Response(
+            content=resp.content,
+            status_code=resp.status_code,
+            media_type=upstream_ct or "text/plain; charset=utf-8",
+        )
 
     data = resp.json()
     out_text = ""

@@ -115,12 +115,42 @@ def invalidate_cache() -> None:
 
 
 def is_model_available(model: str) -> bool:
-    """Return True if *model* is in the Ollama tag list (or health checks off)."""
+    """Return True if *model* is in the Ollama tag list (or health checks off).
+
+    Matching rules (tight, to avoid cross-family false positives):
+      1. Exact match.
+      2. Tag expansion: *model* has no tag, and an available name starts with
+         ``model + ":"`` — e.g. ``qwen3-coder`` matches ``qwen3-coder:30b``.
+      3. Quantization suffix: *model* already includes a tag (``:``), and an
+         available name starts with ``model + "-"`` or ``model + "_"`` — e.g.
+         ``qwen3-coder:30b`` matches ``qwen3-coder:30b-q4_K_M``.
+      4. Reverse tag expansion: an available name has no tag and *model* starts
+         with ``a + ":"`` — e.g. *model* ``qwen3-coder:30b`` matches available
+         ``qwen3-coder`` (registered without a tag).
+
+    Critically, bare names like ``"qwen3"`` do **not** match ``"qwen3-coder:30b"``
+    — they share a prefix but cross a family boundary (the ``-`` separator is
+    not honoured unless we're already past the tag colon).
+    """
+    if not model:
+        return False
     available = get_available_models()
     if not available:          # empty = no filtering
         return True
-    # Exact match
     if model in available:
         return True
-    # Allow prefix match: "qwen3-coder:30b" matches "qwen3-coder:30b-q4_K_M"
-    return any(a.startswith(model) or model.startswith(a) for a in available)
+    model_has_tag = ":" in model
+    for a in available:
+        if a == model:
+            return True
+        # Case 2: tag expansion — untagged model, available is tagged form.
+        if not model_has_tag and a.startswith(model + ":"):
+            return True
+        # Case 3: quantization suffix — only honour "-"/"_" after a tag colon.
+        if model_has_tag and len(a) > len(model) and a.startswith(model) \
+                and a[len(model)] in ("-", "_"):
+            return True
+        # Case 4: reverse — available is untagged, model carries a tag.
+        if ":" not in a and model.startswith(a + ":"):
+            return True
+    return False

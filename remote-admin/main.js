@@ -22,6 +22,19 @@ function normalizedBackend(value) {
   return value.replace(/\/+$/, "");
 }
 
+// Escape any untrusted string before it reaches innerHTML. Prevents markup or
+// script injection from server-controlled fields (email, department, key_id…)
+// when admin data happens to contain HTML-special characters.
+function esc(value) {
+  if (value == null) return "";
+  return String(value)
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
 async function api(path, options = {}) {
   const headers = new Headers(options.headers || {});
   headers.set("Content-Type", "application/json");
@@ -64,18 +77,19 @@ function renderServices(status) {
   Object.values(status.services).forEach((service) => {
     const wrapper = document.createElement("article");
     wrapper.className = "service";
+    const name = esc(service.name);
     wrapper.innerHTML = `
       <div class="service-header">
         <div>
-          <h4>${service.name}</h4>
-          <p class="hint">${service.detail || ""}</p>
+          <h4>${name}</h4>
+          <p class="hint">${esc(service.detail || "")}</p>
         </div>
         <span class="badge ${service.running ? "up" : "down"}">${service.running ? "Running" : "Stopped"}</span>
       </div>
       <div class="service-actions">
-        <button data-control="start:${service.name}" type="button">Start</button>
-        <button data-control="restart:${service.name}" type="button" class="secondary">Restart</button>
-        <button data-control="stop:${service.name}" type="button" class="danger">Stop</button>
+        <button data-control="start:${name}" type="button">Start</button>
+        <button data-control="restart:${name}" type="button" class="secondary">Restart</button>
+        <button data-control="stop:${name}" type="button" class="danger">Stop</button>
       </div>
     `;
     servicesNode.appendChild(wrapper);
@@ -91,23 +105,24 @@ function renderUsers(records) {
   records.forEach((record) => {
     const wrapper = document.createElement("article");
     wrapper.className = "user";
+    const keyId = esc(record.key_id);
     wrapper.innerHTML = `
-      <form data-key-id="${record.key_id}" class="user-form">
+      <form data-key-id="${keyId}" class="user-form">
         <div class="service-header">
           <div>
-            <h4>${record.key_id}</h4>
-            <p class="hint">${record.created}</p>
+            <h4>${keyId}</h4>
+            <p class="hint">${esc(record.created)}</p>
           </div>
-          <span class="chip">${record.department}</span>
+          <span class="chip">${esc(record.department)}</span>
         </div>
         <label>Email</label>
-        <input name="email" type="email" value="${record.email}" required />
+        <input name="email" type="email" value="${esc(record.email)}" required />
         <label>Department</label>
-        <input name="department" value="${record.department}" required />
+        <input name="department" value="${esc(record.department)}" required />
         <div class="service-actions">
           <button type="submit">Save</button>
-          <button type="button" data-rotate="${record.key_id}" class="secondary">Rotate</button>
-          <button type="button" data-delete="${record.key_id}" class="danger">Delete</button>
+          <button type="button" data-rotate="${keyId}" class="secondary">Rotate</button>
+          <button type="button" data-delete="${keyId}" class="danger">Delete</button>
         </div>
       </form>
     `;

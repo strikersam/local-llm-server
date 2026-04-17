@@ -94,48 +94,81 @@ export default function ChatApp() {
   // ── Load providers + workspaces when key changes ─────────────────────────────
   useEffect(() => {
     if (!ready) return;
+    let cancelled = false;
     setErr(null);
     Promise.all([listProviders(apiKey), listWorkspaces(apiKey)])
-      .then(([prov, ws]) => { setProviders(prov); setWorkspaces(ws); })
-      .catch((e: any) => setErr(e?.message ?? String(e)));
+      .then(([prov, ws]) => {
+        if (cancelled) return;
+        setProviders(prov);
+        setWorkspaces(ws);
+      })
+      .catch((e: any) => { if (!cancelled) setErr(e?.message ?? String(e)); });
+    return () => { cancelled = true; };
   }, [ready, apiKey]);
 
   // ── Load models when provider changes ────────────────────────────────────────
   useEffect(() => {
     if (!ready) return;
+    let cancelled = false;
     listProviderModels(apiKey, providerId)
       .then((ms) => {
+        if (cancelled) return;
         setModels(ms);
-        if (!model && ms.length) setModel(ms[0]);
+        // If the saved model is not in this provider's list, reset to the
+        // first available one — prevents sending a stale/invalid model name
+        // after switching providers.
+        setModel((current) => {
+          if (current && ms.includes(current)) return current;
+          return ms[0] ?? "";
+        });
       })
-      .catch(() => setModels([]));
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+      .catch((e: any) => {
+        if (cancelled) return;
+        setModels([]);
+        // Don't clobber a valid session with a transient provider-listing
+        // failure — surface it in the error chip but keep the UI usable.
+        setErr(`Could not list models: ${e?.message ?? String(e)}`);
+      });
+    return () => { cancelled = true; };
   }, [ready, apiKey, providerId]);
 
   // ── Load file list when workspace changes ────────────────────────────────────
   useEffect(() => {
     if (!ready) return;
+    let cancelled = false;
     listFiles(apiKey, workspaceId, ".", 400)
-      .then(setFileList)
-      .catch((e: any) => setErr(e?.message ?? String(e)));
+      .then((files) => { if (!cancelled) setFileList(files); })
+      .catch((e: any) => { if (!cancelled) setErr(e?.message ?? String(e)); });
+    return () => { cancelled = true; };
   }, [ready, apiKey, workspaceId]);
 
   // ── Auto-scroll chat to bottom ───────────────────────────────────────────────
   useEffect(() => {
-    chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
+    // Respect the user's reduced-motion preference — smooth scroll can trigger
+    // vestibular symptoms for some users.
+    const reduced = typeof window !== "undefined"
+      && typeof window.matchMedia === "function"
+      && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    chatEndRef.current?.scrollIntoView({ behavior: reduced ? "auto" : "smooth" });
   }, [session?.history.length, busy]);
 
   // ── Picker: load models for selected provider ────────────────────────────────
   useEffect(() => {
     if (!showPicker || !pickerProvider || !ready) return;
+    let cancelled = false;
     setPickerLoading(true);
     listProviderModels(apiKey, pickerProvider)
       .then((ms) => {
+        if (cancelled) return;
         setPickerModels(ms);
-        if (!pickerModel || !ms.includes(pickerModel)) setPickerModel(ms[0] ?? "");
+        setPickerModel((current) => (current && ms.includes(current) ? current : (ms[0] ?? "")));
       })
-      .catch(() => setPickerModels([]))
-      .finally(() => setPickerLoading(false));
+      .catch(() => { if (!cancelled) setPickerModels([]); })
+      .finally(() => { if (!cancelled) setPickerLoading(false); });
+    return () => { cancelled = true; };
+    // pickerModel is deliberately excluded — we only refresh the list when the
+    // provider changes, not every time the user selects a different row.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [showPicker, pickerProvider, apiKey, ready]);
 
   // ── Filtered file list ───────────────────────────────────────────────────────
@@ -254,11 +287,26 @@ export default function ChatApp() {
     <>
       {/* ── Model picker modal ───────────────────────────────────────────────── */}
       {showPicker && (
-        <div className="modal-overlay" onClick={() => setShowPicker(false)}>
-          <div className="modal" onClick={(e) => e.stopPropagation()}>
+        <div
+          className="modal-overlay"
+          onClick={() => setShowPicker(false)}
+          onKeyDown={(e) => { if (e.key === "Escape") setShowPicker(false); }}
+          role="presentation"
+        >
+          <div
+            className="modal"
+            onClick={(e) => e.stopPropagation()}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="model-picker-title"
+          >
             <div className="modal-header">
-              <span className="modal-title">Select Provider &amp; Model</span>
-              <button className="modal-close" onClick={() => setShowPicker(false)}>✕</button>
+              <span className="modal-title" id="model-picker-title">Select Provider &amp; Model</span>
+              <button
+                className="modal-close"
+                onClick={() => setShowPicker(false)}
+                aria-label="Close model picker"
+              >✕</button>
             </div>
 
             {/* Provider tabs */}
@@ -329,9 +377,10 @@ export default function ChatApp() {
 
             {/* API key row */}
             <div className="field-row">
-              <label className="muted field-label">API key</label>
+              <label className="muted field-label" htmlFor="lls-api-key">API key</label>
               <div className="field-row-inner">
                 <input
+                  id="lls-api-key"
                   className="mono field-input"
                   type="password"
                   placeholder="sk-qwen-…"
@@ -346,8 +395,9 @@ export default function ChatApp() {
 
             {/* Workspace */}
             <div className="field-row">
-              <label className="muted field-label">Workspace</label>
+              <label className="muted field-label" htmlFor="lls-workspace">Workspace</label>
               <select
+                id="lls-workspace"
                 className="field-select"
                 value={workspaceId}
                 onChange={(e) => setWorkspaceId(e.target.value)}
@@ -458,9 +508,18 @@ export default function ChatApp() {
                   {short(session.session_id, 20)}
                 </span>
               ) : null}
-              {busy ? <span className="pill busy-pill">● Running…</span> : null}
+              {busy ? (
+                <span className="pill busy-pill" role="status" aria-live="polite">
+                  ● Running…
+                </span>
+              ) : null}
               {err ? (
-                <span className="pill err-pill" title={err}>{short(err, 60)}</span>
+                <span
+                  className="pill err-pill"
+                  title={err}
+                  role="alert"
+                  aria-live="assertive"
+                >{short(err, 60)}</span>
               ) : null}
             </div>
           </div>
@@ -513,7 +572,9 @@ export default function ChatApp() {
           </div>
 
           <div className="composer">
+            <label htmlFor="lls-composer" className="sr-only">Message</label>
             <textarea
+              id="lls-composer"
               className="composer-input"
               placeholder={
                 mode === "auto"
@@ -525,6 +586,7 @@ export default function ChatApp() {
               onKeyDown={handleKeyDown}
               disabled={!ready || busy}
               rows={3}
+              aria-label="Message to agent"
             />
             <div className="composer-actions">
               {mode === "manual" && !model && (
@@ -572,26 +634,32 @@ export default function ChatApp() {
       </div>
 
       {/* ── Mobile bottom navigation ─────────────────────────────────────────── */}
-      <nav className="bottom-nav">
+      <nav className="bottom-nav" aria-label="Mobile sections">
         <button
           className={`bottom-nav-btn ${mobileTab === "settings" ? "active" : ""}`}
           onClick={() => setMobileTab("settings")}
+          aria-pressed={mobileTab === "settings"}
+          aria-label="Configuration"
         >
-          <span className="bottom-nav-icon">⚙</span>
+          <span className="bottom-nav-icon" aria-hidden="true">⚙</span>
           <span className="bottom-nav-label">Config</span>
         </button>
         <button
           className={`bottom-nav-btn ${mobileTab === "chat" ? "active" : ""}`}
           onClick={() => setMobileTab("chat")}
+          aria-pressed={mobileTab === "chat"}
+          aria-label="Chat"
         >
-          <span className="bottom-nav-icon">💬</span>
+          <span className="bottom-nav-icon" aria-hidden="true">💬</span>
           <span className="bottom-nav-label">Chat</span>
         </button>
         <button
           className={`bottom-nav-btn ${mobileTab === "files" ? "active" : ""}`}
           onClick={() => setMobileTab("files")}
+          aria-pressed={mobileTab === "files"}
+          aria-label="Files"
         >
-          <span className="bottom-nav-icon">📁</span>
+          <span className="bottom-nav-icon" aria-hidden="true">📁</span>
           <span className="bottom-nav-label">Files</span>
         </button>
       </nav>

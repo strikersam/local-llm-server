@@ -8,7 +8,39 @@
 
 ## [Unreleased]
 
+### Security
+
+- **SSRF hardening on admin-supplied URLs** (`webui/url_guard.py`, `webui/providers.py`, `webui/workspaces.py`, `agent/quick_note.py`):
+  - New `validate_outbound_url()` helper that unconditionally blocks cloud instance-metadata endpoints (AWS/GCP/Azure `169.254.169.254`, AWS IPv6 IMDS `fd00:ec2::254`, Alibaba `100.100.100.200`, `metadata.google.internal`) — including DNS rebinding via `getaddrinfo` resolution — and restricts schemes (`http`/`https` for providers; `http`/`https`/`ssh`/`git` for workspaces). Applied to `ProviderManager.create/update`, `WorkspaceManager.create/update`, and `agent/quick_note._fetch_text`.
+  - Opt-in `STRICT_OUTBOUND=1` mode additionally blocks all loopback/private/RFC1918 ranges (for public-hosted deployments). Off by default since local-first setups legitimately point providers at `localhost` (e.g. Ollama at 127.0.0.1:11434).
+- **Git ref injection guard** (`webui/url_guard.validate_git_ref`, `webui/workspaces.py`): Workspace `git_ref` is now validated against `[A-Za-z0-9._/-]` and rejects refs starting with `-` (flag injection via `git checkout --upload-pack=…`), traversal shapes (`..`, `/.`), and shell metacharacters. Applied to both create and update.
+- 16 new tests in `tests/test_url_guard.py` cover metadata blocking, scheme restrictions, strict-mode toggling, and git-ref validation.
+
+### Changed
+
+- **Bounded memory for rate-limit buckets** (`proxy.py::check_rate_limit`): The per-API-key request-timestamp dict now sweeps stale entries at most once per window (60 s), evicting keys whose newest request is older than the window. Prevents the dict from growing unbounded across long-running servers with high key churn.
+- **Provider model-listing timeout tightened** (`webui/router.py::provider_models`): Reduced from a flat 20 s timeout to `httpx.Timeout(8.0, connect=3.0)` so a misconfigured provider base URL no longer locks the admin UI for 20 seconds per request.
+- **Frontend auto-clears stale admin tokens on 401/403** (`webui/frontend/src/api.ts`, `webui/frontend/src/pages/AdminApp.tsx`): New `ApiError` subclass carries the HTTP status; `AdminApp` now detects 401/403 in `refresh`, `createProvider`, `createWorkspace`, `runCmd`, `deleteProvider`, `deleteWorkspace`, and `syncWorkspace`, wipes `lls_admin_token`, and prompts the user to log in again — instead of silently looping with a revoked token.
+- **`previewRoute` surfaces auth failures** (`webui/frontend/src/api.ts`): 401/403 now throws `ApiError` (so the caller can clear credentials) while other transient failures still resolve to `null` to keep the routing-preview badge non-critical.
+
 ### Fixed
+
+- **End-to-end bug sweep across backend, frontend, networking, and accessibility**:
+  - `chat_handlers.py` no longer double-encodes non-JSON upstream bodies — the OpenAI and Ollama native chat paths now inspect the upstream `Content-Type` and stream raw bytes via `Response` when the upstream returns plain text or HTML (e.g. provider 5xx error pages).
+  - `webui/router.py::ui_chat` now guards against malformed upstream JSON and missing `choices[0].message.content`, returning `502` on non-JSON upstream and an empty string on partial payloads instead of raising a 500.
+  - `admin_auth.py` admin-secret comparison is now timing-safe (`hmac.compare_digest`), replacing the string `==` compare that leaked match length via response timing.
+  - `router/health.py::is_model_available` fuzzy-match rewritten with explicit boundary rules — `"qwen3"` no longer matches `"qwen3-coder:30b"`, while legitimate tag expansions (`"qwen3-coder"` → `"qwen3-coder:30b"`) still resolve. Regression test added in `tests/test_model_router.py`.
+  - `handlers/anthropic_compat.py` SSE streaming now propagates the upstream `finish_reason` (respecting `tool_calls`/`length`/`content_filter`) in the terminal `message_delta`, replacing a hardcoded `stop_reason: "end_turn"`. Warns when `tool_calls` appear since full Anthropic tool-use block emission is not yet implemented.
+  - `remote-admin/main.js` HTML-escapes every server-controlled string (`service.name`, `record.email`, department, key id) before injecting into `innerHTML`, closing an XSS path from admin-writable fields.
+  - `webui/frontend/vite.config.ts` dev-proxy target reads `VITE_DEV_PROXY_TARGET` env var (default `http://localhost:8000`) across all six proxied prefixes instead of hardcoding the port in each entry.
+  - `ChatApp.tsx` effects now cancel in-flight fetches on unmount (`let cancelled = false`), the model picker falls back to the first available model only when the current selection is missing, and scroll-into-view respects `prefers-reduced-motion`.
+  - `AdminApp.tsx` `Delete` and `Sync` actions are now extracted into named async handlers with try/catch error reporting and `disabled={busy}`, and the login row is a real `<form>` submitting on Enter.
+
+### Changed — accessibility
+
+- `ChatApp.tsx`: model picker is a true modal (`role="dialog"`, `aria-modal`, `aria-labelledby`, Escape-to-close); busy/error chips expose `role="status"`/`role="alert"` with `aria-live`; bottom-nav buttons expose `aria-pressed` + `aria-label`; composer textarea has an associated `sr-only` label; decorative emojis are `aria-hidden`.
+- `AdminApp.tsx`: every previously unlabeled input in the Add-provider, Add-workspace, and Command-runner forms now has a descriptive `aria-label`; related inputs are grouped with `role="group"` + `aria-labelledby`; command output is wrapped in a `<pre role="region" aria-live="polite">`; the API-key field is now `type="password"` with `autoComplete="off"`.
+- `webui/frontend/src/styles.css`: added an `.sr-only` utility for screen-reader-only labels and a global `@media (prefers-reduced-motion: reduce)` block that disables non-essential animations and transitions.
 
 - **Agent view now forwards the caller's API key to same-origin provider URLs**: When an Ollama-backed provider points back at the proxy origin and no provider-specific key is stored, sessioned agent runs reuse the authenticated user's token so `/v1/chat/completions` no longer returns `401 Unauthorized`.
 - **`Dockerfile.backend` missing agent/router modules**: Added `COPY agent/ agent/` and `COPY router/ router/` so the deployed backend can import `AgentRunner` — fixes `ModuleNotFoundError: No module named 'agent'` in cloud deployments.

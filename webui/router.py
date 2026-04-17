@@ -94,7 +94,7 @@ def register_webui(
         if secret.api_key:
             headers["Authorization"] = f"Bearer {secret.api_key}"
         try:
-            async with httpx.AsyncClient(timeout=20) as client:
+            async with httpx.AsyncClient(timeout=httpx.Timeout(8.0, connect=3.0)) as client:
                 resp = await client.get(f"{secret.base_url}/v1/models", headers=headers)
                 if resp.status_code == 404:
                     # Ollama exposes model listing via /api/tags (older or non-OpenAI endpoints).
@@ -131,11 +131,28 @@ def register_webui(
             "temperature": body.temperature if body.temperature is not None else secret.default_temperature,
             "stream": False,
         }
-        async with httpx.AsyncClient(timeout=httpx.Timeout(300.0, connect=10.0)) as client:
-            resp = await client.post(f"{secret.base_url}/v1/chat/completions", json=payload, headers=headers)
-        resp.raise_for_status()
-        data = resp.json()
-        content = data["choices"][0]["message"]["content"]
+        try:
+            async with httpx.AsyncClient(timeout=httpx.Timeout(300.0, connect=10.0)) as client:
+                resp = await client.post(f"{secret.base_url}/v1/chat/completions", json=payload, headers=headers)
+        except httpx.HTTPError as exc:
+            raise HTTPException(status_code=503, detail=f"Provider unreachable: {exc}") from exc
+        if resp.status_code >= 400:
+            # Surface upstream body instead of the generic raise_for_status message.
+            detail = resp.text[:2000] or f"Upstream returned {resp.status_code}"
+            raise HTTPException(status_code=resp.status_code, detail=detail)
+        try:
+            data = resp.json()
+        except ValueError as exc:
+            raise HTTPException(status_code=502, detail=f"Non-JSON upstream response: {exc}") from exc
+
+        choices = data.get("choices") if isinstance(data, dict) else None
+        if not isinstance(choices, list) or not choices:
+            raise HTTPException(status_code=502, detail="Upstream response missing choices")
+        first = choices[0] if isinstance(choices[0], dict) else {}
+        msg = first.get("message") if isinstance(first.get("message"), dict) else {}
+        content = msg.get("content", "") if isinstance(msg, dict) else ""
+        if not isinstance(content, str):
+            content = str(content or "")
         return {"model": model, "content": content}
 
     @router.post("/route")

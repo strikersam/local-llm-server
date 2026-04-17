@@ -341,6 +341,8 @@ async def _stream_anthropic_sse(
     output_tokens = 0
     ttft_ms: int | None = None
     line_buf = bytearray()
+    last_finish_reason: str | None = None
+    tool_calls_seen = False
 
     async with httpx.AsyncClient(timeout=httpx.Timeout(300.0, connect=10.0)) as client:
         async with client.stream("POST", target_url, content=forward_body, headers=forward_headers) as resp:
@@ -357,7 +359,7 @@ async def _stream_anthropic_sse(
                 line_buf.extend(chunk)
                 # Parse complete SSE lines from the buffer
                 while True:
-                    nl = bytes(line_buf).find(b"\n")
+                    nl = line_buf.find(b"\n")
                     if nl == -1:
                         break
                     raw_line = bytes(line_buf[:nl])
@@ -382,6 +384,11 @@ async def _stream_anthropic_sse(
 
                     # Extract text deltas and emit as Anthropic content_block_delta
                     for ch in (obj.get("choices") or []):
+                        if not isinstance(ch, dict):
+                            continue
+                        fr = ch.get("finish_reason")
+                        if isinstance(fr, str):
+                            last_finish_reason = fr
                         delta = ch.get("delta") or {}
                         text = delta.get("content")
                         if isinstance(text, str) and text:
@@ -393,16 +400,34 @@ async def _stream_anthropic_sse(
                                 "index": 0,
                                 "delta": {"type": "text_delta", "text": text},
                             })
+                        # Detect streamed tool_calls: Anthropic's native streaming
+                        # protocol for tool_use is richer (content_block_start with
+                        # tool_use, input_json_delta). We don't synthesize that
+                        # here yet, so log + flip finish_reason so the epilogue
+                        # reports stop_reason="tool_use" instead of "end_turn".
+                        if isinstance(delta.get("tool_calls"), list) and delta["tool_calls"]:
+                            tool_calls_seen = True
 
     # ── Epilogue events ────────────────────────────────────────────────────────
     full_text = "".join(text_parts)
     if not output_tokens and full_text:
         output_tokens = max(len(full_text) // 4, 1)
 
+    effective_finish = last_finish_reason
+    if tool_calls_seen and effective_finish not in ("tool_calls", "tool_use"):
+        log.warning(
+            "Anthropic SSE: upstream emitted tool_calls mid-stream but finish_reason=%r — "
+            "reporting stop_reason='tool_use'. (Full streamed tool_use block emission "
+            "is not implemented — clients should retry non-streaming if they need it.)",
+            effective_finish,
+        )
+        effective_finish = "tool_calls"
+    stop_reason = _finish_reason_to_stop_reason(effective_finish)
+
     yield _sse_event("content_block_stop", {"type": "content_block_stop", "index": 0})
     yield _sse_event("message_delta", {
         "type": "message_delta",
-        "delta": {"stop_reason": "end_turn", "stop_sequence": None},
+        "delta": {"stop_reason": stop_reason, "stop_sequence": None},
         "usage": {"output_tokens": output_tokens},
     })
     yield _sse_event("message_stop", {"type": "message_stop"})

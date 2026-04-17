@@ -159,13 +159,25 @@ class AuthContext:
 # ─── Rate limiter (in-memory, per key) ─────────────────────────────────────────
 
 _rate_buckets: dict[str, list[float]] = defaultdict(list)
+_rate_last_sweep = 0.0
+
+def _sweep_rate_buckets(now: float, window: float) -> None:
+    """Evict keys that have no entries in the current window. Prevents unbounded dict growth."""
+    stale = [k for k, ts in _rate_buckets.items() if not ts or now - ts[-1] >= window]
+    for k in stale:
+        _rate_buckets.pop(k, None)
 
 def check_rate_limit(api_key: str) -> None:
+    global _rate_last_sweep
     now = time.time()
     window = 60.0
     bucket = _rate_buckets[api_key]
     # Drop entries outside the 1-minute window
     _rate_buckets[api_key] = [t for t in bucket if now - t < window]
+    # Sweep stale keys at most once per window.
+    if now - _rate_last_sweep >= window:
+        _rate_last_sweep = now
+        _sweep_rate_buckets(now, window)
     if len(_rate_buckets[api_key]) >= RATE_LIMIT_RPM:
         raise HTTPException(
             status_code=429,

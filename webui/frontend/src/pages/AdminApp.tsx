@@ -9,6 +9,7 @@ import {
   adminLogin,
   adminRunCommand,
   adminSyncWorkspace,
+  ApiError,
 } from "../api";
 import { getLocal, removeLocal, setLocal } from "../storage";
 
@@ -56,6 +57,16 @@ export default function AdminApp() {
     if (authed) setLocal(LS_ADMIN_TOKEN, token);
   }, [authed, token]);
 
+  function handleAuthFailure(e: unknown) {
+    if (e instanceof ApiError && (e.status === 401 || e.status === 403)) {
+      removeLocal(LS_ADMIN_TOKEN);
+      setToken("");
+      setErr("Session expired — please log in again.");
+      return true;
+    }
+    return false;
+  }
+
   async function refresh() {
     if (!authed) return;
     setErr(null);
@@ -65,6 +76,7 @@ export default function AdminApp() {
       setWorkspaces(w.workspaces ?? []);
       if (w.workspaces?.[0]?.workspace_id) setCmdWorkspace(w.workspaces[0].workspace_id);
     } catch (e: any) {
+      if (handleAuthFailure(e)) return;
       setErr(e?.message ?? String(e));
     }
   }
@@ -108,6 +120,7 @@ export default function AdminApp() {
       setNewProv({ name: "", base_url: "", api_key: "", default_model: "", default_temperature: "0.2" });
       await refresh();
     } catch (e: any) {
+      if (handleAuthFailure(e)) return;
       setErr(e?.message ?? String(e));
     } finally {
       setBusy(false);
@@ -128,6 +141,7 @@ export default function AdminApp() {
       setNewWs({ name: "", kind: "local", path: "", git_url: "", git_ref: "" });
       await refresh();
     } catch (e: any) {
+      if (handleAuthFailure(e)) return;
       setErr(e?.message ?? String(e));
     } finally {
       setBusy(false);
@@ -142,7 +156,52 @@ export default function AdminApp() {
       const out = await adminRunCommand(token, cmdWorkspace, splitCmd(cmdRaw));
       setCmdOut(out.result);
     } catch (e: any) {
+      if (handleAuthFailure(e)) return;
       setErr(e?.message ?? String(e));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function deleteProvider(providerId: string, providerName: string) {
+    if (!window.confirm(`Delete provider "${providerName}"? This cannot be undone.`)) return;
+    setBusy(true);
+    setErr(null);
+    try {
+      await adminDeleteProvider(token, providerId);
+      await refresh();
+    } catch (e: any) {
+      if (handleAuthFailure(e)) return;
+      setErr(`Delete provider failed: ${e?.message ?? String(e)}`);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function deleteWorkspace(workspaceId: string, workspaceName: string) {
+    if (!window.confirm(`Delete workspace "${workspaceName}"? This cannot be undone.`)) return;
+    setBusy(true);
+    setErr(null);
+    try {
+      await adminDeleteWorkspace(token, workspaceId);
+      await refresh();
+    } catch (e: any) {
+      if (handleAuthFailure(e)) return;
+      setErr(`Delete workspace failed: ${e?.message ?? String(e)}`);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function syncWorkspace(workspaceId: string) {
+    setBusy(true);
+    setErr(null);
+    try {
+      await adminSyncWorkspace(token, workspaceId);
+      await refresh();
+    } catch (e: any) {
+      if (handleAuthFailure(e)) return;
+      setErr(`Sync failed: ${e?.message ?? String(e)}`);
     } finally {
       setBusy(false);
     }
@@ -184,18 +243,35 @@ export default function AdminApp() {
           <div className="muted">
             Uses the server’s configured admin auth (`ADMIN_SECRET` or Windows auth when enabled).
           </div>
-          <div className="row wrap">
-            <input placeholder="Username (optional)" value={username} onChange={(e) => setUsername(e.target.value)} />
+          <form
+            className="row wrap"
+            onSubmit={(e) => { e.preventDefault(); if (!busy && password.trim().length > 0) doLogin(); }}
+          >
+            <label htmlFor="lls-admin-username" className="sr-only">Username</label>
             <input
+              id="lls-admin-username"
+              placeholder="Username (optional)"
+              autoComplete="username"
+              value={username}
+              onChange={(e) => setUsername(e.target.value)}
+            />
+            <label htmlFor="lls-admin-password" className="sr-only">Password</label>
+            <input
+              id="lls-admin-password"
               placeholder="Password"
               type="password"
+              autoComplete="current-password"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
             />
-            <button className="primary" onClick={doLogin} disabled={busy || password.trim().length === 0}>
+            <button
+              className="primary"
+              type="submit"
+              disabled={busy || password.trim().length === 0}
+            >
               Login
             </button>
-          </div>
+          </form>
         </div>
       ) : (
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14, padding: 14, overflow: "auto" }}>
@@ -214,10 +290,8 @@ export default function AdminApp() {
                       </div>
                       <button
                         className="danger"
-                        onClick={async () => {
-                          await adminDeleteProvider(token, p.provider_id);
-                          await refresh();
-                        }}
+                        onClick={() => deleteProvider(p.provider_id, p.name)}
+                        disabled={busy}
                       >
                         Delete
                       </button>
@@ -226,15 +300,17 @@ export default function AdminApp() {
                 ))}
               </div>
 
-              <div className="sectionTitle">Add provider</div>
-              <div className="row wrap">
+              <div className="sectionTitle" id="add-provider-title">Add provider</div>
+              <div className="row wrap" role="group" aria-labelledby="add-provider-title">
                 <input
                   placeholder="Name"
+                  aria-label="Provider name"
                   value={newProv.name}
                   onChange={(e) => setNewProv({ ...newProv, name: e.target.value })}
                 />
                 <input
                   placeholder="Base URL (e.g. https://api.openai.com)"
+                  aria-label="Provider base URL"
                   value={newProv.base_url}
                   onChange={(e) => setNewProv({ ...newProv, base_url: e.target.value })}
                   style={{ width: 320 }}
@@ -243,18 +319,24 @@ export default function AdminApp() {
               <div className="row wrap">
                 <input
                   placeholder="API key (stored server-side)"
+                  aria-label="Provider API key"
+                  type="password"
+                  autoComplete="off"
                   value={newProv.api_key}
                   onChange={(e) => setNewProv({ ...newProv, api_key: e.target.value })}
                   style={{ width: 320 }}
                 />
                 <input
                   placeholder="Default model (optional)"
+                  aria-label="Provider default model"
                   value={newProv.default_model}
                   onChange={(e) => setNewProv({ ...newProv, default_model: e.target.value })}
                 />
                 <input
                   className="mono"
                   placeholder="Temp"
+                  aria-label="Provider default temperature"
+                  inputMode="decimal"
                   value={newProv.default_temperature}
                   onChange={(e) => setNewProv({ ...newProv, default_temperature: e.target.value })}
                   style={{ width: 90 }}
@@ -290,20 +372,16 @@ export default function AdminApp() {
                       </div>
                       {w.kind === "git" ? (
                         <button
-                          onClick={async () => {
-                            await adminSyncWorkspace(token, w.workspace_id);
-                            await refresh();
-                          }}
+                          onClick={() => syncWorkspace(w.workspace_id)}
+                          disabled={busy}
                         >
                           Sync
                         </button>
                       ) : null}
                       <button
                         className="danger"
-                        onClick={async () => {
-                          await adminDeleteWorkspace(token, w.workspace_id);
-                          await refresh();
-                        }}
+                        onClick={() => deleteWorkspace(w.workspace_id, w.name)}
+                        disabled={busy}
                       >
                         Delete
                       </button>
@@ -312,14 +390,19 @@ export default function AdminApp() {
                 ))}
               </div>
 
-              <div className="sectionTitle">Add workspace</div>
-              <div className="row wrap">
+              <div className="sectionTitle" id="add-workspace-title">Add workspace</div>
+              <div className="row wrap" role="group" aria-labelledby="add-workspace-title">
                 <input
                   placeholder="Name"
+                  aria-label="Workspace name"
                   value={newWs.name}
                   onChange={(e) => setNewWs({ ...newWs, name: e.target.value })}
                 />
-                <select value={newWs.kind} onChange={(e) => setNewWs({ ...newWs, kind: e.target.value })}>
+                <select
+                  aria-label="Workspace kind"
+                  value={newWs.kind}
+                  onChange={(e) => setNewWs({ ...newWs, kind: e.target.value })}
+                >
                   <option value="local">local path</option>
                   <option value="git">git clone</option>
                 </select>
@@ -328,6 +411,7 @@ export default function AdminApp() {
                 <div className="row wrap">
                   <input
                     placeholder="Absolute path on server"
+                    aria-label="Workspace absolute path"
                     value={newWs.path}
                     onChange={(e) => setNewWs({ ...newWs, path: e.target.value })}
                     style={{ width: 420 }}
@@ -337,12 +421,14 @@ export default function AdminApp() {
                 <div className="row wrap">
                   <input
                     placeholder="Git URL (https://...)"
+                    aria-label="Workspace git URL"
                     value={newWs.git_url}
                     onChange={(e) => setNewWs({ ...newWs, git_url: e.target.value })}
                     style={{ width: 420 }}
                   />
                   <input
                     placeholder="Branch/ref (optional)"
+                    aria-label="Workspace git branch or ref"
                     value={newWs.git_ref}
                     onChange={(e) => setNewWs({ ...newWs, git_ref: e.target.value })}
                   />
@@ -362,15 +448,20 @@ export default function AdminApp() {
                 </button>
               </div>
 
-              <div className="sectionTitle">Command runner</div>
+              <div className="sectionTitle" id="cmd-runner-title">Command runner</div>
               <div className="muted mono">Allowlist: `pytest`, `rg`, `git status|diff|log|show|rev-parse`, `ls`, `cat`.</div>
-              <div className="row wrap">
-                <select value={cmdWorkspace} onChange={(e) => setCmdWorkspace(e.target.value)}>
+              <div className="row wrap" role="group" aria-labelledby="cmd-runner-title">
+                <select
+                  aria-label="Command runner workspace"
+                  value={cmdWorkspace}
+                  onChange={(e) => setCmdWorkspace(e.target.value)}
+                >
                   {workspaceOptions}
                 </select>
                 <input
                   className="mono grow"
                   placeholder="git status"
+                  aria-label="Command to run"
                   value={cmdRaw}
                   onChange={(e) => setCmdRaw(e.target.value)}
                 />
@@ -379,12 +470,17 @@ export default function AdminApp() {
                 </button>
               </div>
               {cmdOut ? (
-                <div className="codebox mono">
+                <pre
+                  className="codebox mono"
+                  role="region"
+                  aria-label="Command output"
+                  aria-live="polite"
+                >
                   exit={cmdOut.exit_code}
                   {"\n"}
                   {cmdOut.stdout}
                   {cmdOut.stderr ? `\n[stderr]\n${cmdOut.stderr}` : ""}
-                </div>
+                </pre>
               ) : null}
             </div>
           </div>

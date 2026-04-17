@@ -292,6 +292,31 @@ def test_is_model_available_prefix_match(monkeypatch):
     assert is_model_available("qwen3-coder:30b") is True
 
 
+def test_is_model_available_boundary_matching(monkeypatch):
+    """Model-name matching must respect family boundaries — a bare name like
+    'qwen3' must not be reported available just because 'qwen3-coder:30b' is
+    loaded. This guards against cross-family false positives in the fallback
+    chain (pre-fix, 'qwen3' greedily matched any qwen3-prefixed model)."""
+    import router.health as health
+    monkeypatch.setenv("ROUTER_HEALTH_CHECK_ENABLED", "true")
+    invalidate_health_cache()
+    monkeypatch.setattr(
+        health,
+        "get_available_models",
+        lambda: {"qwen3-coder:30b-q4_K_M", "qwen3-coder:30b", "deepseek-r1:32b"},
+    )
+    # Exact — OK
+    assert health.is_model_available("qwen3-coder:30b") is True
+    # Quantization suffix — OK (matches via "-" boundary)
+    assert health.is_model_available("qwen3-coder:30b-q4_K_M") is True
+    # Tag suffix — OK ("qwen3-coder" → "qwen3-coder:30b" via ":" boundary)
+    assert health.is_model_available("qwen3-coder") is True
+    # Cross-family false positive — MUST be rejected
+    assert health.is_model_available("qwen3") is False
+    # Empty/None — rejected
+    assert health.is_model_available("") is False
+
+
 def test_ensure_available_falls_back_when_model_missing(monkeypatch):
     """When primary model is not available, router picks an available fallback."""
     monkeypatch.setenv("ROUTER_HEALTH_CHECK_ENABLED", "true")

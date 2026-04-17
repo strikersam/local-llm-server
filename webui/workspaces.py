@@ -11,6 +11,7 @@ from pydantic import BaseModel, Field
 
 from agent.tools import WorkspaceTools
 from webui.config_store import JsonConfigStore, get_data_dir
+from webui.url_guard import validate_git_ref, validate_outbound_url
 
 
 def _now() -> str:
@@ -104,9 +105,11 @@ class WorkspaceManager:
         else:
             if not body.git_url:
                 raise ValueError("git_url is required for git workspace")
+            validate_outbound_url(body.git_url, scheme="git")
+            ref = validate_git_ref(body.git_ref) if body.git_ref else None
             root = self._git_workspace_dir(workspace_id)
             root.parent.mkdir(parents=True, exist_ok=True)
-            self._git_clone(body.git_url, root, ref=body.git_ref)
+            self._git_clone(body.git_url, root, ref=ref)
             record = {
                 "workspace_id": workspace_id,
                 "name": body.name.strip(),
@@ -132,9 +135,10 @@ class WorkspaceManager:
             if body.path is not None:
                 item["path"] = _normalize_path(body.path)
             if body.git_url is not None:
+                validate_outbound_url(body.git_url, scheme="git")
                 item["git_url"] = body.git_url
             if body.git_ref is not None:
-                item["git_ref"] = body.git_ref
+                item["git_ref"] = validate_git_ref(body.git_ref)
             item["updated_at"] = _now()
             self._store.save("workspaces", items)
             return WorkspaceRecord.model_validate(item)

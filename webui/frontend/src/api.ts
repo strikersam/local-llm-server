@@ -39,21 +39,31 @@ function authHeaders(apiKey: string | null): Record<string, string> {
   return { Authorization: `Bearer ${apiKey}` };
 }
 
+export class ApiError extends Error {
+  readonly status: number;
+  constructor(status: number, message: string) {
+    super(message);
+    this.status = status;
+    this.name = "ApiError";
+  }
+}
+
 async function apiError(r: Response): Promise<never> {
   const text = await r.text();
+  let message = text || `HTTP ${r.status}`;
   try {
     const data = JSON.parse(text);
-    if (typeof data.detail === "string") throw new Error(data.detail);
-    if (Array.isArray(data.detail)) {
-      const msg = data.detail
+    if (typeof data.detail === "string") {
+      message = data.detail;
+    } else if (Array.isArray(data.detail)) {
+      message = data.detail
         .map((e: any) => (typeof e === "string" ? e : e.msg ?? JSON.stringify(e)))
-        .join("; ");
-      throw new Error(msg || text);
+        .join("; ") || text;
     }
-  } catch (e) {
-    if (e instanceof Error && e.message !== text) throw e;
+  } catch {
+    // Non-JSON body — fall through to status-based message.
   }
-  throw new Error(text || `HTTP ${r.status}`);
+  throw new ApiError(r.status, message);
 }
 
 export async function getBootstrap(): Promise<any> {
@@ -168,9 +178,15 @@ export async function previewRoute(apiKey: string, text: string): Promise<{
       headers: { ...authHeaders(apiKey), "Content-Type": "application/json" },
       body: JSON.stringify({ text }),
     });
-    if (!r.ok) return null;
+    if (!r.ok) {
+      if (r.status === 401 || r.status === 403) {
+        throw new ApiError(r.status, `Route preview unauthorized (HTTP ${r.status})`);
+      }
+      return null;
+    }
     return await r.json();
-  } catch {
+  } catch (err) {
+    if (err instanceof ApiError) throw err;
     return null;
   }
 }
