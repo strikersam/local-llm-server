@@ -76,9 +76,10 @@ def test_claude_sonnet_maps_to_coder_model():
     assert decision.selection_source == "model_map"
 
 
-def test_claude_haiku_maps_to_coder_model():
+def test_claude_haiku_maps_to_lightweight_coder_model():
+    # Haiku (smallest/cheapest Claude) routes to the lightest local model
     decision = _router().route(requested_model="claude-haiku-4-5-20251001")
-    assert decision.resolved_model == "qwen3-coder:30b"
+    assert decision.resolved_model == "qwen3-coder:7b"
 
 
 def test_all_claude_3_opus_variants_map_to_reasoning():
@@ -331,3 +332,165 @@ def test_extra_models_format_handles_colons_in_strengths(monkeypatch):
     registry = get_registry()
     assert "phi4" in registry
     assert registry["phi4"].type == "reasoning"
+
+
+# ── Claude 4.7 model map (April 2026) ─────────────────────────────────────────
+
+def test_claude_opus_47_maps_to_flagship_reasoning():
+    decision = _router().route(requested_model="claude-opus-4-7")
+    assert decision.resolved_model == "deepseek-r1:671b"
+    assert decision.selection_source == "model_map"
+
+
+def test_claude_haiku_45_maps_to_lightweight_coder():
+    decision = _router().route(requested_model="claude-haiku-4-5-20251001")
+    assert decision.resolved_model == "qwen3-coder:7b"
+    assert decision.selection_source == "model_map"
+
+
+def test_claude_35_haiku_maps_to_lightweight_coder():
+    decision = _router().route(requested_model="claude-3-5-haiku-20241022")
+    assert decision.resolved_model == "qwen3-coder:7b"
+    assert decision.selection_source == "model_map"
+
+
+def test_claude_3_haiku_maps_to_lightweight_coder():
+    decision = _router().route(requested_model="claude-3-haiku-20240307")
+    assert decision.resolved_model == "qwen3-coder:7b"
+    assert decision.selection_source == "model_map"
+
+
+# ── New model aliases ─────────────────────────────────────────────────────────
+
+def test_llama4_alias_maps_to_maverick():
+    decision = _router().route(requested_model="llama4")
+    assert decision.resolved_model == "llama4-maverick:17b"
+    assert decision.selection_source == "model_map"
+
+
+def test_llama4_scout_alias():
+    decision = _router().route(requested_model="llama4-scout")
+    assert decision.resolved_model == "llama4-scout:17b"
+    assert decision.selection_source == "model_map"
+
+
+def test_deepseek_v3_alias():
+    decision = _router().route(requested_model="deepseek-v3")
+    assert decision.resolved_model == "deepseek-v3:685b"
+    assert decision.selection_source == "model_map"
+
+
+def test_qwen3_coder_235b_alias():
+    decision = _router().route(requested_model="qwen3-coder-235b")
+    assert decision.resolved_model == "qwen3-coder:235b"
+    assert decision.selection_source == "model_map"
+
+
+def test_qwen3_coder_short_alias():
+    decision = _router().route(requested_model="qwen3-coder")
+    assert decision.resolved_model == "qwen3-coder:30b"
+    assert decision.selection_source == "model_map"
+
+
+# ── New models are passthrough-eligible (in registry) ────────────────────────
+
+def test_llama4_maverick_passthrough():
+    decision = _router().route(requested_model="llama4-maverick:17b")
+    assert decision.resolved_model == "llama4-maverick:17b"
+    assert decision.selection_source == "passthrough"
+
+
+def test_deepseek_v3_passthrough():
+    decision = _router().route(requested_model="deepseek-v3:685b")
+    assert decision.resolved_model == "deepseek-v3:685b"
+    assert decision.selection_source == "passthrough"
+
+
+def test_qwen3_coder_235b_passthrough():
+    decision = _router().route(requested_model="qwen3-coder:235b")
+    assert decision.resolved_model == "qwen3-coder:235b"
+    assert decision.selection_source == "passthrough"
+
+
+# ── data_analysis task classification ────────────────────────────────────────
+
+def test_pandas_classified_as_data_analysis():
+    msgs = [{"role": "user", "content": "Help me load a pandas DataFrame from this CSV and compute groupby aggregations."}]
+    cat = classify_task(messages=msgs)
+    assert cat == "data_analysis"
+
+
+def test_numpy_classified_as_data_analysis():
+    msgs = [{"role": "user", "content": "Normalise this numpy array and apply standardization."}]
+    cat = classify_task(messages=msgs)
+    assert cat == "data_analysis"
+
+
+def test_sklearn_classified_as_data_analysis():
+    msgs = [{"role": "user", "content": "Train a scikit-learn classification model with cross-validation."}]
+    cat = classify_task(messages=msgs)
+    assert cat == "data_analysis"
+
+
+def test_ml_keyword_classified_as_data_analysis():
+    msgs = [{"role": "user", "content": "Help me build a machine learning pipeline for feature engineering."}]
+    cat = classify_task(messages=msgs)
+    assert cat == "data_analysis"
+
+
+def test_code_debug_overrides_data_analysis():
+    # A debugging request that mentions pandas still classifies as code_debugging
+    msgs = [{"role": "user", "content": "Fix the bug in this pandas code:\n```python\ndf.groupby('x').sum()\n```"}]
+    cat = classify_task(messages=msgs)
+    assert cat == "code_debugging"
+
+
+def test_data_analysis_routes_to_capable_model():
+    msgs = [{"role": "user", "content": "Plot a seaborn heatmap of the correlation matrix."}]
+    decision = _router().route(messages=msgs)
+    assert decision.task_category == "data_analysis"
+    # Any of the capable models is acceptable
+    capable = {
+        "qwen3-coder:30b", "deepseek-r1:32b", "deepseek-r1:671b",
+        "qwen3-coder:235b", "llama4-maverick:17b", "llama4-scout:17b",
+        "deepseek-v3:685b",
+    }
+    assert decision.resolved_model in capable
+
+
+# ── New registry entries have correct fields ──────────────────────────────────
+
+def test_llama4_maverick_in_registry():
+    from router.registry import get_registry
+    reg = get_registry()
+    assert "llama4-maverick:17b" in reg
+    cap = reg["llama4-maverick:17b"]
+    assert "code_generation" in cap.strengths
+    assert "data_analysis" in cap.strengths
+    assert cap.context_window >= 131072
+
+
+def test_llama4_scout_in_registry():
+    from router.registry import get_registry
+    reg = get_registry()
+    assert "llama4-scout:17b" in reg
+    cap = reg["llama4-scout:17b"]
+    assert "fast_response" in cap.strengths
+
+
+def test_deepseek_v3_in_registry():
+    from router.registry import get_registry
+    reg = get_registry()
+    assert "deepseek-v3:685b" in reg
+    cap = reg["deepseek-v3:685b"]
+    assert "code_generation" in cap.strengths
+    assert cap.cost_tier == 2
+
+
+def test_qwen3_coder_235b_in_registry():
+    from router.registry import get_registry
+    reg = get_registry()
+    assert "qwen3-coder:235b" in reg
+    cap = reg["qwen3-coder:235b"]
+    assert cap.cost_tier == 3
+    assert "data_analysis" in cap.strengths

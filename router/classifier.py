@@ -13,6 +13,7 @@ Categories (in priority order):
     fast_response    — short, latency-sensitive interactive request
     code_debugging   — fixing bugs, errors, tracebacks
     code_review      — reviewing or analysing existing code
+    data_analysis    — data science, analytics, ML/AI workloads
     code_generation  — writing new code
     reasoning        — analysis, architecture, math, explanation
     conversation     — generic chat / Q&A
@@ -54,6 +55,18 @@ _REASONING_RE = re.compile(
 )
 
 _CODE_FENCE_RE = re.compile(r"```")
+
+_DATA_ANALYSIS_RE = re.compile(
+    r"\b(pandas|dataframe|numpy|matplotlib|seaborn|plotly|scipy|sklearn|scikit.learn|"
+    r"tensorflow|pytorch|torch|keras|xgboost|lightgbm|catboost|"
+    r"data.?frame|pivot.?table|groupby|resample|time.?series|"
+    r"csv|parquet|feather|excel|sql.?query|aggregate|join|merge|"
+    r"machine.?learning|deep.?learning|neural.?network|train.?model|"
+    r"feature.?engineering|hyperparameter|cross.?validation|"
+    r"correlation|regression|classification|clustering|embedding|"
+    r"etl|pipeline|data.?pipeline|transform|normaliz|standardiz)\b",
+    re.IGNORECASE,
+)
 
 
 # ── Public API ─────────────────────────────────────────────────────────────────
@@ -115,12 +128,16 @@ def classify_task(
     has_write = bool(_CODE_WRITE_RE.search(combined))
     has_review = bool(_CODE_REVIEW_RE.search(combined))
     has_reason = bool(_REASONING_RE.search(combined))
+    has_data = bool(_DATA_ANALYSIS_RE.search(combined))
 
     if has_debug and (has_fence or has_write):
         return "code_debugging"
 
     if has_review and (has_fence or has_write):
         return "code_review"
+
+    if has_data:
+        return "data_analysis"
 
     if has_fence or has_write:
         return "code_generation"

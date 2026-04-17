@@ -276,6 +276,10 @@ def _build_anthropic_response(
         "usage": {
             "input_tokens": int(usage.get("prompt_tokens") or 0),
             "output_tokens": int(usage.get("completion_tokens") or 0),
+            # Prompt caching fields — always present for SDK compatibility.
+            # Local Ollama models don't support prompt caching so values are 0.
+            "cache_creation_input_tokens": 0,
+            "cache_read_input_tokens": 0,
         },
     }
 
@@ -316,7 +320,12 @@ async def _stream_anthropic_sse(
             "model": anthropic_model,
             "stop_reason": None,
             "stop_sequence": None,
-            "usage": {"input_tokens": 0, "output_tokens": 1},
+            "usage": {
+                "input_tokens": 0,
+                "output_tokens": 1,
+                "cache_creation_input_tokens": 0,
+                "cache_read_input_tokens": 0,
+            },
         },
     })
     yield _sse_event("content_block_start", {
@@ -475,6 +484,19 @@ async def handle_anthropic_messages(
     stream = bool(payload.get("stream", False))
     max_tokens = payload.get("max_tokens")
     tools: list[dict[str, Any]] = payload.get("tools") or []
+
+    # Extended thinking parameter (Anthropic API feature, April 2026+).
+    # Local Ollama models don't support server-side thinking orchestration, so
+    # we log it and strip it — DeepSeek-R1 and QwQ already think natively via
+    # their <think> token protocol without needing an explicit param.
+    thinking_param = payload.get("thinking")
+    if thinking_param:
+        budget = thinking_param.get("budget_tokens") if isinstance(thinking_param, dict) else None
+        log.debug(
+            "Stripping extended thinking param (budget_tokens=%s) — "
+            "Ollama models think natively via <think> tokens",
+            budget,
+        )
 
     # ── Route: decide which local model to use ─────────────────────────────────
     # Manual override: client sends X-Model-Override header (works from any IDE).

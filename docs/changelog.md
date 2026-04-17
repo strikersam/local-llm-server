@@ -17,6 +17,41 @@
 
 ### Added
 
+- **Claude Opus 4.7 support** (`router/model_router.py`):
+  - Added `claude-opus-4-7` to the built-in model alias map; routes to `deepseek-r1:671b` (flagship reasoning model) for local execution.
+  - Haiku variants (`claude-haiku-4-5-20251001`, `claude-3-5-haiku-20241022`, `claude-3-haiku-20240307`) now correctly route to `qwen3-coder:7b` (lightweight) rather than the larger 30B coder, matching their speed-first tier.
+
+- **Llama 4 model support** (`router/registry.py`, `router/model_router.py`):
+  - Added `llama4-maverick:17b` (17Bx128E MoE, 1M context, code + reasoning + data analysis) to the capability registry.
+  - Added `llama4-scout:17b` (17Bx16E MoE, 10M context, fast-response capable) to the capability registry.
+  - Short aliases `llama4`, `llama4-maverick`, `llama4-scout` added to `MODEL_MAP` for easy addressing.
+
+- **DeepSeek V3 support** (`router/registry.py`, `router/model_router.py`):
+  - Added `deepseek-v3:685b` (685B MoE, 128K context, strong code + reasoning, cost_tier 2) to the capability registry.
+  - Short alias `deepseek-v3` added to `MODEL_MAP`.
+
+- **Qwen3-Coder 235B support** (`router/registry.py`, `router/model_router.py`):
+  - Added `qwen3-coder:235b` (235B MoE flagship, 128K context, cost_tier 3) to the capability registry with `data_analysis` and `complex_tasks` in strengths.
+  - Short aliases `qwen3-coder` and `qwen3-coder-235b` added to `MODEL_MAP`.
+
+- **`data_analysis` task category** (`router/classifier.py`):
+  - New classification category for data-science and ML workloads (pandas, numpy, matplotlib, seaborn, scikit-learn, PyTorch, TensorFlow, XGBoost, ETL pipelines, time-series, etc.).
+  - Placed in priority just below `code_review`, above `code_generation`, so ML code requests route to models with data-science strengths.
+  - All major models with data capabilities (`qwen3-coder:30b`, `qwen3-coder:235b`, `deepseek-r1:32b`, `deepseek-r1:671b`, `llama4-maverick:17b`, `llama4-scout:17b`, `deepseek-v3:685b`) include `data_analysis` in their strengths.
+
+- **Anthropic compat: prompt-cache usage fields** (`handlers/anthropic_compat.py`):
+  - `cache_creation_input_tokens` and `cache_read_input_tokens` are now always present in the `usage` block of every `/v1/messages` response (streaming and non-streaming), with value `0`.
+  - Prevents Anthropic SDK clients that destructure the usage object from raising `KeyError` or attribute errors when those fields are absent.
+
+- **Anthropic compat: extended thinking parameter handling** (`handlers/anthropic_compat.py`):
+  - Requests that include `thinking: {type: "enabled", budget_tokens: N}` are handled gracefully: the parameter is logged at `DEBUG` level and stripped before forwarding to Ollama.
+  - DeepSeek-R1 and QwQ models already produce chain-of-thought natively via their `<think>` token protocol; no explicit parameter is required.
+
+### Changed
+
+- **Haiku → lightweight model routing** (`router/model_router.py`): All Haiku-tier Claude aliases now resolve to `qwen3-coder:7b` instead of `qwen3-coder:30b`, consistent with their lightweight/fast-response positioning.
+- **`qwen3-coder:30b` and `deepseek-r1` strengths** (`router/registry.py`): Added `data_analysis` to the strengths list of the two primary workhorse models so they are eligible for heuristic selection on data-science tasks.
+
 - **iPhone Quick Note integration** (`agent/quick_note.py`, `proxy.py`):
   - `POST /v1/quick-notes` — authenticated endpoint; add a URL to the implementation queue from an iPhone Shortcut (or any HTTP client).
   - `GET /v1/quick-notes` — returns queue state with counts per status.
