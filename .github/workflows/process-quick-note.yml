@@ -1,0 +1,137 @@
+name: Process Quick Note
+
+on:
+  issues:
+    types: [labeled]
+  workflow_dispatch:
+    inputs:
+      issue_number:
+        description: Issue number to process
+        required: true
+
+concurrency:
+  group: quick-note-processor
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+  issues: write
+
+jobs:
+  process:
+    if: github.event.label.name == 'quick-note' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          fetch-depth: 0
+
+      - name: Resolve issue
+        id: issue
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            NUM="${{ github.event.inputs.issue_number }}"
+          else
+            NUM="${{ github.event.issue.number }}"
+          fi
+          echo "number=$NUM" >> $GITHUB_OUTPUT
+          BODY=$(gh issue view "$NUM" --repo ${{ github.repository }} --json body -q .body)
+          # Extract first URL from body
+          URL=$(echo "$BODY" | grep -oE 'https?://[^ ]+' | head -1)
+          echo "url=$URL" >> $GITHUB_OUTPUT
+          echo "Resolved issue #$NUM → $URL"
+
+      - name: Label as processing
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh issue edit "${{ steps.issue.outputs.number }}" \
+            --repo ${{ github.repository }} \
+            --add-label "processing" 2>/dev/null || true
+          gh issue comment "${{ steps.issue.outputs.number }}" \
+            --repo ${{ github.repository }} \
+            --body "⏳ Processing started — fetching content from ${{ steps.issue.outputs.url }}"
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install Claude CLI
+        run: npm install -g @anthropic-ai/claude-code
+
+      - name: Fetch URL content
+        id: fetch
+        run: |
+          URL="${{ steps.issue.outputs.url }}"
+          if [ -z "$URL" ]; then
+            echo "ERROR: no URL found in issue body" >&2
+            exit 1
+          fi
+          # Fetch up to 12 KB of content
+          CONTENT=$(curl -sL --max-time 30 --user-agent "Mozilla/5.0" "$URL" 2>&1 | head -c 12000)
+          # Write to file to avoid shell quoting issues
+          echo "$CONTENT" > /tmp/note_content.txt
+          echo "Fetched $(wc -c < /tmp/note_content.txt) bytes"
+
+      - name: Run Claude Code
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: |
+          URL="${{ steps.issue.outputs.url }}"
+          ISSUE="${{ steps.issue.outputs.number }}"
+          cat > /tmp/prompt.txt <<PROMPT
+You are implementing a task from a GitHub issue queue. Issue #${ISSUE}.
+
+The user shared this URL: ${URL}
+
+Here is the fetched content of that page:
+---
+$(cat /tmp/note_content.txt)
+---
+
+Analyse what needs to be implemented or changed in this repository based on the content above.
+Implement the changes. Keep the scope focused — only implement what is clearly described.
+Update docs/changelog.md under [Unreleased] with a brief entry.
+Do not ask for clarification. Make your best judgement and implement it.
+PROMPT
+          claude --print --dangerously-skip-permissions "$(cat /tmp/prompt.txt)"
+
+      - name: Commit and push
+        id: commit
+        run: |
+          git config user.email "claude-actions@github.com"
+          git config user.name "Claude Actions [bot]"
+          git add -A
+          if git diff --staged --quiet; then
+            echo "changed=false" >> $GITHUB_OUTPUT
+            echo "No file changes — nothing to commit"
+          else
+            git commit -m "feat: implement quick note from issue #${{ steps.issue.outputs.number }}
+
+            Source: ${{ steps.issue.outputs.url }}
+            Processed by Claude Code via GitHub Actions."
+            git push origin master
+            echo "changed=true" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Close issue as completed
+        if: always()
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          CHANGED="${{ steps.commit.outputs.changed }}"
+          if [ "$CHANGED" = "true" ]; then
+            MSG="✅ Done! Changes committed and pushed to master."
+          else
+            MSG="✅ Done — Claude Code ran but made no file changes (task may already be implemented or content was not actionable)."
+          fi
+          gh issue comment "${{ steps.issue.outputs.number }}" \
+            --repo ${{ github.repository }} \
+            --body "$MSG"
+          gh issue close "${{ steps.issue.outputs.number }}" \
+            --repo ${{ github.repository }} \
+            --reason completed
