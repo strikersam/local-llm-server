@@ -87,10 +87,12 @@ class RoutingDecision:
 # ── Model map (Anthropic alias → local) ──────────────────────────────────────
 
 _BUILTIN_MODEL_MAP: dict[str, str] = {
+    # Claude 4.7 family (latest, April 2026)
+    "claude-opus-4-7":            "deepseek-r1:671b",
     # Claude 4.6 family
     "claude-opus-4-6":            "deepseek-r1:32b",
     "claude-sonnet-4-6":          "qwen3-coder:30b",
-    "claude-haiku-4-5-20251001":  "qwen3-coder:30b",
+    "claude-haiku-4-5-20251001":  "qwen3-coder:7b",
     # Claude 4.5 family
     "claude-opus-4-5":            "deepseek-r1:32b",
     "claude-opus-4":              "deepseek-r1:32b",
@@ -98,15 +100,24 @@ _BUILTIN_MODEL_MAP: dict[str, str] = {
     "claude-sonnet-4":            "qwen3-coder:30b",
     # Claude 3.5 family
     "claude-3-5-sonnet-20241022": "qwen3-coder:30b",
-    "claude-3-5-haiku-20241022":  "qwen3-coder:30b",
+    "claude-3-5-haiku-20241022":  "qwen3-coder:7b",
     # Claude 3 family
     "claude-3-opus-20240229":     "deepseek-r1:32b",
     "claude-3-sonnet-20240229":   "qwen3-coder:30b",
-    "claude-3-haiku-20240307":    "qwen3-coder:30b",
+    "claude-3-haiku-20240307":    "qwen3-coder:7b",
     # Gemma 4 short-name aliases (Ollama pull names without size suffix)
     "gemma4":                     "gemma4:27b",
     "gemma4-9b":                  "gemma4:9b",
     "gemma4-2b":                  "gemma4:2b",
+    # Llama 4 short-name aliases (Meta, April 2025)
+    "llama4":                     "llama4-maverick:17b",
+    "llama4-scout":               "llama4-scout:17b",
+    "llama4-maverick":            "llama4-maverick:17b",
+    # DeepSeek V3 short-name aliases
+    "deepseek-v3":                "deepseek-v3:685b",
+    # Qwen3 short-name aliases
+    "qwen3-coder":                "qwen3-coder:30b",
+    "qwen3-coder-235b":           "qwen3-coder:235b",
 }
 
 _resolved_model_map: dict[str, str] | None = None

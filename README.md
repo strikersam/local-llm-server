@@ -24,7 +24,16 @@
 
 ## What's New
 
-**Latest additions (April 2026)**
+**Daily update — 17 April 2026**
+
+- **Claude Opus 4.7** — `claude-opus-4-7` now routes to `deepseek-r1:671b` locally. All Haiku-tier aliases (`claude-haiku-4-5-20251001`, `claude-3-5-haiku-20241022`, `claude-3-haiku-20240307`) route to `qwen3-coder:7b` for consistent lightweight/fast-response behaviour.
+- **Llama 4 (Meta, April 2025)** — `llama4-maverick:17b` and `llama4-scout:17b` added to the model registry. Use `llama4`, `llama4-maverick`, or `llama4-scout` as short names. Maverick has a 1M-token context; Scout has a 10M-token context.
+- **DeepSeek V3** — `deepseek-v3:685b` (685B MoE, strong code + data analysis, cost_tier 2) added. Use `deepseek-v3` as a short alias.
+- **Qwen3-Coder 235B** — `qwen3-coder:235b` (flagship 235B MoE coder) added to the registry at cost_tier 3. Use `qwen3-coder-235b` as a short alias.
+- **`data_analysis` routing** — the smart router now detects data-science and ML workloads (pandas, numpy, sklearn, PyTorch, ETL pipelines, time-series, etc.) and routes them to models with data-analysis strengths, instead of falling through to the generic code-generation path.
+- **Anthropic SDK compatibility** — `/v1/messages` responses now always include `cache_creation_input_tokens` and `cache_read_input_tokens` in the `usage` block (both `0`) to prevent SDK attribute errors on clients that expect those fields. Extended-thinking (`thinking: {budget_tokens: N}`) requests are handled gracefully: the param is stripped and a debug log is emitted.
+
+**Earlier (April 2026)**
 
 - **User Memory Store** — the agent remembers things about each user across sessions (preferences, project paths, conventions). Stored in SQLite; injected into the planner automatically.
 - **Social Login (GitHub & Google)** — Sign in or register automatically using your GitHub or Google account. User identity, avatar, and last login are tracked in the database.

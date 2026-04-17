@@ -28,21 +28,22 @@ class ModelCapability:
 _DEFAULT_REGISTRY: dict[str, ModelCapability] = {
     "qwen3-coder:30b": ModelCapability(
         name="qwen3-coder:30b",
-        strengths=["code_generation", "code_debugging", "code_review", "tool_use", "long_context", "conversation"],
+        strengths=["code_generation", "code_debugging", "code_review", "tool_use",
+                   "long_context", "data_analysis", "conversation"],
         context_window=32768,
         type="coder",
         cost_tier=2,
     ),
     "deepseek-r1:32b": ModelCapability(
         name="deepseek-r1:32b",
-        strengths=["reasoning", "analysis", "planning", "math", "complex_tasks"],
+        strengths=["reasoning", "analysis", "planning", "math", "complex_tasks", "data_analysis"],
         context_window=32768,
         type="reasoning",
         cost_tier=3,
     ),
     "deepseek-r1:671b": ModelCapability(
         name="deepseek-r1:671b",
-        strengths=["reasoning", "analysis", "planning", "math", "complex_tasks"],
+        strengths=["reasoning", "analysis", "planning", "math", "complex_tasks", "data_analysis"],
         context_window=131072,
         type="reasoning",
         cost_tier=3,
@@ -84,6 +85,49 @@ _DEFAULT_REGISTRY: dict[str, ModelCapability] = {
         type="general",
         cost_tier=1,
         tags=["google", "gemma4", "ultra-fast"],
+    ),
+    # ── Qwen3-Coder 235B (Qwen3 family, 2025) ────────────────────────────────
+    # Flagship Qwen3-Coder variant; MoE architecture; best-in-class for code.
+    "qwen3-coder:235b": ModelCapability(
+        name="qwen3-coder:235b",
+        strengths=["code_generation", "code_debugging", "code_review", "tool_use",
+                   "long_context", "reasoning", "data_analysis", "complex_tasks"],
+        context_window=131072,
+        type="coder",
+        cost_tier=3,
+        tags=["qwen3", "flagship", "moe"],
+    ),
+    # ── Llama 4 (Meta, April 2025) ───────────────────────────────────────────
+    # Scout: 17Bx16E MoE, 10M context; Maverick: 17Bx128E, 1M context.
+    "llama4-maverick:17b": ModelCapability(
+        name="llama4-maverick:17b",
+        strengths=["code_generation", "code_debugging", "code_review", "tool_use",
+                   "reasoning", "analysis", "long_context", "conversation", "data_analysis"],
+        context_window=1048576,
+        type="general",
+        cost_tier=2,
+        tags=["llama4", "meta", "moe", "multimodal"],
+    ),
+    "llama4-scout:17b": ModelCapability(
+        name="llama4-scout:17b",
+        strengths=["code_generation", "code_debugging", "tool_use",
+                   "conversation", "fast_response", "data_analysis"],
+        context_window=10485760,
+        type="general",
+        cost_tier=1,
+        tags=["llama4", "meta", "moe", "multimodal", "lightweight"],
+    ),
+    # ── DeepSeek V3 (Dec 2024) ────────────────────────────────────────────────
+    # 685B MoE model; strong code + reasoning; lower cost than R1.
+    "deepseek-v3:685b": ModelCapability(
+        name="deepseek-v3:685b",
+        strengths=["code_generation", "code_debugging", "code_review", "tool_use",
+                   "reasoning", "analysis", "planning", "long_context", "data_analysis",
+                   "conversation"],
+        context_window=131072,
+        type="coder",
+        cost_tier=2,
+        tags=["deepseek", "moe", "flagship"],
     ),
     # ── Claude aliases ────────────────────────────────────────────────────────
     "claude-3-5-sonnet-20241022": ModelCapability(
