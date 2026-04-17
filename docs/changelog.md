@@ -8,6 +8,13 @@
 
 ## [Unreleased]
 
+### Fixed
+
+- **Vercel deployments removed**: Added `vercel.json` with `github.enabled: false` to disable Vercel's GitHub integration and stop failing deployment statuses.
+- **pytest collection fixed**: Added `pytest.ini` restricting test discovery to `tests/` — prevents root-level integration scripts (`backend_test.py`, `backend_test_iteration3.py`) from breaking CI.
+
+### Added — persistent memory
+
 ### Added
 
 - **iPhone Quick Note integration** (`agent/quick_note.py`, `proxy.py`):
