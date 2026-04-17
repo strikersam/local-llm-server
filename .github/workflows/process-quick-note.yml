@@ -150,11 +150,14 @@ jobs:
           PYEOF
 
       - name: Run LLM via Groq
+        id: llm
         env:
           GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
         run: |
+          echo "GROQ key present: $( [ -n "$GROQ_API_KEY" ] && echo YES || echo NO )"
           pip install openai -q
-          python3 /tmp/run_llm.py "${{ steps.issue.outputs.url }}" "${{ steps.issue.outputs.number }}" "${{ steps.issue.outputs.task }}"
+          python3 /tmp/run_llm.py "${{ steps.issue.outputs.url }}" "${{ steps.issue.outputs.number }}" "${{ steps.issue.outputs.task }}" 2>&1 | tee /tmp/llm_output.txt
+          echo "llm_exit=${PIPESTATUS[0]}" >> "$GITHUB_OUTPUT"
 
       - name: Commit and push
         id: commit
@@ -176,10 +179,14 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           if [ "${{ steps.commit.outputs.changed }}" = "true" ]; then
-            MSG="✅ Done — changes committed and pushed to master."
+            echo "✅ Done — changes committed and pushed to master." > /tmp/issue_msg.txt
+          elif [ -f /tmp/llm_output.txt ] && grep -q "Error\|Exception\|Traceback" /tmp/llm_output.txt; then
+            echo "❌ LLM step failed:" > /tmp/issue_msg.txt
+            tail -20 /tmp/llm_output.txt >> /tmp/issue_msg.txt
           else
-            MSG="✅ Done — Claude ran but made no file changes."
+            echo "✅ Done — LLM ran but made no file changes." > /tmp/issue_msg.txt
           fi
+          MSG=$(cat /tmp/issue_msg.txt)
           gh issue comment "${{ steps.issue.outputs.number }}" \
             --repo "${{ github.repository }}" \
             --body "$MSG"
