@@ -63,8 +63,9 @@ test_reports/
 *.env
 *.env.*
 
-# Runtime data (SQLite databases, persisted state)
+# Runtime data (SQLite databases, persisted state, scheduler jobs)
 .data/
+data/
 
 # Attached assets (may contain secrets)
 attached_assets/
