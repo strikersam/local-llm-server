@@ -14,6 +14,7 @@ from __future__ import annotations
 import logging
 import os
 import subprocess
+import sys
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -75,15 +76,19 @@ class TerminalPanel:
         Returns a dict with keys: returncode, stdout, stderr, lines.
         """
         try:
+            run_kwargs = self._build_run_kwargs(cmd)
             proc = subprocess.run(
-                cmd,
+                **run_kwargs,
                 capture_output=True,
                 text=True,
                 timeout=timeout,
             )
+            returncode = proc.returncode
+            if returncode != 0 and _is_command_not_found(proc.stderr):
+                returncode = -1
             all_lines = proc.stdout.splitlines() + proc.stderr.splitlines()
             return {
-                "returncode": proc.returncode,
+                "returncode": returncode,
                 "stdout": proc.stdout,
                 "stderr": proc.stderr,
                 "lines": all_lines,
@@ -102,6 +107,18 @@ class TerminalPanel:
                 "stderr": str(exc),
                 "lines": [],
             }
+
+    def _build_run_kwargs(self, cmd: list[str]) -> dict[str, Any]:
+        if sys.platform != "win32":
+            return {"args": cmd}
+
+        # Windows tests and admin actions often use shell built-ins or PowerShell
+        # aliases like `echo`, `ls`, and `sleep`, so execute list commands through
+        # PowerShell instead of requiring a real executable on PATH.
+        script = "& " + " ".join(_powershell_quote(part) for part in cmd)
+        return {
+            "args": ["powershell", "-NoProfile", "-Command", script],
+        }
 
     # ------------------------------------------------------------------
     # Internal capture strategies
@@ -155,3 +172,12 @@ def _terminal_size() -> tuple[int, int]:
         cols = int(os.environ.get("COLUMNS", "80"))
         rows = int(os.environ.get("LINES", "24"))
         return cols, rows
+
+
+def _powershell_quote(value: str) -> str:
+    return "'" + value.replace("'", "''") + "'"
+
+
+def _is_command_not_found(stderr: str) -> bool:
+    lowered = stderr.lower()
+    return "is not recognized as the name of a cmdlet" in lowered or "no such file or directory" in lowered

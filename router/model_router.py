@@ -121,6 +121,17 @@ _BUILTIN_MODEL_MAP: dict[str, str] = {
 }
 
 _resolved_model_map: dict[str, str] | None = None
+_LOCAL_SHORT_ALIASES = {
+    "gemma4",
+    "gemma4-9b",
+    "gemma4-2b",
+    "llama4",
+    "llama4-scout",
+    "llama4-maverick",
+    "deepseek-v3",
+    "qwen3-coder",
+    "qwen3-coder-235b",
+}
 
 
 def _get_model_map() -> dict[str, str]:
@@ -224,7 +235,8 @@ class ModelRouter:
         model_map = _get_model_map()
         if requested_model and requested_model in model_map:
             resolved = model_map[requested_model]
-            resolved = self._ensure_available(resolved, category, requested_model)
+            if self._should_enforce_availability(requested_model):
+                resolved = self._ensure_available(resolved, category, requested_model)
             return RoutingDecision(
                 resolved_model=resolved,
                 requested_model=requested_model,
@@ -345,6 +357,9 @@ class ModelRouter:
             alternatives.append(default)
 
         return alternatives[:3]  # Keep the chain short
+
+    def _should_enforce_availability(self, requested_model: str) -> bool:
+        return requested_model not in _LOCAL_SHORT_ALIASES
 
 
 # ── Module-level singleton ─────────────────────────────────────────────────────
