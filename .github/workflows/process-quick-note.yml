@@ -149,7 +149,9 @@ jobs:
               pattern2 = r"```[^\n]*\n(?:#|//|--)\s*([^\n]+)\n(.*?)```"
               matches = re.findall(pattern2, response, re.DOTALL)
           if not matches:
-              print("No file blocks found in response — LLM may need clearer format instructions.")
+              print("No file blocks found in response — writing response to /tmp/llm_response.txt")
+              with open("/tmp/llm_response.txt", "w") as f:
+                  f.write(response)
               sys.exit(0)
 
           for filepath, contents in matches:
@@ -196,6 +198,9 @@ jobs:
           elif [ -f /tmp/llm_output.txt ] && grep -q "Error\|Exception\|Traceback" /tmp/llm_output.txt; then
             echo "❌ LLM step failed:" > /tmp/issue_msg.txt
             tail -20 /tmp/llm_output.txt >> /tmp/issue_msg.txt
+          elif [ -f /tmp/llm_response.txt ]; then
+            echo "⚠️ LLM ran but produced no parseable file changes. Raw response (first 1500 chars):" > /tmp/issue_msg.txt
+            head -c 1500 /tmp/llm_response.txt >> /tmp/issue_msg.txt
           else
             echo "✅ Done — LLM ran but made no file changes." > /tmp/issue_msg.txt
           fi
