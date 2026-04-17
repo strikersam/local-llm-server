@@ -101,12 +101,12 @@ jobs:
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           CLAUDE_CONFIG_DIR: /tmp/claude-config
+          HOME: /tmp/claude-home
         run: |
-          mkdir -p /tmp/claude-config
-          echo "API key length: ${#ANTHROPIC_API_KEY}"
+          mkdir -p /tmp/claude-config /tmp/claude-home
+          echo "API key prefix: ${ANTHROPIC_API_KEY:0:15}..."
           claude --version
-          claude --print --dangerously-skip-permissions "$(cat /tmp/prompt.txt)" 2>&1
-          echo "Exit code: $?"
+          claude --print --dangerously-skip-permissions -p "$(cat /tmp/prompt.txt)"
 
       - name: Commit and push
         id: commit
