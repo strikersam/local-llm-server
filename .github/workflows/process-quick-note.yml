@@ -45,8 +45,10 @@ jobs:
           echo "number=$NUM" >> "$GITHUB_OUTPUT"
           BODY=$(gh issue view "$NUM" --repo "${{ github.repository }}" --json body -q .body)
           URL=$(echo "$BODY" | grep -oE 'https?://[^[:space:]]+' | head -1)
+          TASK=$(echo "$BODY" | grep -i "^Task:" | sed 's/^[Tt]ask:[[:space:]]*//')
           echo "url=$URL" >> "$GITHUB_OUTPUT"
-          echo "Resolved issue #$NUM → $URL"
+          echo "task=$TASK" >> "$GITHUB_OUTPUT"
+          echo "Resolved issue #$NUM → $URL | task: $TASK"
 
       - name: Comment processing started
         env:
@@ -81,6 +83,7 @@ jobs:
 
           url = sys.argv[1]
           issue_num = sys.argv[2]
+          task = sys.argv[3] if len(sys.argv) > 3 else ""
 
           page_content = open("/tmp/note_content.txt").read()
 
@@ -90,15 +93,19 @@ jobs:
           )
           file_tree = result.stdout[:3000]
 
+          task_line = f"User instruction: {task}\n\n" if task else ""
+
           prompt = (
               "You are implementing a coding task queued by the repository owner via an iPhone shortcut.\n"
               f"Issue #{issue_num} -- URL: {url}\n\n"
-              "Repository files (partial):\n"
+              + task_line
+              + "Repository files (partial):\n"
               + file_tree + "\n\n"
               "Fetched page content from the URL:\n---\n"
               + page_content[:8000] + "\n---\n\n"
               "Your task:\n"
-              "1. Analyse the page content and determine what to implement in this repo.\n"
+              "1. Follow the user instruction above. Use the URL content as reference.\n"
+              "   If no instruction given, infer what to implement from the URL content.\n"
               "2. Output file changes using this exact format for each file:\n\n"
               "=== FILE: path/to/file.ext ===\n"
               "<complete file contents>\n"
@@ -147,7 +154,7 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           pip install openai -q
-          python3 /tmp/run_llm.py "${{ steps.issue.outputs.url }}" "${{ steps.issue.outputs.number }}"
+          python3 /tmp/run_llm.py "${{ steps.issue.outputs.url }}" "${{ steps.issue.outputs.number }}" "${{ steps.issue.outputs.task }}"
 
       - name: Commit and push
         id: commit
