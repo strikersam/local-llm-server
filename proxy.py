@@ -370,10 +370,26 @@ async def admin_create_key(
 @app.post("/admin/api/login")
 async def admin_login(body: AdminLoginBody):
     if not ADMIN_AUTH.enabled:
-        raise HTTPException(status_code=404, detail="Admin login is not enabled")
+        # Bug 3: help the user recover from this — admin portal uses ADMIN_SECRET
+        # as the password, not ADMIN_PASSWORD (which is the dashboard user login).
+        raise HTTPException(
+            status_code=404,
+            detail=(
+                "Admin login is not enabled. Set ADMIN_SECRET in your .env file "
+                "to any strong random string (e.g. `python -c \"import secrets; print(secrets.token_urlsafe(32))\"`), restart the proxy, then log in at "
+                "/admin/ui/login with any username and that secret as the password."
+            ),
+        )
     identity = ADMIN_AUTH.authenticate(body.username, body.password)
     if not identity:
-        raise HTTPException(status_code=401, detail="Invalid admin credentials")
+        raise HTTPException(
+            status_code=401,
+            detail=(
+                "Invalid admin credentials. The Admin Portal uses ADMIN_SECRET as the "
+                "password (NOT ADMIN_PASSWORD — that one is for the dashboard user login). "
+                "Check the ADMIN_SECRET value in your .env file."
+            ),
+        )
     session = ADMIN_AUTH.sessions.create(identity)
     return {
         "token": session.token,

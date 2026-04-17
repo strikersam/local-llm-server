@@ -36,6 +36,11 @@ function StatusIcon({ status }) {
   return <AlertCircle size={13} className="text-[#F59E0B]" />;
 }
 
+// Bug 2 hint: localhost in the Ollama base URL won't resolve from a
+// Docker backend container. Use http://host.docker.internal:11434 on
+// Mac/Windows, the LAN IP on Linux, or http://ollama:11434 inside
+// docker-compose. The backend will also auto-rewrite localhost→ollama
+// when it detects it's running inside Docker (see _resolve_ollama_url).
 export default function ProvidersPage() {
   const [providers, setProviders] = useState([]);
   const [showAdd, setShowAdd] = useState(false);
