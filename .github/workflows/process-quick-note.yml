@@ -116,12 +116,12 @@ jobs:
           )
 
           client = OpenAI(
-              base_url="https://models.inference.ai.azure.com",
-              api_key=os.environ["GITHUB_TOKEN"],
+              base_url="https://api.groq.com/openai/v1",
+              api_key=os.environ["GROQ_API_KEY"],
           )
-          print("Calling GitHub Models (Llama 3.3 70B)...")
+          print("Calling Groq (Llama 3.3 70B)...")
           message = client.chat.completions.create(
-              model="Meta-Llama-3.3-70B-Instruct",
+              model="llama-3.3-70b-versatile",
               max_tokens=8192,
               messages=[{"role": "user", "content": prompt}]
           )
@@ -149,9 +149,9 @@ jobs:
           print("Done applying changes.")
           PYEOF
 
-      - name: Run LLM via GitHub Models
+      - name: Run LLM via Groq
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
         run: |
           pip install openai -q
           python3 /tmp/run_llm.py "${{ steps.issue.outputs.url }}" "${{ steps.issue.outputs.number }}" "${{ steps.issue.outputs.task }}"
