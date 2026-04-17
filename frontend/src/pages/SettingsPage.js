@@ -169,7 +169,7 @@ export default function SettingsPage() {
           <div className="p-4 grid grid-cols-3 gap-4">
             <S ok={health?.status === 'ok'} label="System" />
             <S ok={health?.mongo} label="MongoDB" />
-            <S ok={health?.ollama} label="Ollama" />
+            {health?.ollama_relevant !== false && <S ok={health?.ollama} label="Ollama" />}
           </div>
         </div>
 

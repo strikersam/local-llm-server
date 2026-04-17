@@ -147,13 +147,21 @@ export default function AdminPortalPage() {
 
   const authenticated = Boolean(token);
 
+  function fmtNetErr(e, url) {
+    const msg = e?.message || '';
+    if (msg === 'Load failed' || msg === 'Failed to fetch' || msg.includes('NetworkError') || msg.includes('fetch')) {
+      return `Cannot reach ${url} — is the proxy running? Click Config to update the backend URL.`;
+    }
+    return msg;
+  }
+
   // ── Load status + keys after login ──────────────────────────────────────────
   const loadStatus = useCallback(async (tk = token, url = backendUrl) => {
     if (!tk) return;
     setStatusBusy(true); setStatusErr('');
     try { setStatus(await apiFetch(url, '/admin/api/status', tk)); }
     catch (e) {
-      setStatusErr(e.message);
+      setStatusErr(fmtNetErr(e, url));
       if (e.message.includes('401') || e.message.includes('403')) { setToken(''); setUsername(''); }
     }
     finally { setStatusBusy(false); }
@@ -163,7 +171,7 @@ export default function AdminPortalPage() {
     if (!tk) return;
     setKeysBusy(true); setKeysErr('');
     try { const d = await apiFetch(url, '/admin/api/users', tk); setKeys(d.records || []); }
-    catch (e) { setKeysErr(e.message); }
+    catch (e) { setKeysErr(fmtNetErr(e, url)); }
     finally { setKeysBusy(false); }
   }, [token, backendUrl]);
 

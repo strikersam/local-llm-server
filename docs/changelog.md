@@ -10,6 +10,11 @@
 
 ### Fixed
 
+- **`Dockerfile.backend` missing agent/router modules**: Added `COPY agent/ agent/` and `COPY router/ router/` so the deployed backend can import `AgentRunner` — fixes `ModuleNotFoundError: No module named 'agent'` in cloud deployments.
+- **`_run_agent_loop` ImportError now surfaces a helpful message**: Wraps the lazy `from agent.loop import AgentRunner` import in a `try/except ImportError` and returns a structured troubleshooting message instead of silently falling back to the LLM.
+- **Admin portal shows actionable error when backend URL is stale**: "Load failed" (Safari) / "Failed to fetch" (Chrome) network errors in `AdminPortalPage.js` now display "Cannot reach [URL] — is the proxy running? Click Config to update the backend URL."
+- **Ollama health check is now context-aware**: The `/api/health` endpoint skips the Ollama reachability probe when the active LLM provider is not Ollama-based; `SettingsPage` hides the Ollama health badge when `ollama_relevant` is false.
+- **Duplicate feature singleton block in `proxy.py`**: Removed the second initialisation of `SESSION_MEMORY`, `SCHEDULER`, `BACKGROUND_AGENT`, etc. that caused every feature singleton to be created twice at startup.
 - **Vercel deployments removed**: Added `vercel.json` with `github.enabled: false` to disable Vercel's GitHub integration and stop failing deployment statuses.
 - **pytest collection fixed**: Added `pytest.ini` restricting test discovery to `tests/` — prevents root-level integration scripts (`backend_test.py`, `backend_test_iteration3.py`) from breaking CI.
 

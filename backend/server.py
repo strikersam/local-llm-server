@@ -975,8 +975,20 @@ async def _run_agent_loop(
     requested_model: str | None = None,
     github_token: str | None = None,
 ) -> str:
-    from agent.loop import AgentRunner
-    from agent.user_memory import UserMemoryStore
+    try:
+        from agent.loop import AgentRunner
+        from agent.user_memory import UserMemoryStore
+    except ImportError as exc:
+        return (
+            "⚠️ The agent run failed before it could use any tools.\n\n"
+            f"Error: {exc}\n\n"
+            "Troubleshooting:\n"
+            "• Check that the selected LLM provider is reachable (Providers page → Test).\n"
+            "• If using Ollama in Docker, ensure OLLAMA_BASE_URL points to the container hostname"
+            " (e.g. http://ollama:11434).\n"
+            "• For GitHub operations, verify a token is connected at Settings → GitHub and"
+            " Agent Mode (⚡) is ON."
+        )
 
     # Use a workspace root defined by either environment or a default.
     workspace_root = Path(__file__).resolve().parent
@@ -1814,14 +1826,29 @@ async def health():
         mongo_ok = True
     except Exception:
         mongo_ok = False
-    ollama_ok = False
-    try:
-        async with httpx.AsyncClient(timeout=3) as c:
-            r = await c.get(f"{OLLAMA_BASE}/api/tags")
-            ollama_ok = r.status_code == 200
-    except Exception:
-        pass
-    return {"status": "ok" if mongo_ok else "degraded", "mongo": mongo_ok, "ollama": ollama_ok, "provider": LLM_PROVIDER}
+
+    active = await get_active_provider()
+    active_type = str((active or {}).get("type", "ollama")).lower()
+    active_base = str((active or {}).get("base_url", OLLAMA_BASE))
+    ollama_relevant = active_type in ("ollama", "") or "localhost:11434" in active_base or "11434" in active_base
+
+    ollama_ok: bool | None = None
+    if ollama_relevant:
+        ollama_ok = False
+        try:
+            async with httpx.AsyncClient(timeout=3) as c:
+                r = await c.get(f"{active_base.rstrip('/')}/api/tags")
+                ollama_ok = r.status_code == 200
+        except Exception:
+            pass
+
+    return {
+        "status": "ok" if mongo_ok else "degraded",
+        "mongo": mongo_ok,
+        "ollama": ollama_ok,
+        "ollama_relevant": ollama_relevant,
+        "provider": LLM_PROVIDER,
+    }
 
 
 # ─── GitHub Integration ─────────────────────────────────────────────────────────
