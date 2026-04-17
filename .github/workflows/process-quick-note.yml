@@ -73,17 +73,14 @@ jobs:
           curl -sL --max-time 30 --user-agent "Mozilla/5.0" "$URL" | head -c 12000 > /tmp/note_content.txt
           echo "Fetched $(wc -c < /tmp/note_content.txt) bytes from $URL"
 
-      - name: Run LLM via GitHub Models
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Write LLM script
         run: |
-          pip install openai -q
-          python3 << 'PYEOF'
+          cat > /tmp/run_llm.py << 'PYEOF'
           import os, subprocess, sys, re
           from openai import OpenAI
 
-          url = "${{ steps.issue.outputs.url }}"
-          issue_num = "${{ steps.issue.outputs.number }}"
+          url = sys.argv[1]
+          issue_num = sys.argv[2]
 
           page_content = open("/tmp/note_content.txt").read()
 
@@ -93,28 +90,23 @@ jobs:
           )
           file_tree = result.stdout[:3000]
 
-          prompt = f"""You are implementing a coding task queued by the repository owner via an iPhone shortcut.
-Issue #{issue_num} — URL: {url}
-
-Repository files (partial):
-{file_tree}
-
-Fetched page content from the URL:
----
-{page_content[:8000]}
----
-
-Your task:
-1. Analyse the page content and determine what feature/change should be implemented in this repo.
-2. Output the implementation as a series of file writes using this exact format for each file:
-
-=== FILE: path/to/file.ext ===
-<complete file contents>
-=== END FILE ===
-
-3. After all files, add a short entry to docs/changelog.md under [Unreleased].
-4. Be focused — only implement what is clearly described. Don't invent new features.
-5. If nothing actionable is found, output: NOTHING_TO_IMPLEMENT"""
+          prompt = (
+              "You are implementing a coding task queued by the repository owner via an iPhone shortcut.\n"
+              f"Issue #{issue_num} -- URL: {url}\n\n"
+              "Repository files (partial):\n"
+              + file_tree + "\n\n"
+              "Fetched page content from the URL:\n---\n"
+              + page_content[:8000] + "\n---\n\n"
+              "Your task:\n"
+              "1. Analyse the page content and determine what to implement in this repo.\n"
+              "2. Output file changes using this exact format for each file:\n\n"
+              "=== FILE: path/to/file.ext ===\n"
+              "<complete file contents>\n"
+              "=== END FILE ===\n\n"
+              "3. Add a short entry to docs/changelog.md under [Unreleased].\n"
+              "4. Be focused -- only implement what is clearly described.\n"
+              "5. If nothing actionable, output: NOTHING_TO_IMPLEMENT"
+          )
 
           client = OpenAI(
               base_url="https://models.inference.ai.azure.com",
@@ -130,15 +122,13 @@ Your task:
           print("Response length:", len(response))
 
           if "NOTHING_TO_IMPLEMENT" in response:
-              print("Claude found nothing actionable to implement.")
+              print("Nothing actionable to implement.")
               sys.exit(0)
 
-          # Parse and apply file blocks
-          import re
           pattern = r"=== FILE: (.+?) ===\n(.*?)=== END FILE ==="
           matches = re.findall(pattern, response, re.DOTALL)
           if not matches:
-              print("No FILE blocks found in response. Raw output:")
+              print("No FILE blocks found. Raw output:")
               print(response[:2000])
               sys.exit(0)
 
@@ -151,6 +141,13 @@ Your task:
 
           print("Done applying changes.")
           PYEOF
+
+      - name: Run LLM via GitHub Models
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          pip install openai -q
+          python3 /tmp/run_llm.py "${{ steps.issue.outputs.url }}" "${{ steps.issue.outputs.number }}"
 
       - name: Commit and push
         id: commit
