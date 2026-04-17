@@ -72,8 +72,13 @@ jobs:
             echo "ERROR: no URL found in issue body" >&2
             exit 1
           fi
-          curl -sL --max-time 30 --user-agent "Mozilla/5.0" "$URL" | head -c 12000 > /tmp/note_content.txt
-          echo "Fetched $(wc -c < /tmp/note_content.txt) bytes from $URL"
+          # Fetch and strip HTML tags → plain text is 4x more token-efficient
+          curl -sL --max-time 30 --user-agent "Mozilla/5.0" "$URL" \
+            | sed 's/<[^>]*>/ /g' \
+            | tr -s ' \t' ' ' \
+            | grep -v '^\s*$' \
+            | head -c 5000 > /tmp/note_content.txt
+          echo "Extracted $(wc -c < /tmp/note_content.txt) chars of plain text from $URL"
 
       - name: Write LLM script
         run: |
@@ -91,7 +96,7 @@ jobs:
               ["git", "ls-files", "--", "*.py", "*.js", "*.ts", "*.tsx", "*.yml", "*.yaml", "*.md"],
               capture_output=True, text=True
           )
-          file_tree = result.stdout[:3000]
+          file_tree = result.stdout[:1500]
 
           task_line = f"User instruction: {task}\n\n" if task else ""
 
@@ -102,7 +107,7 @@ jobs:
               + "Repository files (partial):\n"
               + file_tree + "\n\n"
               "Fetched page content from the URL:\n---\n"
-              + page_content[:8000] + "\n---\n\n"
+              + page_content[:4000] + "\n---\n\n"
               "Your task:\n"
               "1. Follow the user instruction above. Use the URL content as reference.\n"
               "   If no instruction given, infer what to implement from the URL content.\n"
