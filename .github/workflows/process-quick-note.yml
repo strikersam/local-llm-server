@@ -84,7 +84,6 @@ jobs:
         run: |
           cat > /tmp/run_llm.py << 'PYEOF'
           import os, subprocess, sys, re
-          from openai import OpenAI
 
           url = sys.argv[1]
           issue_num = sys.argv[2]
@@ -111,28 +110,52 @@ jobs:
               "Your task:\n"
               "1. Follow the user instruction above. Use the URL content as reference.\n"
               "   If no instruction given, infer what to implement from the URL content.\n"
-              "2. Output file changes using this exact format for each file:\n\n"
+              "2. Output EVERY file change using this EXACT format (no other format accepted):\n\n"
               "=== FILE: path/to/file.ext ===\n"
-              "<complete file contents>\n"
+              "<complete file contents here>\n"
               "=== END FILE ===\n\n"
               "3. Add a short entry to docs/changelog.md under [Unreleased].\n"
               "4. Be focused -- only implement what is clearly described.\n"
-              "5. If nothing actionable, output: NOTHING_TO_IMPLEMENT"
+              "5. If nothing actionable, output only: NOTHING_TO_IMPLEMENT"
           )
 
-          client = OpenAI(
-              base_url="https://api.groq.com/openai/v1",
-              api_key=os.environ["GROQ_API_KEY"],
-          )
-          print("Calling Groq (Llama 3.3 70B)...")
-          message = client.chat.completions.create(
-              model="llama-3.3-70b-versatile",
-              max_tokens=8192,
-              messages=[{"role": "user", "content": prompt}]
-          )
-          response = message.choices[0].message.content
-          print("Response length:", len(response))
+          # Smart model routing: complex tasks -> Claude Sonnet, simple -> Groq Llama
+          complex_keywords = [
+              "architect", "implement", "design", "system", "integrate", "refactor",
+              "feature", "cloud", "vercel", "deploy", "agent", "migration", "auth",
+              "security", "performance", "scalab", "multi", "async", "pipeline"
+          ]
+          task_lower = (task + " " + url).lower()
+          is_complex = any(kw in task_lower for kw in complex_keywords) or len(task) > 80
 
+          anthropic_key = os.environ.get("ANTHROPIC_API_KEY", "")
+          groq_key = os.environ.get("GROQ_API_KEY", "")
+
+          if is_complex and anthropic_key:
+              import anthropic
+              print(f"Complex task detected — using Claude Sonnet (Anthropic API)")
+              client = anthropic.Anthropic(api_key=anthropic_key)
+              msg = client.messages.create(
+                  model="claude-sonnet-4-6",
+                  max_tokens=8192,
+                  messages=[{"role": "user", "content": prompt}]
+              )
+              response = msg.content[0].text
+          elif groq_key:
+              from openai import OpenAI
+              print(f"Simple task or no Anthropic key — using Groq (Llama 3.3 70B)")
+              client = OpenAI(base_url="https://api.groq.com/openai/v1", api_key=groq_key)
+              msg = client.chat.completions.create(
+                  model="llama-3.3-70b-versatile",
+                  max_tokens=8192,
+                  messages=[{"role": "user", "content": prompt}]
+              )
+              response = msg.choices[0].message.content
+          else:
+              print("ERROR: No API key available (ANTHROPIC_API_KEY or GROQ_API_KEY required)")
+              sys.exit(1)
+
+          print(f"Response length: {len(response)} chars")
           print("--- LLM RESPONSE START ---")
           print(response[:3000])
           print("--- LLM RESPONSE END ---")
@@ -141,15 +164,13 @@ jobs:
               print("Nothing actionable to implement.")
               sys.exit(0)
 
-          # Try === FILE: === format first, then fall back to markdown fenced blocks
           pattern = r"=== FILE: (.+?) ===\n(.*?)=== END FILE ==="
           matches = re.findall(pattern, response, re.DOTALL)
           if not matches:
-              # Try markdown: ```lang\n# filepath\n...``` or ```\n// filepath\n...```
               pattern2 = r"```[^\n]*\n(?:#|//|--)\s*([^\n]+)\n(.*?)```"
               matches = re.findall(pattern2, response, re.DOTALL)
           if not matches:
-              print("No file blocks found in response — writing response to /tmp/llm_response.txt")
+              print("No file blocks found — writing response to /tmp/llm_response.txt")
               with open("/tmp/llm_response.txt", "w") as f:
                   f.write(response)
               sys.exit(0)
@@ -164,15 +185,14 @@ jobs:
           print("Done applying changes.")
           PYEOF
 
-      - name: Run LLM via Groq
+      - name: Run LLM (smart routing — Sonnet for complex, Groq for simple)
         id: llm
         env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
         run: |
-          echo "GROQ key present: $( [ -n "$GROQ_API_KEY" ] && echo YES || echo NO )"
-          pip install openai -q
+          pip install openai anthropic -q
           python3 /tmp/run_llm.py "${{ steps.issue.outputs.url }}" "${{ steps.issue.outputs.number }}" "${{ steps.issue.outputs.task }}" 2>&1 | tee /tmp/llm_output.txt
-          echo "llm_exit=${PIPESTATUS[0]}" >> "$GITHUB_OUTPUT"
 
       - name: Commit and push
         id: commit
