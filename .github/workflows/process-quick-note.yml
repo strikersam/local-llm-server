@@ -2,7 +2,7 @@ name: Process Quick Note
 
 on:
   issues:
-    types: [labeled]
+    types: [opened]
   workflow_dispatch:
     inputs:
       issue_number:
@@ -19,7 +19,7 @@ permissions:
 
 jobs:
   process:
-    if: github.event.label.name == 'quick-note' || github.event_name == 'workflow_dispatch'
+    if: startsWith(github.event.issue.title, 'quick-note:') || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
 
     steps:
