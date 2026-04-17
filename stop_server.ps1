@@ -21,7 +21,7 @@ if (Test-Path $PID_FILE) {
     Remove-Item $PID_FILE -Force
 } else {
     Write-Host "[!] No PID file found. Killing by process name / command line..." -ForegroundColor Yellow
-    Get-Process -Name "cloudflared" -ErrorAction SilentlyContinue | Stop-Process -Force
+    Get-Process -Name "ngrok"       -ErrorAction SilentlyContinue | Stop-Process -Force
     Get-Process -Name "ollama"      -ErrorAction SilentlyContinue | Stop-Process -Force
     Get-CimInstance Win32_Process | Where-Object { $_.CommandLine -like "*proxy:app*" } | ForEach-Object {
         Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue

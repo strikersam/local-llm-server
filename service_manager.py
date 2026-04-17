@@ -52,6 +52,23 @@ class WindowsServiceManager:
             creationflags=_creationflags(),
         )
 
+    def _spawn_tunnel(self) -> None:
+        ngrok_exe = os.environ.get("NGROK_EXE")
+        if not ngrok_exe:
+            candidate = Path.home() / "AppData" / "Local" / "ngrok" / "ngrok.exe"
+            ngrok_exe = str(candidate) if candidate.exists() else "ngrok"
+        args = [ngrok_exe, "http", str(self.proxy_port), "--log=stderr"]
+        domain = os.environ.get("NGROK_DOMAIN", "").strip()
+        if domain:
+            args.append(f"--url={domain}")
+        subprocess.Popen(
+            args,
+            cwd=self.root,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            creationflags=_creationflags(),
+        )
+
     def _spawn_cmd(self, command: str) -> None:
         if sys.platform != "win32":
             raise ValueError(
@@ -168,7 +185,7 @@ class WindowsServiceManager:
                 if pid:
                     pid_map["proxy"] = pid
             if not self._find_pid("tunnel"):
-                self._spawn_file("run_tunnel.bat")
+                self._spawn_tunnel()
                 time.sleep(1)
                 pid = self._find_pid("tunnel")
                 if pid:
@@ -192,7 +209,7 @@ class WindowsServiceManager:
             if pid:
                 pid_map["proxy"] = pid
         elif target == "tunnel" and not self._find_pid("tunnel"):
-            self._spawn_file("run_tunnel.bat")
+            self._spawn_tunnel()
             time.sleep(1)
             pid = self._find_pid("tunnel")
             if pid:

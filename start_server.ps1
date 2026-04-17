@@ -79,11 +79,16 @@ $ollamaProc = Start-Process -FilePath "$SCRIPT_DIR\run_ollama.bat" `
 for ($i = 1; $i -le 20; $i++) {
     Start-Sleep -Seconds 1
     try {
-        $resp = Invoke-WebRequest -Uri "http://localhost:11434/api/tags" -UseBasicParsing -TimeoutSec 2 -ErrorAction Stop
+        $resp = Invoke-WebRequest -Uri "http://localhost:11434/api/version" -UseBasicParsing -TimeoutSec 5 -ErrorAction Stop
         if ($resp.StatusCode -eq 200) {
             Write-Host "[OK] Ollama ready (PID $($ollamaProc.Id))" -ForegroundColor Green
-            $models = ($resp.Content | ConvertFrom-Json).models
-            $models | ForEach-Object { Write-Host "     - $($_.name) ($([math]::Round($_.size/1GB,1)) GB)" }
+            try {
+                $tagsResp = Invoke-WebRequest -Uri "http://localhost:11434/api/tags" -UseBasicParsing -TimeoutSec 3 -ErrorAction Stop
+                $models = ($tagsResp.Content | ConvertFrom-Json).models
+                $models | ForEach-Object { Write-Host "     - $($_.name) ($([math]::Round($_.size/1GB,1)) GB)" }
+            } catch {
+                Write-Host "     - Model list not ready yet" -ForegroundColor Gray
+            }
             break
         }
     } catch {}
@@ -112,9 +117,17 @@ $proxyProc = Start-Process -FilePath "$SCRIPT_DIR\run_proxy.bat" `
 for ($i = 1; $i -le 15; $i++) {
     Start-Sleep -Seconds 1
     try {
-        $resp = Invoke-WebRequest -Uri "http://localhost:$($env:PROXY_PORT)/health" -UseBasicParsing -TimeoutSec 2 -ErrorAction Stop
-        if ($resp.StatusCode -eq 200) {
+        $listener = Get-NetTCPConnection -LocalPort $env:PROXY_PORT -State Listen -ErrorAction Stop | Select-Object -First 1
+        if ($listener) {
             Write-Host "[OK] Auth Proxy running on port $($env:PROXY_PORT) (PID $($proxyProc.Id))" -ForegroundColor Green
+            try {
+                $resp = Invoke-WebRequest -Uri "http://localhost:$($env:PROXY_PORT)/health" -UseBasicParsing -TimeoutSec 3 -ErrorAction Stop
+                if ($resp.StatusCode -eq 200) {
+                    Write-Host "     - Health endpoint responded" -ForegroundColor Gray
+                }
+            } catch {
+                Write-Host "     - Health endpoint not ready yet, but the port is listening" -ForegroundColor Gray
+            }
             break
         }
     } catch {}
@@ -138,7 +151,13 @@ if (-not $ngrokExe) {
     Get-Process -Name "ngrok" -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
     Start-Sleep -Milliseconds 500
 
-    $ngrokProc = Start-Process -FilePath "$SCRIPT_DIR\run_tunnel.bat" `
+    $ngrokArgs = @("http", "$($env:PROXY_PORT)", "--log=stderr")
+    if ($env:NGROK_DOMAIN) {
+        $ngrokArgs += "--url=$($env:NGROK_DOMAIN)"
+    }
+
+    $ngrokProc = Start-Process -FilePath $ngrokExe `
+        -ArgumentList $ngrokArgs `
         -WorkingDirectory $SCRIPT_DIR `
         -RedirectStandardOutput "$LOG_DIR\tunnel.log" `
         -RedirectStandardError  "$LOG_DIR\tunnel-err.log" `
@@ -149,26 +168,40 @@ if (-not $ngrokExe) {
     for ($i = 1; $i -le 15; $i++) {
         Start-Sleep -Seconds 1
         try {
-            $apiResp = Invoke-RestMethod -Uri "http://localhost:4040/api/tunnels" -TimeoutSec 2 -ErrorAction Stop
-            $https = $apiResp.tunnels | Where-Object { $_.public_url -like "https://*" } | Select-Object -First 1
-            if ($https) {
-                $tunnelUrl = $https.public_url
-                # Persist as PUBLIC_URL so admin UI and proxy reflect it immediately
-                [System.Environment]::SetEnvironmentVariable("PUBLIC_URL", $tunnelUrl, "Process")
+            $listener = Get-NetTCPConnection -LocalPort 4040 -State Listen -ErrorAction Stop | Select-Object -First 1
+            if ($listener) {
+                try {
+                    $apiResp = Invoke-RestMethod -Uri "http://localhost:4040/api/tunnels" -TimeoutSec 3 -ErrorAction Stop
+                    $https = $apiResp.tunnels | Where-Object { $_.public_url -like "https://*" } | Select-Object -First 1
+                    if ($https) {
+                        $tunnelUrl = $https.public_url
+                        # Persist as PUBLIC_URL so admin UI and proxy reflect it immediately
+                        [System.Environment]::SetEnvironmentVariable("PUBLIC_URL", $tunnelUrl, "Process")
+                    }
+                } catch {}
                 break
             }
         } catch {}
+    }
+
+    if (-not (Get-NetTCPConnection -LocalPort 4040 -State Listen -ErrorAction SilentlyContinue | Select-Object -First 1)) {
+        Write-Host "[FAIL] Tunnel did not become ready. Check $LOG_DIR\tunnel-err.log" -ForegroundColor Red
+        exit 1
     }
 
     Write-Host "[OK] Tunnel started (PID $($ngrokProc.Id))" -ForegroundColor Green
     if ($tunnelUrl) {
         Write-Host ""
         Write-Host "  >>> Public URL: $tunnelUrl <<<" -ForegroundColor Yellow
-        $tunnelUrl | Set-Clipboard
-        Write-Host "  (URL copied to clipboard)" -ForegroundColor Gray
+        try {
+            $tunnelUrl | Set-Clipboard
+            Write-Host "  (URL copied to clipboard)" -ForegroundColor Gray
+        } catch {
+            Write-Host "  (Could not copy URL to clipboard in this session)" -ForegroundColor Gray
+        }
         Write-Host ""
     } else {
-        Write-Host "  Could not detect URL yet - check Admin UI or http://localhost:4040" -ForegroundColor Yellow
+        Write-Host "  (Tunnel API listener is up; public URL not fetched yet)" -ForegroundColor Gray
     }
 }
 
