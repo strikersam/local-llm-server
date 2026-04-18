@@ -7,6 +7,7 @@ and full streaming support. Exposes both:
   - OpenAI-compatible API (/v1/*)  ← works with Cursor, Continue, Aider, etc.
 """
 
+import hmac
 import os
 import sys
 import json
@@ -257,7 +258,7 @@ def _require_admin(x_admin_secret: str | None, authorization: str | None) -> Non
     got = (x_admin_secret or "").strip()
     if not got and authorization and authorization.startswith("Bearer "):
         got = authorization[7:].strip()
-    if got != ADMIN_SECRET:
+    if not got or not hmac.compare_digest(got.encode("utf-8"), ADMIN_SECRET.encode("utf-8")):
         raise HTTPException(status_code=401, detail="Unauthorized")
 
 
