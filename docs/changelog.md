@@ -3,7 +3,6 @@
 ## [Unreleased]
 
 ### Added
-- **Local AI Stack (Docker):** Added `docker/local-ai-stack/` with a full Docker Compose setup including Ollama (local LLM runner), Open WebUI (chat interface), ChromaDB (vector DB for RAG), and optional N8N automation — enabling a fully self-hosted, privacy-first AI stack inspired by the XDA Developers local AI guide.
-- **`local-ai-query` skill:** New Claude skill (`/.claude/skills/local-ai-query/SKILL.md`) for routing prompts to a locally running Ollama instance — useful for sensitive code, offline work, or cost-conscious tasks.
-- **Health check script:** `scripts/local-ai-health-check.sh` — verifies all local AI stack services are running.
-- **Model pull script:** `scripts/pull-ai-models.sh` — automates pulling curated Ollama models (minimal and full sets).
+- `sandboxed-exec` skill: run commands/code in an isolated temp-dir sandbox before touching the real workspace, mirroring the Modal Sandbox isolation pattern.
+- `parallel-agents` skill: decompose a task into N independent subtasks dispatched as parallel subagents with `first-wins`, `collect-all`, or `best-of` aggregation strategies — inspired by the Modal + OpenAI Agents SDK parallel coding-agent architecture.
+- `agent-harness` skill: structured agent loop scaffolding (task → capabilities → iterative tool execution → stop condition) based on the OpenAI Agents SDK harness pattern.
