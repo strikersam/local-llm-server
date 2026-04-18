@@ -82,12 +82,18 @@ _STRIP_THINK_TAGS = os.environ.get("PROXY_STRIP_THINK_TAGS", "false").strip().lo
 _DEFAULT_SYSTEM_PROMPT_INLINE = os.environ.get("PROXY_DEFAULT_SYSTEM_PROMPT", "").strip()
 _DEFAULT_SYSTEM_PROMPT_FILE = os.environ.get("PROXY_DEFAULT_SYSTEM_PROMPT_FILE", "").strip()
 _DEFAULT_MAX_TOKENS_RAW = os.environ.get("PROXY_DEFAULT_MAX_TOKENS", "").strip()
+_DEFAULT_TEMPERATURE_RAW = os.environ.get("PROXY_DEFAULT_TEMPERATURE", "").strip()
 _CACHED_DEFAULT_SYSTEM_PROMPT: str | None = None
 
 try:
     _DEFAULT_MAX_TOKENS = int(_DEFAULT_MAX_TOKENS_RAW) if _DEFAULT_MAX_TOKENS_RAW else 0
 except ValueError:
     _DEFAULT_MAX_TOKENS = 0
+
+try:
+    _DEFAULT_TEMPERATURE: float | None = float(_DEFAULT_TEMPERATURE_RAW) if _DEFAULT_TEMPERATURE_RAW else None
+except ValueError:
+    _DEFAULT_TEMPERATURE = None
 
 
 def _load_default_system_prompt() -> str:
@@ -127,12 +133,11 @@ def _inject_default_system_prompt(payload: dict[str, Any]) -> dict[str, Any]:
 
 
 def _apply_chat_defaults(payload: dict[str, Any]) -> dict[str, Any]:
-    if _DEFAULT_MAX_TOKENS <= 0:
-        return payload
-    if "max_tokens" in payload or "maxTokens" in payload:
-        return payload
     copied = dict(payload)
-    copied["max_tokens"] = _DEFAULT_MAX_TOKENS
+    if _DEFAULT_MAX_TOKENS > 0 and "max_tokens" not in payload and "maxTokens" not in payload:
+        copied["max_tokens"] = _DEFAULT_MAX_TOKENS
+    if _DEFAULT_TEMPERATURE is not None and "temperature" not in payload:
+        copied["temperature"] = _DEFAULT_TEMPERATURE
     return copied
 
 
