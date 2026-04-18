@@ -8,6 +8,11 @@
 
 ## [Unreleased]
 
+### Fixed
+
+- **`webui/router.py` `ui_chat` missing auth for self-referencing providers**: When a provider's `base_url` is the same origin as the proxy itself (e.g., the ngrok public URL), the `/ui/api/chat` endpoint now forwards the caller's API key as a `Bearer` token — consistent with how the agent path handles self-referencing via `_provider_headers_for_request`. Previously the call was sent unauthenticated, causing 401 errors.
+- **`proxy.py` startup warning for non-local `OLLAMA_BASE`**: The proxy now logs a warning at startup when `OLLAMA_BASE` is not a loopback/local address. Setting `OLLAMA_BASE` to a public tunnel URL (ngrok, cloudflare, etc.) causes the proxy to call itself in a loop and fail when the tunnel is offline; the warning directs operators to set `OLLAMA_BASE=http://localhost:11434` in `.env`.
+
 ### Removed
 
 - **Dashboard SPA: redundant agent + key-management pages consolidated** (`frontend/src/pages/`):
