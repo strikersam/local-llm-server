@@ -279,41 +279,339 @@ Password: WikiAdmin2026!
 
 ## Connecting External Tools
 
-The proxy speaks the OpenAI API. Any tool that accepts a custom base URL works without modification.
+The proxy is OpenAI API-compatible. Any tool that accepts a custom base URL works without modification.
+
+---
+
+### Before You Start
+
+#### 1 — Your server URL
+
+| Where you're connecting from | URL to use |
+|---|---|
+| Same machine as the server | `http://localhost:8000` |
+| Another device on your LAN | `http://192.168.x.x:8000` (your server's local IP) |
+| Anywhere on the internet | `https://your-domain.ngrok-free.dev` (ngrok) or `https://xxx.trycloudflare.com` (Cloudflare) |
+
+To enable remote access, run ngrok once to set up a stable free domain:
+```bash
+python setup_ngrok.py          # generates run_tunnel.sh and saves domain to .env
+./run_tunnel.sh                # start the tunnel (keep this running)
+```
+Or use Cloudflare Tunnel: `docker compose --profile tunnel up -d`
+
+The current public URL is always shown in the **Settings → Public Access** section of the dashboard.
+
+#### 2 — Generate an API key
+
+```bash
+python generate_api_key.py     # prints a new key — add it to .env API_KEYS
+```
+
+Or via the dashboard: **Admin → API Keys → Issue Key**.
+
+Keys look like `sk-relay-xxxxxxxxxxxxxxxx`. Use this value anywhere `YOUR_API_KEY` appears below.
+
+#### 3 — Critical `.env` check
+
+> **`OLLAMA_BASE` must always be `http://localhost:11434`** (or wherever Ollama is running locally).
+> Never set it to your ngrok or Cloudflare URL — that makes the proxy call itself through the internet,
+> which breaks LLM calls whenever the tunnel is offline.
+
+```env
+# .env — correct
+OLLAMA_BASE=http://localhost:11434
+
+# .env — WRONG: causes circular routing and 404 errors when tunnel is offline
+# OLLAMA_BASE=https://your-domain.ngrok-free.dev   ← do NOT do this
+```
+
+---
 
 ### Cursor IDE
-```
-Settings → Models → OpenAI API Key:
-  API Key:  <from API Keys page>
-  Base URL: https://your-tunnel.trycloudflare.com/v1
-  Model:    qwen3-coder:30b
-```
+
+**All platforms** — works with Cursor's built-in model picker.
+
+1. Open **Settings** (`Ctrl+,` / `Cmd+,`) → **Models** → scroll to the bottom
+2. Toggle **ON** "OpenAI API Key"
+3. Fill in:
+   ```
+   API Key:               sk-relay-...
+   Override OpenAI Base URL:  https://your-domain.ngrok-free.dev/v1
+   ```
+   *(For local access use `http://localhost:8000/v1`)*
+4. Click **Verify** — the model list auto-populates from `/v1/models`
+5. Type model names and press Enter to add them:
+   ```
+   qwen3-coder:30b
+   deepseek-r1:32b
+   deepseek-r1:671b
+   ```
+
+The full reference config is in `client-configs/cursor_settings.json`.
+
+---
 
 ### Claude Code CLI
+
+The proxy implements the Anthropic Messages API at `/v1/messages`, so Claude Code connects directly.
+
+**Remote access (different machine / phone)**:
 ```bash
-export ANTHROPIC_BASE_URL=https://your-tunnel.trycloudflare.com
+export ANTHROPIC_BASE_URL=https://your-domain.ngrok-free.dev
 export ANTHROPIC_API_KEY=sk-relay-...
 claude
 ```
 
-### Aider
+**Local access (same machine as server)**:
 ```bash
-aider --openai-api-base https://your-tunnel.trycloudflare.com/v1 \
-      --openai-api-key sk-relay-...
+export ANTHROPIC_BASE_URL=http://localhost:8000
+export ANTHROPIC_API_KEY=sk-relay-...
+claude
 ```
 
-### Continue (VS Code / JetBrains)
+> Note: `ANTHROPIC_BASE_URL` takes no `/v1` suffix — Claude Code appends the path itself.
+
+To make these permanent, add the exports to your shell profile (`~/.bashrc`, `~/.zshrc`, or PowerShell profile).
+
+---
+
+### Aider
+
+#### Linux / macOS / WSL
+
+```bash
+# Option A: source the helper script
+source client-configs/aider_config.sh   # edit YOUR_TUNNEL_URL and YOUR_API_KEY first
+
+# Option B: set env vars directly
+export OPENAI_API_BASE="https://your-domain.ngrok-free.dev/v1"
+export OPENAI_API_KEY="sk-relay-..."
+
+# Then run aider — prefix model name with openai/
+aider --model openai/qwen3-coder:30b
+aider --model openai/deepseek-r1:32b
+aider --model openai/deepseek-r1:671b
+```
+
+#### Windows PowerShell
+
+```powershell
+# Option A: source the helper script
+. .\client-configs\aider_config.ps1   # edit YOUR_TUNNEL_URL and YOUR_API_KEY first
+
+# Option B: set env vars directly
+$env:OPENAI_API_BASE = "https://your-domain.ngrok-free.dev/v1"
+$env:OPENAI_API_KEY  = "sk-relay-..."
+
+# Then run aider
+aider --model openai/qwen3-coder:30b
+```
+
+---
+
+### Continue (VS Code)
+
+Continue stores its config in `~/.continue/config.yaml` (current versions) or `~/.continue/config.json` (older installs).
+
+**Current versions (config.yaml)**:
+```bash
+cp client-configs/continue_config.yaml ~/.continue/config.yaml
+```
+
+Then open `~/.continue/config.yaml` and replace the two placeholders:
+```yaml
+models:
+  - name: Qwen3-Coder 30B
+    provider: openai
+    model: qwen3-coder:30b
+    apiBase: https://your-domain.ngrok-free.dev/v1   # ← your URL here
+    apiKey: sk-relay-...                              # ← your key here
+    roles:
+      - chat
+      - edit
+      - apply
+      - autocomplete
+      - summarize
+
+  - name: DeepSeek-R1 32B
+    provider: openai
+    model: deepseek-r1:32b
+    apiBase: https://your-domain.ngrok-free.dev/v1
+    apiKey: sk-relay-...
+    roles:
+      - chat
+
+tabAutocompleteModel:
+  name: Qwen3-Coder 30B Autocomplete
+  provider: openai
+  model: qwen3-coder:30b
+  apiBase: https://your-domain.ngrok-free.dev/v1
+  apiKey: sk-relay-...
+```
+
+**Older versions (config.json)**:
+```bash
+cp client-configs/continue_config.json ~/.continue/config.json
+# Then edit apiBase and apiKey in the file
+```
+
+After saving, reload the Continue extension — your local models appear in the model picker immediately.
+
+---
+
+### Continue (JetBrains)
+
+Same config file as VS Code — Continue reads `~/.continue/config.yaml` on all platforms.
+
+1. Install the **Continue** plugin from JetBrains Marketplace
+2. Copy and edit `client-configs/continue_config.yaml` as shown above
+3. Restart the IDE — models appear in the Continue tool window
+
+---
+
+### VS Code (generic OpenAI extension)
+
+For extensions that use VS Code's built-in OpenAI settings (not Continue):
+
+Open **File → Preferences → Settings → Open settings.json** and add:
+
 ```json
 {
-  "models": [{
-    "title": "Local LLM",
-    "provider": "openai",
-    "model": "qwen3-coder:30b",
-    "apiBase": "https://your-tunnel.trycloudflare.com/v1",
-    "apiKey": "sk-relay-..."
-  }]
+  "openai.apiKey": "sk-relay-...",
+  "openai.organization": "",
+  "openai.baseUrl": "https://your-domain.ngrok-free.dev/v1"
 }
 ```
+
+The full reference is in `client-configs/vscode_settings.json`.
+
+---
+
+### Zed Editor
+
+Zed reads its settings from:
+
+| Platform | Path |
+|---|---|
+| macOS | `~/.config/zed/settings.json` |
+| Linux | `~/.config/zed/settings.json` |
+| Windows | `%APPDATA%\Zed\settings.json` |
+
+1. Set your API key as a system environment variable named `OPENAI_API_KEY` (Zed reads it at startup):
+   ```bash
+   # macOS / Linux
+   export OPENAI_API_KEY=sk-relay-...   # add to ~/.bashrc or ~/.zshrc
+   
+   # Windows
+   [System.Environment]::SetEnvironmentVariable("OPENAI_API_KEY","sk-relay-...","User")
+   ```
+
+2. Merge the following into your Zed `settings.json`:
+   ```json
+   {
+     "language_models": {
+       "openai": {
+         "api_url": "https://your-domain.ngrok-free.dev/v1",
+         "available_models": [
+           {
+             "name": "qwen3-coder:30b",
+             "display_name": "Qwen3-Coder 30B",
+             "max_tokens": 262144,
+             "max_completion_tokens": 8192,
+             "capabilities": { "tools": false, "images": false, "chat_completions": true }
+           },
+           {
+             "name": "deepseek-r1:32b",
+             "display_name": "DeepSeek-R1 32B",
+             "max_tokens": 131072,
+             "max_completion_tokens": 8192,
+             "capabilities": { "tools": false, "images": false, "chat_completions": true }
+           },
+           {
+             "name": "deepseek-r1:671b",
+             "display_name": "DeepSeek-R1 671B",
+             "max_tokens": 163840,
+             "max_completion_tokens": 8192,
+             "capabilities": { "tools": true, "images": false, "chat_completions": true }
+           }
+         ]
+       }
+     }
+   }
+   ```
+
+3. Restart Zed and open the **Agent** panel — your models appear in the model dropdown.
+
+The full reference config is in `client-configs/zed_settings.json`.
+
+---
+
+### Python / OpenAI SDK
+
+```bash
+pip install openai
+```
+
+```python
+from openai import OpenAI
+
+client = OpenAI(
+    base_url="https://your-domain.ngrok-free.dev/v1",  # or http://localhost:8000/v1
+    api_key="sk-relay-...",
+)
+
+# List available models
+for m in client.models.list().data:
+    print(m.id)
+
+# Chat (non-streaming)
+response = client.chat.completions.create(
+    model="qwen3-coder:30b",
+    messages=[{"role": "user", "content": "Hello"}],
+)
+print(response.choices[0].message.content)
+
+# Chat (streaming)
+stream = client.chat.completions.create(
+    model="deepseek-r1:32b",
+    messages=[{"role": "user", "content": "Explain binary search"}],
+    stream=True,
+)
+for chunk in stream:
+    if chunk.choices[0].delta.content:
+        print(chunk.choices[0].delta.content, end="", flush=True)
+```
+
+A runnable example is in `client-configs/python_client_example.py`.
+
+---
+
+### iOS Shortcuts (Quick Note → Claude)
+
+Sends any URL or text from the iOS Share Sheet to the proxy's quick-note queue for async processing by Claude Code.
+
+**Setup** (one-time):
+1. Open `client-configs/quick-note-to-claude.shortcut` on your iPhone/iPad
+2. When prompted, fill in:
+   - **Server URL**: `http://192.168.x.x:8000/v1/quick-notes` (LAN) or `https://your-domain.ngrok-free.dev/v1/quick-notes` (remote)
+   - **API Key**: `Bearer sk-relay-...` (include the `Bearer ` prefix)
+3. Add to the Share Sheet
+
+**Usage**: In Safari or any app, tap Share → **Quick Note → Claude** — the URL is queued and processed by the next Claude Code agent run.
+
+---
+
+### Troubleshooting
+
+| Symptom | Cause | Fix |
+|---|---|---|
+| `ERR_NGROK_3200` / endpoint offline | Tunnel is not running | Run `./run_tunnel.sh` on the server |
+| `404 Not Found` on `/v1/chat/completions` | `OLLAMA_BASE` set to tunnel URL | Set `OLLAMA_BASE=http://localhost:11434` in `.env` and restart |
+| `401 Unauthorized` | Invalid or missing API key | Check `API_KEYS` in `.env`; regenerate with `python generate_api_key.py` |
+| `403 Forbidden` | Key exists but is wrong | Make sure the key in your IDE matches exactly what's in `.env` |
+| Models list empty in Cursor | Ollama not running | Run `ollama serve` or `docker compose up ollama` |
+| `502 Bad Gateway` from ngrok | Proxy not running | Start the proxy: `uvicorn proxy:app --port 8000` |
 
 ---
 
