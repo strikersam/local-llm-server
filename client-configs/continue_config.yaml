@@ -3,10 +3,10 @@ version: 1.0.0
 schema: v1
 
 models:
-  - name: Qwen3-Coder 30B
+  - name: DeepSeek-R1 32B
     provider: openai
-    model: qwen3-coder:30b
-    apiBase: https://YOUR_TUNNEL_URL/v1
+    model: deepseek-r1:32b-16k
+    apiBase: http://localhost:8000/v1
     apiKey: YOUR_API_KEY
     roles:
       - chat
@@ -15,28 +15,34 @@ models:
       - autocomplete
       - summarize
     systemMessage: Answer directly. Do not reveal reasoning. For code tasks, inspect the provided context before answering.
+    requestOptions:
+      timeout: 600
     completionOptions:
       temperature: 0.2
       maxTokens: 1200
 
-  - name: DeepSeek-R1 32B (Optional reasoning profile)
+  - name: Qwen3-Coder 30B
     provider: openai
-    model: deepseek-r1:32b
-    apiBase: https://YOUR_TUNNEL_URL/v1
+    model: qwen3-coder:30b
+    apiBase: http://localhost:8000/v1
     apiKey: YOUR_API_KEY
     roles:
       - chat
-    systemMessage: Answer directly. Do not reveal reasoning.
+      - edit
+      - apply
+    systemMessage: Answer directly. For code tasks, inspect the provided context before answering.
+    requestOptions:
+      timeout: 600
     completionOptions:
       temperature: 0.2
       maxTokens: 1200
 
 tabAutocompleteModel:
-  name: Qwen3-Coder 30B Autocomplete
+  name: DeepSeek-R1 32B Autocomplete
   provider: openai
-  model: qwen3-coder:30b
-  apiBase: https://YOUR_TUNNEL_URL/v1
-  apiKey: YOUR_API_KEY
+  model: deepseek-r1:32b-16k
+  apiBase: http://localhost:8000/v1
+  apiKey: jnRLvIu9M2kaQFJjhXK3y05kb_BWhOZtGRv7hLDJ8KI
 
 context:
   - provider: code

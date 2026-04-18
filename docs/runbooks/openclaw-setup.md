@@ -47,14 +47,14 @@ Once OpenClaw is running:
    ```json
    {
      "workspace_root": "/path/to/local-llm-server",
-     "agents_file": "AGENTS.md",
+     "agents_file": "docs/AGENTS_REFERENCE.md",
      "tools_file": "TOOLS.md",
      "claude_md": "CLAUDE.md",
      "state_dir": ".claude/state"
    }
    ```
 
-2. OpenClaw will read `AGENTS.md` for agent role definitions and `TOOLS.md` for
+2. OpenClaw will read `docs/AGENTS_REFERENCE.md` for agent role definitions and `TOOLS.md` for
    the tool manifest.
 
 3. Existing `.claude/skills/` skills will be used by Claude Code sessions started

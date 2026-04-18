@@ -540,7 +540,7 @@ Tests: 155 new tests across 11 new test files; total suite 210 tests, all passin
   pointers to all deeper docs. Local `CLAUDE.md` files added to `agent/` and `router/`
   (risky modules).
 
-- **`AGENTS.md` + `TOOLS.md`** — workspace context files for agentic tools (OpenClaw,
+- **`docs/AGENTS_REFERENCE.md` + `TOOLS.md`** — workspace context files for agentic tools (OpenClaw,
   Claude Code). Describes agent roles, state file locations, and available tool manifest.
 
 - **`.claude/skills/`** — 11 reusable repo-specific skills: `implementation-planner`,

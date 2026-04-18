@@ -58,5 +58,5 @@ To use this repo as an OpenClaw workspace:
 
 1. Install OpenClaw: see `docs/runbooks/openclaw-setup.md`
 2. Point OpenClaw at this directory as the workspace root
-3. OpenClaw will read `AGENTS.md` and `TOOLS.md` for workspace context
+3. OpenClaw will read `docs/AGENTS_REFERENCE.md` and `TOOLS.md` for workspace context
 4. Sessions are persisted in `.claude/state/` and survive process restarts

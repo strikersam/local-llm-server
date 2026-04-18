@@ -437,27 +437,33 @@ async def _stream_openai_chat(
     buf = bytearray()
     line_buf = bytearray()
     in_think = False
-    async with httpx.AsyncClient(timeout=httpx.Timeout(300.0, connect=10.0)) as client:
-        async with client.stream("POST", url, content=body, headers=headers) as resp:
-            if resp.status_code >= 400:
-                yield await resp.aread()
-                return
-            async for chunk in resp.aiter_bytes(chunk_size=1024):
-                buf.extend(chunk)
-                if not _STRIP_THINK_TAGS:
-                    yield chunk
-                    continue
+    async with httpx.AsyncClient(timeout=httpx.Timeout(600.0, connect=10.0)) as client:
+        try:
+            async with client.stream("POST", url, content=body, headers=headers) as resp:
+                if resp.status_code >= 400:
+                    yield await resp.aread()
+                    return
+                async for chunk in resp.aiter_bytes(chunk_size=1024):
+                    buf.extend(chunk)
+                    if not _STRIP_THINK_TAGS:
+                        yield chunk
+                        continue
 
-                line_buf.extend(chunk)
-                while True:
-                    newline = line_buf.find(b"\n")
-                    if newline == -1:
-                        break
-                    raw_line = bytes(line_buf[: newline + 1])
-                    del line_buf[: newline + 1]
-                    filtered_line, in_think = _filter_openai_sse_line(raw_line, in_think)
-                    if filtered_line:
-                        yield filtered_line
+                    line_buf.extend(chunk)
+                    while True:
+                        newline = line_buf.find(b"\n")
+                        if newline == -1:
+                            break
+                        raw_line = bytes(line_buf[: newline + 1])
+                        del line_buf[: newline + 1]
+                        filtered_line, in_think = _filter_openai_sse_line(raw_line, in_think)
+                        if filtered_line:
+                            yield filtered_line
+        except Exception as exc:
+            if "client disconnected" in str(exc).lower() or "cancel" in str(exc).lower():
+                log.debug("Client disconnected during stream: %s", exc)
+                return
+            raise
 
     if _STRIP_THINK_TAGS and line_buf:
         filtered_line, _ = _filter_openai_sse_line(bytes(line_buf), in_think)
