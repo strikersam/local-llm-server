@@ -3,7 +3,7 @@ import { Routes, Route, NavLink, Navigate, useNavigate } from 'react-router-dom'
 import { useAuth } from '../AuthContext';
 import {
   LayoutDashboard, MessageSquare, BookOpen, Upload, Activity,
-  Settings, LogOut, Menu, X, Cpu, ChevronRight, Layers, Key, BarChart3, Box, Github, Terminal, Shield
+  Settings, LogOut, Menu, X, Cpu, ChevronRight, Layers, BarChart3, Box, Github, Shield
 } from 'lucide-react';
 import DashboardHome from './DashboardHome';
 import ChatPage from './ChatPage';
@@ -12,11 +12,9 @@ import SourcesPage from './SourcesPage';
 import ActivityPage from './ActivityPage';
 import ProvidersPage from './ProvidersPage';
 import ModelsPage from './ModelsPage';
-import ApiKeysPage from './ApiKeysPage';
 import ObservabilityPage from './ObservabilityPage';
 import SettingsPage from './SettingsPage';
 import GitHubPage from './GitHubPage';
-import AgentViewPage from './AgentViewPage';
 import AdminPortalPage from './AdminPortalPage';
 
 const navSections = [
@@ -25,7 +23,6 @@ const navSections = [
     items: [
       { to: '/', icon: LayoutDashboard, label: 'Dashboard', end: true },
       { to: '/chat', icon: MessageSquare, label: 'Agent Chat' },
-      { to: '/agentview', icon: Terminal, label: 'Agent View' },
       { to: '/wiki', icon: BookOpen, label: 'Wiki' },
       { to: '/sources', icon: Upload, label: 'Sources' },
       { to: '/github', icon: Github, label: 'GitHub' },
@@ -36,7 +33,6 @@ const navSections = [
     items: [
       { to: '/providers', icon: Layers, label: 'Providers' },
       { to: '/models', icon: Box, label: 'Models Hub' },
-      { to: '/keys', icon: Key, label: 'API Keys' },
     ],
   },
   {
@@ -190,20 +186,20 @@ export default function DashboardLayout() {
         <SidebarContent user={user} onLogout={handleLogout} onClose={closeSidebar} />
       </aside>
 
-      {/* Main content — AgentView gets full height without inner scroll */}
+      {/* Main content — ChatPage gets full height without inner scroll */}
       <main className="flex-1 min-w-0 flex flex-col pt-14 lg:pt-0 overflow-hidden">
         <Routes>
           <Route path="/" element={<div className="overflow-y-auto flex-1"><DashboardHome /></div>} />
           <Route path="/chat" element={<ChatPage />} />
           <Route path="/chat/:sessionId" element={<ChatPage />} />
-          <Route path="/agentview" element={<AgentViewPage />} />
           <Route path="/admin" element={<AdminPortalPage />} />
           <Route path="/wiki" element={<div className="overflow-y-auto flex-1"><WikiPage /></div>} />
           <Route path="/wiki/:slug" element={<div className="overflow-y-auto flex-1"><WikiPage /></div>} />
           <Route path="/sources" element={<div className="overflow-y-auto flex-1"><SourcesPage /></div>} />
           <Route path="/providers" element={<div className="overflow-y-auto flex-1"><ProvidersPage /></div>} />
           <Route path="/models" element={<div className="overflow-y-auto flex-1"><ModelsPage /></div>} />
-          <Route path="/keys" element={<div className="overflow-y-auto flex-1"><ApiKeysPage /></div>} />
+          <Route path="/keys" element={<Navigate to="/admin" replace />} />
+          <Route path="/agentview" element={<Navigate to="/chat" replace />} />
           <Route path="/github" element={<div className="overflow-y-auto flex-1"><GitHubPage /></div>} />
           <Route path="/observability" element={<div className="overflow-y-auto flex-1"><ObservabilityPage /></div>} />
           <Route path="/activity" element={<div className="overflow-y-auto flex-1"><ActivityPage /></div>} />

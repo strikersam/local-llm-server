@@ -8,6 +8,15 @@
 
 ## [Unreleased]
 
+### Removed
+
+- **Dashboard SPA: redundant agent + key-management pages consolidated** (`frontend/src/pages/`):
+  - Deleted `AgentViewPage.js` (534 lines) — a stripped cross-origin clone of `ChatPage.js` (no sessions sidebar, duplicated model-picker / mode-toggle / thinking-bubble). `ChatPage` is the canonical agent surface; `/agentview` now redirects to `/chat`.
+  - Deleted `ApiKeysPage.js` (202 lines) — a feature-incomplete duplicate of `AdminPortalPage.js` (no rotate, no service control). `/keys` now redirects to `/admin`. The dashboard home "API Keys" stat card repoints to `/admin`.
+  - Removed "Agent View" and "API Keys" sidebar items from `DashboardLayout.js` nav; removed the corresponding page imports and the unused `Terminal` / `Key` icon imports.
+  - Removed the unused `listApiKeys` / `createApiKey` / `deleteApiKey` helpers from `frontend/src/api.js` (sole caller was the deleted `ApiKeysPage`).
+  - Not touched in this pass (distinct deployment targets, flagged as future work): `webui/frontend/src/pages/AdminApp.tsx` (providers + workspaces + command runner), `templates/admin/*.html` (Jinja SSR fallback at `/admin/ui/*`), and `remote-admin/*` (pre-dashboard static SPA).
+
 ### Security
 
 - **SSRF hardening on admin-supplied URLs** (`webui/url_guard.py`, `webui/providers.py`, `webui/workspaces.py`, `agent/quick_note.py`):

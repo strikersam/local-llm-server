@@ -107,10 +107,9 @@ export const listModels = () => API.get('/api/models');
 export const pullModel = (name) => API.post('/api/models/pull', { name });
 export const deleteModel = (name) => API.delete(`/api/models/${encodeURIComponent(name)}`);
 
-// API Keys
-export const listApiKeys = () => API.get('/api/keys');
-export const createApiKey = (data) => API.post('/api/keys', data);
-export const deleteApiKey = (keyId) => API.delete(`/api/keys/${keyId}`);
+// API key management lives in the admin portal (AdminPortalPage) and talks
+// to /admin/api/users/* directly. The legacy /api/keys helpers were removed
+// when ApiKeysPage.js was consolidated into AdminPortalPage.
 
 // Observability
 export const getObservabilityStatus = () => API.get('/api/observability/status');
