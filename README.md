@@ -216,36 +216,47 @@ POST   /agent/browser/action                    Browser action (navigate|click|f
 ## Architecture
 
 ```
-                        ┌──────────────────────────────┐
-                        │    React Dashboard (3000)     │
-                        │  Login | Agent Chat | Wiki    │
-                        │  Sources | Admin | Providers  │
-                        │  Workspaces | Keys | Traces   │
-                        └──────────────┬───────────────┘
-                                       │
-                        ┌──────────────┴───────────────┐
-                        │   FastAPI Backend (8001)      │
-                        │   Auth | LLM Engine | CRUD    │
-                        │   Providers | Models | Keys   │
-                        └──┬────────┬────────┬────────┘
-                           │        │        │
-                    ┌──────┤  ┌─────┤  ┌─────┤
-                    ▼      │  ▼     │  ▼     │
-                 MongoDB   │ Ollama │ Cloud  │
-                (Storage)  │(Local) │ APIs   │
-                           │        │        │
-                           │  ┌─────┤  ┌─────┘
-                           │  ▼     │  ▼
-                           │Langfuse│ Cloudflare
-                           │(Trace) │  Tunnel
-                           └────────┘
+ ┌─────────────────────────────────────────────────────────────────┐
+ │                  CLIENT TOOLS (your machine)                    │
+ │  Cursor · Claude Code · Aider · Continue · any OpenAI client    │
+ └────────────────────────┬────────────────────────────────────────┘
+                          │  OpenAI / Anthropic-compatible API
+                          ▼
+ ┌─────────────────────────────────────────────────────────────────┐
+ │                    PROXY  (port 8000)                           │
+ │  proxy.py — FastAPI                                             │
+ │  ┌──────────────┐  ┌──────────────┐  ┌─────────────────────┐   │
+ │  │  Auth + Keys │  │  LLM Router  │  │ Agent / Task Queue  │   │
+ │  │  (key_store) │  │(model_router)│  │  (agent/loop.py)    │   │
+ │  └──────────────┘  └──────┬───────┘  └─────────────────────┘   │
+ │  ┌──────────────────────┐ │  ┌────────────────────────────────┐ │
+ │  │  Admin Portal        │ │  │  WebUI / Chat SPA              │ │
+ │  │  /admin/ui/login     │ │  │  /app  (React, served static)  │ │
+ │  │  /admin/app  (React) │ │  └────────────────────────────────┘ │
+ │  └──────────────────────┘ │                                     │
+ └───────────────────────────┼─────────────────────────────────────┘
+                             │
+           ┌─────────────────┼──────────────────┐
+           ▼                 ▼                  ▼
+    ┌─────────────┐  ┌──────────────┐  ┌───────────────┐
+    │   Ollama    │  │  Cloud APIs  │  │   Langfuse    │
+    │ (port 11434)│  │ HuggingFace  │  │ (observability│
+    │ local LLMs  │  │  OpenRouter  │  │   & tracing)  │
+    └─────────────┘  └──────────────┘  └───────────────┘
+
+ ┌─────────────────────────────────────────────────────────────────┐
+ │             OPTIONAL: Dashboard stack (Docker Compose)          │
+ │  React frontend (3000) + FastAPI backend (8001) + MongoDB       │
+ │  Adds: wiki, sources ingestion, social login, richer UI         │
+ └─────────────────────────────────────────────────────────────────┘
 ```
 
-**Knowledge architecture — three layers:**
+**Two ways to run this project:**
 
-1. **Raw Sources** — Files, URLs, and text ingested and processed by the AI
-2. **Wiki** — LLM-maintained structured markdown knowledge base
-3. **Agent** — Query, lint, cross-reference, and expand knowledge on demand
+| Mode | What you get |
+|------|-------------|
+| **Proxy only** (`proxy.py`) | OpenAI-compatible endpoint + built-in admin portal + agent + WebUI |
+| **Full stack** (Docker Compose) | Everything above + React dashboard + wiki + MongoDB backend |
 
 ---
 
@@ -268,12 +279,90 @@ Open **http://localhost:3000** — the unified dashboard loads immediately.
 
 ### Default Credentials
 
+**React dashboard** (port 3000 / backend API port 8001):
 ```
-Email:    admin@llmwiki.local
-Password: WikiAdmin2026!
+Email:    admin@llmrelay.local
+Password: set ADMIN_PASSWORD in .env
 ```
 
-> Change these in `.env` before exposing to the internet.
+**Proxy admin portal** (port 8000 — see [Admin Portal Setup](#admin-portal-setup) below):
+```
+Username: anything (e.g. admin)
+Password: value of ADMIN_SECRET in .env
+```
+
+> Change all credentials in `.env` before exposing to the internet.
+
+---
+
+## Admin Portal Setup
+
+The proxy ships a built-in browser admin portal. It is **disabled by default** and must be explicitly enabled by setting `ADMIN_SECRET`.
+
+### Step 1 — Generate a strong secret
+
+```bash
+python -c "import secrets; print(secrets.token_urlsafe(32))"
+```
+
+### Step 2 — Add it to `.env`
+
+```ini
+ADMIN_SECRET=<paste-the-generated-value-here>
+```
+
+> Weak values (`admin`, `password`, `secret`, `change-me`) are rejected at startup.
+
+### Step 3 — Restart the proxy
+
+```bash
+uvicorn proxy:app --reload --port 8000
+# or: docker compose restart proxy
+```
+
+### Step 4 — Log in
+
+Open **http://localhost:8000/admin/ui/login** in your browser.
+
+| Field | Value |
+|-------|-------|
+| Username | Any string (e.g. `admin`) |
+| Password | The exact value of `ADMIN_SECRET` |
+
+> This is **not** the same as `ADMIN_PASSWORD`. `ADMIN_PASSWORD` is the credential for the React dashboard backend at port 8001. The proxy admin portal always uses `ADMIN_SECRET` as the password.
+
+### What you can do in the admin portal
+
+| Feature | Description |
+|---------|-------------|
+| **Service controls** | Start, stop, and restart Ollama, the proxy, and the Cloudflare tunnel independently |
+| **API key management** | Issue, rotate, and revoke per-user Bearer tokens (hashed at rest) |
+| **Public URL** | View and update your Cloudflare tunnel URL |
+| **Langfuse diagnostics** | Test your observability connection from the dashboard |
+
+### Alternative: React admin UI
+
+A React-based admin panel is also available at **http://localhost:8000/admin/app**. It provides the same `ADMIN_SECRET`-based login and manages providers and workspaces.
+
+### API-based admin auth
+
+Scripts and bots can authenticate against the JSON admin API directly:
+
+```bash
+# Get a session token
+curl -s -X POST http://localhost:8000/admin/api/login \
+  -H "Content-Type: application/json" \
+  -d '{"username":"admin","password":"<ADMIN_SECRET>"}' | jq .token
+
+# Use the token as a Bearer header
+curl -H "Authorization: Bearer <token>" http://localhost:8000/admin/api/status
+```
+
+Or pass `ADMIN_SECRET` directly as the Bearer token (for scripts that don't need a session):
+
+```bash
+curl -H "Authorization: Bearer <ADMIN_SECRET>" http://localhost:8000/admin/api/status
+```
 
 ---
 
@@ -359,113 +448,137 @@ All features degrade gracefully — nothing crashes when a dependency isn't inst
 
 ## Services
 
-| Service | Port | Description |
-|---------|------|-------------|
-| **Frontend** | 3000 | Unified React dashboard |
-| **Backend** | 8001 | FastAPI — all API endpoints |
-| **Proxy** | 8000 | OpenAI/Anthropic-compatible proxy |
-| **MongoDB** | 27017 | Document store |
-| **Ollama** | 11434 | Local LLM runtime |
-| **Cloudflare Tunnel** | — | Public HTTPS endpoint (optional) |
+| Service | Port | Always on? | Description |
+|---------|------|-----------|-------------|
+| **Proxy** | 8000 | Yes | OpenAI/Anthropic-compatible endpoint + admin portal + agent + WebUI SPA |
+| **Ollama** | 11434 | Yes | Local LLM runtime (required for local models) |
+| **Cloudflare Tunnel** | — | Optional | Public HTTPS endpoint; enable with `--profile public` |
+| **Frontend** | 3000 | Docker only | React dashboard (full-stack profile) |
+| **Backend** | 8001 | Docker only | FastAPI backend for dashboard (wiki, sources, social login) |
+| **MongoDB** | 27017 | Docker only | Document store for the dashboard backend |
+
+> Running `uvicorn proxy:app` alone gives you the proxy + admin portal + WebUI. The Docker Compose stack adds the richer dashboard experience on top.
 
 ---
 
 ## API Reference
+
+### Proxy (port 8000)
+
+<details>
+<summary><strong>LLM endpoints (OpenAI / Anthropic compatible)</strong></summary>
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| POST | `/v1/chat/completions` | OpenAI-compatible chat completions (streaming supported) |
+| GET | `/v1/models` | List available models |
+| POST | `/v1/embeddings` | Embeddings (passed through to Ollama) |
+| POST | `/api/chat` | Ollama native chat endpoint |
+| POST | `/api/generate` | Ollama native generate endpoint |
+| POST | `/v1/messages` | Anthropic Messages API (Claude-compatible) |
+
+All LLM endpoints require a `Bearer` token from `API_KEYS` or `KEYS_FILE`.
+
+</details>
+
+<details>
+<summary><strong>Admin portal (requires ADMIN_SECRET)</strong></summary>
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/admin/ui/login` | Browser login page |
+| POST | `/admin/ui/login` | Submit login form → sets session cookie |
+| GET | `/admin/ui/` | Admin dashboard (session required) |
+| GET | `/admin/ui/logout` | Clear session |
+| POST | `/admin/api/login` | JSON login → returns `{"token": "adm_..."}` |
+| POST | `/admin/api/logout` | Revoke token / clear session |
+| GET | `/admin/api/status` | Service health + signed-in user |
+| POST | `/admin/api/control` | Start/stop/restart `ollama`, `proxy`, `tunnel`, `stack` |
+| GET | `/admin/api/users` | List API key records |
+| POST | `/admin/api/users` | Create API key |
+| PATCH | `/admin/api/users/:key_id` | Update email / department |
+| DELETE | `/admin/api/users/:key_id` | Revoke and delete key |
+| POST | `/admin/api/users/:key_id/rotate` | Rotate key secret |
+| POST | `/admin/keys` | Legacy: issue key via `X-Admin-Secret` header |
+
+</details>
+
+<details>
+<summary><strong>Agent</strong></summary>
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| POST | `/agent/coordinate` | Run N workers in parallel under one coordinator |
+| POST | `/agent/background/tasks` | Submit a task to the background queue |
+| GET | `/agent/background/tasks` | List all background tasks (filter by `?status=`) |
+| GET | `/agent/background/tasks/{task_id}` | Get a single task |
+| POST | `/agent/voice/transcribe` | Transcribe base64 audio → text |
+| GET | `/agent/voice/status` | Check microphone and Whisper availability |
+| POST | `/agent/memory/{session_id}/snapshot` | Save session state to disk |
+| GET | `/agent/memory/{session_id}` | Restore saved state |
+| POST | `/agent/context/compress` | Compress messages (`strategy: reactive\|micro\|inspect`) |
+| POST | `/agent/sessions/{id}/snip` | Remove messages by index |
+| POST | `/agent/scheduler/jobs` | Create a scheduled job (cron expression) |
+| POST | `/agent/scheduler/jobs/{job_id}/trigger` | Fire a job immediately |
+| POST | `/agent/playbooks/{id}/run` | Start a playbook run |
+| POST | `/agent/watchdog/resources` | Start watching a URL or file |
+| GET | `/agent/terminal/snapshot` | Capture current terminal buffer |
+| POST | `/agent/terminal/run` | Run a command, capture full output |
+| GET | `/agent/skills/search?q=...` | Search skills by keyword |
+| GET | `/agent/commits?limit=10` | List AI-attributed commits |
+| POST | `/agent/scaffolding/apply` | Scaffold a project from a template |
+| POST | `/agent/browser/action` | Browser action (`navigate\|click\|fill\|screenshot\|evaluate`) |
+
+</details>
+
+<details>
+<summary><strong>WebUI / providers / workspaces (proxy, port 8000)</strong></summary>
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/ui/api/bootstrap` | Feature flags and build status |
+| GET | `/ui/api/providers` | List providers (API key auth) |
+| GET | `/ui/api/providers/:id/models` | List models for a provider |
+| POST | `/ui/api/chat` | Single-turn chat via a provider |
+| GET | `/ui/api/workspaces` | List workspaces |
+| GET | `/admin/api/providers` | Admin: list providers with secrets flag |
+| POST | `/admin/api/providers` | Admin: create provider |
+| DELETE | `/admin/api/providers/:id` | Admin: delete provider |
+| GET | `/admin/api/workspaces` | Admin: list workspaces |
+| POST | `/admin/api/workspaces` | Admin: create workspace |
+| DELETE | `/admin/api/workspaces/:id` | Admin: delete workspace |
+| POST | `/admin/api/commands/run` | Admin: run allowlisted shell command |
+
+</details>
+
+### Dashboard backend (port 8001 — Docker Compose only)
 
 <details>
 <summary><strong>Auth</strong></summary>
 
 | Method | Endpoint | Description |
 |--------|----------|-------------|
-| POST | `/api/auth/login` | Login with email/password |
+| POST | `/api/auth/login` | Login with email/password (sets JWT) |
 | POST | `/api/auth/logout` | Clear session |
 | GET | `/api/auth/me` | Current user |
-| POST | `/api/auth/refresh` | Refresh token |
+| POST | `/api/auth/refresh` | Refresh JWT |
 
 </details>
 
 <details>
-<summary><strong>Chat / Agent</strong></summary>
-
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| POST | `/api/chat/send` | Send message to agent |
-| GET | `/api/chat/sessions` | List sessions |
-| GET | `/api/chat/sessions/:id` | Get session |
-| DELETE | `/api/chat/sessions/:id` | Delete session |
-
-</details>
-
-<details>
-<summary><strong>Wiki</strong></summary>
+<summary><strong>Wiki / Sources / System</strong></summary>
 
 | Method | Endpoint | Description |
 |--------|----------|-------------|
 | GET | `/api/wiki/pages` | List/search pages |
-| GET | `/api/wiki/pages/:slug` | Get page |
 | POST | `/api/wiki/pages` | Create page |
 | PUT | `/api/wiki/pages/:slug` | Update page |
 | DELETE | `/api/wiki/pages/:slug` | Delete page |
 | POST | `/api/wiki/lint` | AI health check |
-
-</details>
-
-<details>
-<summary><strong>Sources</strong></summary>
-
-| Method | Endpoint | Description |
-|--------|----------|-------------|
 | POST | `/api/sources/ingest` | Ingest file/URL/text |
 | GET | `/api/sources` | List all |
-| GET | `/api/sources/:id` | Get with content |
-| DELETE | `/api/sources/:id` | Delete |
-
-</details>
-
-<details>
-<summary><strong>Providers</strong></summary>
-
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| GET | `/api/providers` | List providers |
-| POST | `/api/providers` | Add provider |
-| PUT | `/api/providers/:id` | Update |
-| DELETE | `/api/providers/:id` | Delete |
-| POST | `/api/providers/:id/test` | Test connection |
-
-</details>
-
-<details>
-<summary><strong>Models</strong></summary>
-
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| GET | `/api/models` | List all models |
-| POST | `/api/models/pull` | Pull Ollama model |
-| DELETE | `/api/models/:name` | Delete model |
-
-</details>
-
-<details>
-<summary><strong>Keys</strong></summary>
-
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| GET | `/api/keys` | List API keys |
-| POST | `/api/keys` | Issue key |
-| DELETE | `/api/keys/:id` | Revoke key |
-
-</details>
-
-<details>
-<summary><strong>System</strong></summary>
-
-| Method | Endpoint | Description |
-|--------|----------|-------------|
 | GET | `/api/health` | System health |
 | GET | `/api/stats` | Dashboard stats |
-| GET | `/api/activity` | Activity log |
-| GET | `/api/platform` | Platform info |
 | GET | `/api/observability/status` | Langfuse status |
 
 </details>
@@ -476,9 +589,11 @@ All features degrade gracefully — nothing crashes when a dependency isn't inst
 
 | Layer | Technology |
 |-------|-----------|
-| Frontend | React 18, Tailwind CSS, React Router, React Markdown, Lucide |
-| Backend | Python 3.11, FastAPI, Motor (async MongoDB), PyJWT, bcrypt, httpx |
-| Database | MongoDB 7 |
+| Proxy / admin | Python 3.11, FastAPI, Starlette, httpx, Jinja2, Pydantic v2 |
+| WebUI SPA | React 18, Vite, Tailwind CSS (served statically by the proxy) |
+| Dashboard frontend | React 18, Tailwind CSS, React Router, Lucide |
+| Dashboard backend | FastAPI, Motor (async MongoDB), PyJWT, bcrypt |
+| Database | MongoDB 7 (dashboard stack only) |
 | LLM Runtime | Ollama (local) + any OpenAI-compatible API |
 | Observability | Langfuse |
 | Tunnel | Cloudflare Tunnel |
