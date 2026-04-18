@@ -3,6 +3,9 @@
 ## [Unreleased]
 
 ### Added
-- `brain-dump` skill: converts scattered ideas and notes into a structured, prioritized action plan with effort estimates and priority tiers
-- `email-triage` skill: processes email backlogs by categorizing into priority tiers, drafting replies, and extracting action items
-- `research` skill: conducts structured research on any topic, producing a research brief with findings, gaps, comparisons, and a clear recommendation — inspired by Claude Cowork advanced skill patterns
+- `auto-fix` skill: automatically detect and fix linting, formatting, and type errors across the codebase before commits or PRs
+- `context-prime` skill: prime Claude with deep repository context (architecture, conventions, data flow) before starting any significant task
+- `ticket-to-pr` skill: end-to-end automation from GitHub issue to complete, tested, merged pull request — integrates with other skills
+- `scope-guard` skill: detect and prevent scope creep during implementation, with parking lot for out-of-scope findings
+- `debug-tracer` skill: hypothesis-driven debugging process to find root causes and add regression tests
+- `feature-flag` skill: safely implement new features behind feature flags with rollout, testing, and cleanup guidance
