@@ -3,9 +3,7 @@
 ## [Unreleased]
 
 ### Added
-- `auto-fix` skill: automatically detect and fix linting, formatting, and type errors across the codebase before commits or PRs
-- `context-prime` skill: prime Claude with deep repository context (architecture, conventions, data flow) before starting any significant task
-- `ticket-to-pr` skill: end-to-end automation from GitHub issue to complete, tested, merged pull request — integrates with other skills
-- `scope-guard` skill: detect and prevent scope creep during implementation, with parking lot for out-of-scope findings
-- `debug-tracer` skill: hypothesis-driven debugging process to find root causes and add regression tests
-- `feature-flag` skill: safely implement new features behind feature flags with rollout, testing, and cleanup guidance
+- **Local AI Stack (Docker):** Added `docker/local-ai-stack/` with a full Docker Compose setup including Ollama (local LLM runner), Open WebUI (chat interface), ChromaDB (vector DB for RAG), and optional N8N automation — enabling a fully self-hosted, privacy-first AI stack inspired by the XDA Developers local AI guide.
+- **`local-ai-query` skill:** New Claude skill (`/.claude/skills/local-ai-query/SKILL.md`) for routing prompts to a locally running Ollama instance — useful for sensitive code, offline work, or cost-conscious tasks.
+- **Health check script:** `scripts/local-ai-health-check.sh` — verifies all local AI stack services are running.
+- **Model pull script:** `scripts/pull-ai-models.sh` — automates pulling curated Ollama models (minimal and full sets).
