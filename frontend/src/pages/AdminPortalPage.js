@@ -14,7 +14,7 @@ import {
 } from 'lucide-react';
 
 // ── localStorage keys ─────────────────────────────────────────────────────────
-const LS_BACKEND  = 'agv_backend_url';       // shared with AgentViewPage
+const LS_BACKEND  = 'agv_backend_url';
 const LS_ADMIN_TK = 'adm_token';
 const LS_ADMIN_UN = 'adm_username';
 

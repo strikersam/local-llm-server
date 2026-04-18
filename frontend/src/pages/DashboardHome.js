@@ -109,7 +109,7 @@ export default function DashboardHome() {
         <StatCard icon={MessageSquare} label="Sessions"  value={loading ? '—' : (stats?.chat_sessions ?? 0)}    accent="#A855F7" onClick={() => nav('/chat')}         delay="stagger-2" />
         <StatCard icon={Upload}      label="Sources"    value={loading ? '—' : (stats?.sources ?? 0)}            accent="#10B981" onClick={() => nav('/sources')}      delay="stagger-3" />
         <StatCard icon={Layers}      label="Providers"  value={loading ? '—' : (stats?.providers ?? 0)}          accent="#F59E0B" onClick={() => nav('/providers')}    delay="stagger-4" />
-        <StatCard icon={Key}         label="API Keys"   value={loading ? '—' : (stats?.api_keys ?? 0)}           accent="#EC4899" onClick={() => nav('/keys')}         delay="stagger-5" />
+        <StatCard icon={Key}         label="API Keys"   value={loading ? '—' : (stats?.api_keys ?? 0)}           accent="#EC4899" onClick={() => nav('/admin')}        delay="stagger-5" />
         <StatCard icon={Activity}    label="Events"     value={loading ? '—' : (stats?.activity_entries ?? 0)}   accent="#06B6D4" onClick={() => nav('/activity')}     delay="stagger-6" />
       </div>
 
