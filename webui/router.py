@@ -68,7 +68,10 @@ def register_webui(
     if assets_dir.is_dir():
         app.mount("/assets", StaticFiles(directory=str(assets_dir)), name="assets")
 
-    router = APIRouter(prefix="/ui/api", tags=["webui"])
+    # We use '/api' as the primary prefix for WebUI features to match the dashboard's
+    # expectation. Conflicts with Ollama (/api/generate etc.) are avoided by
+    # registering this router BEFORE the catch-all ollama_api route in proxy.py.
+    router = APIRouter(prefix="/api", tags=["webui"])
     admin_router = APIRouter(prefix="/admin/api", tags=["admin-webui"])
 
     @router.get("/bootstrap")
@@ -93,25 +96,35 @@ def register_webui(
         headers: dict[str, str] = {}
         if secret.api_key:
             headers["Authorization"] = f"Bearer {secret.api_key}"
+        data: dict[str, Any] = {}
         try:
             async with httpx.AsyncClient(timeout=httpx.Timeout(8.0, connect=3.0)) as client:
+                # Try OpenAI models first.
                 resp = await client.get(f"{secret.base_url}/v1/models", headers=headers)
-                if resp.status_code == 404:
-                    # Ollama exposes model listing via /api/tags (older or non-OpenAI endpoints).
+                if resp.status_code == 200:
+                    data = resp.json()
+                else:
+                    # Fallback to Ollama native tags for all other non-200 cases (404, 401, etc.)
                     resp = await client.get(f"{secret.base_url}/api/tags", headers=headers)
-            resp.raise_for_status()
+                    resp.raise_for_status()
+                    data = resp.json()
         except httpx.HTTPError as exc:
+            log.warning("Provider models listing failed for %s: %s", provider_id, exc)
             raise HTTPException(status_code=503, detail=f"Provider unreachable: {exc}") from exc
-        data = resp.json()
 
-        # OpenAI: {"data": [{"id": "..."}]}
+        # OpenAI format: {"data": [{"id": "..."}]}
         if isinstance(data, dict) and "data" in data:
             models = [m.get("id") for m in (data.get("data") or []) if isinstance(m, dict)]
             return {"provider_id": provider_id, "models": [m for m in models if isinstance(m, str)]}
 
-        # Ollama: {"models": [{"name": "..."}]}
+        # Ollama format: {"models": [{"name": "..."}]}
         models = [m.get("name") for m in (data.get("models") or []) if isinstance(m, dict)]
         return {"provider_id": provider_id, "models": [m for m in models if isinstance(m, str)]}
+
+    @router.post("/providers/{provider_id}/test")
+    async def test_provider(request: Request, provider_id: str, _: Any = Depends(verify_user)):
+        """Test connectivity by trying to list models."""
+        return await provider_models(request, provider_id, _)
 
     @router.post("/chat")
     async def ui_chat(request: Request, body: UiChatRequest, _: Any = Depends(verify_user)):

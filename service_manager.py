@@ -53,6 +53,24 @@ class WindowsServiceManager:
         )
 
     def _spawn_tunnel(self) -> None:
+        # Priority 1: cloudflared
+        cf_exe = os.environ.get("CLOUDFLARED_EXE") or "cloudflared"
+        # We look for cloudflared specifically if CLOUDFLARED_TOKEN or NGROK_DOMAIN is not set?
+        # Actually, let's just support both if they exist.
+        if os.environ.get("CLOUDFLARED_EXE") or os.environ.get("TUNNEL_TOKEN"):
+             args = [cf_exe, "tunnel", "run"]
+             token = os.environ.get("TUNNEL_TOKEN", "").strip()
+             if token:
+                 args.append(token)
+             subprocess.Popen(
+                args,
+                cwd=self.root,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                creationflags=_creationflags(),
+             )
+             return
+
         ngrok_exe = os.environ.get("NGROK_EXE")
         if not ngrok_exe:
             candidate = Path.home() / "AppData" / "Local" / "ngrok" / "ngrok.exe"
@@ -111,7 +129,7 @@ class WindowsServiceManager:
         payload = {
             "ollama": pid_map.get("ollama"),
             "proxy": pid_map.get("proxy"),
-            "tunnel": pid_map.get("tunnel"),
+            "tunnel": pid_map.get("tunnel") or pid_map.get("cloudflared"),
         }
         self.pid_file.write_text(json.dumps(payload), encoding="utf-8")
 
@@ -120,8 +138,9 @@ class WindowsServiceManager:
             return None
         scripts = {
             "proxy": "Get-CimInstance Win32_Process | Where-Object { $_.CommandLine -like '*proxy:app*' } | Select-Object -ExpandProperty ProcessId -First 1",
-            "tunnel": "Get-Process -Name ngrok -ErrorAction SilentlyContinue | Select-Object -ExpandProperty Id -First 1",
+            "tunnel": "Get-Process -Name @('ngrok','cloudflared') -ErrorAction SilentlyContinue | Select-Object -ExpandProperty Id -First 1",
             "ollama": "Get-Process -Name ollama -ErrorAction SilentlyContinue | Select-Object -ExpandProperty Id -First 1",
+            "cloudflared": "Get-Process -Name cloudflared -ErrorAction SilentlyContinue | Select-Object -ExpandProperty Id -First 1",
         }
         completed = self._run_ps(scripts[service])
         value = (completed.stdout or "").strip()
@@ -161,6 +180,7 @@ class WindowsServiceManager:
             "ollama": asdict(self._state("ollama")),
             "proxy": asdict(self._state("proxy")),
             "tunnel": asdict(self._state("tunnel")),
+            "cloudflared": asdict(self._state("cloudflared")),
         }
         return {
             "services": services,

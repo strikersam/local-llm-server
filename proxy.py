@@ -246,8 +246,8 @@ class AdminLoginBody(BaseModel):
 
 
 class AdminControlBody(BaseModel):
-    action: str = Field(..., pattern="^(start|stop|restart)$")
-    target: str = Field(..., pattern="^(ollama|proxy|tunnel|stack)$")
+    action: Literal["start", "stop", "restart"]
+    target: Literal["ollama", "proxy", "tunnel", "stack", "cloudflared"]
 
 
 class AdminUpdateKeyBody(BaseModel):
