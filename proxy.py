@@ -27,7 +27,7 @@ from dotenv import load_dotenv
 load_dotenv()
 from collections import defaultdict
 from dataclasses import dataclass
-from typing import AsyncIterator, Literal
+from typing import AsyncIterator
 
 import httpx
 from pydantic import BaseModel, Field
@@ -246,8 +246,8 @@ class AdminLoginBody(BaseModel):
 
 
 class AdminControlBody(BaseModel):
-    action: Literal["start", "stop", "restart"]
-    target: Literal["ollama", "proxy", "tunnel", "stack", "cloudflared"]
+    action: str = Field(..., pattern="^(start|stop|restart)$")
+    target: str = Field(..., pattern="^(ollama|proxy|tunnel|stack)$")
 
 
 class AdminUpdateKeyBody(BaseModel):
