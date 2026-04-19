@@ -53,14 +53,20 @@ class WindowsServiceManager:
         )
 
     def _spawn_tunnel(self) -> None:
-        ngrok_exe = os.environ.get("NGROK_EXE")
-        if not ngrok_exe:
-            candidate = Path.home() / "AppData" / "Local" / "ngrok" / "ngrok.exe"
-            ngrok_exe = str(candidate) if candidate.exists() else "ngrok"
-        args = [ngrok_exe, "http", str(self.proxy_port), "--log=stderr"]
-        domain = os.environ.get("NGROK_DOMAIN", "").strip()
-        if domain:
-            args.append(f"--url={domain}")
+        cf_exe = os.environ.get("CLOUDFLARED_EXE")
+        if cf_exe and Path(cf_exe).exists():
+            # Cloudflare tunnel: cloudflared tunnel --url http://localhost:PORT
+            args = [cf_exe, "tunnel", "--url", f"http://localhost:{self.proxy_port}"]
+        else:
+            ngrok_exe = os.environ.get("NGROK_EXE")
+            if not ngrok_exe:
+                candidate = Path.home() / "AppData" / "Local" / "ngrok" / "ngrok.exe"
+                ngrok_exe = str(candidate) if candidate.exists() else "ngrok"
+            args = [ngrok_exe, "http", str(self.proxy_port), "--log=stderr"]
+            domain = os.environ.get("NGROK_DOMAIN", "").strip()
+            if domain:
+                args.append(f"--url={domain}")
+
         subprocess.Popen(
             args,
             cwd=self.root,
@@ -120,7 +126,7 @@ class WindowsServiceManager:
             return None
         scripts = {
             "proxy": "Get-CimInstance Win32_Process | Where-Object { $_.CommandLine -like '*proxy:app*' } | Select-Object -ExpandProperty ProcessId -First 1",
-            "tunnel": "Get-Process -Name ngrok -ErrorAction SilentlyContinue | Select-Object -ExpandProperty Id -First 1",
+            "tunnel": "Get-Process -Name ngrok, cloudflared -ErrorAction SilentlyContinue | Select-Object -ExpandProperty Id -First 1",
             "ollama": "Get-Process -Name ollama -ErrorAction SilentlyContinue | Select-Object -ExpandProperty Id -First 1",
         }
         completed = self._run_ps(scripts[service])
