@@ -41,6 +41,13 @@ _DEFAULT_REGISTRY: dict[str, ModelCapability] = {
         type="reasoning",
         cost_tier=3,
     ),
+    "deepseek-r1:32b-16k": ModelCapability(
+        name="deepseek-r1:32b-16k",
+        strengths=["reasoning", "analysis", "planning", "math", "complex_tasks", "data_analysis"],
+        context_window=16384,
+        type="reasoning",
+        cost_tier=3,
+    ),
     "deepseek-r1:671b": ModelCapability(
         name="deepseek-r1:671b",
         strengths=["reasoning", "analysis", "planning", "math", "complex_tasks", "data_analysis"],

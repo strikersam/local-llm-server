@@ -22,7 +22,7 @@
 
 One dark-themed dashboard for everything: chat with your AI agent, manage providers and workspaces, run commands, and control access — all without touching a terminal.
 
-![LLM Relay Unified UI](docs/screenshots/webui-app.png)
+![LLM Relay Unified UI](docs/screenshots/app-dashboard.png)
 
 > The agent knows your workspace, remembers context across sessions, and executes tasks directly in your project. Hit **New session**, paste your API key, pick a model, and start building.
 
@@ -65,7 +65,7 @@ LLM Relay replaces that with a single self-hosted platform. Your existing tools 
 
 The admin panel in the unified UI lets you wire up any LLM backend, point the agent at your codebase, and run commands — all from the same interface.
 
-![Unified Admin Panel](docs/screenshots/webui-admin.png)
+![Unified Admin Panel](docs/screenshots/app-providers.png)
 
 - **Providers** — Add any OpenAI-compatible endpoint: local Ollama, HuggingFace, OpenRouter, or a remote machine. Test the connection in one click.
 - **Workspaces** — Bind the agent to a directory on disk. The agent reads, writes, and searches only within that scope.
@@ -108,13 +108,11 @@ Full distributed tracing for every LLM call — latency, token counts, per-reque
 
 The admin control plane lets you start, stop, and restart each service independently, manage your Cloudflare tunnel, and issue scoped API keys — all without SSH.
 
-![Admin Dashboard](docs/screenshots/admin-dashboard-healthy.png)
+![API Key Management](docs/screenshots/app-keys.png)
 
 - **Service controls** — Start/stop/restart Ollama, the proxy, and the tunnel independently. Live PID and URL display.
 - **Public URL** — Your current Cloudflare tunnel URL, always visible and ready to paste into Cursor or any other tool.
 - **API keys** — Issue per-user keys with department labels for cost attribution. Keys are hashed at rest. Rotate or revoke without restarting the server.
-
-![API Key Created](docs/screenshots/admin-key-created.png)
 
 ---
 
@@ -122,9 +120,17 @@ The admin control plane lets you start, stop, and restart each service independe
 
 The agent is backed by a structured knowledge base. It reads from and writes to a searchable markdown wiki — so knowledge compounds across sessions instead of vanishing when the chat ends.
 
+![Agent Chat](docs/screenshots/app-chat.png)
+
 - **Agent Chat** — Persistent sessions with full wiki context injection. All configured providers available. Quick-start prompts included.
 - **Knowledge Wiki** — Full CRUD markdown wiki with search, tags, and cross-references. AI-maintained.
+
+![Wiki Browser](docs/screenshots/app-wiki.png)
+
 - **Source Ingestion** — Upload files, paste URLs, or raw text. The AI auto-summarises into structured wiki entries.
+
+![Source Ingestion](docs/screenshots/app-sources.png)
+
 - **Wiki Lint** — AI health check that surfaces orphan pages, missing references, and stale content.
 
 ---
@@ -276,6 +282,8 @@ docker compose --profile full up -d       # + OpenAI proxy for Cursor/Claude Cod
 ```
 
 Open **http://localhost:3000** — the unified dashboard loads immediately.
+
+![LLM Relay Login](docs/screenshots/app-login.png)
 
 ### Default Credentials
 
