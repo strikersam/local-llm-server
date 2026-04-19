@@ -67,6 +67,9 @@ from webui.config_store import JsonConfigStore
 from webui.providers import ProviderManager
 from webui.router import register_webui
 from webui.workspaces import WorkspaceManager
+from workflow import WorkflowEngine, workflow_router
+from workflow.engine import get_engine
+from workflow.ide_bridge import handle_workflow_ide_chat
 
 # ─── Config ────────────────────────────────────────────────────────────────────
 
@@ -365,6 +368,16 @@ register_webui(
     verify_user=verify_api_key,
     get_admin_identity=_get_admin_identity_from_request,
 )
+
+# ─── Workflow Engine ──────────────────────────────────────────────────────────
+# Initialise the shared WorkflowEngine singleton so it is available before any
+# request hits the /workflow/* or /v1/workflow/chat endpoints.
+WORKFLOW_ENGINE = get_engine()
+app.include_router(
+    workflow_router,
+    dependencies=[Depends(verify_api_key)],
+)
+log.info("CRISPY WorkflowEngine mounted at /workflow/*")
 
 # ─── Health (no auth) ──────────────────────────────────────────────────────────
 
@@ -1376,9 +1389,79 @@ async def ollama_api(path: str, request: Request, auth: AuthContext = Depends(ve
 # ─── OpenAI-compatible routes (/v1/*) ──────────────────────────────────────────
 # Ollama natively serves OpenAI-compatible endpoints at /v1/*
 
+@app.post("/v1/workflow/chat")
+async def workflow_ide_chat(
+    request: Request,
+    auth: AuthContext = Depends(verify_api_key),
+):
+    """OpenAI-compatible chat endpoint that detects CRISPY workflow triggers.
+
+    IDEs (Continue, Cursor, Cline, etc.) can call this endpoint with model
+    ``crispy-workflow`` to trigger a full CRISPY build workflow and receive
+    SSE-streamed status updates as if the assistant is typing a reply.
+
+    Trigger syntax (first user message):
+      @build <task description>
+      @workflow <task description>
+      /crispy <task description>
+
+    Any other request is forwarded transparently to the normal chat handler.
+    """
+    return await handle_workflow_ide_chat(
+        request=request,
+        engine=WORKFLOW_ENGINE,
+        ollama_base=OLLAMA_BASE,
+        email=auth.email,
+        department=auth.department,
+        key_id=auth.key_id,
+    )
+
+
 @app.api_route("/v1/{path:path}", methods=["GET", "POST", "PUT", "DELETE"])
 async def openai_compat(path: str, request: Request, auth: AuthContext = Depends(verify_api_key)):
+    # /v1/models: inject crispy-workflow into the model list so IDEs can see it.
+    if path == "models" and request.method == "GET":
+        try:
+            async with httpx.AsyncClient(timeout=5) as client:
+                r = await client.get(f"{OLLAMA_BASE}/v1/models")
+                data = r.json()
+        except Exception:
+            data = {"object": "list", "data": []}
+        # Inject the crispy-workflow pseudo-model
+        existing_ids = {m.get("id", "") for m in data.get("data", [])}
+        if "crispy-workflow" not in existing_ids:
+            import time
+            data.setdefault("data", []).insert(0, {
+                "id": "crispy-workflow",
+                "object": "model",
+                "created": int(time.time()),
+                "owned_by": "crispy-engine",
+                "description": (
+                    "CRISPY deterministic workflow engine. "
+                    "Use @build, @workflow, or /crispy prefix to trigger a build workflow."
+                ),
+            })
+        return JSONResponse(content=data)
     if path == "chat/completions" and request.method == "POST":
+        # Let /v1/workflow/chat handle crispy-workflow model before generic routing
+        body_bytes = await request.body()
+        try:
+            payload_peek = json.loads(body_bytes) if body_bytes else {}
+        except Exception:
+            payload_peek = {}
+        if payload_peek.get("model") == "crispy-workflow":
+            from fastapi import Request as _Req
+            from starlette.datastructures import Headers
+            # Re-use the ide_bridge directly with already-read body
+            return await handle_workflow_ide_chat(
+                request=request,
+                engine=WORKFLOW_ENGINE,
+                ollama_base=OLLAMA_BASE,
+                email=auth.email,
+                department=auth.department,
+                key_id=auth.key_id,
+                body_override=body_bytes,
+            )
         return await handle_openai_chat_completions(
             request=request,
             ollama_base=OLLAMA_BASE,

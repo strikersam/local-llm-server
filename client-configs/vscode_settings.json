@@ -1,12 +1,55 @@
 {
-  "_comment": "Add to VS Code settings.json (File > Preferences > Settings > Open settings.json)",
-  "_instructions": [
-    "For Continue extension on current versions: copy continue_config.yaml to ~/.continue/config.yaml",
-    "For older Continue installs: copy continue_config.json to ~/.continue/config.json",
-    "For generic OpenAI extension: paste the settings below into settings.json",
-    "Replace YOUR-TUNNEL-URL with the actual URL from start_server.ps1 output"
+  "_doc": "VS Code settings for local-llm-server with CRISPY Workflow Engine",
+  "_setup": [
+    "1. Install the 'Continue' extension in VS Code (marketplace: continue.dev)",
+    "2. Copy client-configs/continue_config.yaml to ~/.continue/config.yaml",
+    "3. Replace YOUR_API_KEY with a key from your .env (API_KEYS=...)",
+    "4. Start the proxy: uvicorn proxy:app --port 8000",
+    "5. In Continue, select 'CRISPY Workflow Engine' as your model",
+    "",
+    "Workflow trigger syntax in the chat box:",
+    "  @build Add unit tests to the router module",
+    "  @status                    (list recent runs)",
+    "  @status wf_abc123          (get run status)",
+    "  @approve wf_abc123         (approve the plan gate)",
+    "  @reject wf_abc123 Plan is incomplete"
+  ],
+  "_tunnel_setup": [
+    "For remote access (e.g. from laptop to desktop):",
+    "  Run: cloudflared tunnel --url http://localhost:8000",
+    "  Replace localhost:8000 in continue_config.yaml with the tunnel URL"
   ],
   "openai.apiKey": "YOUR_API_KEY",
   "openai.organization": "",
-  "openai.baseUrl": "https://YOUR-TUNNEL-URL.trycloudflare.com/v1"
+  "openai.baseUrl": "http://localhost:8000/v1",
+  "continue.models": [
+    {
+      "title": "CRISPY Workflow Engine",
+      "provider": "openai",
+      "model": "crispy-workflow",
+      "apiBase": "http://localhost:8000/v1",
+      "apiKey": "YOUR_API_KEY"
+    },
+    {
+      "title": "Qwen3-Coder 30B",
+      "provider": "openai",
+      "model": "qwen3-coder:30b",
+      "apiBase": "http://localhost:8000/v1",
+      "apiKey": "YOUR_API_KEY"
+    },
+    {
+      "title": "DeepSeek-R1 32B",
+      "provider": "openai",
+      "model": "deepseek-r1:32b",
+      "apiBase": "http://localhost:8000/v1",
+      "apiKey": "YOUR_API_KEY"
+    }
+  ],
+  "continue.tabAutocompleteModel": {
+    "title": "Qwen3-Coder 30B Autocomplete",
+    "provider": "openai",
+    "model": "qwen3-coder:30b",
+    "apiBase": "http://localhost:8000/v1",
+    "apiKey": "YOUR_API_KEY"
+  }
 }

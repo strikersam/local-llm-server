@@ -1,0 +1,24 @@
+#!/usr/bin/env bash
+# build-workflow — CRISPY multi-agent build system
+#
+# Installation (run from any project):
+#   ln -sf /path/to/local-llm-server/build-workflow /usr/local/bin/build-workflow
+#
+# Or add the repo to PATH:
+#   export PATH="/path/to/local-llm-server:$PATH"
+#
+# Usage:
+#   build-workflow "Add unit tests to the router module"
+#   build-workflow --workspace /path/to/project "Add auth"
+#   build-workflow --list
+#   build-workflow --resume wf_abc123
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PYTHON="${SCRIPT_DIR}/.venv/bin/python"
+
+# Fall back to system Python if venv doesn't exist
+if [ ! -f "$PYTHON" ]; then
+  PYTHON="python3"
+fi
+
+exec "$PYTHON" "$SCRIPT_DIR/scripts/build_workflow.py" "$@"

@@ -8,6 +8,125 @@
 
 ## [Unreleased]
 
+### Added — CRISPY Workflow Engine (Phase B)
+
+> **Architecture**: Transforms the platform from a general-purpose agent runner into a
+> deterministic, workflow-driven software build system with strict lifecycle control.
+> Existing capabilities (proxy, router, agent loop, sessions, background jobs, playbooks,
+> memory) are fully preserved and reused.
+
+- **`workflow/` package** — CRISPY phase sequencer (new module, no existing code changed):
+  - `workflow/models.py` — all first-class Pydantic types: `WorkflowRun`, `Phase`, `Slice`,
+    `Artifact`, `ApprovalGate`, `CheckRun`, `ModelRoutingConfig`, `WorkflowBuildRequest`,
+    `WorkflowApproveRequest`, `WorkflowRejectRequest`, `SliceRunRequest`.
+  - `workflow/artifact_store.py` — dual-persistence layer: markdown/JSON artifacts written
+    to disk under `.data/workflow/artifacts/<run_id>/`; SQLite metadata table for fast
+    listing and queryability. Idempotent upsert (`persist`) for resumable re-runs.
+  - `workflow/phases.py` — `PhaseRunner`: executes a single CRISPY phase against the
+    configured role-model, builds role-specific system prompts (Scout / Architect / Coder /
+    Reviewer / Verifier), calls Ollama-compatible endpoint, persists artifact. Verifier phase
+    is **execution-only** (subprocess commands via `shell=True`; `CheckRun` JSON is the sole
+    output — no LLM subjective verdict).
+  - `workflow/engine.py` — `WorkflowEngine`: SQLite-backed phase sequencer.
+    - Pre-gate phases run asynchronously: `context → research → investigate → structure → plan`.
+    - **Hard ApprovalGate** (`status=awaiting_approval`) after plan phase — no code path can
+      advance past it without `engine.approve()`.
+    - Post-gate: parses slices from `plan.md`, sequences `execute → review → verify` per slice,
+      runs `report` phase, marks run `done`.
+    - Full event log (positional, append-only) stored in SQLite alongside run data.
+    - `_extract_slices_from_plan()` parser supports `## Slice N: <title>` format with
+      optional `Files:` line for target file extraction.
+    - `get_engine()` singleton for shared access.
+  - `workflow/api.py` — 13 FastAPI endpoints on `workflow_router`:
+    - `POST /workflow/build` — create and start a run (202 Accepted)
+    - `GET /workflow/` — list runs (paginated, filterable by status)
+    - `GET /workflow/{id}` — full WorkflowRun state
+    - `POST /workflow/{id}/approve` — lift the ApprovalGate
+    - `POST /workflow/{id}/reject` — reject with reason
+    - `POST /workflow/{id}/resume` — resume from last completed phase
+    - `POST /workflow/{id}/cancel` — cancel a non-terminal run
+    - `GET /workflow/{id}/artifacts` — list artifacts (metadata only)
+    - `GET /workflow/{id}/artifacts/{name}` — get artifact content (raw text)
+    - `GET /workflow/{id}/slices` — list slices
+    - `POST /workflow/{id}/slices/{slice_id}/run` — manually trigger a slice
+    - `GET /workflow/{id}/checks` — list CheckRuns
+    - `POST /workflow/{id}/verify` — trigger full verification pass
+    - `GET /workflow/{id}/events` — event log (queryable by position)
+
+- **`agent/models.py`** — `EventType` literal extended with 14 CRISPY workflow event types
+  (`workflow_created`, `workflow_done`, `workflow_cancelled`, `workflow_resumed`,
+  `phase_started`, `phase_complete`, `phase_failed`, `gate_created`, `gate_approved`,
+  `gate_rejected`, `slices_registered`, `slice_started`, `slice_complete`, `slice_failed`).
+  Backwards-compatible — all existing event types preserved.
+
+- **3 new test files** (72 tests total, all passing without a running Ollama):
+  - `tests/test_workflow_models.py` — 23 tests: validation, helper methods, serialisation
+    round-trips, approval gate states, CheckRun pass/fail, Slice defaults.
+  - `tests/test_artifact_store.py` — 18 tests: persist idempotency, retrieval by ID/name,
+    run isolation, ordering, index generation, deletion, JSON artifacts.
+  - `tests/test_workflow_engine.py` — 31 tests: run creation, phase record building,
+    approval gate (approve/reject/wrong-state errors), cancellation, event log with
+    positional query, slice extraction from plan.md, persistence across simulated restart.
+
+### Model Routing (per-role env vars)
+
+| Role | Env var | Default |
+|------|---------|---------|
+| Architect | `CRISPY_ARCHITECT_MODEL` | `qwen3-coder:30b` |
+| Scout | `CRISPY_SCOUT_MODEL` | `deepseek-r1:32b` |
+| Coder | `CRISPY_CODER_MODEL` | `qwen3-coder:30b` |
+| Reviewer | `CRISPY_REVIEWER_MODEL` | `deepseek-r1:32b` |
+| Verifier | `CRISPY_VERIFIER_MODEL` | `qwen3-coder:7b` |
+
+### Added — CRISPY Multi-Agent System (Phase C)
+
+- **`agents/profiles.py`** — Role-locked `AgentProfile` definitions. Enforces the invariant that `CODER` and `REVIEWER` must use distinct models (by default Qwen3 vs DeepSeek-R1) to prevent shared blind spots.
+- **`agents/swarm.py`** — `AgentSwarm` orchestrator. Routes workflow phases to the relevant AgentProfile, injecting profiles into `PhaseRunner`. Enforces permissions (e.g., Scout cannot write, Reviewer cannot execute).
+- **`scripts/build_workflow.py` & `build-workflow`** — A standalone Python script and bash wrapper `/usr/local/bin` symlink target. Provides a complete CLI for driving CRISPY via terminal, with streaming updates and a human-in-the-loop approval gate.
+- **`workflow/engine.py` & `workflow/api.py`** — `WorkflowEngine` upgraded to use `AgentSwarm` for all slice/phase execution. Added `GET /workflow/agents` to expose the team composition and model mismatch checks.
+- **`tests/test_agents.py`** — 25 new tests covering profile resolution, swarm routing, strict permissions, and dual-model invariant warnings.
+
+> **Next**: Phase D (dashboard panel continuation) and full CLI integration.
+
+### Added — CRISPY IDE Bridge + Proxy Wiring (Phase D partial)
+
+- **`workflow/ide_bridge.py`** — OpenAI-compatible SSE bridge. Any IDE that speaks the
+  OpenAI chat protocol can now drive CRISPY workflows without plugins:
+  - Detects trigger prefixes in the last user message and routes accordingly:
+    - `@build <task>` / `@workflow <task>` / `/crispy <task>` — creates a WorkflowRun and
+      streams SSE status tokens (phases, gate prompt, slice progress) as if the assistant is typing.
+    - `@status [run_id]` — list recent runs or get detailed run state.
+    - `@approve <run_id>` — approve the plan gate from the chat box.
+    - `@reject <run_id> [reason]` — reject the plan.
+  - All other messages pass through transparently to the normal Ollama/LLM handler.
+  - `CRISPY_STREAM_TIMEOUT` env var controls SSE stream duration (default 60s).
+
+- **`proxy.py`** — workflow engine wired into the running server:
+  - Imports `workflow_router`, `get_engine`, `handle_workflow_ide_chat`.
+  - `WORKFLOW_ENGINE = get_engine()` singleton initialised at startup.
+  - `app.include_router(workflow_router, dependencies=[Depends(verify_api_key)])` — all
+    13 `/workflow/*` endpoints are now live and auth-protected.
+  - `POST /v1/workflow/chat` — dedicated IDE bridge endpoint.
+  - `GET /v1/models` — injects `crispy-workflow` pseudo-model into the model list so
+    Continue, Cursor, and other IDEs can discover and select it from the model picker.
+  - `POST /v1/chat/completions` with `model: crispy-workflow` — automatically routed to
+    the IDE bridge instead of the LLM, so no IDE config changes are needed beyond model selection.
+
+- **`client-configs/continue_config.yaml`** — updated with:
+  - `CRISPY Workflow Engine` model entry (`model: crispy-workflow`, `apiBase: localhost:8000/v1`).
+  - Workflow trigger syntax documented in `systemMessage`.
+  - Slash commands `/build`, `/status`, `/approve` mapped to trigger prefixes.
+  - Direct Qwen3-Coder and DeepSeek models retained as secondary options.
+
+- **`client-configs/vscode_settings.json`** — updated with step-by-step setup guide,
+  all three model entries, and tunnel instructions.
+
+- **`client-configs/crispy_client.py`** — new standalone Python CLI:
+  `build` · `status` · `approve` · `reject` · `artifacts` · `events` · `watch` (live poll).
+  Drop it in any project: `LLM_API_KEY=xxx python crispy_client.py watch wf_abc123`.
+
+
+
 ### Removed
 
 - **Dashboard SPA: redundant agent + key-management pages consolidated** (`frontend/src/pages/`):

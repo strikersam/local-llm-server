@@ -9,6 +9,7 @@ from pydantic import BaseModel, Field
 # ---------------------------------------------------------------------------
 
 EventType = Literal[
+    # Existing agent session events
     "user_message",
     "assistant_message",
     "tool_call",
@@ -17,6 +18,21 @@ EventType = Literal[
     "step_complete",
     "compaction",
     "error",
+    # CRISPY workflow engine events
+    "workflow_created",
+    "workflow_done",
+    "workflow_cancelled",
+    "workflow_resumed",
+    "phase_started",
+    "phase_complete",
+    "phase_failed",
+    "gate_created",
+    "gate_approved",
+    "gate_rejected",
+    "slices_registered",
+    "slice_started",
+    "slice_complete",
+    "slice_failed",
 ]
 
 

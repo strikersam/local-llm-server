@@ -1,44 +1,95 @@
-name: Home PC Continue (Recommended)
-version: 1.0.0
+name: Local LLM Server (CRISPY Workflow)
+version: 2.0.0
 schema: v1
 
+# ── Chat models ────────────────────────────────────────────────────────────────
 models:
-  - name: Qwen3-Coder 30B
+  # Default coding model — routes through CRISPY workflow engine.
+  # Use @build, @workflow, or /crispy to trigger a deterministic build workflow.
+  - name: CRISPY Workflow Engine
+    provider: openai
+    model: crispy-workflow
+    apiBase: http://localhost:8000/v1
+    apiKey: YOUR_API_KEY
+    roles:
+      - chat
+    systemMessage: |
+      You are connected to the CRISPY deterministic workflow engine.
+
+      Workflow commands (start your message with):
+        @build <task>     — Start a full CRISPY build workflow
+        @workflow <task>  — Same as @build
+        /crispy <task>    — Same as @build
+        @status           — List recent workflow runs
+        @status <run_id>  — Get status of a specific run
+        @approve <run_id> — Approve the plan gate for a run
+        @reject <run_id> [reason] — Reject the plan
+
+      Any regular message (no prefix) works as normal chat.
+
+      Lifecycle: request → context → research → investigate → structure → plan
+                 → HUMAN APPROVAL (hard gate) → execute → review → verify → report
+    completionOptions:
+      temperature: 0.2
+      maxTokens: 4096
+
+  # Direct coder model — bypasses workflow, goes straight to LLM
+  - name: Qwen3-Coder 30B (Direct)
     provider: openai
     model: qwen3-coder:30b
-    apiBase: https://YOUR_TUNNEL_URL/v1
+    apiBase: http://localhost:8000/v1
     apiKey: YOUR_API_KEY
     roles:
       - chat
       - edit
       - apply
-      - autocomplete
       - summarize
-    systemMessage: Answer directly. Do not reveal reasoning. For code tasks, inspect the provided context before answering.
+    systemMessage: Answer directly. For code tasks, inspect the provided context before answering.
     completionOptions:
       temperature: 0.2
-      maxTokens: 1200
+      maxTokens: 4096
 
-  - name: DeepSeek-R1 32B (Optional reasoning profile)
+  # Reasoning model for analysis / review
+  - name: DeepSeek-R1 32B (Reasoning)
     provider: openai
     model: deepseek-r1:32b
-    apiBase: https://YOUR_TUNNEL_URL/v1
+    apiBase: http://localhost:8000/v1
     apiKey: YOUR_API_KEY
     roles:
       - chat
-    systemMessage: Answer directly. Do not reveal reasoning.
+    systemMessage: Answer directly. Do not repeat the thinking process in your final answer.
     completionOptions:
       temperature: 0.2
-      maxTokens: 1200
+      maxTokens: 4096
 
+# ── Tab autocomplete ───────────────────────────────────────────────────────────
 tabAutocompleteModel:
   name: Qwen3-Coder 30B Autocomplete
   provider: openai
   model: qwen3-coder:30b
-  apiBase: https://YOUR_TUNNEL_URL/v1
+  apiBase: http://localhost:8000/v1
   apiKey: YOUR_API_KEY
 
+# ── Context providers ──────────────────────────────────────────────────────────
 context:
   - provider: code
   - provider: diff
   - provider: folder
+  - provider: terminal
+  - provider: open
+    params:
+      onlyPinned: true
+
+# ── Slash commands (shortcuts) ─────────────────────────────────────────────────
+slashCommands:
+  - name: build
+    description: "Trigger a CRISPY workflow build: /build <task description>"
+    prompt: "@build {{{ input }}}"
+
+  - name: status
+    description: "Check workflow status: /status [run_id]"
+    prompt: "@status {{{ input }}}"
+
+  - name: approve
+    description: "Approve the workflow gate: /approve <run_id>"
+    prompt: "@approve {{{ input }}}"
