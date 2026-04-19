@@ -8,6 +8,15 @@
 
 ## [Unreleased]
 
+## [2.5.0] — 2026-04-19
+
+### Fixed
+
+- **Admin Portal service management**: Restored functionality for starting/stopping services, specifically adding support for `cloudflared` tunnels.
+- **Routing prefix alignment**: Standardized WebUI API routes under the `/api` prefix (while maintaining Ollama passthrough) to ensure compatibility with the dashboard's default request paths.
+- **Provider connectivity**: Added a dedicated `POST /api/providers/{id}/test` endpoint and implemented a fallback to Ollama native `/api/tags` when OpenAI-compatible model listing fails.
+- **Validation**: Switched from regex-based Pydantic validation to `Literal` for `AdminControlBody` to prevent runtime errors on service control actions.
+
 ### Added
 
 - **`task-alive-updates` skill**: Heartbeat/keep-alive for long-running agent tasks. Emits `[ALIVE]` status lines at configurable intervals so operators know tasks are still progressing; includes `heartbeat.sh` bash helper for shell-based agents. Inspired by Copilot mission control's `copilot_mission_control_task_alive_updates` feature flag.
