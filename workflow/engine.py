@@ -618,11 +618,11 @@ class WorkflowEngine:
                     if ph:
                         ph.status = "failed"
                         ph.finished_at = _now()
-                        ph.error = str(exc)
+                        ph.error = f"{type(exc).__name__}: {exc}" if str(exc) else type(exc).__name__
                     r.status = "failed"
                     self._save(r)
             self._log_event(
-                run_id, "phase_failed", {"phase": phase_type, "error": str(exc)}
+                run_id, "phase_failed", {"phase": phase_type, "error": f"{type(exc).__name__}: {exc}" if str(exc) else type(exc).__name__}
             )
 
     async def _parse_and_register_slices(self, run_id: str) -> None:

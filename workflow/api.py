@@ -128,7 +128,7 @@ def get_run(
 
 
 @workflow_router.post("/{run_id}/approve")
-def approve(
+async def approve(
     run_id: str,
     body: WorkflowApproveRequest,
     engine: WorkflowEngine = Depends(_engine),
@@ -152,7 +152,7 @@ def approve(
 
 
 @workflow_router.post("/{run_id}/reject")
-def reject(
+async def reject(
     run_id: str,
     body: WorkflowRejectRequest,
     engine: WorkflowEngine = Depends(_engine),
@@ -172,7 +172,7 @@ def reject(
 
 
 @workflow_router.post("/{run_id}/resume")
-def resume(
+async def resume(
     run_id: str,
     engine: WorkflowEngine = Depends(_engine),
 ) -> dict[str, Any]:
@@ -186,7 +186,7 @@ def resume(
 
 
 @workflow_router.post("/{run_id}/cancel")
-def cancel(
+async def cancel(
     run_id: str,
     engine: WorkflowEngine = Depends(_engine),
 ) -> dict[str, Any]:
