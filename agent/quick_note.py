@@ -152,7 +152,8 @@ def process_note(
         instruction = (
             "Implement the following feature or change in this codebase. "
             "Read the source material carefully and make all necessary code changes. "
-            "Do NOT run git commands — the system will commit and push after you finish.\n\n"
+            "Do NOT run git commands — the system will commit and push after you finish.\n"
+            "IMPORTANT: If you create or update any new skills or workflows, please put them in `.agents/skills/` instead of `.claude/skills/`.\n\n"
             f"Source URL: {note.url}\n\n"
             f"Content:\n{content}"
         )

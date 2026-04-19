@@ -69,7 +69,7 @@
 | 65 | docker-compose.yml correct services | ✅ |  |
 | 66 | deploy-frontend.yml correct paths | ✅ |  |
 | 67 | Dockerfile.frontend correct project | ✅ |  |
-| 68 | /v1/models includes Claude aliases | ❌ | Missing files: Code in models endpoint. Found in git history: d9dc551 feat: multi-agent orchestration, cloud providers, and model catalog |
+| 68 | /v1/models includes Claude aliases | ❌ | Missing files: Code in models endpoint. Found in git history: 48dcb18 fix: end-to-end bug sweep + security/perf/network hardening |
 | 69 | .env.example cleaned | ✅ |  |
 | 70 | MODEL_MAP parser fix | ✅ |  |
 | 71 | KeyStore corruption handling | ✅ |  |
@@ -82,13 +82,13 @@
 | 78 | Durable session history (SQLite) | ✅ |  |
 | 79 | Memory-aware planning | ✅ |  |
 | 80 | CLAUDE.md root guide | ✅ |  |
-| 81 | AGENTS.md + TOOLS.md | ✅ |  |
-| 82 | .claude/skills/ (11 skills) | ✅ |  |
-| 83 | .claude/hooks/ (3 hooks) | ✅ |  |
-| 84 | .claude/agents/ (4 personas) | ✅ |  |
-| 85 | .claude/agents/scout.md | ✅ |  |
-| 86 | .claude/commands/ | ✅ |  |
-| 87 | .claude/state/ | ✅ |  |
+| 81 | AGENTS.md + TOOLS.md | ❌ | Missing files: AGENTS.md. Found in git history: bdd5fbf fix(continue): resolve connection errors and 5-min timeout cutoffs |
+| 82 | .claude/skills/ (11 skills) | ❌ | Missing files: .claude/skills/. Found in git history: 0dc71d7 feat: retrofit repo-native AI engineering system |
+| 83 | .claude/hooks/ (3 hooks) | ❌ | Missing files: .claude/hooks/pre-commit, .claude/hooks/commit-msg, .claude/hooks/pre-push. Found in git history: 0dc71d7 feat: retrofit repo-native AI engineering system |
+| 84 | .claude/agents/ (4 personas) | ❌ | Missing files: .claude/agents/. Found in git history: 0dc71d7 feat: retrofit repo-native AI engineering system |
+| 85 | .claude/agents/scout.md | ❌ | Missing files: .claude/agents/scout.md. Found in git history: 0dc71d7 feat: retrofit repo-native AI engineering system |
+| 86 | .claude/commands/ | ❌ | Missing files: .claude/commands/. Found in git history: 0dc71d7 feat: retrofit repo-native AI engineering system |
+| 87 | .claude/state/ | ❌ | Missing files: .claude/state/. Found in git history: 99f403a feat(claude): add Scout agent, 9 skills, and pro-workflow system |
 | 88 | scripts/ai_runner.py | ✅ |  |
 | 89 | Makefile | ✅ |  |
 | 90 | .github/workflows/ci.yml | ✅ |  |
@@ -164,8 +164,8 @@
 | 160 | INFRA_* defaults for Intel AI PC | ✅ |  |
 | 161 | generate_api_key.py shim | ❌ | Missing files: generate_api_key.py (root). Found in git history: c45682e fix(v2.0.1): env config, gitignore, test imports, generate_api_key shim |
 | 162 | POST /v1/messages Anthropic compat | ✅ |  |
-| 163 | x-api-key header support | ❌ | Missing files: Auth middleware. Found in git history: 4f6fc00 feat(v2.0): Claude Code compat, agent package, infra cost, Telegram bot |
-| 164 | MODEL_MAP env var | ❌ | Missing files: handlers/anthropic_compat.py or router/. Found in git history: 9b5ee29 fix: 4 additional bugs from QA audit |
+| 163 | x-api-key header support | ❌ | Missing files: Auth middleware. Found in git history: f62aa1c feat: auto/manual model selection, mobile UI, Gemma 4 support |
+| 164 | MODEL_MAP env var | ❌ | Missing files: handlers/anthropic_compat.py or router/. Found in git history: f62aa1c feat: auto/manual model selection, mobile UI, Gemma 4 support |
 | 165 | GET /v1/models with aliases | ❌ | Missing files: Models endpoint. Found in git history: c4c5e5c fix: replace missing _build_model_map with get_registry() in /v1/models |
 | 166 | infra_cost.py | ✅ |  |
 | 167 | Langfuse infra cost annotations | ✅ |  |
