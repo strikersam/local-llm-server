@@ -71,6 +71,10 @@ from workflow import WorkflowEngine, workflow_router
 from workflow.engine import get_engine
 from workflow.ide_bridge import handle_workflow_ide_chat
 
+# v3: Runtime layer and task system
+from runtimes import runtime_router, get_runtime_manager
+from tasks import task_router
+
 # ─── Config ────────────────────────────────────────────────────────────────────
 
 OLLAMA_BASE    = os.environ.get("OLLAMA_BASE", "http://localhost:11434")
@@ -311,7 +315,7 @@ def _provider_headers_for_request(secret: object, request: Request, auth: AuthCo
 
 # ─── App ────────────────────────────────────────────────────────────────────────
 
-app = FastAPI(title="Qwen3-Coder Proxy", version="1.0.0", docs_url=None, redoc_url=None)
+app = FastAPI(title="LLM Relay — Control Plane", version="3.0.0", docs_url=None, redoc_url=None)
 
 app.add_middleware(
     CORSMiddleware,
@@ -378,6 +382,20 @@ app.include_router(
     dependencies=[Depends(verify_api_key)],
 )
 log.info("CRISPY WorkflowEngine mounted at /workflow/*")
+
+# ─── v3: Runtime layer ────────────────────────────────────────────────────────
+app.include_router(
+    runtime_router,
+    dependencies=[Depends(verify_api_key)],
+)
+log.info("Runtime layer mounted at /runtimes/*")
+
+# ─── v3: Task system ──────────────────────────────────────────────────────────
+app.include_router(
+    task_router,
+    dependencies=[Depends(verify_api_key)],
+)
+log.info("Task system mounted at /api/tasks/*")
 
 # ─── Health (no auth) ──────────────────────────────────────────────────────────
 
@@ -1471,10 +1489,28 @@ async def openai_compat(path: str, request: Request, auth: AuthContext = Depends
         )
     return await proxy_request(request, f"v1/{path}", auth=auth)
 
+# ─── v3: Runtime Manager lifecycle ────────────────────────────────────────────
+
+@app.on_event("startup")
+async def _start_runtime_manager() -> None:
+    """Start the runtime health polling loop on server startup."""
+    mgr = get_runtime_manager()
+    await mgr.start()
+    log.info("RuntimeManager started (%d runtimes registered)", len(mgr._registry.ids()))
+
+
+@app.on_event("shutdown")
+async def _stop_runtime_manager() -> None:
+    """Gracefully stop the runtime manager on shutdown."""
+    mgr = get_runtime_manager()
+    await mgr.stop()
+    log.info("RuntimeManager stopped")
+
+
 # ─── Entry point ────────────────────────────────────────────────────────────────
 
 if __name__ == "__main__":
     import uvicorn
-    log.info("Starting Qwen3-Coder Proxy on port %d", PROXY_PORT)
+    log.info("Starting LLM Relay Control Plane v3 on port %d", PROXY_PORT)
     log.info("Loaded %d env API key(s), %d key-store key(s)", len(VALID_API_KEYS), len(KEY_STORE))
     uvicorn.run("proxy:app", host="0.0.0.0", port=PROXY_PORT, log_level=LOG_LEVEL.lower())

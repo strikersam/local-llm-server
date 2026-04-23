@@ -76,7 +76,7 @@ export default function LoginPage() {
         <div className="animate-fade-in">
           <div className="flex items-center gap-2.5 mb-12">
             <div className="w-2 h-2 rounded-sm bg-[#002FA7]" />
-            <span className="text-[11px] tracking-[0.3em] uppercase text-[#555555] font-mono font-medium">Platform v2.0</span>
+            <span className="text-[11px] tracking-[0.3em] uppercase text-[#555555] font-mono font-medium">Platform v3.0</span>
           </div>
           <h1 className="text-[80px] xl:text-[96px] font-bold tracking-[-0.04em] leading-[0.9] text-white" style={{ fontFamily: 'Outfit, sans-serif' }}>
             LLM<br />RELAY
@@ -111,7 +111,7 @@ export default function LoginPage() {
           <div className="lg:hidden text-center mb-8">
             <div className="inline-flex items-center gap-2 mb-4">
               <div className="w-2 h-2 rounded-sm bg-[#002FA7]" />
-              <span className="text-[10px] tracking-[0.3em] uppercase text-[#555555] font-mono">Platform v2.0</span>
+              <span className="text-[10px] tracking-[0.3em] uppercase text-[#555555] font-mono">Platform v3.0</span>
             </div>
             <h1 className="text-4xl font-bold tracking-[-0.03em] text-white" style={{ fontFamily: 'Outfit, sans-serif' }}>LLM Relay</h1>
             <p className="text-sm text-[#555555] mt-2">Route, run, and control LLMs.</p>

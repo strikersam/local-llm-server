@@ -3,8 +3,11 @@ import { Routes, Route, NavLink, Navigate, useNavigate } from 'react-router-dom'
 import { useAuth } from '../AuthContext';
 import {
   LayoutDashboard, MessageSquare, BookOpen, Upload, Activity,
-  Settings, LogOut, Menu, X, Cpu, ChevronRight, Layers, BarChart3, Box, Github, Shield
+  Settings, LogOut, Menu, X, Cpu, ChevronRight, Layers, BarChart3,
+  Box, Github, Shield, Bot, CheckSquare, Radio, ClipboardList,
+  FileText, Zap, Lock,
 } from 'lucide-react';
+import ControlPlanePage from './ControlPlanePage';
 import DashboardHome from './DashboardHome';
 import ChatPage from './ChatPage';
 import WikiPage from './WikiPage';
@@ -16,37 +19,61 @@ import ObservabilityPage from './ObservabilityPage';
 import SettingsPage from './SettingsPage';
 import GitHubPage from './GitHubPage';
 import AdminPortalPage from './AdminPortalPage';
+import AgentsPage from './AgentsPage';
+import TasksPage from './TasksPage';
+import RuntimesPage from './RuntimesPage';
 
-const navSections = [
-  {
-    label: 'Core',
-    items: [
-      { to: '/', icon: LayoutDashboard, label: 'Dashboard', end: true },
-      { to: '/chat', icon: MessageSquare, label: 'Agent Chat' },
-      { to: '/wiki', icon: BookOpen, label: 'Wiki' },
-      { to: '/sources', icon: Upload, label: 'Sources' },
-      { to: '/github', icon: Github, label: 'GitHub' },
-    ],
-  },
-  {
-    label: 'Infrastructure',
-    items: [
-      { to: '/providers', icon: Layers, label: 'Providers' },
-      { to: '/models', icon: Box, label: 'Models Hub' },
-    ],
-  },
-  {
-    label: 'System',
-    items: [
-      { to: '/observability', icon: BarChart3, label: 'Observability' },
-      { to: '/activity', icon: Activity, label: 'Activity' },
-      { to: '/admin', icon: Shield, label: 'Admin Portal' },
-      { to: '/settings', icon: Settings, label: 'Settings' },
-    ],
-  },
-];
+/**
+ * navSections — v3 unified navigation.
+ *
+ * Sections:
+ *  Operations  — Control Plane (home), Agent Chat, Agents, Tasks
+ *  Engineering — GitHub, Wiki, Sources
+ *  Infrastructure — Providers, Models, Runtimes, Observability
+ *  System      — Activity, Admin Portal (admin only), Settings
+ */
+function buildNavSections(isAdmin) {
+  return [
+    {
+      label: 'Operations',
+      items: [
+        { to: '/', icon: LayoutDashboard, label: 'Control Plane', end: true },
+        { to: '/chat', icon: MessageSquare, label: 'Agent Chat' },
+        { to: '/agents', icon: Bot, label: 'Agents' },
+        { to: '/tasks', icon: CheckSquare, label: 'Tasks' },
+      ],
+    },
+    {
+      label: 'Engineering',
+      items: [
+        { to: '/github', icon: Github, label: 'GitHub' },
+        { to: '/wiki', icon: BookOpen, label: 'Wiki' },
+        { to: '/sources', icon: Upload, label: 'Sources' },
+      ],
+    },
+    {
+      label: 'Infrastructure',
+      items: [
+        { to: '/providers', icon: Layers, label: 'Providers' },
+        { to: '/models', icon: Box, label: 'Models Hub' },
+        { to: '/runtimes', icon: Radio, label: 'Runtimes' },
+        { to: '/observability', icon: BarChart3, label: 'Observability' },
+      ],
+    },
+    {
+      label: 'System',
+      items: [
+        { to: '/activity', icon: Activity, label: 'Activity' },
+        ...(isAdmin ? [
+          { to: '/admin', icon: Shield, label: 'Admin Portal', adminOnly: true },
+        ] : []),
+        { to: '/settings', icon: Settings, label: 'Settings' },
+      ],
+    },
+  ];
+}
 
-function NavItem({ to, icon: Icon, label, end, onClick }) {
+function NavItem({ to, icon: Icon, label, end, onClick, adminOnly }) {
   return (
     <NavLink
       to={to}
@@ -66,8 +93,11 @@ function NavItem({ to, icon: Icon, label, end, onClick }) {
           {isActive && (
             <div className="absolute left-0 top-1/2 -translate-y-1/2 w-0.5 h-4 bg-[#002FA7] rounded-full" />
           )}
-          <Icon size={15} className={({ isActive }) => isActive ? 'text-[#002FA7]' : ''} />
+          <Icon size={15} className={isActive ? 'text-[#002FA7]' : ''} />
           <span className="flex-1 leading-none">{label}</span>
+          {adminOnly && (
+            <Lock size={9} className="text-[#333] mr-1" title="Admin only" />
+          )}
           <ChevronRight size={11} className="opacity-0 group-hover:opacity-40 transition-opacity -translate-x-1 group-hover:translate-x-0 duration-150" />
         </>
       )}
@@ -77,6 +107,8 @@ function NavItem({ to, icon: Icon, label, end, onClick }) {
 
 function SidebarContent({ user, onLogout, onClose }) {
   const initial = (user?.name || user?.email || 'A')[0].toUpperCase();
+  const isAdmin = user?.role === 'admin';
+  const navSections = buildNavSections(isAdmin);
 
   return (
     <div className="flex flex-col h-full" data-testid="sidebar">
@@ -88,7 +120,7 @@ function SidebarContent({ user, onLogout, onClose }) {
           </div>
           <div>
             <div className="text-[13px] font-bold text-white tracking-tight" style={{ fontFamily: 'Outfit, sans-serif' }}>LLM Relay</div>
-            <div className="text-[10px] text-[#444444] font-mono leading-none mt-0.5">v2.0</div>
+            <div className="text-[10px] text-[#444444] font-mono leading-none mt-0.5">v3.0</div>
           </div>
         </div>
       </div>
@@ -114,7 +146,14 @@ function SidebarContent({ user, onLogout, onClose }) {
             {initial}
           </div>
           <div className="flex-1 min-w-0">
-            <div className="text-[12px] text-[#CCCCCC] font-medium truncate">{user?.name || 'Admin'}</div>
+            <div className="flex items-center gap-1.5">
+              <span className="text-[12px] text-[#CCCCCC] font-medium truncate">{user?.name || 'User'}</span>
+              {isAdmin && (
+                <span className="text-[8px] font-mono uppercase px-1 py-0.5 rounded border border-amber-500/25 bg-amber-500/8 text-amber-400 flex-shrink-0">
+                  Admin
+                </span>
+              )}
+            </div>
             <div className="text-[10px] text-[#444444] truncate font-mono">{user?.email}</div>
           </div>
         </div>
@@ -161,6 +200,7 @@ export default function DashboardLayout() {
             <Cpu size={12} className="text-white" />
           </div>
           <span className="text-[13px] font-bold text-white tracking-tight" style={{ fontFamily: 'Outfit, sans-serif' }}>LLM Relay</span>
+          <span className="text-[9px] font-mono text-[#333] border border-white/8 px-1.5 py-0.5 rounded">v3</span>
         </div>
       </div>
 
@@ -186,24 +226,41 @@ export default function DashboardLayout() {
         <SidebarContent user={user} onLogout={handleLogout} onClose={closeSidebar} />
       </aside>
 
-      {/* Main content — ChatPage gets full height without inner scroll */}
+      {/* Main content */}
       <main className="flex-1 min-w-0 flex flex-col pt-14 lg:pt-0 overflow-hidden">
         <Routes>
-          <Route path="/" element={<div className="overflow-y-auto flex-1"><DashboardHome /></div>} />
+          {/* v3 Control Plane home */}
+          <Route path="/" element={<div className="overflow-y-auto flex-1"><ControlPlanePage /></div>} />
+          {/* Legacy dashboard (accessible at /dashboard for backward compat) */}
+          <Route path="/dashboard" element={<div className="overflow-y-auto flex-1"><DashboardHome /></div>} />
+
+          {/* Operations */}
           <Route path="/chat" element={<ChatPage />} />
           <Route path="/chat/:sessionId" element={<ChatPage />} />
-          <Route path="/admin" element={<AdminPortalPage />} />
+          <Route path="/agents" element={<div className="overflow-y-auto flex-1"><AgentsPage /></div>} />
+          <Route path="/tasks" element={<div className="overflow-y-auto flex-1"><TasksPage /></div>} />
+
+          {/* Engineering */}
+          <Route path="/github" element={<div className="overflow-y-auto flex-1"><GitHubPage /></div>} />
           <Route path="/wiki" element={<div className="overflow-y-auto flex-1"><WikiPage /></div>} />
           <Route path="/wiki/:slug" element={<div className="overflow-y-auto flex-1"><WikiPage /></div>} />
           <Route path="/sources" element={<div className="overflow-y-auto flex-1"><SourcesPage /></div>} />
+
+          {/* Infrastructure */}
           <Route path="/providers" element={<div className="overflow-y-auto flex-1"><ProvidersPage /></div>} />
           <Route path="/models" element={<div className="overflow-y-auto flex-1"><ModelsPage /></div>} />
+          <Route path="/runtimes" element={<div className="overflow-y-auto flex-1"><RuntimesPage /></div>} />
+          <Route path="/observability" element={<div className="overflow-y-auto flex-1"><ObservabilityPage /></div>} />
+
+          {/* System */}
+          <Route path="/activity" element={<div className="overflow-y-auto flex-1"><ActivityPage /></div>} />
+          <Route path="/admin" element={<AdminPortalPage />} />
+          <Route path="/settings" element={<div className="overflow-y-auto flex-1"><SettingsPage /></div>} />
+
+          {/* Redirects for old paths */}
           <Route path="/keys" element={<Navigate to="/admin" replace />} />
           <Route path="/agentview" element={<Navigate to="/chat" replace />} />
-          <Route path="/github" element={<div className="overflow-y-auto flex-1"><GitHubPage /></div>} />
-          <Route path="/observability" element={<div className="overflow-y-auto flex-1"><ObservabilityPage /></div>} />
-          <Route path="/activity" element={<div className="overflow-y-auto flex-1"><ActivityPage /></div>} />
-          <Route path="/settings" element={<div className="overflow-y-auto flex-1"><SettingsPage /></div>} />
+
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
       </main>

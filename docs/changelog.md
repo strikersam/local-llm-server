@@ -6,6 +6,95 @@
 <!-- Every commit or merge to master MUST add an entry to [Unreleased]         -->
 <!-- or to the appropriate version section before merging.                     -->
 
+## [3.0.0] — 2026-04-23
+
+### Overview
+
+Version 3.0 transforms local-llm-server from a smart LLM proxy into a **unified, production-grade, self-hosted AI agent control plane** with multi-runtime orchestration, a task/issue management system, role-based access control, and a comprehensive v3 dashboard.
+
+### Added — v3 Control Plane UI
+
+- **`frontend/src/pages/ControlPlanePage.js`** — New primary post-login landing page (v3). Unified operations dashboard showing: active agents panel, task queue (running/queued/blocked), runtime health grid, schedules due soon, routing decision log, cost-saved summary, alert banner for blocked tasks and circuit-open runtimes.
+- **`frontend/src/pages/AgentsPage.js`** — New agent profiles management page. Create/edit/delete agent profiles with name, role, system prompt, preferred runtime, fallback runtimes, task specialization, and cost policy.
+- **`frontend/src/pages/TasksPage.js`** — New task/issue management page. Create tasks with title/description/prompt/agent/runtime/priority; track status through todo→in_progress→in_review→blocked→done; retry and escalate actions; execution log display.
+- **`frontend/src/pages/RuntimesPage.js`** — New runtime management page. Shows all registered runtimes with health status, capabilities, tier classification, integration mode, and quick-run interface. Routing policy summary panel.
+- **`frontend/src/pages/DashboardLayout.js`** — Updated v3 navigation: Operations (Control Plane, Agent Chat, Agents, Tasks), Engineering (GitHub, Wiki, Sources), Infrastructure (Providers, Models, Runtimes, Observability), System (Activity, Admin Portal, Settings). Admin badge in user footer. v3 version label. Lock icon on admin-only nav items.
+- **`frontend/src/pages/LoginPage.js`** — Updated version label to "Platform v3.0".
+- **`frontend/src/api.js`** — New API methods: listRuntimes, getRuntime, getRuntimeHealth, getRoutingPolicy, updateRoutingPolicy, getDecisionLog, runTaskOnRuntime, listTasks, createTask, getTask, updateTask, deleteTask, retryTask, escalateTask, addTaskComment, approveTaskCheckpoint, getTaskCounts, getDueSoonTasks, listAgents, createAgent, getAgent, updateAgent, deleteAgent, getAuditLog.
+
+### Added — Runtime Abstraction Layer (`runtimes/`)
+
+- **`runtimes/base.py`** — `RuntimeAdapter` ABC, `RuntimeCapability` enum (15 capabilities), `RuntimeTier` enum, `IntegrationMode` enum, `RuntimeHealth`, `TaskResult`, `TaskSpec` dataclasses, `RuntimeUnavailableError`, `RuntimeExecutionError`.
+- **`runtimes/registry.py`** — `RuntimeCapabilityRegistry`: adapter registration, capability-based lookup, tier-ordered sorting, task-type capability map.
+- **`runtimes/health.py`** — `RuntimeHealthService`: async health polling loop with configurable interval, circuit-breaker (3 failures → OPEN, 60s recovery window), cached health snapshots.
+- **`runtimes/routing.py`** — `RuntimeRoutingPolicyEngine`: 8-step routing flow (classify → pick runtime → pick model → execute → retry → fallback → escalate → log), full `RoutingDecision` audit log, `RoutingPolicy` dataclass with local-first defaults.
+- **`runtimes/manager.py`** — `RuntimeManager`: top-level orchestrator; owns registry/health/router; singleton via `get_runtime_manager()`; wires all adapters from env config; startup/shutdown lifecycle.
+- **`runtimes/api.py`** — FastAPI router at `/runtimes/*`: list, get, health, get/update policy, decision log, per-runtime task execution.
+- **`runtimes/adapters/hermes.py`** — Hermes Agent adapter (FIRST CLASS, SIDECAR). Capabilities: code_gen, code_review, file_read_write, tool_use, agent_delegation, scheduled_tasks, memory_sessions, mcp_connectivity, stream_output, autonomous_loop, shell_exec, web_browse.
+- **`runtimes/adapters/opencode.py`** — OpenCode adapter (FIRST CLASS, SIDECAR). CLI + HTTP modes. Capabilities: code_gen, code_review, repo_editing, git_ops, file_read_write, tool_use, multi_file_edit.
+- **`runtimes/adapters/goose.py`** — Goose adapter (TIER 2, SIDECAR). CLI-based. Capabilities: code_gen, code_review, file_read_write, tool_use, shell_exec.
+- **`runtimes/adapters/openhands.py`** — OpenHands adapter (EXPERIMENTAL, EXTERNAL_PROCESS). Docker-based; clearly labelled experimental. REST API integration with conversation polling.
+- **`runtimes/adapters/aider.py`** — Aider adapter (TIER 3, EXTERNAL_PROCESS). Git-aware targeted file editing. `--message` non-interactive mode.
+
+### Added — Task / Issue System (`tasks/`)
+
+- **`tasks/models.py`** — Pydantic models: `Task`, `TaskStatus` (todo/in_progress/in_review/blocked/done), `TaskPriority`, `ExecutionLogEntry`, `TaskComment` (with thread reply), `ApprovalCheckpoint`, `TaskCreateRequest`, `TaskUpdateRequest`, `CommentAddRequest`, `ApprovalRequest`.
+- **`tasks/store.py`** — `TaskStore`: MongoDB-backed with graceful in-memory fallback. CRUD + filtered list queries (status/priority/agent/tag), count-per-status, due-soon query.
+- **`tasks/api.py`** — FastAPI router at `/api/tasks/*`: create, list (with filters), get, patch, delete, add comment, approve checkpoint, retry, escalate. Admin sees all tasks; users see own.
+
+### Added — RBAC (`rbac.py`)
+
+- `UserRole` enum (admin / user).
+- `Permission` enum with 17 permission flags.
+- `ROLE_PERMISSIONS` mapping: admin gets all, user gets own-resource permissions only.
+- `ADMIN_ACTIVITY_PERMISSIONS` set for UI labelling.
+- `get_user_role`, `has_permission` helpers.
+- `require_admin`, `require_authenticated`, `require_permission(p)` FastAPI dependencies.
+- `audit()` helper: append-only audit log, never logs raw secrets, extracts IP from forwarded headers.
+- `get_audit_log(limit, user_id)` for admin consumption.
+- `mask_secret(str)` and `mask_dict(dict)` for safe logging: redacts OpenAI/GitHub/GitLab/Slack/JWT tokens and common secret key names.
+
+### Changed
+
+- **`proxy.py`** — Wired `runtime_router` at `/runtimes/*` and `task_router` at `/api/tasks/*`. Added `@app.on_event("startup/shutdown")` hooks for `RuntimeManager` lifecycle. App title/version updated to "LLM Relay — Control Plane v3.0.0".
+- **`frontend/src/pages/DashboardLayout.js`** — Replaced monolithic nav with role-aware v3 navigation sections. Admin badge and lock icons. Sidebar version updated to v3.0.
+
+### Tests Added
+
+- **`tests/test_runtimes.py`** — 34 tests covering: registry CRUD/capability/tier-ordering, circuit-breaker state machine, routing policy defaults, routing engine happy-path/fallback/no-runtime, adapter metadata for all 5 runtimes, health check returns RuntimeHealth when offline.
+- **`tests/test_tasks.py`** — 23 tests covering: task model defaults/validation/add_log, task store CRUD/owner-isolation/filtering/counts/due-soon/admin-view.
+- **`tests/test_rbac.py`** — 21 tests covering: role resolution, permission grants/denials, FastAPI dependency enforcement, audit log, secret masking.
+- **Total new tests: 78, all passing.**
+
+### Security
+
+- `rbac.py`: secret masking applied at log boundary (never log raw API keys, JWTs, PATs).
+- `tasks/api.py`: owner-isolation enforced at store layer; admins can bypass explicitly.
+- `runtimes/api.py`: policy update endpoint (`PUT /runtimes/policy`) requires admin role via `_require_admin()`.
+- `proxy.py`: new imports validated; no raw secrets in new code paths.
+
+### Performance
+
+- Runtime health polling is fully async with a configurable interval (default 30s).
+- Circuit breakers prevent cascading health check failures from blocking request processing.
+- Task store uses MongoDB indexes via native motor cursor sorting; falls back to in-memory for dev.
+
+### Known Limitations / TODOs
+
+- Agent profiles (`/api/agents/`) require a backend store (not yet wired — frontend calls will return 404 until `agents_api.py` is implemented; the UI degrades gracefully with an empty list).
+- Paid escalation in `RuntimeRoutingPolicyEngine` is architecturally present but not yet wired to `ProviderManager` — it raises a descriptive error instead of calling a paid API.
+- OpenHands adapter requires a separately running Docker container — clearly documented in `DESCRIPTION` and `_EXPERIMENTAL_NOTE`.
+- Setup Wizard (Phase 2K), Syncthing multi-machine sync (Phase 2L), and Langfuse cost-savings dashboard widgets (Phase 2J) are planned for a subsequent iteration.
+- The `OPENHANDS_ENABLED` env var defaults to `false` to avoid registering an experimental runtime unless explicitly opted in.
+
+### Migration Notes
+
+- The login page now shows "Platform v3.0". No breaking changes to existing `/api/*` or `/v1/*` endpoints.
+- New environment variables (all optional, see `runtimes/manager.py`): `RUNTIME_NEVER_PAID`, `RUNTIME_MAX_PAID_ESCALATIONS`, `RUNTIME_DEFAULT`, `RUNTIME_CODE_GENERATION`, `RUNTIME_CODE_REVIEW`, `RUNTIME_REPO_EDITING`, `RUNTIME_GIT_OPS`, `HERMES_BASE_URL`, `OPENCODE_BIN`, `GOOSE_BIN`, `AIDER_BIN`, `OPENHANDS_BASE_URL`, `OPENHANDS_ENABLED`, `RUNTIME_HEALTH_POLL_SEC`.
+- Existing MongoDB collections are unaffected. New `tasks` collection is created lazily on first task write.
+
+---
+
 ## [Unreleased]
 
 ### Added
