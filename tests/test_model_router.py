@@ -121,6 +121,12 @@ def test_known_local_reasoning_passthrough():
     assert decision.selection_source == "passthrough"
 
 
+def test_qwen36_35b_a3b_passthrough():
+    decision = _router().route(requested_model="qwen3.6:35b")
+    assert decision.resolved_model == "qwen3.6:35b"
+    assert decision.selection_source == "passthrough"
+
+
 # ── Heuristic routing ──────────────────────────────────────────────────────────
 
 def test_unknown_model_falls_to_heuristic():

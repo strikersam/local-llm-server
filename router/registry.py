@@ -153,6 +153,15 @@ _DEFAULT_REGISTRY: dict[str, ModelCapability] = {
         cost_tier=3,
         tags=["alias"],
     ),
+    "qwen3.6:35b": ModelCapability(
+        name="qwen3.6:35b",
+        strengths=["code_generation", "code_debugging", "code_review", "tool_use",
+                   "reasoning", "analysis", "long_context", "conversation", "multimodal"],
+        context_window=128000,
+        type="general",
+        cost_tier=2,
+        tags=["qwen3.6", "moe", "multimodal"],
+    ),
 }
 
 
