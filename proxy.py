@@ -116,6 +116,15 @@ logging.basicConfig(
 )
 log = logging.getLogger("qwen-proxy")
 
+_ollama_host = urlsplit(OLLAMA_BASE).hostname or ""
+if _ollama_host not in ("localhost", "127.0.0.1", "::1") and not _ollama_host.endswith(".local"):
+    log.warning(
+        "OLLAMA_BASE=%r is not a local address — LLM calls will route over the network. "
+        "If this is your public tunnel URL (ngrok/cloudflare), the proxy will call itself and fail when the tunnel is offline. "
+        "For local Ollama, set OLLAMA_BASE=http://localhost:11434 in .env.",
+        OLLAMA_BASE,
+    )
+
 if not VALID_API_KEYS and len(KEY_STORE) == 0:
     log.warning(
         "⚠  No API keys configured: set API_KEYS and/or create keys with generate_api_key.py (KEYS_FILE). "

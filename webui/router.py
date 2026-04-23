@@ -4,6 +4,7 @@ import logging
 import subprocess
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlsplit
 
 import httpx
 from fastapi import APIRouter, Depends, FastAPI, HTTPException, Request
@@ -16,6 +17,19 @@ from webui.workspaces import WorkspaceCreate, WorkspaceManager, WorkspaceUpdate
 from webui.commands import run_command
 
 log = logging.getLogger("qwen-proxy")
+
+def _same_origin(url_a: str, url_b: str) -> bool:
+    """Return True when two URLs share the same scheme, host, and port."""
+    def _origin(u: str) -> tuple[str, str, int]:
+        p = urlsplit(u)
+        scheme = p.scheme.lower()
+        port = p.port or (443 if scheme == "https" else 80)
+        return scheme, (p.hostname or "").lower(), port
+    try:
+        return _origin(url_a) == _origin(url_b)
+    except Exception:
+        return False
+
 
 def _admin_out(admin: Any) -> dict[str, Any]:
     return {
@@ -114,7 +128,7 @@ def register_webui(
         return {"provider_id": provider_id, "models": [m for m in models if isinstance(m, str)]}
 
     @router.post("/chat")
-    async def ui_chat(request: Request, body: UiChatRequest, _: Any = Depends(verify_user)):
+    async def ui_chat(request: Request, body: UiChatRequest, auth: Any = Depends(verify_user)):
         mgr: ProviderManager = request.app.state.webui_providers
         secret = mgr.get_secret(body.provider_id)
         if not secret:
@@ -122,6 +136,10 @@ def register_webui(
         headers: dict[str, str] = {"Content-Type": "application/json"}
         if secret.api_key:
             headers["Authorization"] = f"Bearer {secret.api_key}"
+        elif _same_origin(secret.base_url, str(request.base_url)):
+            user_key = getattr(auth, "key", None)
+            if user_key:
+                headers["Authorization"] = f"Bearer {user_key}"
         model = body.model or secret.default_model
         if not model:
             raise HTTPException(status_code=400, detail="Missing model (set provider default or pass model)")
