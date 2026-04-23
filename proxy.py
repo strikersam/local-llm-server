@@ -196,8 +196,14 @@ def verify_api_key(
     authorization: str | None = Header(default=None),
     x_api_key: str | None = Header(default=None, alias="x-api-key"),
 ) -> AuthContext:
-    """Accept both Authorization: Bearer <key> (standard) and x-api-key: <key> (Claude Code)."""
+    """Accept API key from: Bearer token, x-api-key header, or ?api_key= query param (for Claude SDK).
+    
+    For localhost requests, auth is optional (Claude Code runs locally).
+    For remote requests, auth is required.
+    """
     key = ""
+    
+    # Try from headers first
     if x_api_key:
         key = x_api_key.strip()
     elif authorization:
@@ -205,11 +211,38 @@ def verify_api_key(
             key = authorization[7:].strip()
         else:
             key = authorization.strip()
+    
+    # Claude-code SDK doesn't send headers, check query param as fallback
+    if not key:
+        api_key_from_query = request.query_params.get("api_key", "").strip()
+        if api_key_from_query:
+            key = api_key_from_query
+    
+    # Allow unauthenticated access from localhost (Claude Code runs locally)
+    client_host = request.client.host if request.client else ""
+    is_localhost = client_host in ("127.0.0.1", "localhost", "::1", "[::1]")
+    
+    # DEBUG: Log what we received
+    if LOG_LEVEL == "DEBUG":
+        log.debug(f"Auth check: client={client_host}, is_localhost={is_localhost}, key={key[:20] if key else 'EMPTY'}...")
 
     if not key:
+        if is_localhost:
+            # Allow unauthenticated localhost requests (for Claude Code CLI)
+            if LOG_LEVEL == "DEBUG":
+                log.debug("Allowing localhost request without auth (Claude Code CLI)")
+            return AuthContext(
+                key="localhost-stub",
+                email="localhost",
+                department="local-dev",
+                key_id=None,
+                source="localhost",
+            )
+        if LOG_LEVEL == "DEBUG":
+            log.debug(f"DEBUG: No API key found for remote request from {client_host}")
         raise HTTPException(
             status_code=401,
-            detail="Missing API key. Set Authorization: Bearer <key> or x-api-key: <key>",
+            detail="Missing API key.  Set Authorization: Bearer <key> or x-api-key: <key>",
         )
 
     rec = KEY_STORE.lookup_plain_key(key)
@@ -231,7 +264,7 @@ def verify_api_key(
             key_id=None,
             source="legacy",
         )
-    log.warning("Rejected request with invalid API key")
+    log.warning(f"Rejected request with invalid API key from {client_host}: {key[:20]}...")
     raise HTTPException(status_code=403, detail="Invalid API key")
 
 
@@ -312,6 +345,24 @@ def _provider_headers_for_request(secret: object, request: Request, auth: AuthCo
 # ─── App ────────────────────────────────────────────────────────────────────────
 
 app = FastAPI(title="Qwen3-Coder Proxy", version="1.0.0", docs_url=None, redoc_url=None)
+
+# DEBUG: Log all incoming requests with headers  
+from starlette.middleware.base import BaseHTTPMiddleware
+from starlette.requests import Request as StarletteRequest
+
+class DebugHeadersMiddleware(BaseHTTPMiddleware):
+    async def dispatch(self, request: StarletteRequest, call_next):
+        if LOG_LEVEL == "DEBUG":
+            path = request.url.path
+            method = request.method
+            auth_header = request.headers.get("authorization", "")
+            x_api_key = request.headers.get("x-api-key", "")
+            log.debug(f"{method} {path} | Authorization: {auth_header[:30] if auth_header else 'NONE'}... | x-api-key: {x_api_key[:20] if x_api_key else 'NONE'}...")
+        response = await call_next(request)
+        return response
+
+if LOG_LEVEL == "DEBUG":
+    app.add_middleware(DebugHeadersMiddleware)
 
 app.add_middleware(
     CORSMiddleware,

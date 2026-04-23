@@ -1,0 +1,317 @@
+╔════════════════════════════════════════════════════════════════════════════╗
+║                                                                            ║
+║  ✅ CLAUDE CODE + LOCAL MODELS SETUP — COMPLETE!                          ║
+║                                                                            ║
+║  Your Claude Code CLI is now ready to use with local Ollama models.       ║
+║  No cloud API, no costs, full privacy. Everything runs on your machine.   ║
+║                                                                            ║
+╚════════════════════════════════════════════════════════════════════════════╝
+
+
+📁 WHAT'S BEEN CREATED
+─────────────────────────────────────────────────────────────────────────────
+
+Launch Scripts (ready to invoke):
+  ✓ launch-claude-code.ps1      Windows PowerShell main launcher
+  ✓ launch-claude-code.sh       Linux/macOS bash main launcher
+  ✓ claude-code.bat             Windows quick wrapper
+  ✓ stop-proxy.ps1              Stop proxy (Windows)
+  ✓ stop-proxy.sh               Stop proxy (Linux/macOS)
+  ✓ setup-claude-code.ps1       System setup & validation (Windows)
+  ✓ setup-claude-code.sh        System setup & validation (Linux/macOS)
+
+Documentation (start here):
+  ⭐ CLAUDE-CODE-COMMAND-LINE.md     Quick reference for command-line usage
+  📖 CLAUDE-CODE-QUICKSTART.md       Detailed setup & troubleshooting
+  📚 CLAUDE-CODE-CLI-SETUP.md        Complete guide with architecture
+  ✓ CLAUDE-CODE-SETUP-COMPLETE.md   This setup summary
+
+
+🚀 QUICKEST START (Copy-Paste Ready)
+─────────────────────────────────────────────────────────────────────────────
+
+STEP 1: One-time setup (Windows PowerShell):
+  .\setup-claude-code.ps1
+
+Or (Linux/macOS Bash):
+  chmod +x setup-claude-code.sh
+  ./setup-claude-code.sh
+
+
+STEP 2: In one terminal, start Ollama:
+  ollama run qwen3-coder:30b
+
+  (Alt: ollama run deepseek-r1:32b  or  ollama run qwq:32b)
+
+
+STEP 3: In another terminal, launch Claude Code (Windows PowerShell):
+  .\launch-claude-code.ps1 -Local
+
+Or (Linux/macOS Bash):
+  ./launch-claude-code.sh --local
+
+
+✅ DONE! Use Claude Code normally now.
+
+Example:
+  claude> Help me write a Python web scraper
+  claude> @terminal npm test
+  claude> exit
+
+
+⚡ COMMAND-LINE INVOCATION OPTIONS
+─────────────────────────────────────────────────────────────────────────────
+
+Simplest (use local models, auto-setup):
+  Windows:    .\launch-claude-code.ps1 -Local
+  Linux/macOS: ./launch-claude-code.sh --local
+
+
+With specific model:
+  Windows:    .\launch-claude-code.ps1 -Local -Model "deepseek-r1:32b"
+  Linux/macOS: ./launch-claude-code.sh --local --model "deepseek-r1:32b"
+
+
+Interactive (prompt for email/dept):
+  Windows:    .\launch-claude-code.ps1 -Local -Interactive
+  Linux/macOS: ./launch-claude-code.sh --local --interactive
+
+
+Stop everything when done:
+  Windows:    .\stop-proxy.ps1              or  .\stop-proxy.ps1 -KillOllama
+  Linux/macOS: ./stop-proxy.sh               or  ./stop-proxy.sh --kill-ollama
+
+
+Add to global PATH (Windows):
+  Ensure c:\Users\swami\qwen-server is in your PATH, then:
+    launch-claude-code.ps1 -Local
+
+Add to global PATH (Linux/macOS):
+  chmod +x launch-claude-code.sh
+  sudo ln -s $(pwd)/launch-claude-code.sh /usr/local/bin/claude-code
+  Then: claude-code --local
+
+
+📖 WHERE TO GO NEXT
+─────────────────────────────────────────────────────────────────────────────
+
+For command-line quick reference:
+  👉 Read: CLAUDE-CODE-COMMAND-LINE.md
+     Shows all invocation options, environment setup, and quick fixes
+
+For complete setup details:
+  👉 Read: CLAUDE-CODE-QUICKSTART.md
+     Step-by-step setup, model mapping, detailed troubleshooting
+
+For architecture & understanding how it works:
+  👉 Read: CLAUDE-CODE-CLI-SETUP.md
+     How the proxy translates requests, configuration options, next steps
+
+
+🎯 ARCHITECTURE OVERVIEW
+─────────────────────────────────────────────────────────────────────────────
+
+  Your Terminal
+      ↓
+  .\launch-claude-code.ps1 -Local
+      ├─ Start proxy on localhost:8000
+      ├─ Generate/retrieve API key
+      └─ Launch 'claude code' with env vars:
+         • ANTHROPIC_BASE_URL=http://localhost:8000
+         • ANTHROPIC_API_KEY=sk_xxxxx
+         • ANTHROPIC_MODEL=claude-sonnet-4-6
+      ↓
+  Claude Code CLI
+      ↓
+  HTTP POST localhost:8000/v1/messages
+      ├─ Proxy translates Anthropic → OpenAI format
+      ├─ Validates API key
+      ├─ Routes model via MODEL_MAP
+      └─ Rate limiting, logging, CORS
+      ↓
+  Ollama (localhost:11434)
+      ├─ Loads model into VRAM (first request: ~30s)
+      ├─ Runs inference on your GPU
+      └─ Streams response back
+      ↓
+  ← Response bubbles back to Claude Code CLI
+      ↓
+  You see normal Claude Code output
+
+
+✅ PREREQUISITES (Auto-Checked by Setup Script)
+─────────────────────────────────────────────────────────────────────────────
+
+  ✓ Python 3 installed
+  ✓ Node.js installed
+  ✓ Claude Code CLI installed (auto-installs if missing)
+  ✓ Proxy dependencies (pip install -r requirements.txt)
+  ✓ .env configuration file
+  ✓ API keys (auto-generated first run)
+
+
+🔧 CONFIGURATION
+─────────────────────────────────────────────────────────────────────────────
+
+Default .env (created by setup script):
+
+  KEYS_FILE=keys.json
+  AUTH_ENABLED=true
+  RATE_LIMIT_ENABLED=true
+  CORS_ENABLED=true
+  OLLAMA_BASE_URL=http://localhost:11434
+  MODEL_MAP=claude-sonnet-4-6:qwen3-coder:30b,\
+            claude-opus-4-6:deepseek-r1:32b,\
+            *:qwen3-coder:30b
+
+
+Custom Model Mapping (edit .env):
+
+  # Route all Claude models to one specific model:
+  MODEL_MAP=*:qwen3-coder:30b
+
+  # Route different Claude models to different Ollama models:
+  MODEL_MAP=claude-sonnet-4-6:qwen3-coder:30b,\
+            claude-opus-4-6:deepseek-r1:32b,\
+            claude-haiku-4-5:qwen3-coder:8b
+
+  After editing, restart Claude Code to pick up changes.
+
+
+🚨 QUICK TROUBLESHOOTING
+─────────────────────────────────────────────────────────────────────────────
+
+Problem: "Claude Code CLI not installed"
+  Fix: npm install -g @anthropic-ai/claude-code
+
+Problem: "Port 8000 in use"
+  Windows: netstat -ano | findstr :8000
+           taskkill /PID <PID> /F
+  Linux/macOS: lsof -i :8000; kill -9 <PID>
+
+Problem: "Proxy failed to start"
+  Check logs: cat logs/proxy.log or Get-Content logs/proxy.log -Wait
+
+Problem: "Model not found"
+  Ensure Ollama is running: ollama run qwen3-coder:30b
+
+Problem: "First request slow (5-15s)"
+  Normal — model is loading into VRAM. Subsequent requests are fast.
+
+Problem: "API key authentication failed"
+  Generate new key: python scripts/generate_api_key.py --email you@example.com --department dev
+
+For more help: See CLAUDE-CODE-QUICKSTART.md#troubleshooting
+
+
+📊 FILE STRUCTURE
+─────────────────────────────────────────────────────────────────────────────
+
+qwen-server/
+├── launch-claude-code.ps1          ← Main script (Windows)
+├── launch-claude-code.sh           ← Main script (Linux/macOS)
+├── claude-code.bat                 ← Quick wrapper (Windows)
+├── stop-proxy.ps1                  ← Stop proxy (Windows)
+├── stop-proxy.sh                   ← Stop proxy (Linux/macOS)
+├── setup-claude-code.ps1           ← Setup validation (Windows)
+├── setup-claude-code.sh            ← Setup validation (Linux/macOS)
+├── .env                            ← Configuration (auto-created)
+├── keys.json                       ← API keys (auto-created)
+├── logs/
+│   ├── proxy.log                   ← Request logs
+│   └── proxy-err.log               ← Error logs
+├── proxy.py                        ← FastAPI proxy
+├── requirements.txt                ← Python deps
+├── CLAUDE-CODE-*.md                ← Documentation
+└── docs/
+    ├── claude-code-setup.md        ← Technical guide
+    ├── configuration-reference.md  ← Config options
+    └── architecture/
+        └── overview.md             ← How it works
+
+
+🎓 LEARNING PATH
+─────────────────────────────────────────────────────────────────────────────
+
+Beginner (just want to use it):
+  1. Run .\setup-claude-code.ps1
+  2. Run .\launch-claude-code.ps1 -Local
+  3. Use Claude Code normally!
+
+Intermediate (want to understand):
+  1. Read CLAUDE-CODE-COMMAND-LINE.md
+  2. Read architecture section in CLAUDE-CODE-CLI-SETUP.md
+  3. Edit .env and experiment with MODEL_MAP
+
+Advanced (want to customize):
+  1. Read docs/architecture/overview.md
+  2. Read router/CLAUDE.md (model routing logic)
+  3. Modify .env or proxy configuration
+
+
+💡 COOL STUFF YOU CAN DO
+─────────────────────────────────────────────────────────────────────────────
+
+✓ Generate code using local models (no cloud costs)
+✓ Run Claude Code in terminal or IDE
+✓ Execute code via @terminal integration
+✓ Edit files via Claude Code's @file integration
+✓ Use different models for different tasks (sonnet vs. opus)
+✓ Monitor requests in logs/ in real-time
+✓ Works entirely offline (after models are downloaded)
+✓ Full privacy — no data sent to Anthropic
+
+
+🔗 REFERENCE LINKS
+─────────────────────────────────────────────────────────────────────────────
+
+Setup Documentation:
+  • docs/claude-code-setup.md       Technical integration guide
+  • docs/configuration-reference.md All configuration options
+  • docs/architecture/overview.md   How the proxy works
+
+Other Useful Docs:
+  • CLAUDE.md                       Project operating guide
+  • README.md                       Project overview
+  • docs/changelog.md               Version history
+
+Generated API Keys:
+  • scripts/generate_api_key.py     Generates new proxy API keys
+  • keys.json                       Stores key hashes (for auth)
+
+
+🎉 YOU'RE ALL SET!
+─────────────────────────────────────────────────────────────────────────────
+
+To get started NOW, copy-paste in PowerShell (Windows):
+
+  # One-time setup:
+  .\setup-claude-code.ps1
+
+  # In another terminal, start Ollama:
+  ollama run qwen3-coder:30b
+
+  # Launch Claude Code:
+  .\launch-claude-code.ps1 -Local
+
+
+Or in Bash (Linux/macOS):
+
+  # One-time setup:
+  chmod +x setup-claude-code.sh
+  ./setup-claude-code.sh
+
+  # In another terminal, start Ollama:
+  ollama run qwen3-coder:30b
+
+  # Launch Claude Code:
+  ./launch-claude-code.sh --local
+
+
+Questions? See:
+  • CLAUDE-CODE-COMMAND-LINE.md (quick reference)
+  • CLAUDE-CODE-QUICKSTART.md (detailed guide)
+  • CLAUDE-CODE-CLI-SETUP.md (complete documentation)
+
+
+Happy coding with Claude locally! 🚀
