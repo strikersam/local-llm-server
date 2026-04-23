@@ -1304,12 +1304,7 @@ async def anthropic_messages(request: Request, auth: AuthContext = Depends(verif
 
 @app.get("/v1/models")
 async def list_models_openai(auth: AuthContext = Depends(verify_api_key)):
-    """List available models — union of live Ollama models, router registry, and Claude aliases.
-
-    Claude aliases (e.g. claude-sonnet-4-6) are included so that Claude Code and
-    other Anthropic SDK clients can discover and select them without manual config.
-    """
-    from router.model_router import _get_model_map
+    """List available models — union of live Ollama models and the router registry."""
     from router.registry import get_registry
     try:
         async with httpx.AsyncClient(timeout=5) as client:
@@ -1332,44 +1327,7 @@ async def list_models_openai(auth: AuthContext = Depends(verify_api_key)):
         for name in registry
         if name not in ollama_set
     ]
-    # Claude/Anthropic model aliases from MODEL_MAP — lets Claude Code and
-    # Anthropic SDK clients discover which model names this proxy accepts.
-    alias_set = set(m["id"] for m in local_entries + registry_only)
-    alias_entries = [
-        {"id": alias, "object": "model", "owned_by": "proxy-alias"}
-        for alias in _get_model_map()
-        if alias not in alias_set
-    ]
-    return {"object": "list", "data": local_entries + registry_only + alias_entries}
-
-
-# ─── iPhone Quick Notes ───────────────────────────────────────────────────────
-
-class QuickNoteRequest(BaseModel):
-    url: str = Field(..., min_length=10, max_length=2048)
-
-
-@app.post("/v1/quick-notes")
-async def quick_note_add(
-    body: QuickNoteRequest,
-    auth: AuthContext = Depends(verify_api_key),
-):
-    note = QUICK_NOTE_QUEUE.add(body.url)
-    log.info("QuickNote added by %s: %s", auth.email, body.url)
-    return note.as_dict()
-
-
-@app.get("/v1/quick-notes")
-async def quick_note_list(auth: AuthContext = Depends(verify_api_key)):
-    notes = QUICK_NOTE_QUEUE.list_all()
-    return {
-        "notes": [n.as_dict() for n in notes],
-        "total": len(notes),
-        "pending": sum(1 for n in notes if n.status == "pending"),
-        "processing": sum(1 for n in notes if n.status == "processing"),
-        "done": sum(1 for n in notes if n.status == "done"),
-        "failed": sum(1 for n in notes if n.status == "failed"),
-    }
+    return {"object": "list", "data": local_entries + registry_only}
 
 
 # ─── Ollama native routes (/api/*) ─────────────────────────────────────────────

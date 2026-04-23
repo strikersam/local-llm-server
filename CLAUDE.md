@@ -39,8 +39,7 @@ key_store.py          API key CRUD + persistence (keys.json)   ← RISKY: secret
 langfuse_obs.py       Langfuse trace emission helper
 service_manager.py    Windows service / process management
 telegram_bot.py       Telegram bot for remote control
-remote-admin/         Legacy static SPA for remote dashboard (optional hosting)
-webui/               Claude Code–style web UI (SPA + backend APIs)
+remote-admin/         Static SPA for remote dashboard (Vercel)
 client-configs/       Example configs for Cursor, Aider, Continue, Zed, VSCode
 docs/                 All documentation (architecture, runbooks, ADRs)
 .claude/              AI engineering system (skills, hooks, agents, state)
@@ -129,66 +128,30 @@ The `commit-msg` hook will reject commits with no changelog update (unless the c
 
 ## How Claude Should Work in This Repo
 
-### Workflow: Research → Plan → Implement
+**Always follow this sequence:**
 
-```
-RESEARCH          PLAN              IMPLEMENT
-────────────      ────────────      ─────────────────
-Scout scores  →   Planner breaks →  Phased execution
-readiness.        down steps.       Reviewer gates each
-GO / HOLD                           checkpoint.
-```
+1. **Read the relevant skill** from `.claude/skills/` before starting any non-trivial task.
+2. **Run `pytest -x`** before making changes to confirm baseline passes.
+3. **Use the implementation-planner skill** for any multi-file change.
+4. **Use the risky-module-review skill** for any change to `admin_auth.py`, `key_store.py`, `agent/tools.py`, or auth/billing paths.
+5. **Update `docs/changelog.md`** as part of every meaningful change.
+6. **Run `pytest -x`** again after changes.
+7. **Update `.claude/state/`** checkpoints after milestones.
 
-**Validation gate between each phase — must pass before proceeding.**
+**When to invoke which skill:**
 
-### Standard Sequence
-
-1. **`replay-learnings`** — surface relevant past patterns before touching anything.
-2. **Run `pytest -x`** — confirm baseline passes.
-3. **Scout agent** — score readiness (≥70 = GO). Resolve gaps if HOLD.
-4. **`implementation-planner`** — produce a step-by-step plan for multi-file changes.
-5. **`risky-module-review`** — mandatory for `admin_auth.py`, `key_store.py`, `agent/tools.py`.
-6. **Implement** — Reviewer agent gates each file change.
-7. **`deslop`** — remove AI code slop before committing.
-8. **`smart-commit`** — quality gates + conventional commit.
-9. **Update `docs/changelog.md`** — every meaningful change.
-10. **Run `pytest -x`** — confirm green after changes.
-11. **`wrap-up`** — session ritual: audit, quality check, learnings, next action, summary.
-
-### Model Selection — Right Model for the Task
-
-| Task | Claude Model |
-|------|-------------|
-| Quick fixes, config, typos | Haiku 4.5 |
-| New features, standard implementations | Sonnet 4.6 (adaptive thinking) |
-| Refactors, structural changes | Opus 4.6 (adaptive thinking) |
-| Architecture decisions, ADR writing | Opus 4.6 (1M context) |
-| Hard bugs, deep debugging | Opus 4.6 (1M context) |
-
-### Skill Reference — When to Invoke Which
-
-| Situation | Skill |
-|-----------|-------|
-| Starting any non-trivial task | `pro-workflow` |
-| Surface past patterns before starting | `replay-learnings` |
-| Score task readiness (GO/HOLD) | Scout agent |
+| Situation | Skill to use |
+|-----------|-------------|
 | Planning a multi-file feature | `implementation-planner` |
 | Writing or fixing tests | `test-first-executor` |
 | Any auth/key/agent-tools change | `risky-module-review` |
 | Pre-merge code review | `council-review` |
-| Clean up AI-generated code | `deslop` |
-| Commit with quality gates | `smart-commit` |
 | Updating changelog | `changelog-enforcer` |
 | Checking release readiness | `release-readiness` |
 | Syncing docs after changes | `docs-sync` |
 | Session interrupted/resuming | `cooldown-resume` |
 | Adding/upgrading dependencies | `dependency-audit` |
 | Updating repo memory/CLAUDE.md | `repo-memory-updater` |
-| Persist a correction to memory | `learn-rule` |
-| End of session ritual | `wrap-up` |
-| Pausing mid-task, writing resume doc | `session-handoff` |
-| Working on multiple branches | `parallel-worktrees` |
-| Analyzing patterns and hot spots | `insights` |
 
 ---
 

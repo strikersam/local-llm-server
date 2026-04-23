@@ -76,9 +76,6 @@ Three-role pipeline: Planner → Implementer (with tool loop) → Verifier.
 ### `admin_auth.py` + `admin_gui.py`
 Web admin dashboard. Session-based auth with Jinja2 templates.
 
-### `webui/`
-Claude Code–style Web UI (SPA + JSON APIs) served directly by the proxy. Provides chat + agentic coding UI at `/` and an Admin app at `/admin/app`.
-
 ### `key_store.py`
 API key CRUD with JSON persistence. Keys hashed before storage.
 

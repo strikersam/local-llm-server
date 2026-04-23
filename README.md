@@ -20,11 +20,24 @@
 
 ## The Unified Interface
 
-One dark-themed dashboard for everything: chat with your AI agent, manage providers and workspaces, run commands, and control access — all without touching a terminal.
-
-![LLM Relay Unified UI](docs/screenshots/app-dashboard.png)
-
-> The agent knows your workspace, remembers context across sessions, and executes tasks directly in your project. Hit **New session**, paste your API key, pick a model, and start building.
+> The server runs on a personal laptop. Use these credentials to connect from any client machine.
+>
+> **Tunnel URL (permanent):** `https://incalculably-unswaggering-kora.ngrok-free.dev`
+> **API Key:** from the personal laptop's `.env` → `API_KEYS` value
+>
+> To use with Claude Code CLI:
+> ```bash
+> export ANTHROPIC_BASE_URL=https://incalculably-unswaggering-kora.ngrok-free.dev
+> export ANTHROPIC_API_KEY=<your-api-key>
+> claude
+> ```
+> To verify the connection:
+> ```bash
+> curl https://incalculably-unswaggering-kora.ngrok-free.dev/v1/models \
+>   -H "Authorization: Bearer <your-api-key>"
+> ```
+>
+> This URL is permanent — it will not change across server restarts. It is also visible and editable in the Admin UI at `http://localhost:8000/admin/ui/` → **Public URL** field.
 
 ---
 
