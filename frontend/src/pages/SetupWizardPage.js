@@ -218,18 +218,29 @@ export default function SetupWizardPage({ onComplete }) {
   const storeApiKey = useCallback(async (key, keyName) => {
     if (!key) return null;
     try {
-      const result = await createSecret({
-        name: `${keyName}-key-setup`,
-        value: key,
-        description: `${keyName} API key from setup wizard`,
+      // During setup, use the setup-specific secret endpoint (no auth required)
+      const baseUrl = backendUrl || getBackendUrl() || '';
+      const response = await fetch(`${baseUrl}/api/setup/secret`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: `${keyName}-key-setup`,
+          value: key,
+          description: `${keyName} API key from setup wizard`,
+        }),
       });
-      return result.data.id;
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({ detail: response.statusText }));
+        throw new Error(errorData.detail || `HTTP ${response.status}`);
+      }
+      const result = await response.json();
+      return result.id;
     } catch (e) {
       console.error(`Failed to store ${keyName} key:`, e);
       alert(`Failed to store ${keyName} API key: ${e.message}`);
       return null;
     }
-  }, []);
+  }, [backendUrl]);
 
   const handleSave = async () => {
     setSaving(true);

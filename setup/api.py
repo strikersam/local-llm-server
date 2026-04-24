@@ -35,6 +35,7 @@ from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, Field
 
 from rbac import UserRole, audit, get_user_role, require_admin
+from secrets_store import get_secrets_store
 
 log = logging.getLogger("qwen-proxy")
 
@@ -306,3 +307,31 @@ async def reset_wizard(request: Request):
         del _wizard_states[target_uid]
     audit("setup.reset", getattr(request.state, "user", {}), resource="setup", resource_id=target_uid)
     return {"reset": True, "user_id": target_uid}
+
+
+@setup_router.post("/secret")
+async def store_secret_during_setup(request: Request):
+    """Store API keys/secrets during setup wizard (accessible without full auth).
+
+    Used by the setup wizard frontend to store provider API keys (OpenAI, Anthropic, etc)
+    before the user has completed setup and may not have full authentication yet.
+    """
+    try:
+        body = await request.json()
+        name = body.get("name")
+        value = body.get("value")
+        description = body.get("description", "")
+
+        if not name or not value:
+            raise HTTPException(status_code=400, detail="name and value are required")
+
+        store = get_secrets_store()
+        uid = getattr(request.state, "user_id", "setup-user")
+        secret = store.create(uid, name, value, description)
+        audit("setup.secret_created", {"user_id": uid}, resource="secret", resource_id=secret.id)
+        return {"id": secret.id, "name": secret.name}
+    except HTTPException:
+        raise
+    except Exception as e:
+        log.error(f"Failed to store secret during setup: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to store secret: {str(e)}")

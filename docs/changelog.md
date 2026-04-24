@@ -9,6 +9,7 @@
 ## [Unreleased]
 
 ### Fixed
+- **Setup wizard API key storage error (404)**: Added `/api/setup/secret` endpoint and updated `SetupWizardPage.js` to use it instead of the auth-protected `/api/secrets/` endpoint. Allows storing API keys during setup when users may not have full authentication yet (especially when accessing from GitHub Pages).
 - **GitHub Pages build error**: Removed duplicate `export const getMe` declaration in `frontend/src/api.js` (lines 63 and 193) that was blocking the GitHub Pages deploy workflow. The v3 dashboard is now live.
 - Add `psutil>=5.9.0`, `pytest-asyncio>=0.23.0`, and `cryptography>=41.0.0` to `requirements.txt` so CI installs all test dependencies.
 - Set `asyncio_mode = auto` and `asyncio_default_fixture_loop_scope = function` in `pytest.ini` to enable async test discovery and suppress the `PytestDeprecationWarning` that pytest 9.x promotes to an error, which was crashing the entire test run.
