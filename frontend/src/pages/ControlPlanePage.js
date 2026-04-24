@@ -1,27 +1,21 @@
 /**
- * ControlPlanePage — v3 unified post-login landing page.
+ * ControlPlanePage — v3.1 unified post-login landing.
  *
- * Shows:
- *   - Active agents panel
- *   - Task queue (queued / running / in_review / blocked)
- *   - Recent executions & escalation events
- *   - Provider / runtime health
- *   - Schedules due soon
- *   - Alerts requiring human attention
- *   - Rate-limit / cost / token summaries
- *   - Overall system health state
+ * Design: lifted directly from the Control Plane design bundle.
+ * Colors: #0F0F13 base / #141418 surface / #0D0D11 sidebar
+ * Text:   #F2F2F6 primary / #B2B2C4 secondary / #808094 tertiary / #565666 muted
  */
 import React, { useEffect, useState, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
-  Activity, AlertTriangle, Bot, CheckCircle, ChevronRight,
-  Clock, DollarSign, Layers, PlayCircle, RefreshCw,
-  RotateCcw, Server, Shield, Zap, XCircle, Calendar,
-  ArrowUpRight, Cpu, TrendingUp, Database,
+  Activity, AlertTriangle, Bot, CheckCircle, Clock,
+  DollarSign, Layers, PlayCircle, RefreshCw, Server,
+  Zap, XCircle, Calendar, ArrowUpRight, Cpu, TrendingUp,
+  Database, BarChart3,
 } from 'lucide-react';
 import {
   getStats, healthCheck, listRuntimes, listTasks,
-  getDueSoonTasks, getDecisionLog, fmtErr
+  getDueSoonTasks, getDecisionLog, fmtErr,
 } from '../api';
 
 // ── Tiny helpers ───────────────────────────────────────────────────────────────
@@ -37,134 +31,84 @@ function relTime(ts) {
   return `${Math.round(diff / 86400)}d ago`;
 }
 
+// ── Design tokens (match design bundle) ───────────────────────────────────────
+
+const C = {
+  bg:      '#0F0F13',
+  surface: '#141418',
+  border:  'rgba(255,255,255,0.06)',
+  primary: '#F2F2F6',
+  secondary:'#B2B2C4',
+  tertiary: '#808094',
+  muted:    '#565666',
+  accent:   '#002FA7',
+};
+
 const STATUS_DOT = {
-  idle:        'bg-gray-500',
-  running:     'bg-emerald-400 animate-pulse',
-  waiting:     'bg-amber-400',
-  error:       'bg-red-500',
-  done:        'bg-blue-400',
-  todo:        'bg-gray-500',
-  in_progress: 'bg-emerald-400 animate-pulse',
-  in_review:   'bg-amber-400',
-  blocked:     'bg-red-400',
+  todo:        '#6E6E80',
+  in_progress: '#10B981',
+  in_review:   '#F59E0B',
+  blocked:     '#EF4444',
+  done:        '#3B82F6',
+  running:     '#10B981',
+  idle:        '#6E6E80',
+  error:       '#EF4444',
+  offline:     '#565666',
+  online:      '#10B981',
 };
 
-const STATUS_BADGE = {
-  todo:        'border-white/10 bg-white/4 text-[#888]',
-  in_progress: 'border-emerald-500/25 bg-emerald-500/10 text-emerald-400',
-  in_review:   'border-amber-500/25 bg-amber-500/10 text-amber-400',
-  blocked:     'border-red-500/25 bg-red-500/10 text-red-400',
-  done:        'border-blue-500/25 bg-blue-500/10 text-blue-400',
-};
+// ── Stat card ─────────────────────────────────────────────────────────────────
 
-const PRIORITY_DOT = {
-  urgent: 'bg-red-500',
-  high:   'bg-amber-500',
-  medium: 'bg-blue-500',
-  low:    'bg-gray-500',
-};
-
-// ── Section header ─────────────────────────────────────────────────────────────
-
-function SectionHeader({ icon: Icon, title, count, onRefresh, loading, to }) {
-  const nav = useNavigate();
-  return (
-    <div className="flex items-center justify-between mb-3">
-      <div className="flex items-center gap-2">
-        <Icon size={13} className="text-[#555]" />
-        <span className="text-[11px] font-semibold tracking-[0.15em] uppercase text-[#555]">{title}</span>
-        {count != null && (
-          <span className="text-[10px] font-mono bg-white/5 border border-white/8 rounded-full px-2 py-0.5 text-[#777]">
-            {count}
-          </span>
-        )}
-      </div>
-      <div className="flex items-center gap-2">
-        {onRefresh && (
-          <button onClick={onRefresh} disabled={loading}
-            className="text-[#444] hover:text-[#888] transition-colors disabled:opacity-40">
-            <RefreshCw size={11} className={loading ? 'animate-spin' : ''} />
-          </button>
-        )}
-        {to && (
-          <button onClick={() => nav(to)}
-            className="flex items-center gap-1 text-[10px] text-[#444] hover:text-[#002FA7] transition-colors">
-            View all <ArrowUpRight size={10} />
-          </button>
-        )}
-      </div>
-    </div>
-  );
-}
-
-// ── Stat card ──────────────────────────────────────────────────────────────────
-
-function StatCard({ icon: Icon, label, value, accent, sublabel, to }) {
+function StatCard({ label, value, sub, accent = C.accent, to }) {
   const nav = useNavigate();
   return (
     <button
       onClick={to ? () => nav(to) : undefined}
-      className={cls(
-        'group relative bg-[#111] border border-white/8 rounded-xl p-4 text-left transition-all duration-200',
-        to ? 'hover:border-white/16 hover:bg-[#141414] hover:shadow-[0_8px_24px_rgba(0,0,0,0.4)]' : 'cursor-default',
-      )}
+      className="group text-left transition-all duration-200"
+      style={{
+        background: C.surface,
+        border: `1px solid ${C.border}`,
+        borderRadius: '12px',
+        padding: '16px',
+        cursor: to ? 'pointer' : 'default',
+      }}
+      onMouseEnter={e => { if (to) { e.currentTarget.style.borderColor = 'rgba(255,255,255,0.12)'; e.currentTarget.style.background = '#18181D'; }}}
+      onMouseLeave={e => { e.currentTarget.style.borderColor = C.border; e.currentTarget.style.background = C.surface; }}
+      data-testid={`stat-${label.toLowerCase().replace(/\s/g,'-')}`}
     >
-      <div className="flex items-start justify-between mb-3">
-        <div className="w-8 h-8 rounded-lg flex items-center justify-center"
-          style={{ background: `${accent}15`, border: `1px solid ${accent}25` }}>
-          <Icon size={14} style={{ color: accent }} />
-        </div>
-        {to && <ArrowUpRight size={12} className="text-[#333] opacity-0 group-hover:opacity-100 transition-opacity" />}
-      </div>
-      <div className="text-[26px] font-bold tracking-tight text-white leading-none mb-0.5"
-        style={{ fontFamily: 'Outfit, sans-serif' }}>
-        {value ?? '—'}
-      </div>
-      <div className="text-[10px] text-[#555] font-medium">{label}</div>
-      {sublabel && <div className="text-[10px] text-[#444] mt-0.5">{sublabel}</div>}
+      <div className="text-[28px] font-bold tracking-tight leading-none mb-1"
+        style={{ fontFamily: 'var(--font-main)', color: accent }}>{value ?? '—'}</div>
+      <div className="text-[11px] font-medium" style={{ color: C.secondary }}>{label}</div>
+      {sub && <div className="text-[9px] font-mono mt-0.5" style={{ color: C.muted }}>{sub}</div>}
     </button>
   );
 }
 
-// ── Health pill ────────────────────────────────────────────────────────────────
-
-function HealthPill({ label, ok, latency }) {
-  return (
-    <div className={cls(
-      'inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-medium border',
-      ok
-        ? 'border-emerald-500/20 bg-emerald-500/8 text-emerald-400'
-        : 'border-red-500/20 bg-red-500/8 text-red-400',
-    )}>
-      {ok ? <CheckCircle size={10} /> : <XCircle size={10} />}
-      {label}
-      {latency != null && <span className="opacity-60">{Math.round(latency)}ms</span>}
-    </div>
-  );
-}
-
-// ── Runtime card ───────────────────────────────────────────────────────────────
+// ── Runtime row ────────────────────────────────────────────────────────────────
 
 function RuntimeRow({ runtime }) {
   const h = runtime.health || {};
   const available = h.available;
   const circuitOpen = runtime.circuit_open;
-  const status = circuitOpen ? 'circuit-open' : available ? 'online' : h.available === null ? 'unknown' : 'offline';
-  const dot = { online: 'bg-emerald-500', offline: 'bg-red-500', 'circuit-open': 'bg-amber-500', unknown: 'bg-gray-600' }[status] || 'bg-gray-600';
+  const status = circuitOpen ? 'circuit-open' : available ? 'online' : 'offline';
+  const dotColor = { online: '#10B981', offline: '#565666', 'circuit-open': '#F59E0B' }[status] || '#565666';
   return (
-    <div className="flex items-center justify-between py-2 border-b border-white/4 last:border-0">
+    <div className="flex items-center justify-between py-2.5 border-b last:border-0"
+      style={{ borderColor: 'rgba(255,255,255,0.05)' }}>
       <div className="flex items-center gap-2.5">
-        <div className={cls('w-2 h-2 rounded-full flex-shrink-0', dot, available && !circuitOpen ? '' : '')} />
+        <div className="w-2 h-2 rounded-full shrink-0" style={{ background: dotColor }} />
         <div>
-          <div className="text-[12px] text-white font-medium">{runtime.display_name}</div>
-          <div className="text-[10px] text-[#555]">{runtime.tier?.replace('_', ' ')}</div>
+          <div className="text-[12px] font-medium" style={{ color: C.secondary }}>{runtime.display_name}</div>
+          <div className="text-[10px] font-mono" style={{ color: C.muted }}>{runtime.tier?.replace('_', ' ')}</div>
         </div>
       </div>
       <div className="text-right">
-        <div className={cls('text-[10px] font-mono', available && !circuitOpen ? 'text-emerald-400' : 'text-[#555]')}>
+        <div className="text-[10px] font-mono" style={{ color: available && !circuitOpen ? '#10B981' : C.muted }}>
           {circuitOpen ? 'circuit open' : available ? 'online' : available === null ? 'checking' : 'offline'}
         </div>
-        {h.latency_ms != null && <div className="text-[9px] text-[#444]">{Math.round(h.latency_ms)}ms</div>}
+        {h.latency_ms != null && (
+          <div className="text-[9px] font-mono" style={{ color: C.muted }}>{Math.round(h.latency_ms)}ms</div>
+        )}
       </div>
     </div>
   );
@@ -173,84 +117,140 @@ function RuntimeRow({ runtime }) {
 // ── Task row ───────────────────────────────────────────────────────────────────
 
 function TaskRow({ task, onClick }) {
-  const dot = STATUS_DOT[task.status] || 'bg-gray-500';
-  const badge = STATUS_BADGE[task.status] || 'border-white/10 bg-white/4 text-[#888]';
+  const dot = STATUS_DOT[task.status] || C.muted;
+  const statusLabel = task.status?.replace('_', ' ') || 'todo';
   return (
     <button
       onClick={onClick}
-      className="w-full flex items-start gap-2.5 py-2.5 px-3 rounded-lg hover:bg-white/[0.03] transition-colors text-left group"
+      className="w-full flex items-start gap-2.5 py-2.5 px-3 rounded-lg text-left transition-colors"
+      style={{ '--tw-bg': 'transparent' }}
+      onMouseEnter={e => e.currentTarget.style.background = 'rgba(255,255,255,0.015)'}
+      onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
     >
-      <div className={cls('w-1.5 h-1.5 rounded-full mt-1.5 flex-shrink-0', dot)} />
+      <div className="w-1.5 h-1.5 rounded-full mt-1.5 shrink-0" style={{ background: dot }} />
       <div className="flex-1 min-w-0">
         <div className="flex items-center gap-2 mb-0.5">
-          <span className="text-[12px] text-white font-medium truncate">{task.title}</span>
+          <span className="text-[12px] font-medium truncate" style={{ color: C.secondary }}>{task.title}</span>
           {task.priority === 'urgent' && (
-            <span className="text-[9px] text-red-400 font-mono uppercase">URGENT</span>
+            <span className="text-[9px] font-mono uppercase" style={{ color: '#EF4444' }}>URGENT</span>
           )}
         </div>
         <div className="flex items-center gap-2 flex-wrap">
-          <span className={cls('text-[9px] px-1.5 py-0.5 rounded border font-mono', badge)}>
-            {task.status.replace('_', ' ')}
-          </span>
+          <span className="text-[9px] font-mono capitalize" style={{ color: C.tertiary }}>{statusLabel}</span>
           {task.agent_id && (
-            <span className="text-[9px] text-[#555] font-mono">@{task.agent_id}</span>
+            <span className="text-[9px] font-mono" style={{ color: C.muted }}>@{task.agent_id}</span>
           )}
-          {task.runtime_id && (
-            <span className="text-[9px] text-[#444] font-mono">{task.runtime_id}</span>
-          )}
-          <span className="text-[9px] text-[#444]">{relTime(task.updated_at)}</span>
+          <span className="text-[9px]" style={{ color: C.muted }}>{relTime(task.updated_at)}</span>
         </div>
       </div>
-      <ChevronRight size={12} className="text-[#333] opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0 mt-1" />
     </button>
   );
 }
 
-// ── Routing decision row ───────────────────────────────────────────────────────
+// ── Execution row (live feed) ──────────────────────────────────────────────────
 
-function DecisionRow({ d }) {
+function ExecRow({ decision }) {
+  const dot = decision.escalated ? '#F59E0B' : '#10B981';
   return (
-    <div className="py-2 border-b border-white/4 last:border-0">
-      <div className="flex items-center justify-between mb-0.5">
-        <span className="text-[11px] text-white font-mono truncate">{d.task_id}</span>
-        <span className="text-[9px] text-[#444]">{relTime(d.timestamp)}</span>
+    <div className="flex items-start gap-3 px-4 py-3 border-b last:border-0"
+      style={{ borderColor: 'rgba(255,255,255,0.04)' }}>
+      <div className="mt-1 shrink-0 w-2 h-2 rounded-full" style={{ background: dot }} />
+      <div className="flex-1 min-w-0">
+        <div className="flex items-center gap-2 mb-0.5">
+          <span className="text-[12px] font-medium truncate" style={{ color: '#D8D8E8' }}>{decision.task_id}</span>
+          {decision.escalated && (
+            <span className="shrink-0 px-1.5 py-px text-[8px] font-mono uppercase border"
+              style={{ borderColor: 'rgba(245,158,11,0.25)', background: 'rgba(245,158,11,0.08)', color: '#F59E0B' }}>
+              escalated
+            </span>
+          )}
+        </div>
+        <div className="flex items-center gap-3 text-[10px] font-mono" style={{ color: C.muted }}>
+          <span>{decision.selected_runtime_id}</span>
+          <span style={{ color: '#3A3A4A' }}>·</span>
+          <span style={{ color: decision.provider_used === 'ollama' ? '#10B981' : C.tertiary }}>
+            {decision.model_used || decision.task_type}
+          </span>
+          {decision.escalation_reason && (
+            <>
+              <span style={{ color: '#3A3A4A' }}>·</span>
+              <span className="truncate max-w-[150px]" style={{ color: 'rgba(245,158,11,0.8)' }}>
+                {decision.escalation_reason}
+              </span>
+            </>
+          )}
+        </div>
       </div>
-      <div className="flex items-center gap-2 flex-wrap">
-        <span className="text-[10px] text-[#555]">{d.selected_runtime_id}</span>
-        <span className="text-[10px] text-[#444]">{d.task_type}</span>
-        {d.escalated && (
-          <span className="text-[9px] text-amber-400 font-mono">ESCALATED</span>
-        )}
-        {d.fallback_attempted && (
-          <span className="text-[9px] text-blue-400 font-mono">FALLBACK→{d.fallback_runtime_id}</span>
-        )}
+      <div className="text-[9px] font-mono shrink-0 mt-0.5" style={{ color: C.muted }}>
+        {relTime(decision.timestamp)}
       </div>
-      {d.reason && (
-        <div className="text-[9px] text-[#444] mt-0.5 line-clamp-1">{d.reason}</div>
-      )}
     </div>
   );
 }
 
-// ── Due-soon row ───────────────────────────────────────────────────────────────
+// ── Section header ─────────────────────────────────────────────────────────────
 
-function DueSoonRow({ task }) {
-  const now = Date.now() / 1000;
-  const hoursLeft = task.due_date ? Math.max(0, (task.due_date - now) / 3600) : null;
-  const urgent = hoursLeft != null && hoursLeft < 2;
+function SectionHeader({ title, to, count, loading, onRefresh }) {
+  const nav = useNavigate();
   return (
-    <div className="flex items-center gap-2.5 py-2 border-b border-white/4 last:border-0">
-      <Calendar size={11} className={urgent ? 'text-red-400' : 'text-amber-400'} />
-      <div className="flex-1 min-w-0">
-        <div className="text-[11px] text-white truncate">{task.title}</div>
-        <div className="text-[9px] text-[#555]">
-          {hoursLeft != null ? `Due in ${hoursLeft < 1 ? `${Math.round(hoursLeft * 60)}m` : `${Math.round(hoursLeft)}h`}` : 'Due soon'}
-        </div>
+    <div className="flex items-center justify-between px-4 py-3 border-b"
+      style={{ borderColor: 'rgba(255,255,255,0.06)' }}>
+      <div className="flex items-center gap-2">
+        <span className="text-[11px] font-semibold tracking-wide uppercase font-mono"
+          style={{ color: C.tertiary }}>{title}</span>
+        {count != null && (
+          <span className="text-[9px] font-mono px-1.5 py-0.5 rounded"
+            style={{ background: 'rgba(255,255,255,0.05)', color: C.muted }}>{count}</span>
+        )}
       </div>
-      <div className={cls(
-        'w-1.5 h-1.5 rounded-full flex-shrink-0',
-        PRIORITY_DOT[task.priority] || 'bg-gray-500',
-      )} />
+      <div className="flex items-center gap-2">
+        {onRefresh && (
+          <button onClick={onRefresh} disabled={loading}
+            className="transition-colors disabled:opacity-40"
+            style={{ color: C.muted }}
+            onMouseEnter={e => e.currentTarget.style.color = C.secondary}
+            onMouseLeave={e => e.currentTarget.style.color = C.muted}>
+            <RefreshCw size={11} className={loading ? 'animate-spin' : ''} />
+          </button>
+        )}
+        {to && (
+          <button onClick={() => nav(to)}
+            className="text-[10px] font-mono transition-colors"
+            style={{ color: C.muted }}
+            onMouseEnter={e => e.currentTarget.style.color = C.secondary}
+            onMouseLeave={e => e.currentTarget.style.color = C.muted}>
+            View all →
+          </button>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ── Card wrapper ───────────────────────────────────────────────────────────────
+
+function Card({ children, className = '' }) {
+  return (
+    <div className={`overflow-hidden ${className}`}
+      style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: '12px' }}>
+      {children}
+    </div>
+  );
+}
+
+// ── Infrastructure health row ──────────────────────────────────────────────────
+
+function InfraItem({ label, ok, icon: Icon }) {
+  return (
+    <div className="flex items-center gap-2 px-3 py-2.5 rounded-lg border"
+      style={{
+        borderColor: ok ? 'rgba(16,185,129,0.15)' : 'rgba(255,255,255,0.05)',
+        background: ok ? 'rgba(16,185,129,0.05)' : 'rgba(255,255,255,0.02)',
+      }}>
+      <div className="w-1.5 h-1.5 rounded-full shrink-0"
+        style={{ background: ok ? '#10B981' : C.muted }} />
+      <span className="text-[11px] font-medium"
+        style={{ color: ok ? '#10B981' : C.muted }}>{label}</span>
     </div>
   );
 }
@@ -263,19 +263,20 @@ export default function ControlPlanePage() {
   const [rLoading, setRLoading] = useState(false);
   const [tLoading, setTLoading] = useState(false);
 
-  const [health, setHealth]     = useState(null);
-  const [stats, setStats]       = useState(null);
-  const [runtimes, setRuntimes] = useState([]);
-  const [tasks, setTasks]       = useState([]);
-  const [dueSoon, setDueSoon]   = useState([]);
+  const [health, setHealth]       = useState(null);
+  const [stats, setStats]         = useState(null);
+  const [runtimes, setRuntimes]   = useState([]);
+  const [tasks, setTasks]         = useState([]);
+  const [dueSoon, setDueSoon]     = useState([]);
   const [decisions, setDecisions] = useState([]);
-  const [error, setError]       = useState('');
+  const [alertDismissed, setAlertDismissed] = useState(false);
+  const [error, setError]         = useState('');
 
   const loadAll = useCallback(async () => {
     setLoading(true);
     setError('');
     try {
-      const results = await Promise.allSettled([
+      await Promise.allSettled([
         healthCheck().then(r => setHealth(r.data)),
         getStats().then(r => setStats(r.data)),
         listRuntimes().then(r => setRuntimes(r.data.runtimes || [])),
@@ -283,8 +284,8 @@ export default function ControlPlanePage() {
         getDueSoonTasks(24).then(r => setDueSoon(r.data.tasks || [])),
         getDecisionLog(20).then(r => setDecisions(r.data.decisions || [])),
       ]);
-      const failed = results.filter(r => r.status === 'rejected');
-      if (failed.length > 3) setError('Some data sources are unavailable');
+    } catch {
+      setError('Some data sources unavailable — check backend connectivity.');
     } finally {
       setLoading(false);
     }
@@ -296,195 +297,189 @@ export default function ControlPlanePage() {
     setRLoading(true);
     try { const r = await listRuntimes(); setRuntimes(r.data.runtimes || []); } finally { setRLoading(false); }
   };
-
   const reloadTasks = async () => {
     setTLoading(true);
     try { const r = await listTasks({ limit: 10 }); setTasks(r.data.tasks || []); } finally { setTLoading(false); }
   };
 
   const isHealthy = health?.status === 'ok';
+  const blockedTasks    = tasks.filter(t => t.status === 'blocked');
+  const inReviewTasks   = tasks.filter(t => t.status === 'in_review');
+  const activeTasks     = tasks.filter(t => t.status === 'in_progress');
+  const queuedTasks     = tasks.filter(t => t.status === 'todo');
+  const offlineRuntimes = runtimes.filter(r => r.circuit_open);
+  const showAlert = !alertDismissed && (blockedTasks.length > 0 || inReviewTasks.length > 0 || offlineRuntimes.length > 0);
 
-  // Alerts: blocked tasks + circuit-open runtimes
-  const alerts = [
-    ...tasks.filter(t => t.status === 'blocked').map(t => ({ type: 'task', label: `Blocked: ${t.title}`, id: t.task_id })),
-    ...runtimes.filter(r => r.circuit_open).map(r => ({ type: 'runtime', label: `Runtime offline: ${r.display_name}`, id: r.runtime_id })),
-  ];
+  const costSaved  = stats?.cost_saved_usd != null ? `$${stats.cost_saved_usd.toFixed(2)}` : '—';
+  const tokenUsed  = stats?.total_tokens   != null ? `${(stats.total_tokens / 1000).toFixed(1)}k` : '—';
+  const localRatio = stats?.local_ratio    != null ? `${Math.round(stats.local_ratio * 100)}%` : '—';
 
-  // Active tasks (running + in_review)
-  const activeTasks = tasks.filter(t => ['in_progress', 'in_review'].includes(t.status));
-  const queuedTasks = tasks.filter(t => t.status === 'todo');
-
-  // Cost savings from local vs paid (from stats)
-  const costSaved = stats?.cost_saved_usd != null ? `$${stats.cost_saved_usd.toFixed(2)}` : null;
-  const tokenUsed = stats?.total_tokens != null ? `${(stats.total_tokens / 1000).toFixed(1)}K` : null;
+  const today = new Date().toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' });
 
   return (
-    <div className="p-5 sm:p-6 lg:p-8 max-w-7xl mx-auto" data-testid="control-plane-page">
+    <div className="h-full overflow-y-auto p-5 lg:p-6 space-y-5 animate-fade-in"
+      data-testid="control-plane-page">
 
       {/* ── Header ── */}
-      <div className="mb-6 animate-fade-in">
-        <div className="flex items-center gap-2 mb-2">
-          <div className={`w-2 h-2 rounded-full transition-colors ${
-            loading ? 'bg-amber-500 animate-pulse' :
-            isHealthy ? 'bg-emerald-500' : 'bg-amber-500'
-          }`} />
-          <span className="text-[11px] font-mono tracking-[0.2em] uppercase text-[#444]">
-            {loading ? 'Loading...' : isHealthy ? 'All systems operational' : 'Partial outage detected'}
-          </span>
-          <span className="text-[10px] font-mono text-[#333] border border-white/8 px-2 py-0.5 rounded-full">v3.0</span>
-        </div>
-        <div className="flex items-end justify-between">
-          <div>
-            <h1 className="text-3xl sm:text-4xl font-bold tracking-[-0.03em] text-white"
-              style={{ fontFamily: 'Outfit, sans-serif' }}>
-              Control Plane
-            </h1>
-            <p className="text-sm text-[#555] mt-1">Unified AI Agent Operations Dashboard</p>
+      <div className="flex items-start justify-between">
+        <div>
+          <div className="flex items-center gap-2 mb-1">
+            <div className={`w-1.5 h-1.5 rounded-full ${loading ? 'bg-amber-400' : isHealthy ? 'bg-emerald-500 animate-pulse' : 'bg-amber-400'}`} />
+            <span className="text-[10px] font-mono tracking-[0.18em] uppercase" style={{ color: C.muted }}>
+              {loading ? 'Loading…' : isHealthy ? 'All systems operational' : 'Partial outage detected'}
+            </span>
           </div>
-          <button onClick={loadAll} disabled={loading}
-            className="flex items-center gap-2 px-3 py-2 text-[11px] text-[#555] border border-white/8 rounded-lg hover:border-white/16 hover:text-[#888] transition-all disabled:opacity-40">
-            <RefreshCw size={11} className={loading ? 'animate-spin' : ''} />
-            Refresh
-          </button>
+          <h1 className="text-2xl font-bold tracking-tight" style={{ fontFamily: 'var(--font-main)', color: C.primary }}>
+            Control Plane
+          </h1>
+          <p className="text-[12px] mt-0.5" style={{ color: C.tertiary }}>{today} · LLM Relay v3.1</p>
         </div>
+        <button onClick={loadAll} disabled={loading}
+          className="flex items-center gap-2 px-3 py-2 text-[11px] font-mono uppercase tracking-wider border rounded-lg transition-colors disabled:opacity-40"
+          style={{ borderColor: 'rgba(255,255,255,0.1)', color: C.tertiary }}
+          onMouseEnter={e => { e.currentTarget.style.color = C.primary; e.currentTarget.style.borderColor = 'rgba(255,255,255,0.2)'; }}
+          onMouseLeave={e => { e.currentTarget.style.color = C.tertiary; e.currentTarget.style.borderColor = 'rgba(255,255,255,0.1)'; }}>
+          <RefreshCw size={11} className={loading ? 'animate-spin' : ''} />
+          Refresh
+        </button>
       </div>
 
+      {/* ── Alert bar ── */}
+      {showAlert && (
+        <div className="flex items-center gap-3 px-4 py-3 rounded-lg border"
+          style={{ background: 'rgba(245,158,11,0.08)', borderColor: 'rgba(245,158,11,0.2)' }}>
+          <AlertTriangle size={13} className="text-amber-400 shrink-0" />
+          <div className="flex-1 text-[11px] font-mono text-amber-300">
+            {blockedTasks.length > 0 && (
+              <span className="mr-3">
+                <strong>{blockedTasks.length} task{blockedTasks.length > 1 ? 's' : ''} blocked</strong> — needs attention
+              </span>
+            )}
+            {inReviewTasks.length > 0 && (
+              <span className="mr-3">
+                <strong>{inReviewTasks.length} task{inReviewTasks.length > 1 ? 's' : ''} in review</strong> — awaiting approval
+              </span>
+            )}
+            {offlineRuntimes.length > 0 && (
+              <span>
+                <strong>{offlineRuntimes.map(r => r.display_name).join(', ')}</strong> — circuit open
+              </span>
+            )}
+          </div>
+          <button onClick={() => setAlertDismissed(true)}
+            style={{ color: C.tertiary }}
+            onMouseEnter={e => e.currentTarget.style.color = C.primary}
+            onMouseLeave={e => e.currentTarget.style.color = C.tertiary}>
+            <XCircle size={13} />
+          </button>
+        </div>
+      )}
+
       {error && (
-        <div className="mb-4 flex items-center gap-2 px-4 py-3 bg-amber-500/8 border border-amber-500/20 rounded-lg text-[12px] text-amber-400">
+        <div className="flex items-center gap-2 px-4 py-3 rounded-lg border text-[12px] text-amber-400"
+          style={{ background: 'rgba(245,158,11,0.06)', borderColor: 'rgba(245,158,11,0.15)' }}>
           <AlertTriangle size={13} /> {error}
         </div>
       )}
 
-      {/* ── Health pills ── */}
-      <div className="flex flex-wrap gap-2 mb-6">
-        <HealthPill label="MongoDB"  ok={health?.mongo}     />
-        <HealthPill label="Ollama"   ok={health?.ollama}    />
-        <HealthPill label="Langfuse" ok={stats?.langfuse_configured} />
-        {runtimes.filter(r => r.health?.available).slice(0, 3).map(r => (
-          <HealthPill key={r.runtime_id} label={r.display_name}
-            ok={!r.circuit_open && r.health?.available}
-            latency={r.health?.latency_ms} />
-        ))}
-      </div>
-
       {/* ── Stat row ── */}
-      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3 mb-6">
-        <StatCard icon={Bot}       label="Active Agents"    value={activeTasks.length} accent="#22C55E" to="/agents" />
-        <StatCard icon={PlayCircle} label="Running Tasks"   value={activeTasks.filter(t => t.status === 'in_progress').length} accent="#3B82F6" to="/tasks" />
-        <StatCard icon={Clock}     label="Queued Tasks"     value={queuedTasks.length} accent="#F59E0B" to="/tasks" />
-        <StatCard icon={DollarSign} label="Cost Saved"      value={costSaved || '—'} accent="#10B981" sublabel="vs paid providers" />
-        <StatCard icon={Zap}       label="Tokens (session)" value={tokenUsed || '—'} accent="#8B5CF6" />
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
+        <StatCard label="Active Agents" value={activeTasks.length} sub={`${runtimes.filter(r=>r.health?.available).length} runtimes`} accent="#10B981" to="/agents" />
+        <StatCard label="Open Tasks"    value={queuedTasks.length + activeTasks.length} sub={`${activeTasks.length} running`} accent={C.accent} to="/tasks" />
+        <StatCard label="In Review"     value={inReviewTasks.length} sub="awaiting approval" accent="#F59E0B" to="/tasks" />
+        <StatCard label="Cost Saved"    value={costSaved} sub="vs cloud APIs" accent="#10B981" />
+        <StatCard label="Local Ratio"   value={localRatio} sub="requests on-device" accent="#8B5CF6" to="/observability" />
       </div>
-
-      {/* ── Alerts ── */}
-      {alerts.length > 0 && (
-        <div className="mb-6 p-4 bg-red-500/5 border border-red-500/15 rounded-xl">
-          <div className="flex items-center gap-2 mb-2">
-            <AlertTriangle size={13} className="text-red-400" />
-            <span className="text-[11px] font-semibold tracking-[0.15em] uppercase text-red-400">
-              {alerts.length} Alert{alerts.length > 1 ? 's' : ''} Requiring Attention
-            </span>
-          </div>
-          <div className="space-y-1.5">
-            {alerts.map((a, i) => (
-              <button key={i}
-                onClick={() => nav(a.type === 'task' ? `/tasks` : '/runtimes')}
-                className="w-full flex items-center gap-2 px-3 py-2 bg-black/30 border border-white/5 rounded-lg text-left hover:border-white/10 transition-colors">
-                {a.type === 'task' ? <AlertTriangle size={11} className="text-amber-400" /> : <Server size={11} className="text-red-400" />}
-                <span className="text-[11px] text-[#A0A0A0]">{a.label}</span>
-              </button>
-            ))}
-          </div>
-        </div>
-      )}
 
       {/* ── Main grid ── */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
 
-        {/* Active / Queued Tasks */}
-        <div className="lg:col-span-2 bg-[#111] border border-white/8 rounded-xl p-4">
-          <SectionHeader icon={Activity} title="Task Queue" count={tasks.length}
-            onRefresh={reloadTasks} loading={tLoading} to="/tasks" />
-          {tasks.length === 0 ? (
-            <div className="py-8 text-center text-[11px] text-[#444]">No tasks yet</div>
+        {/* Live execution feed (2-col) */}
+        <Card className="lg:col-span-2">
+          <SectionHeader title="Live Execution Feed" to="/observability" />
+          {decisions.length === 0 ? (
+            <div className="py-10 text-center text-[11px] font-mono" style={{ color: C.muted }}>
+              No routing decisions yet — submit a task to see live activity
+            </div>
           ) : (
             <div>
-              {activeTasks.length > 0 && (
-                <div className="mb-2">
-                  <div className="text-[9px] uppercase tracking-widest text-[#444] mb-1 px-3">Active</div>
-                  {activeTasks.map(t => (
-                    <TaskRow key={t.task_id} task={t} onClick={() => nav('/tasks')} />
-                  ))}
-                </div>
-              )}
-              {queuedTasks.length > 0 && (
-                <div>
-                  <div className="text-[9px] uppercase tracking-widest text-[#444] mb-1 px-3">Queued</div>
-                  {queuedTasks.slice(0, 5).map(t => (
-                    <TaskRow key={t.task_id} task={t} onClick={() => nav('/tasks')} />
-                  ))}
-                </div>
-              )}
+              {decisions.slice(0, 8).map((d, i) => <ExecRow key={i} decision={d} />)}
             </div>
           )}
-        </div>
+        </Card>
 
         {/* Right column */}
         <div className="space-y-4">
 
-          {/* Runtime health */}
-          <div className="bg-[#111] border border-white/8 rounded-xl p-4">
-            <SectionHeader icon={Cpu} title="Runtimes"
-              onRefresh={reloadRuntimes} loading={rLoading} to="/runtimes" />
+          {/* Agents */}
+          <Card>
+            <SectionHeader title="Runtimes" to="/runtimes" onRefresh={reloadRuntimes} loading={rLoading} />
             {runtimes.length === 0 ? (
-              <div className="py-4 text-center text-[11px] text-[#444]">No runtimes configured</div>
+              <div className="py-6 text-center text-[11px] font-mono px-4" style={{ color: C.muted }}>
+                No runtimes configured
+              </div>
             ) : (
-              runtimes.map(r => <RuntimeRow key={r.runtime_id} runtime={r} />)
+              <div className="px-4">
+                {runtimes.map(r => <RuntimeRow key={r.runtime_id} runtime={r} />)}
+              </div>
             )}
+          </Card>
+
+          {/* Task queue */}
+          <Card>
+            <SectionHeader title="Task Queue" to="/tasks" count={tasks.length} onRefresh={reloadTasks} loading={tLoading} />
+            {tasks.length === 0 ? (
+              <div className="py-6 text-center text-[11px] font-mono px-4" style={{ color: C.muted }}>
+                No tasks yet
+              </div>
+            ) : (
+              <div>
+                {activeTasks.slice(0, 3).map(t => (
+                  <TaskRow key={t.task_id} task={t} onClick={() => nav('/tasks')} />
+                ))}
+                {queuedTasks.slice(0, 3).map(t => (
+                  <TaskRow key={t.task_id} task={t} onClick={() => nav('/tasks')} />
+                ))}
+              </div>
+            )}
+          </Card>
+        </div>
+      </div>
+
+      {/* ── Upcoming schedules / due soon ── */}
+      {dueSoon.length > 0 && (
+        <Card>
+          <SectionHeader title="Due Soon" count={dueSoon.length} to="/activity" />
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 divide-y sm:divide-y-0 sm:divide-x"
+            style={{ '--tw-divide-color': 'rgba(255,255,255,0.05)' }}>
+            {dueSoon.slice(0, 3).map(t => {
+              const now = Date.now() / 1000;
+              const hoursLeft = t.due_date ? Math.max(0, (t.due_date - now) / 3600) : null;
+              return (
+                <div key={t.task_id} className="px-4 py-3">
+                  <div className="text-[12px] font-medium mb-0.5" style={{ color: C.secondary }}>{t.title}</div>
+                  <div className="text-[9px] font-mono" style={{ color: C.muted }}>
+                    {t.agent_id ? `@${t.agent_id} · ` : ''}
+                    {hoursLeft != null ? `Due in ${hoursLeft < 1 ? `${Math.round(hoursLeft * 60)}m` : `${Math.round(hoursLeft)}h`}` : 'Due soon'}
+                  </div>
+                </div>
+              );
+            })}
           </div>
+        </Card>
+      )}
 
-          {/* Due soon */}
-          {dueSoon.length > 0 && (
-            <div className="bg-[#111] border border-white/8 rounded-xl p-4">
-              <SectionHeader icon={Calendar} title="Due Soon" count={dueSoon.length} to="/tasks" />
-              {dueSoon.slice(0, 5).map(t => <DueSoonRow key={t.task_id} task={t} />)}
-            </div>
-          )}
-
-          {/* Recent routing decisions */}
-          {decisions.length > 0 && (
-            <div className="bg-[#111] border border-white/8 rounded-xl p-4">
-              <SectionHeader icon={TrendingUp} title="Routing Log" count={decisions.length} to="/observability" />
-              {decisions.slice(0, 5).map((d, i) => <DecisionRow key={i} d={d} />)}
-            </div>
-          )}
+      {/* ── Infrastructure health ── */}
+      <Card>
+        <SectionHeader title="Infrastructure" to="/providers" />
+        <div className="p-4 grid grid-cols-2 sm:grid-cols-4 gap-3">
+          <InfraItem label="MongoDB"   ok={health?.mongo}                icon={Database} />
+          <InfraItem label="Ollama"    ok={health?.ollama}               icon={Cpu} />
+          <InfraItem label="Langfuse"  ok={stats?.langfuse_configured}   icon={BarChart3} />
+          <InfraItem label="Scheduler" ok={health?.scheduler}            icon={Calendar} />
         </div>
-      </div>
-
-      {/* ── Provider health row ── */}
-      <div className="mt-4 bg-[#111] border border-white/8 rounded-xl p-4">
-        <SectionHeader icon={Layers} title="Infrastructure Health" to="/providers" />
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-          {[
-            { label: 'MongoDB', ok: health?.mongo, icon: Database },
-            { label: 'Ollama', ok: health?.ollama, icon: Cpu },
-            { label: 'Langfuse', ok: stats?.langfuse_configured, icon: BarChartStub },
-            { label: 'Scheduler', ok: health?.scheduler, icon: Calendar },
-          ].map(({ label, ok, icon: Icon }) => (
-            <div key={label} className={cls(
-              'flex items-center gap-2 px-3 py-2.5 rounded-lg border',
-              ok ? 'border-emerald-500/15 bg-emerald-500/5' : 'border-white/5 bg-white/2'
-            )}>
-              <div className={cls('w-1.5 h-1.5 rounded-full', ok ? 'bg-emerald-500' : 'bg-[#444]')} />
-              <span className={cls('text-[11px] font-medium', ok ? 'text-emerald-400' : 'text-[#555]')}>{label}</span>
-            </div>
-          ))}
-        </div>
-      </div>
+      </Card>
 
     </div>
   );
 }
-
-// Minimal stub to avoid import issues if BarChart2 not imported
-const BarChartStub = (props) => <TrendingUp {...props} />;

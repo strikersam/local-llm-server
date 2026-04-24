@@ -1,33 +1,14 @@
 /**
- * TasksPage — Task / Issue management.
+ * TasksPage — Multica-style kanban swim-lane task board.
  *
- * Shows tasks with status (todo / in_progress / in_review / blocked / done),
- * priority, agent assignment, and runtime info.  Supports create/update/retry/escalate.
+ * Design: lifted from cp-tasks.jsx in the Control Plane design bundle.
+ * Wired to the real tasks API: listTasks, createTask, updateTask, retryTask, escalateTask.
  */
 import React, { useState, useEffect, useCallback } from 'react';
-import {
-  CheckCircle2, AlertTriangle, Clock, PlayCircle, Pause,
-  Plus, Filter, RefreshCw, ChevronDown, RotateCcw, ArrowUpCircle,
-  Loader2, X, Save, Calendar, Tag, Bot, Cpu, AlertCircle,
-} from 'lucide-react';
+import { Plus, RefreshCw, X, Loader2, AlertTriangle, RotateCcw, ArrowUpCircle } from 'lucide-react';
 import { listTasks, createTask, updateTask, retryTask, escalateTask, fmtErr } from '../api';
 
 function cls(...p) { return p.filter(Boolean).join(' '); }
-
-const STATUS_META = {
-  todo:        { label: 'To Do',      dot: 'bg-gray-500',              badge: 'border-white/10 bg-white/4 text-[#888]' },
-  in_progress: { label: 'Running',    dot: 'bg-emerald-400 animate-pulse', badge: 'border-emerald-500/25 bg-emerald-500/10 text-emerald-400' },
-  in_review:   { label: 'In Review',  dot: 'bg-amber-400',             badge: 'border-amber-500/25 bg-amber-500/10 text-amber-400' },
-  blocked:     { label: 'Blocked',    dot: 'bg-red-500',               badge: 'border-red-500/25 bg-red-500/10 text-red-400' },
-  done:        { label: 'Done',       dot: 'bg-blue-400',              badge: 'border-blue-500/25 bg-blue-500/10 text-blue-400' },
-};
-
-const PRIORITY_META = {
-  urgent: { label: 'Urgent', color: 'text-red-400', dot: 'bg-red-500' },
-  high:   { label: 'High',   color: 'text-amber-400', dot: 'bg-amber-500' },
-  medium: { label: 'Medium', color: 'text-blue-400', dot: 'bg-blue-400' },
-  low:    { label: 'Low',    color: 'text-gray-500', dot: 'bg-gray-600' },
-};
 
 function relTime(ts) {
   if (!ts) return '—';
@@ -38,225 +19,220 @@ function relTime(ts) {
   return new Date(ts * 1000).toLocaleDateString();
 }
 
-// ── Task card ─────────────────────────────────────────────────────────────────
+const C = {
+  bg:      '#0F0F13',
+  surface: '#141418',
+  border:  'rgba(255,255,255,0.06)',
+  primary: '#F2F2F6',
+  secondary:'#B2B2C4',
+  tertiary: '#808094',
+  muted:    '#565666',
+  accent:   '#002FA7',
+};
 
-function TaskCard({ task, onStatusChange, onRetry, onEscalate }) {
-  const sm = STATUS_META[task.status] || STATUS_META.todo;
-  const pm = PRIORITY_META[task.priority] || PRIORITY_META.medium;
-  const [expanded, setExpanded] = useState(false);
+const COLS = [
+  { id: 'todo',        label: 'TODO',        color: '#6E6E80' },
+  { id: 'in_progress', label: 'IN PROGRESS', color: '#002FA7' },
+  { id: 'in_review',   label: 'IN REVIEW',   color: '#F59E0B' },
+  { id: 'blocked',     label: 'BLOCKED',     color: '#EF4444' },
+  { id: 'done',        label: 'DONE',        color: '#10B981' },
+];
 
+const PRIORITY_DOT = {
+  urgent: '#EF4444',
+  high:   '#F59E0B',
+  medium: '#3B82F6',
+  low:    '#6E6E80',
+};
+
+function PriorityDot({ priority }) {
+  const color = PRIORITY_DOT[priority] || PRIORITY_DOT.medium;
+  return <div className="w-2 h-2 rounded-full shrink-0 mt-0.5" style={{ background: color }} />;
+}
+
+function StatusDot({ status }) {
+  const colors = {
+    todo: '#6E6E80', in_progress: '#10B981', in_review: '#F59E0B',
+    blocked: '#EF4444', done: '#3B82F6',
+  };
+  return <div className="w-2 h-2 rounded-full shrink-0" style={{ background: colors[status] || '#6E6E80' }} />;
+}
+
+// ── Task card ──────────────────────────────────────────────────────────────────
+
+function TaskCard({ task, isSelected, onClick }) {
   return (
-    <div className={cls(
-      'bg-[#111] border rounded-xl transition-all',
-      task.status === 'blocked' ? 'border-red-500/20' : 'border-white/8 hover:border-white/14',
-    )}>
-      <button className="w-full p-4 text-left" onClick={() => setExpanded(e => !e)}>
-        <div className="flex items-start gap-3">
-          <div className={cls('w-2 h-2 rounded-full mt-1.5 flex-shrink-0', sm.dot)} />
-          <div className="flex-1 min-w-0">
-            <div className="flex items-center gap-2 flex-wrap">
-              <span className="text-[13px] font-medium text-white">{task.title}</span>
-              <span className={cls('text-[9px] px-1.5 py-0.5 rounded border font-mono', sm.badge)}>
-                {sm.label}
-              </span>
-              <span className={cls('text-[9px] font-mono', pm.color)}>{pm.label}</span>
-            </div>
-            {task.description && !expanded && (
-              <p className="text-[11px] text-[#555] mt-0.5 line-clamp-1">{task.description}</p>
-            )}
-            <div className="flex items-center gap-3 mt-1.5 flex-wrap">
-              {task.agent_id && (
-                <span className="flex items-center gap-1 text-[10px] text-[#555]">
-                  <Bot size={9} /> {task.agent_id}
-                </span>
-              )}
-              {task.runtime_id && (
-                <span className="flex items-center gap-1 text-[10px] text-[#444]">
-                  <Cpu size={9} /> {task.runtime_id}
-                </span>
-              )}
-              <span className="text-[10px] text-[#444]">{relTime(task.updated_at)}</span>
-            </div>
-          </div>
-          <ChevronDown size={13} className={cls('text-[#444] flex-shrink-0 transition-transform', expanded ? 'rotate-180' : '')} />
-        </div>
-      </button>
+    <div
+      onClick={onClick}
+      className="cursor-pointer rounded-lg px-3.5 py-3 transition-all duration-150"
+      style={{
+        background: isSelected ? 'rgba(0,47,167,0.05)' : C.surface,
+        border: `1px solid ${isSelected ? 'rgba(0,47,167,0.4)' : C.border}`,
+      }}
+      onMouseEnter={e => { if (!isSelected) { e.currentTarget.style.borderColor = 'rgba(255,255,255,0.12)'; e.currentTarget.style.background = '#18181D'; }}}
+      onMouseLeave={e => { if (!isSelected) { e.currentTarget.style.borderColor = C.border; e.currentTarget.style.background = C.surface; }}}
+    >
+      {/* Priority + title */}
+      <div className="flex items-start gap-2 mb-2">
+        <PriorityDot priority={task.priority} />
+        <span className="text-[12px] leading-snug font-medium flex-1" style={{ color: '#D8D8E8' }}>
+          {task.title}
+        </span>
+      </div>
 
-      {expanded && (
-        <div className="px-4 pb-4 border-t border-white/5 pt-3 space-y-3">
-          {task.description && (
-            <p className="text-[12px] text-[#888]">{task.description}</p>
-          )}
-          {task.prompt && (
-            <div>
-              <div className="text-[9px] uppercase tracking-widest text-[#444] mb-1">Prompt</div>
-              <pre className="text-[10px] font-mono text-[#777] bg-black/30 rounded-md px-3 py-2 whitespace-pre-wrap line-clamp-5">
-                {task.prompt}
-              </pre>
-            </div>
-          )}
+      {/* Meta */}
+      <div className="flex items-center gap-2 flex-wrap">
+        {task.agent_id && (
+          <span className="text-[9px] font-mono" style={{ color: C.tertiary }}>@{task.agent_id}</span>
+        )}
+        {task.tags && task.tags.slice(0, 2).map(tag => (
+          <span key={tag} className="text-[8px] font-mono px-1.5 py-0.5 rounded"
+            style={{ background: 'rgba(255,255,255,0.05)', color: C.tertiary }}>
+            {tag}
+          </span>
+        ))}
+        {task.due_date && (
+          <span className="ml-auto text-[8px] font-mono" style={{ color: C.muted }}>
+            {new Date(task.due_date * 1000).toLocaleDateString([], { month: 'short', day: 'numeric' })}
+          </span>
+        )}
+      </div>
 
-          {/* Tags */}
-          {task.tags?.length > 0 && (
-            <div className="flex flex-wrap gap-1.5">
-              {task.tags.map(t => (
-                <span key={t} className="text-[9px] font-mono px-2 py-0.5 rounded border border-white/8 bg-white/4 text-[#555]">
-                  {t}
-                </span>
-              ))}
-            </div>
-          )}
-
-          {/* Execution log (last 3 entries) */}
-          {task.execution_log?.length > 0 && (
-            <div>
-              <div className="text-[9px] uppercase tracking-widest text-[#444] mb-1">Recent Log</div>
-              <div className="space-y-1">
-                {task.execution_log.slice(-3).map((e, i) => (
-                  <div key={i} className="flex items-start gap-2 text-[10px] font-mono">
-                    <span className={cls('mt-0.5', e.level === 'error' ? 'text-red-400' : e.level === 'warning' ? 'text-amber-400' : 'text-[#555]')}>
-                      {e.level === 'error' ? '✗' : e.level === 'warning' ? '!' : '·'}
-                    </span>
-                    <span className="text-[#666] flex-1">{e.message}</span>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {/* Actions */}
-          <div className="flex flex-wrap gap-2 pt-1">
-            {['todo', 'in_progress', 'in_review', 'done'].map(s => (
-              s !== task.status && (
-                <button key={s} onClick={() => onStatusChange(task.task_id, s)}
-                  className="text-[10px] px-3 py-1.5 border border-white/8 text-[#666] rounded-md hover:text-white hover:border-white/20 transition-colors">
-                  → {STATUS_META[s]?.label || s}
-                </button>
-              )
-            ))}
-            {task.status !== 'todo' && (
-              <button onClick={() => onRetry(task.task_id)}
-                className="flex items-center gap-1 text-[10px] px-3 py-1.5 border border-amber-500/20 text-amber-400 rounded-md hover:bg-amber-500/8 transition-colors">
-                <RotateCcw size={10} /> Retry
-              </button>
-            )}
-            {task.status !== 'blocked' && (
-              <button onClick={() => onEscalate(task.task_id)}
-                className="flex items-center gap-1 text-[10px] px-3 py-1.5 border border-red-500/20 text-red-400 rounded-md hover:bg-red-500/8 transition-colors">
-                <ArrowUpCircle size={10} /> Escalate
-              </button>
-            )}
-          </div>
+      {/* Blocked reason */}
+      {task.blocked_reason && (
+        <div className="mt-2 text-[9px] font-mono rounded px-2 py-1 leading-snug"
+          style={{ color: 'rgba(239,68,68,0.7)', border: '1px solid rgba(239,68,68,0.15)', background: 'rgba(239,68,68,0.05)' }}>
+          {task.blocked_reason}
         </div>
       )}
+
+      {/* Footer */}
+      <div className="mt-1.5 text-[8px] font-mono" style={{ color: C.muted }}>
+        {relTime(task.updated_at)}
+      </div>
     </div>
   );
 }
 
-// ── Create form ───────────────────────────────────────────────────────────────
+// ── Task detail panel ──────────────────────────────────────────────────────────
 
-function CreateTaskForm({ onSave, onCancel }) {
-  const [form, setForm] = useState({
-    title: '', description: '', prompt: '',
-    agent_id: '', runtime_id: '', priority: 'medium',
-    task_type: 'general', tags: '',
-    requires_approval: false,
-  });
-  const [saving, setSaving] = useState(false);
-  const [err, setErr] = useState('');
+function TaskDetailPanel({ task, onClose, onStatusChange, onRetry, onEscalate }) {
+  const STATUSES = ['todo', 'in_progress', 'in_review', 'blocked', 'done'];
+  const [actionLoading, setActionLoading] = useState('');
 
-  const set = (k, v) => setForm(f => ({ ...f, [k]: v }));
-
-  const handleSave = async () => {
-    if (!form.title.trim()) { setErr('Title is required'); return; }
-    setSaving(true);
-    setErr('');
-    try {
-      await onSave({
-        ...form,
-        tags: form.tags.split(',').map(t => t.trim()).filter(Boolean),
-      });
-    } catch (e) {
-      setErr(fmtErr(e?.response?.data?.detail) || e.message);
-    } finally {
-      setSaving(false);
-    }
-  };
+  async function doStatusChange(s) {
+    setActionLoading('status');
+    try { await onStatusChange(task.task_id, s); } finally { setActionLoading(''); }
+  }
+  async function doRetry() {
+    setActionLoading('retry');
+    try { await onRetry(task.task_id); } finally { setActionLoading(''); }
+  }
+  async function doEscalate() {
+    setActionLoading('escalate');
+    try { await onEscalate(task.task_id); } finally { setActionLoading(''); }
+  }
 
   return (
-    <div className="bg-[#111] border border-white/10 rounded-xl p-5 mb-6">
-      <div className="flex items-center justify-between mb-4">
-        <span className="text-[13px] font-semibold text-white">New Task</span>
-        <button onClick={onCancel} className="text-[#555] hover:text-white transition-colors"><X size={14} /></button>
+    <div className="fixed inset-y-0 right-0 w-full max-w-md flex flex-col z-30 shadow-2xl"
+      style={{ background: '#111116', borderLeft: '1px solid rgba(255,255,255,0.08)', top: 0 }}>
+
+      {/* Header */}
+      <div className="flex items-center gap-3 px-5 py-4 border-b shrink-0"
+        style={{ borderColor: 'rgba(255,255,255,0.06)' }}>
+        <PriorityDot priority={task.priority} />
+        <div className="flex-1 min-w-0">
+          <div className="text-[13px] font-semibold truncate" style={{ color: C.primary }}>{task.title}</div>
+          <div className="text-[9px] font-mono mt-0.5" style={{ color: C.muted }}>{task.task_id}</div>
+        </div>
+        <button onClick={onClose}
+          style={{ color: C.tertiary }}
+          onMouseEnter={e => e.currentTarget.style.color = C.primary}
+          onMouseLeave={e => e.currentTarget.style.color = C.tertiary}>
+          <X size={14} />
+        </button>
       </div>
 
-      {err && <div className="mb-3 text-[11px] text-red-400">{err}</div>}
+      <div className="flex-1 overflow-y-auto p-5 space-y-5">
 
-      <div className="space-y-3">
-        <input value={form.title} onChange={e => set('title', e.target.value)}
-          placeholder="Task title *"
-          className="w-full bg-black/30 border border-white/8 rounded-md px-3 py-2 text-[13px] text-white placeholder-[#444] outline-none focus:border-[#002FA7]" />
-
-        <textarea value={form.description} onChange={e => set('description', e.target.value)}
-          placeholder="Description (optional)" rows={2}
-          className="w-full bg-black/30 border border-white/8 rounded-md px-3 py-2 text-[12px] text-white placeholder-[#444] outline-none focus:border-[#002FA7] resize-none" />
-
-        <textarea value={form.prompt} onChange={e => set('prompt', e.target.value)}
-          placeholder="Agent instruction / prompt" rows={3}
-          className="w-full bg-black/30 border border-white/8 rounded-md px-3 py-2 text-[12px] font-mono text-white placeholder-[#444] outline-none focus:border-[#002FA7] resize-none" />
-
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-          <div>
-            <label className="block text-[9px] uppercase text-[#555] mb-1">Priority</label>
-            <select value={form.priority} onChange={e => set('priority', e.target.value)}
-              className="w-full bg-black/30 border border-white/8 rounded-md px-2 py-1.5 text-[11px] text-white outline-none focus:border-[#002FA7]">
-              {['urgent','high','medium','low'].map(p => <option key={p} value={p}>{p}</option>)}
-            </select>
-          </div>
-          <div>
-            <label className="block text-[9px] uppercase text-[#555] mb-1">Type</label>
-            <select value={form.task_type} onChange={e => set('task_type', e.target.value)}
-              className="w-full bg-black/30 border border-white/8 rounded-md px-2 py-1.5 text-[11px] text-white outline-none focus:border-[#002FA7]">
-              {['general','code_generation','code_review','repo_editing','reasoning'].map(t => <option key={t} value={t}>{t}</option>)}
-            </select>
-          </div>
-          <div>
-            <label className="block text-[9px] uppercase text-[#555] mb-1">Agent ID</label>
-            <input value={form.agent_id} onChange={e => set('agent_id', e.target.value)}
-              placeholder="(optional)"
-              className="w-full bg-black/30 border border-white/8 rounded-md px-2 py-1.5 text-[11px] text-white placeholder-[#444] outline-none focus:border-[#002FA7]" />
-          </div>
-          <div>
-            <label className="block text-[9px] uppercase text-[#555] mb-1">Runtime</label>
-            <select value={form.runtime_id} onChange={e => set('runtime_id', e.target.value)}
-              className="w-full bg-black/30 border border-white/8 rounded-md px-2 py-1.5 text-[11px] text-white outline-none focus:border-[#002FA7]">
-              <option value="">Auto</option>
-              {['hermes','opencode','goose','aider'].map(r => <option key={r} value={r}>{r}</option>)}
-            </select>
+        {/* Status mover */}
+        <div>
+          <div className="text-[9px] font-mono uppercase tracking-wider mb-2" style={{ color: C.muted }}>Status</div>
+          <div className="flex flex-wrap gap-1.5">
+            {STATUSES.map(s => (
+              <button key={s} onClick={() => doStatusChange(s)}
+                disabled={actionLoading === 'status'}
+                className="px-2.5 py-1 text-[9px] font-mono uppercase tracking-wider border rounded transition-colors"
+                style={{
+                  borderColor: task.status === s ? C.accent : 'rgba(255,255,255,0.08)',
+                  background: task.status === s ? 'rgba(0,47,167,0.1)' : 'transparent',
+                  color: task.status === s ? C.primary : C.tertiary,
+                }}>
+                {s.replace(/_/g, ' ')}
+              </button>
+            ))}
           </div>
         </div>
 
-        <input value={form.tags} onChange={e => set('tags', e.target.value)}
-          placeholder="Tags (comma-separated)"
-          className="w-full bg-black/30 border border-white/8 rounded-md px-3 py-2 text-[11px] text-white placeholder-[#444] outline-none focus:border-[#002FA7]" />
+        {/* Description */}
+        {task.description && (
+          <div>
+            <div className="text-[9px] font-mono uppercase tracking-wider mb-2" style={{ color: C.muted }}>Description</div>
+            <p className="text-[11px] leading-relaxed" style={{ color: C.secondary }}>{task.description}</p>
+          </div>
+        )}
 
-        <div className="flex items-center gap-2">
-          <input type="checkbox" id="task_requires_approval" checked={form.requires_approval}
-            onChange={e => set('requires_approval', e.target.checked)} className="accent-[#002FA7]" />
-          <label htmlFor="task_requires_approval" className="text-[11px] text-[#666]">
-            Require approval before execution
-          </label>
+        {/* Meta */}
+        <div className="space-y-2">
+          {[
+            { label: 'Agent',    value: task.agent_id || '—' },
+            { label: 'Runtime',  value: task.runtime_id || '—' },
+            { label: 'Priority', value: task.priority || 'medium' },
+            { label: 'Updated',  value: relTime(task.updated_at) },
+          ].map(({ label, value }) => (
+            <div key={label} className="flex justify-between items-center py-2 border-b"
+              style={{ borderColor: 'rgba(255,255,255,0.05)' }}>
+              <span className="text-[10px] font-mono" style={{ color: C.muted }}>{label}</span>
+              <span className="text-[10px] font-mono" style={{ color: C.secondary }}>{value}</span>
+            </div>
+          ))}
         </div>
 
+        {/* Blocked reason */}
+        {task.blocked_reason && (
+          <div className="p-3 border rounded-lg"
+            style={{ borderColor: 'rgba(239,68,68,0.2)', background: 'rgba(239,68,68,0.05)' }}>
+            <div className="text-[9px] font-mono uppercase tracking-wider mb-1" style={{ color: '#EF4444' }}>Blocked — reason</div>
+            <div className="text-[11px] font-mono leading-relaxed" style={{ color: 'rgba(252,165,165,0.8)' }}>{task.blocked_reason}</div>
+          </div>
+        )}
+
+        {/* Error */}
+        {task.error_message && (
+          <div className="p-3 border rounded-lg"
+            style={{ borderColor: 'rgba(239,68,68,0.2)', background: 'rgba(239,68,68,0.05)' }}>
+            <div className="text-[9px] font-mono uppercase tracking-wider mb-1" style={{ color: '#EF4444' }}>Error</div>
+            <div className="text-[10px] font-mono leading-relaxed" style={{ color: 'rgba(252,165,165,0.7)' }}>{task.error_message}</div>
+          </div>
+        )}
+
+        {/* Actions */}
         <div className="flex gap-2">
-          <button onClick={handleSave} disabled={saving}
-            className="flex items-center gap-1.5 px-4 py-2 bg-[#002FA7] hover:bg-[#002585] text-white text-[11px] font-medium rounded-md transition-colors disabled:opacity-50">
-            {saving ? <Loader2 size={11} className="animate-spin" /> : <Save size={11} />}
-            Create Task
+          <button onClick={doRetry} disabled={!!actionLoading}
+            className="flex items-center gap-1.5 px-3 py-2 text-[10px] font-mono uppercase tracking-wider border rounded-lg transition-colors disabled:opacity-40"
+            style={{ borderColor: 'rgba(255,255,255,0.1)', color: C.tertiary }}>
+            {actionLoading === 'retry'
+              ? <Loader2 size={11} className="animate-spin" />
+              : <RotateCcw size={11} />}
+            Retry
           </button>
-          <button onClick={onCancel}
-            className="px-4 py-2 text-[#555] text-[11px] border border-white/8 rounded-md hover:text-white transition-colors">
-            Cancel
+          <button onClick={doEscalate} disabled={!!actionLoading}
+            className="flex items-center gap-1.5 px-3 py-2 text-[10px] font-mono uppercase tracking-wider border rounded-lg transition-colors disabled:opacity-40"
+            style={{ borderColor: 'rgba(245,158,11,0.3)', color: '#F59E0B' }}>
+            {actionLoading === 'escalate'
+              ? <Loader2 size={11} className="animate-spin" />
+              : <ArrowUpCircle size={11} />}
+            Escalate
           </button>
         </div>
       </div>
@@ -264,122 +240,235 @@ function CreateTaskForm({ onSave, onCancel }) {
   );
 }
 
-// ── Main page ─────────────────────────────────────────────────────────────────
+// ── New task form ──────────────────────────────────────────────────────────────
+
+function NewTaskForm({ colId, onAdd, onCancel }) {
+  const [title, setTitle] = useState('');
+  const [saving, setSaving] = useState(false);
+
+  async function submit() {
+    if (!title.trim() || saving) return;
+    setSaving(true);
+    try { await onAdd({ title: title.trim(), status: colId }); } finally { setSaving(false); }
+  }
+
+  return (
+    <div className="rounded-lg p-2.5 border"
+      style={{ borderColor: 'rgba(0,47,167,0.4)', background: 'rgba(0,47,167,0.05)' }}>
+      <textarea
+        autoFocus
+        value={title}
+        onChange={e => setTitle(e.target.value)}
+        onKeyDown={e => {
+          if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); submit(); }
+          if (e.key === 'Escape') onCancel();
+        }}
+        rows={2}
+        placeholder="Task title… Enter to add"
+        className="w-full bg-transparent text-[12px] font-mono resize-none outline-none"
+        style={{ color: C.primary }}
+      />
+      <div className="flex gap-1.5 mt-1.5">
+        <button onClick={submit} disabled={saving}
+          className="px-2 py-0.5 text-[9px] font-mono uppercase text-white rounded disabled:opacity-50"
+          style={{ background: C.accent }}>
+          {saving ? '…' : 'Add'}
+        </button>
+        <button onClick={onCancel}
+          className="px-2 py-0.5 text-[9px] font-mono uppercase border rounded transition-colors"
+          style={{ borderColor: 'rgba(255,255,255,0.1)', color: C.tertiary }}>
+          Cancel
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// ── Main page ──────────────────────────────────────────────────────────────────
 
 export default function TasksPage() {
-  const [tasks, setTasks] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState('');
-  const [showCreate, setShowCreate] = useState(false);
-  const [statusFilter, setStatusFilter] = useState('');
+  const [tasks, setTasks]           = useState([]);
+  const [loading, setLoading]       = useState(true);
+  const [selected, setSelected]     = useState(null);
+  const [newTaskCol, setNewTaskCol] = useState(null);
+  const [filter, setFilter]         = useState('all');
+  const [error, setError]           = useState('');
 
-  const load = useCallback(async (status) => {
+  const load = useCallback(async () => {
     setLoading(true);
     setError('');
     try {
-      const r = await listTasks({ status: status || undefined, limit: 100 });
+      const r = await listTasks({ limit: 200 });
       setTasks(r.data.tasks || []);
     } catch (e) {
-      setError(fmtErr(e?.response?.data?.detail) || e.message);
+      setError(fmtErr(e));
     } finally {
       setLoading(false);
     }
   }, []);
 
-  useEffect(() => { load(statusFilter); }, [load, statusFilter]);
+  useEffect(() => { load(); }, [load]);
 
-  const handleCreate = async (form) => {
-    await createTask(form);
-    setShowCreate(false);
-    await load(statusFilter);
-  };
+  // Agents derived from task data
+  const agents = [...new Set(tasks.map(t => t.agent_id).filter(Boolean))];
 
-  const handleStatusChange = async (taskId, newStatus) => {
-    try {
-      await updateTask(taskId, { status: newStatus });
-      await load(statusFilter);
-    } catch (e) {
-      setError(fmtErr(e?.response?.data?.detail) || e.message);
-    }
-  };
+  const filtered = filter === 'all' ? tasks : tasks.filter(t => t.agent_id === filter);
 
-  const handleRetry = async (taskId) => {
-    try { await retryTask(taskId); await load(statusFilter); }
-    catch (e) { setError(fmtErr(e?.response?.data?.detail) || e.message); }
-  };
+  async function handleAdd({ title, status }) {
+    const r = await createTask({ title, status, priority: 'medium' });
+    setTasks(prev => [r.data, ...prev]);
+    setNewTaskCol(null);
+  }
 
-  const handleEscalate = async (taskId) => {
-    try { await escalateTask(taskId); await load(statusFilter); }
-    catch (e) { setError(fmtErr(e?.response?.data?.detail) || e.message); }
-  };
+  async function handleStatusChange(taskId, status) {
+    const r = await updateTask(taskId, { status });
+    setTasks(prev => prev.map(t => t.task_id === taskId ? r.data : t));
+    if (selected?.task_id === taskId) setSelected(r.data);
+  }
 
-  // Count by status
-  const counts = tasks.reduce((acc, t) => { acc[t.status] = (acc[t.status] || 0) + 1; return acc; }, {});
+  async function handleRetry(taskId) {
+    const r = await retryTask(taskId);
+    setTasks(prev => prev.map(t => t.task_id === taskId ? r.data : t));
+  }
+
+  async function handleEscalate(taskId) {
+    const r = await escalateTask(taskId);
+    setTasks(prev => prev.map(t => t.task_id === taskId ? r.data : t));
+  }
+
+  const openCount = tasks.filter(t => t.status !== 'done').length;
+  const doneCount = tasks.filter(t => t.status === 'done').length;
 
   return (
-    <div className="p-5 sm:p-6 lg:p-8 max-w-5xl mx-auto">
-      <div className="mb-6">
-        <h1 className="text-2xl font-bold tracking-tight text-white" style={{ fontFamily: 'Outfit, sans-serif' }}>
-          Tasks
-        </h1>
-        <p className="text-sm text-[#555] mt-1">Track agent work items through their lifecycle</p>
+    <div className="h-full flex flex-col overflow-hidden" style={{ background: C.bg }} data-testid="tasks-page">
+
+      {/* Header */}
+      <div className="flex items-center gap-3 px-5 py-3.5 border-b shrink-0 flex-wrap"
+        style={{ borderColor: 'rgba(255,255,255,0.06)' }}>
+        <div className="flex-1">
+          <h1 className="text-[15px] font-bold tracking-tight" style={{ fontFamily: 'var(--font-main)', color: C.primary }}>
+            Tasks
+          </h1>
+          <p className="text-[10px] font-mono" style={{ color: C.muted }}>
+            {openCount} open · {doneCount} done
+          </p>
+        </div>
+
+        {/* Agent filter pills */}
+        <div className="flex items-center gap-1.5 flex-wrap">
+          <button onClick={() => setFilter('all')}
+            className="px-2.5 py-1 text-[10px] font-mono border rounded transition-colors"
+            style={{
+              borderColor: filter === 'all' ? C.accent : 'rgba(255,255,255,0.08)',
+              background: filter === 'all' ? 'rgba(0,47,167,0.1)' : 'transparent',
+              color: filter === 'all' ? C.primary : C.tertiary,
+            }}>
+            All
+          </button>
+          {agents.map(ag => (
+            <button key={ag} onClick={() => setFilter(ag)}
+              className="px-2.5 py-1 text-[10px] font-mono border rounded transition-colors"
+              style={{
+                borderColor: filter === ag ? C.accent : 'rgba(255,255,255,0.08)',
+                background: filter === ag ? 'rgba(0,47,167,0.1)' : 'transparent',
+                color: filter === ag ? C.primary : C.tertiary,
+              }}>
+              {ag.split('-')[0]}
+            </button>
+          ))}
+        </div>
+
+        <button onClick={load} disabled={loading}
+          className="p-2 border rounded-lg transition-colors disabled:opacity-40"
+          style={{ borderColor: 'rgba(255,255,255,0.08)', color: C.tertiary }}>
+          <RefreshCw size={12} className={loading ? 'animate-spin' : ''} />
+        </button>
+
+        <button
+          className="flex items-center gap-1.5 px-3 py-2 text-[10px] font-mono uppercase tracking-wider text-white rounded-lg transition-colors"
+          style={{ background: C.accent }}
+          onClick={() => { setNewTaskCol('todo'); setSelected(null); }}>
+          <Plus size={11} /> New Task
+        </button>
       </div>
 
       {error && (
-        <div className="mb-4 px-4 py-3 bg-red-500/8 border border-red-500/15 rounded-lg text-[12px] text-red-400 flex items-center gap-2">
-          <AlertCircle size={13} /> {error}
-          <button onClick={() => setError('')} className="ml-auto"><X size={11} /></button>
+        <div className="mx-5 mt-3 flex items-center gap-2 px-4 py-3 rounded-lg text-[11px] text-amber-400 border"
+          style={{ background: 'rgba(245,158,11,0.06)', borderColor: 'rgba(245,158,11,0.15)' }}>
+          <AlertTriangle size={12} /> {error}
         </div>
       )}
 
-      {/* Status filter chips */}
-      <div className="flex items-center gap-2 mb-4 flex-wrap">
-        {[{ v: '', l: 'All' }, ...Object.keys(STATUS_META).map(k => ({ v: k, l: STATUS_META[k].label }))].map(({ v, l }) => (
-          <button key={v} onClick={() => setStatusFilter(v)}
-            className={cls(
-              'text-[10px] font-mono px-3 py-1.5 rounded-full border transition-colors',
-              statusFilter === v
-                ? 'border-[#002FA7]/40 bg-[#002FA7]/15 text-[#4477FF]'
-                : 'border-white/8 bg-white/3 text-[#555] hover:text-[#888]',
-            )}>
-            {l}
-            {counts[v] > 0 && v && <span className="ml-1 text-[#333]">({counts[v]})</span>}
-          </button>
-        ))}
-        <button onClick={() => load(statusFilter)} className="ml-auto text-[#444] hover:text-[#888] transition-colors">
-          <RefreshCw size={12} />
-        </button>
+      {/* Kanban board */}
+      <div className="flex-1 flex overflow-x-auto overflow-y-hidden">
+        {COLS.map(col => {
+          const colTasks = filtered.filter(t => t.status === col.id);
+          return (
+            <div key={col.id} className="flex-shrink-0 w-72 flex flex-col border-r last:border-r-0"
+              style={{ borderColor: 'rgba(255,255,255,0.05)' }}>
+
+              {/* Column header */}
+              <div className="flex items-center gap-2 px-3.5 py-3 border-b shrink-0"
+                style={{ borderColor: 'rgba(255,255,255,0.06)' }}>
+                <div className="w-2 h-2 rounded-full" style={{ background: col.color }} />
+                <span className="text-[10px] font-mono font-bold tracking-[0.15em] uppercase"
+                  style={{ color: col.color }}>{col.label}</span>
+                <span className="ml-auto text-[9px] font-mono px-1.5 py-0.5 rounded"
+                  style={{ background: 'rgba(255,255,255,0.05)', color: C.muted }}>
+                  {colTasks.length}
+                </span>
+              </div>
+
+              {/* Cards */}
+              <div className="flex-1 overflow-y-auto p-2 space-y-1.5">
+
+                {/* New task input for this column */}
+                {newTaskCol === col.id && (
+                  <NewTaskForm colId={col.id} onAdd={handleAdd} onCancel={() => setNewTaskCol(null)} />
+                )}
+
+                {/* Placeholder if empty */}
+                {colTasks.length === 0 && newTaskCol !== col.id && (
+                  <div className="py-6 text-center text-[10px] font-mono" style={{ color: C.muted }}>
+                    — empty —
+                  </div>
+                )}
+
+                {colTasks.map(task => (
+                  <TaskCard
+                    key={task.task_id}
+                    task={task}
+                    isSelected={selected?.task_id === task.task_id}
+                    onClick={() => setSelected(selected?.task_id === task.task_id ? null : task)}
+                  />
+                ))}
+
+                {/* Add button */}
+                {newTaskCol !== col.id && (
+                  <button
+                    onClick={() => { setNewTaskCol(col.id); setSelected(null); }}
+                    className="w-full flex items-center gap-1.5 px-3 py-2 text-[10px] font-mono rounded-lg transition-colors"
+                    style={{ color: C.muted }}
+                    onMouseEnter={e => { e.currentTarget.style.color = C.secondary; e.currentTarget.style.background = 'rgba(255,255,255,0.02)'; }}
+                    onMouseLeave={e => { e.currentTarget.style.color = C.muted; e.currentTarget.style.background = 'transparent'; }}>
+                    <Plus size={10} /> Add task
+                  </button>
+                )}
+              </div>
+            </div>
+          );
+        })}
       </div>
 
-      {showCreate && (
-        <CreateTaskForm onSave={handleCreate} onCancel={() => setShowCreate(false)} />
-      )}
-
-      {!showCreate && (
-        <button onClick={() => setShowCreate(true)}
-          className="mb-5 flex items-center gap-2 px-4 py-2.5 bg-[#002FA7] hover:bg-[#002585] text-white text-[12px] font-medium rounded-lg transition-colors">
-          <Plus size={13} /> New Task
-        </button>
-      )}
-
-      {loading ? (
-        <div className="flex items-center gap-2 justify-center text-[#555] py-12 text-sm">
-          <Loader2 size={15} className="animate-spin" /> Loading tasks...
-        </div>
-      ) : tasks.length === 0 ? (
-        <div className="text-center py-16 text-[#444]">
-          <CheckCircle2 size={32} className="mx-auto mb-3 opacity-30" />
-          <p className="text-sm">No tasks {statusFilter ? `with status '${statusFilter}'` : 'yet'}.</p>
-        </div>
-      ) : (
-        <div className="space-y-3">
-          {tasks.map(t => (
-            <TaskCard key={t.task_id} task={t}
-              onStatusChange={handleStatusChange}
-              onRetry={handleRetry}
-              onEscalate={handleEscalate} />
-          ))}
-        </div>
+      {/* Task detail panel */}
+      {selected && (
+        <TaskDetailPanel
+          task={selected}
+          onClose={() => setSelected(null)}
+          onStatusChange={handleStatusChange}
+          onRetry={handleRetry}
+          onEscalate={handleEscalate}
+        />
       )}
     </div>
   );

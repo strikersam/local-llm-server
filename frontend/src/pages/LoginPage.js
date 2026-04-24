@@ -56,7 +56,7 @@ export default function LoginPage() {
   };
 
   return (
-    <div className="min-h-[100dvh] w-full flex bg-[#0A0A0A] relative overflow-hidden" data-testid="login-page">
+    <div className="min-h-[100dvh] w-full flex bg-[#0F0F13] relative overflow-hidden" data-testid="login-page">
       {/* Background gradient */}
       <div className="absolute inset-0 pointer-events-none">
         <div className="absolute top-[-20%] left-[-10%] w-[600px] h-[600px] rounded-full bg-[#002FA7]/8 blur-[120px]" />
@@ -76,7 +76,7 @@ export default function LoginPage() {
         <div className="animate-fade-in">
           <div className="flex items-center gap-2.5 mb-12">
             <div className="w-2 h-2 rounded-sm bg-[#002FA7]" />
-            <span className="text-[11px] tracking-[0.3em] uppercase text-[#555555] font-mono font-medium">Platform v3.0</span>
+            <span className="text-[11px] tracking-[0.3em] uppercase text-[#555555] font-mono font-medium">Platform v3.1</span>
           </div>
           <h1 className="text-[80px] xl:text-[96px] font-bold tracking-[-0.04em] leading-[0.9] text-white" style={{ fontFamily: 'Outfit, sans-serif' }}>
             LLM<br />RELAY
@@ -111,14 +111,14 @@ export default function LoginPage() {
           <div className="lg:hidden text-center mb-8">
             <div className="inline-flex items-center gap-2 mb-4">
               <div className="w-2 h-2 rounded-sm bg-[#002FA7]" />
-              <span className="text-[10px] tracking-[0.3em] uppercase text-[#555555] font-mono">Platform v3.0</span>
+              <span className="text-[10px] tracking-[0.3em] uppercase text-[#555555] font-mono">Platform v3.1</span>
             </div>
             <h1 className="text-4xl font-bold tracking-[-0.03em] text-white" style={{ fontFamily: 'Outfit, sans-serif' }}>LLM Relay</h1>
             <p className="text-sm text-[#555555] mt-2">Route, run, and control LLMs.</p>
           </div>
 
           {/* Card */}
-          <div className="bg-[#111111] border border-white/8 rounded-xl overflow-hidden shadow-[0_24px_64px_rgba(0,0,0,0.6)]">
+          <div className="bg-[#141418] border border-white/8 rounded-xl overflow-hidden shadow-[0_24px_64px_rgba(0,0,0,0.6)]">
 
             {/* Card header */}
             <div className="px-6 py-4 border-b border-white/6 flex items-center gap-2.5">
