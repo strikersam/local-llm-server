@@ -47,6 +47,12 @@ export default function SetupWizardPage({ onComplete }) {
   // Step 2
   const [defaultModel, setDefaultModel] = useState('qwen3-coder:30b');
   const [reviewerModel, setReviewerModel] = useState('deepseek-r1:32b');
+  const [repoPath, setRepoPath] = useState('');
+  const [modelsPath, setModelsPath] = useState('');
+  const [daemonConnected, setDaemonConnected] = useState(false);
+  const [daemonChecking, setDaemonChecking] = useState(false);
+  const [proxyRunning, setProxyRunning] = useState(false);
+  const [tunnelRunning, setTunnelRunning] = useState(false);
 
   // Step 3
   const [enableHermes, setEnableHermes] = useState(true);
@@ -86,16 +92,91 @@ export default function SetupWizardPage({ onComplete }) {
     } catch {}
   }, [ollamaUrl]);
 
+  const checkDaemonConnection = useCallback(async () => {
+    setDaemonChecking(true);
+    try {
+      const r = await fetch('http://localhost:3001/api/status');
+      if (r.ok) {
+        const data = await r.json();
+        setDaemonConnected(true);
+        setProxyRunning(data.proxy === 'running');
+        setTunnelRunning(data.tunnel === 'running');
+      } else {
+        setDaemonConnected(false);
+      }
+    } catch {
+      setDaemonConnected(false);
+    } finally {
+      setDaemonChecking(false);
+    }
+  }, []);
+
+  const configureDaemon = async () => {
+    if (!repoPath || !modelsPath) {
+      alert('Please enter both repo and models paths');
+      return;
+    }
+    try {
+      const r = await fetch('http://localhost:3001/api/configure', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ repo_path: repoPath, models_path: modelsPath }),
+      });
+      const data = await r.json();
+      if (data.success) {
+        alert('Configuration saved!');
+        await checkDaemonConnection();
+      } else {
+        alert('Configuration failed: ' + data.message);
+      }
+    } catch (e) {
+      alert('Failed to configure daemon: ' + e.message);
+    }
+  };
+
+  const startService = async (service) => {
+    try {
+      const r = await fetch(`http://localhost:3001/api/services/${service}/start`, { method: 'POST' });
+      const data = await r.json();
+      if (data.success) {
+        await checkDaemonConnection();
+      } else {
+        alert('Failed to start ' + service + ': ' + data.message);
+      }
+    } catch (e) {
+      alert('Error: ' + e.message);
+    }
+  };
+
+  const stopService = async (service) => {
+    try {
+      const r = await fetch(`http://localhost:3001/api/services/${service}/stop`, { method: 'POST' });
+      const data = await r.json();
+      if (data.success) {
+        await checkDaemonConnection();
+      } else {
+        alert('Failed to stop ' + service + ': ' + data.message);
+      }
+    } catch (e) {
+      alert('Error: ' + e.message);
+    }
+  };
+
   useEffect(() => {
-    if (step === 2) loadHardware();
-  }, [step, loadHardware]);
+    if (step === 2) {
+      loadHardware();
+      if (useOllama) {
+        checkDaemonConnection();
+      }
+    }
+  }, [step, loadHardware, useOllama, checkDaemonConnection]);
 
   const handleSave = async () => {
     setSaving(true);
     try {
       const payloads = {
         1: { use_ollama: useOllama, ollama_base_url: ollamaUrl, use_openai: useOpenAI, use_anthropic: useAnthropic },
-        2: { default_model: defaultModel, coder_model: defaultModel, reviewer_model: reviewerModel },
+        2: { default_model: defaultModel, coder_model: defaultModel, reviewer_model: reviewerModel, repo_path: repoPath, models_path: modelsPath },
         3: { enable_hermes: enableHermes, enable_opencode: enableOpenCode, enable_aider: enableAider },
         4: { agent_name: agentName, agent_model: agentModel, cost_policy: costPolicy },
         5: { never_use_paid_providers: neverPaid, require_approval_before_paid: requireApproval, enable_langfuse: enableLangfuse, langfuse_host: langfuseHost },
@@ -232,7 +313,77 @@ export default function SetupWizardPage({ onComplete }) {
             {step === 2 && (
               <div>
                 <h2 className="text-xl font-bold text-gray-800 mb-1">Local Models</h2>
-                <p className="text-gray-500 text-sm mb-4">We detected your hardware. Choose the best models for your machine.</p>
+                <p className="text-gray-500 text-sm mb-4">We detected your hardware. Configure local setup and choose the best models for your machine.</p>
+
+                {/* Local Setup Section */}
+                {useOllama && (
+                  <div className="bg-blue-50 border border-blue-200 rounded-xl p-5 mb-6">
+                    <div className="font-semibold text-gray-800 mb-3">⚙️ Local Setup</div>
+
+                    {/* Daemon Status */}
+                    <div className="mb-4 p-3 bg-white rounded-lg border border-gray-200">
+                      <div className="flex items-center gap-2 mb-2">
+                        <span className={daemonConnected ? '🟢' : '🔴'}></span>
+                        <span className="text-sm font-medium">
+                          {daemonConnected ? 'Daemon Connected' : 'Daemon Not Connected'}
+                        </span>
+                      </div>
+                      <p className="text-xs text-gray-500">
+                        {daemonConnected ? 'Ready to configure services' : 'Start with: python service_daemon.py'}
+                      </p>
+                    </div>
+
+                    {/* Paths Configuration */}
+                    <div className="space-y-2 mb-4">
+                      <div>
+                        <label className="text-xs font-medium text-gray-700">Repository Path</label>
+                        <input className="w-full mt-1 border rounded-lg px-2 py-1.5 text-xs font-mono bg-white"
+                          value={repoPath} onChange={e => setRepoPath(e.target.value)}
+                          placeholder="/path/to/local-llm-server" />
+                      </div>
+                      <div>
+                        <label className="text-xs font-medium text-gray-700">Models Path</label>
+                        <input className="w-full mt-1 border rounded-lg px-2 py-1.5 text-xs font-mono bg-white"
+                          value={modelsPath} onChange={e => setModelsPath(e.target.value)}
+                          placeholder="/path/to/models" />
+                      </div>
+                    </div>
+
+                    {/* Configure Button */}
+                    <button
+                      onClick={configureDaemon}
+                      className="w-full mb-3 px-3 py-1.5 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700 text-xs"
+                    >
+                      📁 Configure Paths
+                    </button>
+
+                    {/* Service Controls */}
+                    {daemonConnected && (
+                      <div className="space-y-2">
+                        <div className="text-xs font-medium text-gray-700">Services</div>
+                        <div className="grid grid-cols-2 gap-2">
+                          <button
+                            onClick={() => proxyRunning ? stopService('proxy') : startService('proxy')}
+                            className={`px-2 py-1.5 rounded text-xs font-medium ${
+                              proxyRunning ? 'bg-red-100 text-red-700 hover:bg-red-200' : 'bg-green-100 text-green-700 hover:bg-green-200'
+                            }`}
+                          >
+                            {proxyRunning ? '⏹️ Stop Proxy' : '▶️ Start Proxy'}
+                          </button>
+                          <button
+                            onClick={() => tunnelRunning ? stopService('tunnel') : startService('tunnel')}
+                            className={`px-2 py-1.5 rounded text-xs font-medium ${
+                              tunnelRunning ? 'bg-red-100 text-red-700 hover:bg-red-200' : 'bg-green-100 text-green-700 hover:bg-green-200'
+                            }`}
+                          >
+                            {tunnelRunning ? '⏹️ Stop Tunnel' : '▶️ Start Tunnel'}
+                          </button>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
+
                 {hardware && (
                   <div className="bg-gray-50 rounded-xl p-4 mb-5 text-sm">
                     <div className="font-semibold text-gray-700 mb-2">🖥️ Detected Hardware</div>
