@@ -30,6 +30,7 @@ from dataclasses import dataclass
 from typing import AsyncIterator
 
 import httpx
+from motor.motor_asyncio import AsyncIOMotorClient, AsyncIOMotorDatabase
 from pydantic import BaseModel, Field
 from fastapi import FastAPI, HTTPException, Request, Header, Depends
 from fastapi.middleware.cors import CORSMiddleware
@@ -79,6 +80,7 @@ from tasks import task_router
 from tasks.dispatcher import TaskDispatcher
 from tasks.store import get_task_store, set_task_store
 from agents.api import agent_router
+from agents.store import get_agent_store, set_agent_store
 from hardware import hardware_router
 from secrets_store import secrets_router
 from social_auth import auth_router, verify_jwt as verify_social_jwt
@@ -538,6 +540,36 @@ app.include_router(
     sync_router,
 )
 log.info("Workspace sync mounted at /api/sync/*")
+
+# ─── MongoDB initialization for agent store ──────────────────────────────────
+_mongo_client: AsyncIOMotorClient | None = None
+_mongo_db: AsyncIOMotorDatabase | None = None
+
+@app.on_event("startup")
+async def init_mongodb():
+    """Initialize MongoDB connection for agent store persistence."""
+    global _mongo_client, _mongo_db
+    mongo_url = os.environ.get("MONGO_URL", "mongodb://localhost:27017")
+    try:
+        _mongo_client = AsyncIOMotorClient(mongo_url)
+        _mongo_db = _mongo_client["local_llm_server"]
+        # Initialize agent store with MongoDB
+        from agents.store import AgentStore
+        agent_store = AgentStore(db=_mongo_db)
+        set_agent_store(agent_store)
+        log.info("MongoDB connected for agent store persistence")
+    except Exception as e:
+        log.warning(f"MongoDB unavailable for agent store: {e}. Using in-memory store.")
+        # Fallback to in-memory store
+        pass
+
+@app.on_event("shutdown")
+async def close_mongodb():
+    """Close MongoDB connection on shutdown."""
+    global _mongo_client
+    if _mongo_client:
+        _mongo_client.close()
+        log.info("MongoDB connection closed")
 
 # ─── Task dispatcher (background auto-execution) ────────────────────────────────
 _task_dispatcher: TaskDispatcher | None = None

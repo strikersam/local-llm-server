@@ -201,3 +201,9 @@ def get_agent_store(db: Any = None) -> AgentStore:
     if _store is None:
         _store = AgentStore(db=db)
     return _store
+
+
+def set_agent_store(store: AgentStore) -> None:
+    """Set the global agent store instance (e.g., with MongoDB on startup)."""
+    global _store
+    _store = store
