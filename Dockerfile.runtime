@@ -1,0 +1,29 @@
+# Lightweight agent runtime wrapper
+# Exposes OpenAI-compatible API in front of Ollama models
+
+FROM python:3.12-slim
+
+WORKDIR /app
+
+ARG RUNTIME_NAME=unknown
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    curl \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY docker/agent_runtime.py .
+COPY requirements.txt .
+
+RUN pip install --no-cache-dir -q fastapi uvicorn httpx pydantic
+
+ENV RUNTIME_NAME=${RUNTIME_NAME}
+ENV OLLAMA_BASE=http://localhost:11434
+ENV DEFAULT_MODEL=qwen3-coder:30b
+ENV PORT=8080
+
+EXPOSE ${PORT}
+
+HEALTHCHECK --interval=10s --timeout=5s --retries=3 \
+  CMD curl -f http://localhost:${PORT}/health || exit 1
+
+CMD ["python", "agent_runtime.py"]

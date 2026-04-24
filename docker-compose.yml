@@ -5,7 +5,9 @@ version: '3.8'
 #
 # Default stack (docker compose up):
 #   ollama   — local LLM runtime
+#   runtimes — 4 lightweight agent runtime wrappers (hermes, opencode, goose, aider)
 #   proxy    — authenticated OpenAI/Anthropic-compatible proxy + web UI
+#   mongo    — MongoDB for agent store & task persistence
 #
 # Optional profiles:
 #   docker compose --profile tunnel up   → adds cloudflared public HTTPS URL
@@ -14,7 +16,7 @@ version: '3.8'
 # Quick start:
 #   cp .env.example .env && $EDITOR .env   (set API_KEYS and ADMIN_SECRET)
 #   docker compose up
-#   open http://localhost:8000
+#   open http://localhost:3000  (LLM Relay dashboard)
 # ─────────────────────────────────────────────────────────────────────────────
 
 services:
@@ -42,6 +44,118 @@ services:
     #           count: all
     #           capabilities: [gpu]
 
+  # ── Agent Runtimes (lightweight OpenAI-compatible wrappers) ────────────────
+  hermes:
+    build:
+      context: .
+      dockerfile: Dockerfile.runtime
+      args:
+        RUNTIME_NAME: hermes
+    container_name: llm-server-hermes
+    restart: unless-stopped
+    ports:
+      - "8002:8080"
+    environment:
+      - RUNTIME_NAME=hermes
+      - OLLAMA_BASE=http://ollama:11434
+      - DEFAULT_MODEL=qwen3-coder:30b
+      - PORT=8080
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+    depends_on:
+      ollama:
+        condition: service_healthy
+
+  opencode:
+    build:
+      context: .
+      dockerfile: Dockerfile.runtime
+      args:
+        RUNTIME_NAME: opencode
+    container_name: llm-server-opencode
+    restart: unless-stopped
+    ports:
+      - "8003:8080"
+    environment:
+      - RUNTIME_NAME=opencode
+      - OLLAMA_BASE=http://ollama:11434
+      - DEFAULT_MODEL=qwen3-coder:30b
+      - PORT=8080
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+    depends_on:
+      ollama:
+        condition: service_healthy
+
+  goose:
+    build:
+      context: .
+      dockerfile: Dockerfile.runtime
+      args:
+        RUNTIME_NAME: goose
+    container_name: llm-server-goose
+    restart: unless-stopped
+    ports:
+      - "8004:8080"
+    environment:
+      - RUNTIME_NAME=goose
+      - OLLAMA_BASE=http://ollama:11434
+      - DEFAULT_MODEL=qwen3-coder:30b
+      - PORT=8080
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+    depends_on:
+      ollama:
+        condition: service_healthy
+
+  aider:
+    build:
+      context: .
+      dockerfile: Dockerfile.runtime
+      args:
+        RUNTIME_NAME: aider
+    container_name: llm-server-aider
+    restart: unless-stopped
+    ports:
+      - "8005:8080"
+    environment:
+      - RUNTIME_NAME=aider
+      - OLLAMA_BASE=http://ollama:11434
+      - DEFAULT_MODEL=qwen3-coder:30b
+      - PORT=8080
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+    depends_on:
+      ollama:
+        condition: service_healthy
+
+  # ── MongoDB (agent store & task persistence) ───────────────────────────────
+  mongo:
+    image: mongo:7
+    container_name: llm-server-mongo
+    restart: unless-stopped
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongo_data:/data/db
+    healthcheck:
+      test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
   # ── Proxy (FastAPI + built web UI) ────────────────────────────────────────
   proxy:
     build:
@@ -55,28 +169,23 @@ services:
       - .env
     environment:
       - OLLAMA_BASE=http://ollama:11434
+      - MONGO_URL=mongodb://mongo:27017
+      - REGISTER_RUNTIMES=1
     depends_on:
       ollama:
         condition: service_healthy
+      mongo:
+        condition: service_healthy
+      hermes:
+        condition: service_healthy
+      opencode:
+        condition: service_healthy
+      goose:
+        condition: service_healthy
+      aider:
+        condition: service_healthy
 
-  # ── Dashboard stack (Mongo + API + Web UI) ─────────────────────────────────
-  # Usage:
-  #   docker compose --profile dashboard up
-  #
-  # Opens:
-  #   Web UI: http://localhost:3000
-  #   API:    http://localhost:8001
-  mongo:
-    image: mongo:7
-    container_name: llm-relay-mongo
-    restart: unless-stopped
-    ports:
-      - "27017:27017"
-    volumes:
-      - mongo_data:/data/db
-    profiles:
-      - dashboard
-
+  # ── LLM Relay Dashboard (optional, profile: dashboard) ─────────────────────
   dashboard-backend:
     build:
       context: .
