@@ -1,0 +1,750 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Local LLM Server - Setup Wizard</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        :root {
+            --primary: #667eea;
+            --primary-dark: #5568d3;
+            --success: #4caf50;
+            --danger: #f44336;
+            --warning: #ff9800;
+            --gray: #f8f9fa;
+            --dark: #333;
+            --light: #666;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 20px;
+        }
+
+        .container {
+            background: white;
+            border-radius: 20px;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+            max-width: 700px;
+            width: 100%;
+            padding: 40px;
+        }
+
+        .breadcrumb {
+            display: flex;
+            gap: 8px;
+            align-items: center;
+            margin-bottom: 30px;
+            font-size: 13px;
+            color: var(--light);
+        }
+
+        .breadcrumb a {
+            color: var(--primary);
+            text-decoration: none;
+            font-weight: 600;
+        }
+
+        .breadcrumb a:hover {
+            text-decoration: underline;
+        }
+
+        .header {
+            text-align: center;
+            margin-bottom: 40px;
+        }
+
+        .header h1 {
+            font-size: 32px;
+            color: var(--dark);
+            margin-bottom: 8px;
+        }
+
+        .header p {
+            color: var(--light);
+            font-size: 15px;
+        }
+
+        .setup-steps {
+            display: none;
+        }
+
+        .setup-steps.active {
+            display: block;
+        }
+
+        .step {
+            margin-bottom: 30px;
+        }
+
+        .step-title {
+            font-size: 18px;
+            font-weight: 700;
+            color: var(--dark);
+            margin-bottom: 15px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .step-number {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            width: 32px;
+            height: 32px;
+            background: var(--primary);
+            color: white;
+            border-radius: 50%;
+            font-weight: 600;
+            font-size: 14px;
+        }
+
+        .form-group {
+            margin-bottom: 20px;
+        }
+
+        label {
+            display: block;
+            font-weight: 600;
+            color: var(--dark);
+            margin-bottom: 8px;
+            font-size: 14px;
+        }
+
+        input[type="text"],
+        input[type="password"],
+        textarea {
+            width: 100%;
+            padding: 12px;
+            border: 2px solid #eee;
+            border-radius: 8px;
+            font-size: 14px;
+            font-family: monospace;
+            transition: border-color 0.3s;
+        }
+
+        input[type="text"]:focus,
+        input[type="password"]:focus,
+        textarea:focus {
+            outline: none;
+            border-color: var(--primary);
+            background: #f0f4ff;
+        }
+
+        .path-hint {
+            font-size: 12px;
+            color: var(--light);
+            margin-top: 6px;
+        }
+
+        .status-box {
+            background: #f0f4ff;
+            border-left: 4px solid var(--primary);
+            padding: 15px;
+            border-radius: 8px;
+            margin-top: 10px;
+            font-size: 13px;
+        }
+
+        .status-box.success {
+            background: #f1f8e9;
+            border-left-color: var(--success);
+            color: #558b2f;
+        }
+
+        .status-box.error {
+            background: #ffebee;
+            border-left-color: var(--danger);
+            color: #c62828;
+        }
+
+        .service-list {
+            display: grid;
+            gap: 12px;
+        }
+
+        .service-item {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            padding: 12px;
+            background: var(--gray);
+            border-radius: 8px;
+            border-left: 4px solid var(--primary);
+        }
+
+        .service-status {
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            background: #ccc;
+            animation: pulse 2s infinite;
+        }
+
+        .service-status.running {
+            background: var(--success);
+        }
+
+        .service-status.stopped {
+            background: var(--danger);
+        }
+
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.5; }
+        }
+
+        .service-info {
+            flex: 1;
+        }
+
+        .service-name {
+            font-weight: 600;
+            color: var(--dark);
+            font-size: 14px;
+        }
+
+        .service-detail {
+            font-size: 12px;
+            color: var(--light);
+        }
+
+        .service-actions {
+            display: flex;
+            gap: 8px;
+        }
+
+        button {
+            padding: 10px 16px;
+            border: none;
+            border-radius: 6px;
+            font-size: 13px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+
+        .btn-primary {
+            background: var(--primary);
+            color: white;
+        }
+
+        .btn-primary:hover:not(:disabled) {
+            background: var(--primary-dark);
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4);
+        }
+
+        .btn-primary:disabled {
+            background: #ccc;
+            cursor: not-allowed;
+        }
+
+        .btn-success {
+            background: var(--success);
+            color: white;
+            font-size: 12px;
+        }
+
+        .btn-danger {
+            background: var(--danger);
+            color: white;
+            font-size: 12px;
+        }
+
+        .btn-danger:hover {
+            background: #da190b;
+        }
+
+        button:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+
+        .button-group {
+            display: flex;
+            gap: 10px;
+            margin-top: 30px;
+            justify-content: space-between;
+        }
+
+        .button-group button {
+            flex: 1;
+            padding: 14px;
+            font-size: 15px;
+        }
+
+        .success-screen {
+            display: none;
+            text-align: center;
+        }
+
+        .success-screen.active {
+            display: block;
+        }
+
+        .success-icon {
+            font-size: 64px;
+            margin-bottom: 20px;
+        }
+
+        .success-screen h2 {
+            font-size: 24px;
+            color: var(--success);
+            margin-bottom: 12px;
+        }
+
+        .success-screen p {
+            color: var(--light);
+            margin-bottom: 20px;
+            line-height: 1.6;
+        }
+
+        .daemon-connection {
+            background: #f0f4ff;
+            padding: 15px;
+            border-radius: 8px;
+            margin: 20px 0;
+            text-align: left;
+        }
+
+        .daemon-status {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-size: 14px;
+            font-weight: 600;
+            margin-bottom: 8px;
+        }
+
+        .spinner {
+            display: inline-block;
+            width: 12px;
+            height: 12px;
+            border: 2px solid #f3f3f3;
+            border-top: 2px solid var(--primary);
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        .info-box {
+            background: #e3f2fd;
+            border-left: 4px solid var(--primary);
+            padding: 15px;
+            border-radius: 8px;
+            margin: 15px 0;
+            font-size: 13px;
+            line-height: 1.6;
+        }
+
+        .public-url-display {
+            background: white;
+            border: 2px dashed var(--primary);
+            padding: 15px;
+            border-radius: 8px;
+            margin: 15px 0;
+            font-family: monospace;
+            word-break: break-all;
+            user-select: all;
+            color: var(--primary);
+            font-weight: 600;
+            font-size: 13px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="breadcrumb">
+            <a href="https://strikersam.github.io/local-llm-server/">LLM Relay v3</a>
+            <span>→</span>
+            <a href="#">Setup Wizard</a>
+            <span>→</span>
+            <span>Local Models</span>
+        </div>
+
+        <div class="header">
+            <h1>🚀 Local Models Setup</h1>
+            <p>Configure your local LLM server and start services</p>
+        </div>
+
+        <!-- Step 1: Path Configuration -->
+        <div class="setup-steps active" id="step1">
+            <div class="step">
+                <div class="step-title">
+                    <div class="step-number">1</div>
+                    Configure Local Paths
+                </div>
+
+                <div class="form-group">
+                    <label for="repoPath">📁 Repository Folder</label>
+                    <input type="text" id="repoPath" placeholder="/Users/username/Desktop/local-llm-server">
+                    <div class="path-hint">Path to your local-llm-server directory</div>
+                </div>
+
+                <div class="form-group">
+                    <label for="modelsPath">📦 Models Folder</label>
+                    <input type="text" id="modelsPath" placeholder="/Users/username/Desktop/local-models">
+                    <div class="path-hint">Path to your local models directory</div>
+                </div>
+
+                <div id="configStatus"></div>
+            </div>
+
+            <div class="button-group">
+                <button class="btn-primary" onclick="saveConfig()">Continue →</button>
+            </div>
+        </div>
+
+        <!-- Step 2: Daemon Connection -->
+        <div class="setup-steps" id="step2">
+            <div class="step">
+                <div class="step-title">
+                    <div class="step-number">2</div>
+                    Start Service Daemon
+                </div>
+
+                <div class="info-box">
+                    ✅ The service daemon must be running on your machine to control services.
+                </div>
+
+                <div class="daemon-connection">
+                    <div class="daemon-status">
+                        <span class="spinner" id="daemonSpinner"></span>
+                        <span id="daemonText">Connecting to daemon...</span>
+                    </div>
+                    <div id="daemonError" style="display: none; color: var(--danger); font-size: 12px;">
+                        Daemon not found. Start it with: <code>python service_daemon.py</code>
+                    </div>
+                </div>
+
+                <div id="daemonVersion" style="font-size: 12px; color: var(--light); margin-top: 10px;"></div>
+            </div>
+
+            <div class="button-group">
+                <button class="btn-primary" onclick="checkDaemon()" id="retryBtn">Retry Connection</button>
+                <button class="btn-primary" onclick="goToStep(3)" id="continueBtn" style="display: none;">Continue →</button>
+            </div>
+        </div>
+
+        <!-- Step 3: Service Management -->
+        <div class="setup-steps" id="step3">
+            <div class="step">
+                <div class="step-title">
+                    <div class="step-number">3</div>
+                    Manage Services
+                </div>
+
+                <div class="info-box">
+                    💡 Start the services you need. The proxy is required for everything to work.
+                </div>
+
+                <div class="service-list" id="serviceList">
+                    <!-- Services will be populated here -->
+                </div>
+
+                <div id="publicUrlBox" style="display: none; margin-top: 20px;">
+                    <label>🌐 Public Access URL</label>
+                    <div class="public-url-display" id="publicUrlValue"></div>
+                </div>
+            </div>
+
+            <div class="button-group">
+                <button class="btn-primary" onclick="startAllServices()">▶️ START ALL</button>
+                <button class="btn-primary" style="background: #999;" onclick="goToStep(4)">Next →</button>
+            </div>
+        </div>
+
+        <!-- Step 4: Complete -->
+        <div class="success-screen" id="step4">
+            <div class="success-icon">✅</div>
+            <h2>Setup Complete!</h2>
+            <p>Your Local LLM Server is configured and ready to use.</p>
+
+            <div class="daemon-connection">
+                <div style="font-weight: 600; margin-bottom: 10px;">📊 Service Status</div>
+                <div id="finalStatus"></div>
+            </div>
+
+            <div class="info-box">
+                <strong>🔗 Public Access:</strong>
+                <div id="finalPublicUrl" style="margin-top: 8px; font-family: monospace; user-select: all; word-break: break-all;"></div>
+            </div>
+
+            <div class="info-box">
+                <strong>💻 Local Access:</strong>
+                <div style="margin-top: 8px;">http://localhost:8000</div>
+            </div>
+
+            <div class="button-group">
+                <button class="btn-primary" onclick="goToStep(3)" style="flex: 1;">Back to Services</button>
+                <button class="btn-primary" style="flex: 1; background: #999;" onclick="location.href='https://strikersam.github.io/local-llm-server/'">Back to Home</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const DAEMON_URL = "http://localhost:3001";
+        const API_URL = `${DAEMON_URL}/api`;
+        let currentStep = 1;
+        let daemonReady = false;
+
+        function goToStep(step) {
+            document.querySelectorAll(".setup-steps, .success-screen").forEach(el => {
+                el.classList.remove("active");
+            });
+
+            if (step <= 3) {
+                document.getElementById(`step${step}`).classList.add("active");
+            } else {
+                document.getElementById("step4").classList.add("active");
+                updateFinalStatus();
+            }
+
+            currentStep = step;
+            window.scrollTo(0, 0);
+        }
+
+        async function saveConfig() {
+            const repoPath = document.getElementById("repoPath").value.trim();
+            const modelsPath = document.getElementById("modelsPath").value.trim();
+            const statusDiv = document.getElementById("configStatus");
+
+            if (!repoPath || !modelsPath) {
+                statusDiv.innerHTML = `
+                    <div class="status-box error">
+                        ⚠️ Please enter both paths
+                    </div>
+                `;
+                return;
+            }
+
+            try {
+                const response = await fetch(`${API_URL}/configure`, {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({
+                        repo_path: repoPath,
+                        models_path: modelsPath
+                    })
+                });
+
+                const data = await response.json();
+
+                if (data.success) {
+                    statusDiv.innerHTML = `
+                        <div class="status-box success">
+                            ✅ Configuration saved successfully!
+                        </div>
+                    `;
+                    setTimeout(() => goToStep(2), 1500);
+                } else {
+                    statusDiv.innerHTML = `
+                        <div class="status-box error">
+                            ❌ ${data.message}
+                        </div>
+                    `;
+                }
+            } catch (e) {
+                statusDiv.innerHTML = `
+                    <div class="status-box error">
+                        ❌ Cannot reach daemon. Make sure it's running: <code>python service_daemon.py</code>
+                    </div>
+                `;
+            }
+        }
+
+        async function checkDaemon() {
+            const daemonText = document.getElementById("daemonText");
+            const daemonError = document.getElementById("daemonError");
+            const continueBtn = document.getElementById("continueBtn");
+            const retryBtn = document.getElementById("retryBtn");
+
+            try {
+                const response = await fetch(`${DAEMON_URL}/health`);
+                if (response.ok) {
+                    const data = await response.json();
+                    daemonText.textContent = "✅ Daemon connected";
+                    document.getElementById("daemonSpinner").style.display = "none";
+                    daemonError.style.display = "none";
+                    continueBtn.style.display = "block";
+                    retryBtn.style.display = "none";
+                    daemonReady = true;
+                } else {
+                    throw new Error("Daemon responded with error");
+                }
+            } catch (e) {
+                daemonText.textContent = "❌ Daemon not found";
+                daemonError.style.display = "block";
+                document.getElementById("daemonSpinner").style.display = "none";
+            }
+        }
+
+        function createServiceElement(name, status, url) {
+            const statusClass = status === "running" ? "running" : "stopped";
+            const isRunning = status === "running";
+            const serviceName = name.toLowerCase().split(' ')[0];
+
+            return `
+                <div class="service-item">
+                    <div class="service-status ${statusClass}"></div>
+                    <div class="service-info">
+                        <div class="service-name">${name}</div>
+                        <div class="service-detail">
+                            ${url}
+                            <span style="font-weight: 600; margin-left: 8px; color: ${isRunning ? '#4caf50' : '#f44336'};">
+                                ${isRunning ? '● Running' : '● Stopped'}
+                            </span>
+                        </div>
+                    </div>
+                    <div class="service-actions">
+                        <button class="btn-success" onclick="startService('${serviceName}')" ${isRunning ? 'disabled' : ''}>Start</button>
+                        <button class="btn-danger" onclick="stopService('${serviceName}')" ${!isRunning ? 'disabled' : ''}>Stop</button>
+                    </div>
+                </div>
+            `;
+        }
+
+        async function updateServices() {
+            try {
+                const response = await fetch(`${API_URL}/status`);
+                const status = await response.json();
+
+                const serviceList = document.getElementById("serviceList");
+                serviceList.innerHTML = `
+                    ${createServiceElement("🔷 Proxy Server", status.proxy, "http://localhost:8000")}
+                    ${createServiceElement("🔶 Ollama", status.ollama, "http://localhost:11434")}
+                    ${createServiceElement("🌐 ngrok Tunnel", status.tunnel, "Public internet")}
+                `;
+
+                if (status.public_url) {
+                    const box = document.getElementById("publicUrlBox");
+                    box.style.display = "block";
+                    document.getElementById("publicUrlValue").textContent = status.public_url;
+                }
+            } catch (e) {
+                console.error("Error updating services:", e);
+            }
+        }
+
+        async function startService(service) {
+            const endpoint = service === "proxy" ? "proxy" : service === "tunnel" ? "tunnel" : null;
+            if (!endpoint) return;
+
+            try {
+                console.log(`Starting ${service}...`);
+                const response = await fetch(`${API_URL}/services/${endpoint}/start`, {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" }
+                });
+                const data = await response.json();
+                console.log(`${service} response:`, data);
+
+                if (data.success) {
+                    console.log(`✓ ${service} started`);
+                    alert(`✅ ${service.toUpperCase()} started successfully!`);
+                } else {
+                    alert(`⚠️ ${data.message}`);
+                }
+
+                setTimeout(updateServices, 1500);
+            } catch (e) {
+                console.error(`Error starting ${service}:`, e);
+                alert(`❌ Error starting ${service}: ${e.message}`);
+            }
+        }
+
+        async function stopService(service) {
+            const endpoint = service === "proxy" ? "proxy" : service === "tunnel" ? "tunnel" : null;
+            if (!endpoint) return;
+
+            try {
+                console.log(`Stopping ${service}...`);
+                const response = await fetch(`${API_URL}/services/${endpoint}/stop`, {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" }
+                });
+                const data = await response.json();
+                console.log(`${service} response:`, data);
+
+                if (data.success) {
+                    console.log(`✓ ${service} stopped`);
+                    alert(`✅ ${service.toUpperCase()} stopped!`);
+                }
+
+                updateServices();
+            } catch (e) {
+                console.error(`Error stopping ${service}:`, e);
+                alert(`❌ Error stopping ${service}: ${e.message}`);
+            }
+        }
+
+        async function startAllServices() {
+            console.log("Starting all services...");
+            alert("🚀 Starting all services. This may take 30 seconds...");
+
+            await startService("proxy");
+            await new Promise(r => setTimeout(r, 3000));
+
+            await startService("tunnel");
+
+            setTimeout(() => {
+                updateServices();
+                alert("✅ All services started! Check the status below.");
+            }, 2000);
+        }
+
+        async function updateFinalStatus() {
+            try {
+                const response = await fetch(`${API_URL}/status`);
+                const status = await response.json();
+
+                document.getElementById("finalStatus").innerHTML = `
+                    <div>Proxy: <strong>${status.proxy}</strong></div>
+                    <div>Ollama: <strong>${status.ollama}</strong></div>
+                    <div>Tunnel: <strong>${status.tunnel}</strong></div>
+                `;
+
+                if (status.public_url) {
+                    document.getElementById("finalPublicUrl").textContent = status.public_url;
+                }
+            } catch (e) {
+                console.error("Error:", e);
+            }
+        }
+
+        // Initialize
+        checkDaemon();
+        setInterval(checkDaemon, 2000);
+
+        // Update services when step 3 is shown
+        const observer = new MutationObserver(() => {
+            if (document.getElementById("step3").classList.contains("active")) {
+                updateServices();
+            }
+        });
+
+        observer.observe(document.getElementById("step3"), { attributes: true });
+
+        // Set default paths
+        document.getElementById("repoPath").value = "/Users/swaminathan.balasub/Desktop/Syncthing/local-llm-server";
+        document.getElementById("modelsPath").value = "/Users/swaminathan.balasub/Desktop/Syncthing/local-models";
+    </script>
+</body>
+</html>
