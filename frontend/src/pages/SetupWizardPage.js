@@ -18,6 +18,7 @@ import {
   completeSetup,
   detectHardwareForSetup,
   detectModelsForSetup,
+  createSecret,
 } from '../api';
 
 const STEPS = [
@@ -42,7 +43,11 @@ export default function SetupWizardPage({ onComplete }) {
   const [useOllama, setUseOllama] = useState(true);
   const [ollamaUrl, setOllamaUrl] = useState('http://localhost:11434');
   const [useOpenAI, setUseOpenAI] = useState(false);
+  const [openaiKey, setOpenaiKey] = useState('');
+  const [openaiSecretId, setOpenaiSecretId] = useState(null);
   const [useAnthropic, setUseAnthropic] = useState(false);
+  const [anthropicKey, setAnthropicKey] = useState('');
+  const [anthropicSecretId, setAnthropicSecretId] = useState(null);
 
   // Step 2
   const [defaultModel, setDefaultModel] = useState('qwen3-coder:30b');
@@ -171,11 +176,41 @@ export default function SetupWizardPage({ onComplete }) {
     }
   }, [step, loadHardware, useOllama, checkDaemonConnection]);
 
+  const storeApiKey = useCallback(async (key, keyName) => {
+    if (!key) return null;
+    try {
+      const result = await createSecret({
+        name: `${keyName}-key-setup`,
+        value: key,
+        description: `${keyName} API key from setup wizard`,
+      });
+      return result.data.id;
+    } catch (e) {
+      console.error(`Failed to store ${keyName} key:`, e);
+      alert(`Failed to store ${keyName} API key: ${e.message}`);
+      return null;
+    }
+  }, []);
+
   const handleSave = async () => {
     setSaving(true);
     try {
+      // Step 1: Store any API keys provided
+      let newOpenaiSecretId = openaiSecretId;
+      let newAnthropicSecretId = anthropicSecretId;
+
+      if (useOpenAI && openaiKey && !openaiSecretId) {
+        newOpenaiSecretId = await storeApiKey(openaiKey, 'OpenAI');
+        if (newOpenaiSecretId) setOpenaiSecretId(newOpenaiSecretId);
+      }
+
+      if (useAnthropic && anthropicKey && !anthropicSecretId) {
+        newAnthropicSecretId = await storeApiKey(anthropicKey, 'Anthropic');
+        if (newAnthropicSecretId) setAnthropicSecretId(newAnthropicSecretId);
+      }
+
       const payloads = {
-        1: { use_ollama: useOllama, ollama_base_url: ollamaUrl, use_openai: useOpenAI, use_anthropic: useAnthropic },
+        1: { use_ollama: useOllama, ollama_base_url: ollamaUrl, use_openai: useOpenAI, use_anthropic: useAnthropic, openai_secret_id: newOpenaiSecretId, anthropic_secret_id: newAnthropicSecretId },
         2: { default_model: defaultModel, coder_model: defaultModel, reviewer_model: reviewerModel, repo_path: repoPath, models_path: modelsPath },
         3: { enable_hermes: enableHermes, enable_opencode: enableOpenCode, enable_aider: enableAider },
         4: { agent_name: agentName, agent_model: agentModel, cost_policy: costPolicy },
@@ -295,18 +330,44 @@ export default function SetupWizardPage({ onComplete }) {
                   )}
                   <label className="flex items-center gap-3 p-4 border rounded-xl cursor-pointer hover:border-indigo-400 transition-colors">
                     <input type="checkbox" checked={useOpenAI} onChange={e => setUseOpenAI(e.target.checked)} className="w-4 h-4" />
-                    <div>
+                    <div className="flex-1">
                       <div className="font-medium">🌐 OpenAI</div>
                       <div className="text-sm text-gray-500">GPT-4o, GPT-4o-mini (requires API key)</div>
                     </div>
                   </label>
+                  {useOpenAI && (
+                    <div className="ml-8 mb-3">
+                      <label className="text-sm font-medium text-gray-700">OpenAI API Key</label>
+                      <input
+                        className="w-full mt-1 border rounded-lg px-3 py-2 text-sm"
+                        type="password"
+                        value={openaiKey}
+                        onChange={e => setOpenaiKey(e.target.value)}
+                        placeholder="sk-..."
+                      />
+                      {openaiSecretId && <div className="text-xs text-green-600 mt-1">✓ API key saved securely</div>}
+                    </div>
+                  )}
                   <label className="flex items-center gap-3 p-4 border rounded-xl cursor-pointer hover:border-indigo-400 transition-colors">
                     <input type="checkbox" checked={useAnthropic} onChange={e => setUseAnthropic(e.target.checked)} className="w-4 h-4" />
-                    <div>
+                    <div className="flex-1">
                       <div className="font-medium">🔮 Anthropic</div>
                       <div className="text-sm text-gray-500">Claude 3.5 / 4 (requires API key)</div>
                     </div>
                   </label>
+                  {useAnthropic && (
+                    <div className="ml-8">
+                      <label className="text-sm font-medium text-gray-700">Anthropic API Key</label>
+                      <input
+                        className="w-full mt-1 border rounded-lg px-3 py-2 text-sm"
+                        type="password"
+                        value={anthropicKey}
+                        onChange={e => setAnthropicKey(e.target.value)}
+                        placeholder="sk-ant-..."
+                      />
+                      {anthropicSecretId && <div className="text-xs text-green-600 mt-1">✓ API key saved securely</div>}
+                    </div>
+                  )}
                 </div>
                 <p className="text-xs text-gray-400 mt-4">
                   💡 API keys for cloud providers are stored securely in Settings → Secrets after setup.
