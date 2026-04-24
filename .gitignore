@@ -12,6 +12,10 @@ __pycache__/
 .venv/
 venv/
 
+# Runtime data (created by app/tests at runtime)
+.data/
+*.db
+
 # Build artifacts
 frontend/build/
 dist/
