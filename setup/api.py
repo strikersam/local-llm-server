@@ -79,6 +79,8 @@ class Step2Request(BaseModel):
     reviewer_model:     str  = "deepseek-r1:32b"
     embedding_model:    str  = "nomic-embed-text"
     accepted_degraded:  bool = False   # user acknowledges degraded compatibility
+    repo_path:          str | None = None  # path to local-llm-server repo
+    models_path:        str | None = None  # path to models directory
 
 
 class Step3Request(BaseModel):

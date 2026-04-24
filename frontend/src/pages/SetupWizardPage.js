@@ -181,7 +181,9 @@ export default function SetupWizardPage({ onComplete }) {
         4: { agent_name: agentName, agent_model: agentModel, cost_policy: costPolicy },
         5: { never_use_paid_providers: neverPaid, require_approval_before_paid: requireApproval, enable_langfuse: enableLangfuse, langfuse_host: langfuseHost },
       };
-      await saveSetupStep(step, payloads[step]);
+      console.log(`[SetupWizard] Saving Step ${step}:`, payloads[step]);
+      const result = await saveSetupStep(step, payloads[step]);
+      console.log(`[SetupWizard] Step ${step} saved successfully:`, result);
       if (step < 5) {
         setStep(s => s + 1);
       } else {
@@ -189,6 +191,9 @@ export default function SetupWizardPage({ onComplete }) {
         setDone(true);
         if (onComplete) onComplete();
       }
+    } catch (error) {
+      console.error(`[SetupWizard] Error saving Step ${step}:`, error);
+      alert(`Failed to save step: ${error.response?.data?.detail || error.message}`);
     } finally {
       setSaving(false);
     }
