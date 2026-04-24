@@ -161,11 +161,9 @@ async def test_workspace_secret_visible_to_power_user(store):
     fetched = await store.get_metadata(rec.secret_id, "bob@test.com", UserRole.POWER_USER)
     assert fetched is not None
 
-    # Standard user cannot read workspace secrets if not owner
-    # (depends on implementation — workspace should be visible to std users too per spec)
+    # Standard user cannot read workspace secrets unless they are the owner
     fetched_std = await store.get_metadata(rec.secret_id, "bob@test.com", UserRole.USER)
-    # Standard users CAN read workspace secrets (read-only)
-    assert fetched_std is not None
+    assert fetched_std is None  # non-owner USER is denied; workspace is power_user+ only
 
 
 @pytest.mark.asyncio
@@ -179,5 +177,5 @@ async def test_list_for_user_filters_correctly(store):
 
     records = await store.list_for_user("u@test.com", UserRole.USER)
     ids = [r.secret_id for r in records]
-    assert own_rec.secret_id in ids     # own secret
-    assert ws_rec.secret_id in ids      # workspace secret
+    assert own_rec.secret_id in ids       # own secret visible
+    assert ws_rec.secret_id not in ids    # workspace secret NOT visible to non-owner USER
