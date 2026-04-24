@@ -8,6 +8,10 @@ Exposes:
   PUT  /runtimes/policy       — update routing policy (admin only)
   GET  /runtimes/decisions    — routing decision audit log
   POST /runtimes/{id}/run     — execute a task on a specific runtime
+  POST /runtimes/{id}/start   — start a stopped runtime container (admin only)
+  POST /runtimes/{id}/stop    — stop a running runtime container (admin only)
+  POST /runtimes/start-all    — start all runtime containers (admin only)
+  POST /runtimes/stop-all     — stop all runtime containers (admin only)
 """
 
 from __future__ import annotations
@@ -21,6 +25,7 @@ from pydantic import BaseModel, Field
 
 from runtimes.base import TaskSpec, RuntimeUnavailableError, RuntimeExecutionError
 from runtimes.manager import get_runtime_manager
+from runtimes.control import start_runtime, stop_runtime, start_all_runtimes, stop_all_runtimes
 
 log = logging.getLogger("qwen-proxy")
 
@@ -139,3 +144,34 @@ async def run_task_on_runtime(
         raise HTTPException(status_code=503, detail=str(exc)) from exc
     except RuntimeExecutionError as exc:
         raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+# ── Runtime Lifecycle Control ─────────────────────────────────────────────────
+
+
+@runtime_router.post("/{runtime_id}/start")
+async def start_runtime_container(runtime_id: str, request: Request) -> dict:
+    """Start a stopped runtime container (requires admin)."""
+    _require_admin(request)
+    return await start_runtime(runtime_id)
+
+
+@runtime_router.post("/{runtime_id}/stop")
+async def stop_runtime_container(runtime_id: str, request: Request) -> dict:
+    """Stop a running runtime container (requires admin)."""
+    _require_admin(request)
+    return await stop_runtime(runtime_id)
+
+
+@runtime_router.post("/start-all")
+async def start_all(request: Request) -> dict:
+    """Start all runtime containers (requires admin)."""
+    _require_admin(request)
+    return await start_all_runtimes()
+
+
+@runtime_router.post("/stop-all")
+async def stop_all(request: Request) -> dict:
+    """Stop all runtime containers (requires admin)."""
+    _require_admin(request)
+    return await stop_all_runtimes()

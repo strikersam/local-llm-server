@@ -34,7 +34,7 @@ from motor.motor_asyncio import AsyncIOMotorClient, AsyncIOMotorDatabase
 from pydantic import BaseModel, Field
 from fastapi import FastAPI, HTTPException, Request, Header, Depends
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import StreamingResponse, JSONResponse
+from fastapi.responses import StreamingResponse, JSONResponse, HTMLResponse
 
 from starlette.middleware.sessions import SessionMiddleware
 
@@ -571,6 +571,79 @@ async def close_mongodb():
         _mongo_client.close()
         log.info("MongoDB connection closed")
 
+# ─── Agent Runtime Registration ──────────────────────────────────────────────────
+
+@app.on_event("startup")
+async def register_agent_runtimes():
+    """Auto-register agent runtimes from Docker on startup."""
+    should_register = os.environ.get("REGISTER_RUNTIMES", "").lower() in ("1", "true", "yes")
+    if not should_register:
+        return
+
+    try:
+        from agents.store import AgentStore, AgentDefinition
+
+        # Define runtime configurations
+        runtimes = {
+            "hermes": {
+                "name": "Hermes (Executor)",
+                "description": "Fast, lightweight code execution runtime",
+                "task_types": ["code_generation", "refactoring"],
+                "model": "hermes:latest",
+                "base_url": "http://hermes:8080",
+            },
+            "opencode": {
+                "name": "OpenCode (Generator)",
+                "description": "Code generation and scaffolding runtime",
+                "task_types": ["code_generation", "scaffolding"],
+                "model": "opencode:latest",
+                "base_url": "http://opencode:8080",
+            },
+            "goose": {
+                "name": "Goose (Multi-Purpose)",
+                "description": "Multi-purpose AI development agent",
+                "task_types": ["code_generation", "testing", "review"],
+                "model": "goose:latest",
+                "base_url": "http://goose:8080",
+            },
+            "aider": {
+                "name": "Aider (Pair Programmer)",
+                "description": "Pair programming and collaborative development",
+                "task_types": ["code_generation", "refactoring", "debugging"],
+                "model": "aider:latest",
+                "base_url": "http://aider:8080",
+            },
+        }
+
+        store = get_agent_store()
+
+        for runtime_id, config in runtimes.items():
+            # Check if already exists
+            existing = await store.get(runtime_id)
+            if existing:
+                log.info(f"Runtime {runtime_id} already registered, skipping")
+                continue
+
+            # Create new agent definition
+            agent = AgentDefinition(
+                agent_id=runtime_id,
+                owner_id="system",
+                name=config["name"],
+                description=config["description"],
+                model=config["model"],
+                runtime_id=runtime_id,
+                task_types=config["task_types"],
+                is_public=True,
+                cost_policy="local_only",
+                tags=["runtime", "system", "docker"],
+            )
+
+            await store.create(agent)
+            log.info(f"✓ Registered runtime: {runtime_id} → {agent.name}")
+
+    except Exception as e:
+        log.error(f"Failed to register agent runtimes: {e}", exc_info=True)
+
 # ─── Task dispatcher (background auto-execution) ────────────────────────────────
 _task_dispatcher: TaskDispatcher | None = None
 _dispatcher_task: asyncio.Task | None = None
@@ -811,6 +884,16 @@ async def api_health():
     resp.headers["Access-Control-Allow-Methods"] = "GET, OPTIONS"
     resp.headers["Access-Control-Allow-Headers"] = "Content-Type"
     return resp
+
+
+@app.get("/runtimes-ui")
+async def runtimes_ui():
+    """Serve the runtimes control panel (start/stop agents)."""
+    try:
+        with open(Path(__file__).parent / "webui" / "runtimes_page.html") as f:
+            return HTMLResponse(content=f.read())
+    except FileNotFoundError:
+        return HTMLResponse(content="<h1>Runtimes control panel not found</h1>", status_code=404)
 
 
 @app.post("/agent/sessions")
