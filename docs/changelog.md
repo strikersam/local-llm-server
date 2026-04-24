@@ -9,6 +9,7 @@
 ## [Unreleased]
 
 ### Fixed
+- **GitHub Pages build error**: Removed duplicate `export const getMe` declaration in `frontend/src/api.js` (lines 63 and 193) that was blocking the GitHub Pages deploy workflow. The v3 dashboard is now live.
 - Add `psutil>=5.9.0`, `pytest-asyncio>=0.23.0`, and `cryptography>=41.0.0` to `requirements.txt` so CI installs all test dependencies.
 - Set `asyncio_mode = auto` and `asyncio_default_fixture_loop_scope = function` in `pytest.ini` to enable async test discovery and suppress the `PytestDeprecationWarning` that pytest 9.x promotes to an error, which was crashing the entire test run.
 - Replace deprecated `asyncio.get_event_loop().run_until_complete()` in `tests/test_runtimes.py` with `asyncio.run()`, preventing event-loop-not-found errors when test ordering places async-using tests first.

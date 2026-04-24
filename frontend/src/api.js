@@ -190,7 +190,6 @@ export const updateSecret = (id, data) => API.put(`/api/secrets/${id}`, data);
 export const deleteSecret = (id) => API.delete(`/api/secrets/${id}`);
 
 // ── Social auth (v3.1) ────────────────────────────────────────────────────────
-export const getMe = () => API.get('/api/auth/me');
 export const listUsers = () => API.get('/api/auth/users');
 export const changeUserRole = (userId, role) =>
   API.post(`/api/auth/users/${userId}/role`, { role });
