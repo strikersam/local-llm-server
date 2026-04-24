@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
+import { Link } from 'react-router-dom';
 import { useAuth } from '../AuthContext';
-import { fmtErr } from '../api';
+import { fmtErr, getBackendUrl } from '../api';
 import { Lock, ArrowRight, AlertCircle, Github } from 'lucide-react';
 
 const GoogleIcon = () => (
@@ -37,6 +38,8 @@ function TextInput({ type, value, onChange, placeholder, required, testId }) {
 
 export default function LoginPage() {
   const { login } = useAuth();
+  const backendUrl = getBackendUrl();
+  const hasBackendConfig = Boolean(backendUrl);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
@@ -192,18 +195,36 @@ export default function LoginPage() {
 
               <div className="grid grid-cols-2 gap-2.5">
                 <a
-                  href={`${process.env.REACT_APP_BACKEND_URL || ''}/api/auth/github/login`}
+                  href={hasBackendConfig ? `${backendUrl}/api/auth/github/login` : undefined}
                   className="flex items-center justify-center gap-2 bg-white/4 hover:bg-white/8 border border-white/8 hover:border-white/14 rounded-md py-2.5 text-[12px] font-medium text-[#A0A0A0] hover:text-white transition-all min-h-[42px]"
+                  aria-disabled={!hasBackendConfig}
+                  onClick={(event) => {
+                    if (!hasBackendConfig) event.preventDefault();
+                  }}
                 >
                   <Github size={14} /> GitHub
                 </a>
                 <a
-                  href={`${process.env.REACT_APP_BACKEND_URL || ''}/api/auth/google/login`}
+                  href={hasBackendConfig ? `${backendUrl}/api/auth/google/login` : undefined}
                   className="flex items-center justify-center gap-2 bg-white/4 hover:bg-white/8 border border-white/8 hover:border-white/14 rounded-md py-2.5 text-[12px] font-medium text-[#A0A0A0] hover:text-white transition-all min-h-[42px]"
+                  aria-disabled={!hasBackendConfig}
+                  onClick={(event) => {
+                    if (!hasBackendConfig) event.preventDefault();
+                  }}
                 >
                   <GoogleIcon /> Google
                 </a>
               </div>
+
+              {!hasBackendConfig && (
+                <p className="text-[11px] text-[#666666] leading-relaxed">
+                  Need to connect a backend first?{' '}
+                  <Link to="/bootstrap" className="text-[#8FA8FF] hover:text-white underline underline-offset-2">
+                    Open the setup wizard
+                  </Link>
+                  .
+                </p>
+              )}
             </div>
 
             {/* Footer hint */}

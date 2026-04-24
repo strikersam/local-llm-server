@@ -253,7 +253,6 @@ class ModelRouter:
         # Catch-all MODEL_MAP wildcard
         if "*" in model_map:
             resolved = model_map["*"]
-            resolved = self._ensure_available(resolved, category, requested_model)
             return RoutingDecision(
                 resolved_model=resolved,
                 requested_model=requested_model,
@@ -359,7 +358,11 @@ class ModelRouter:
         return alternatives[:3]  # Keep the chain short
 
     def _should_enforce_availability(self, requested_model: str) -> bool:
-        return requested_model not in _LOCAL_SHORT_ALIASES
+        # Explicit alias mappings should remain stable even when the preferred
+        # local model is currently missing, otherwise we silently downgrade
+        # requests like Claude Opus to unrelated models. Only short local
+        # aliases should be rewritten to an installed equivalent.
+        return requested_model in _LOCAL_SHORT_ALIASES
 
 
 # ── Module-level singleton ─────────────────────────────────────────────────────

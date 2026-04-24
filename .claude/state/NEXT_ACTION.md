@@ -1,6 +1,6 @@
-# NEXT ACTION — Multica Workflow Follow-Up
+# NEXT ACTION — GitHub Pages Bug Sweep
 
-**Session:** `multica-workflow-retrofit` (2026-04-24)
+**Session:** `github-pages-bug-sweep` (2026-04-25)
 **Resume command:** `python scripts/ai_runner.py resume`
 **Status file:** `.claude/state/agent-state.json`
 **Checkpoint log:** `.claude/state/checkpoint.jsonl`
@@ -9,31 +9,33 @@
 
 ## Current Objective
 
-Close the remaining gap between the new Multica-style task workflow and the live product:
-verify UI behavior manually, decide whether to add SSE/WebSocket updates, and address the
-pre-existing unrelated router test failure before a full green suite.
+The deployment/auth bug sweep is complete locally. The next meaningful step is to
+deploy the updated frontend/backend and verify the GitHub Pages login/bootstrap
+flow against the live site.
 
 ---
 
 ## Completed Steps
 
-- [x] Audit current task/agent/runtime/scheduler/frontend gaps against the requested Multica behavior
-- [x] Add lifecycle-focused workflow tests (`tests/test_tasks_workflow.py`)
-- [x] Implement task lifecycle service with real transition rules, review/block semantics, and threaded comments
-- [x] Route task execution through runtime-aware coordinator with agent-definition binding
-- [x] Unify scheduler and playbook runs through task creation
-- [x] Update Tasks UI to show comments, execution history, and actual runtime/model details
-- [x] Update changelog and targeted regression coverage
+- [x] Reproduced the router baseline failure and GitHub Pages/frontend auth issues locally
+- [x] Fixed router alias resolution so explicit `MODEL_MAP` aliases remain deterministic
+- [x] Added pre-login bootstrap access for static frontend deployments
+- [x] Fixed frontend token refresh and redirect logic to respect the active backend URL and `PUBLIC_URL`
+- [x] Fixed GitHub OAuth popup origin checks to use the configured backend origin
+- [x] Stabilized router/v3 auth tests against host-specific environment differences
+- [x] Updated changelog and added deployment-focused regression coverage
+- [x] Ran `./.venv/bin/pytest -x` successfully (`613 passed`)
+- [x] Verified `/bootstrap` and `/login` locally in the browser
 
 ## Next Step
 
-- [ ] Run the full test suite after resolving the existing router baseline failure in `tests/test_model_router.py`
-- [ ] Manually verify the task board flow in the browser:
-  - create an agent with runtime + model
-  - create a task in each lane
-  - comment on an in-review task and confirm it re-queues
-  - trigger a scheduler job and confirm a real task appears
-- [ ] Decide whether to add SSE/WebSocket delivery for task updates instead of polling
+- [ ] Deploy the updated branch/build to the live environment
+- [ ] Verify the live GitHub Pages site:
+  - login page still authenticates against the configured backend
+  - `/bootstrap` is reachable before auth
+  - expired-token redirects stay under `/local-llm-server/...`
+  - GitHub OAuth popup/redirect flow still completes with the configured backend
+- [ ] Optionally add end-to-end browser coverage for the public deployment path
 
 ## If Interrupted
 

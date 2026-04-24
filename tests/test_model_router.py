@@ -19,6 +19,10 @@ def clear_router(monkeypatch):
     # Ensure clean env
     monkeypatch.delenv("MODEL_MAP", raising=False)
     monkeypatch.delenv("ROUTER_EXTRA_MODELS", raising=False)
+    # Keep most router tests independent from whichever Ollama models happen
+    # to be installed on the host. Availability behavior is covered explicitly
+    # in the health-check tests below.
+    monkeypatch.setenv("ROUTER_HEALTH_CHECK_ENABLED", "false")
     yield
     reset_router()
 
@@ -324,7 +328,7 @@ def test_is_model_available_boundary_matching(monkeypatch):
 
 
 def test_ensure_available_falls_back_when_model_missing(monkeypatch):
-    """When primary model is not available, router picks an available fallback."""
+    """Short local aliases can still fall back to an installed sibling model."""
     monkeypatch.setenv("ROUTER_HEALTH_CHECK_ENABLED", "true")
     invalidate_health_cache()
 
@@ -337,9 +341,9 @@ def test_ensure_available_falls_back_when_model_missing(monkeypatch):
 
     monkeypatch.setattr(mrmod, "is_model_available", fake_available)
     try:
-        decision = _router().route(requested_model="claude-opus-4-6")
-        # deepseek-r1:32b would be the MODEL_MAP result but is "unavailable";
-        # fallback chain should surface qwen3-coder:7b
+        decision = _router().route(requested_model="qwen3-coder")
+        # qwen3-coder:30b is the preferred mapping for the short alias, but when
+        # it is unavailable the router should choose the first available sibling.
         assert decision.resolved_model == "qwen3-coder:7b"
     finally:
         monkeypatch.setattr(mrmod, "is_model_available", original)

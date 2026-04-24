@@ -1,7 +1,18 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
-import { healthCheck, getPlatformInfo, githubStatus, getGithubStatus, startGithubOAuth, setGithubToken, deleteGithubToken, listGithubRepos, authorizeGithubRepos } from '../api';
+import { healthCheck, getPlatformInfo, githubStatus, getGithubStatus, startGithubOAuth, setGithubToken, deleteGithubToken, listGithubRepos, authorizeGithubRepos, getBackendUrl } from '../api';
 import { Settings, CheckCircle, XCircle, ExternalLink, Github, Globe, Server, Cpu, Key, Loader2, Trash2, Lock, ChevronDown, ChevronUp } from 'lucide-react';
+
+function getBackendOrigin() {
+  const configuredBackend = getBackendUrl();
+  if (configuredBackend) {
+    return new URL(configuredBackend).origin;
+  }
+  if (process.env.REACT_APP_BACKEND_URL) {
+    return new URL(process.env.REACT_APP_BACKEND_URL).origin;
+  }
+  return window.location.origin;
+}
 
 export default function SettingsPage() {
   const location = useLocation();
@@ -84,9 +95,7 @@ export default function SettingsPage() {
 
       // Listen for the postMessage fired by the backend callback page.
       // Validate origin so forged messages from other windows are ignored.
-      const backendOrigin = process.env.REACT_APP_BACKEND_URL
-        ? new URL(process.env.REACT_APP_BACKEND_URL).origin
-        : window.location.origin;
+      const backendOrigin = getBackendOrigin();
       const handler = (event) => {
         if (event.origin !== backendOrigin) return;
         if (!event.data || event.data.type !== 'github_oauth') return;
@@ -409,9 +418,7 @@ function GitHubAccessSection() {
         return;
       }
       popupRef.current = popup;
-      const backendOrigin = process.env.REACT_APP_BACKEND_URL
-        ? new URL(process.env.REACT_APP_BACKEND_URL).origin
-        : window.location.origin;
+      const backendOrigin = getBackendOrigin();
       const handler = (event) => {
         if (event.origin !== backendOrigin) return;
         if (!event.data || event.data.type !== 'github_oauth') return;

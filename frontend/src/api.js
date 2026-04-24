@@ -4,6 +4,18 @@ export function getBackendUrl() {
   return localStorage.getItem('backend_url') || process.env.REACT_APP_BACKEND_URL || '';
 }
 
+export function getPublicPath(path = '') {
+  const base = (process.env.PUBLIC_URL || '').replace(/\/$/, '');
+  if (!path) return base || '/';
+  const normalizedPath = path.startsWith('/') ? path : `/${path}`;
+  return `${base}${normalizedPath}` || normalizedPath;
+}
+
+function getApiUrl(path) {
+  const base = getBackendUrl();
+  return base ? `${base}${path}` : path;
+}
+
 export function setBackendUrl(url) {
   const cleaned = url.replace(/\/$/, '');
   localStorage.setItem('backend_url', cleaned);
@@ -41,7 +53,7 @@ API.interceptors.response.use(
         isRefreshing = true;
         try {
           const { data } = await axios.post(
-            `${process.env.REACT_APP_BACKEND_URL || ''}/api/auth/refresh`,
+            getApiUrl('/api/auth/refresh'),
             { refresh_token: refresh },
           );
           localStorage.setItem('access_token', data.access_token);
@@ -50,7 +62,7 @@ API.interceptors.response.use(
         } catch {
           localStorage.removeItem('access_token');
           localStorage.removeItem('refresh_token');
-          window.location.href = '/login';
+          window.location.href = getPublicPath('/login');
         } finally {
           isRefreshing = false;
         }

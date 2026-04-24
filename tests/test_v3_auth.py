@@ -8,6 +8,10 @@ from fastapi.testclient import TestClient
 from tokens import create_tokens, verify_token, refresh_access_token
 
 
+def _configured_v3_password() -> str:
+    return os.environ.get("V3_ADMIN_PASSWORD") or os.environ.get("ADMIN_SECRET", "")
+
+
 def test_token_creation_and_verification():
     """Test JWT token creation and verification."""
     tokens = create_tokens("user123", "test@example.com", "Test User", "admin")
@@ -82,10 +86,10 @@ def test_invalid_refresh_token():
 async def test_v3_auth_login_endpoint(client: TestClient):
     """Test login endpoint returns valid tokens."""
     admin_email = os.environ.get("V3_ADMIN_EMAIL", "admin@localhost")
-    admin_secret = os.environ.get("ADMIN_SECRET", "")
+    admin_secret = _configured_v3_password()
 
     if not admin_secret:
-        pytest.skip("ADMIN_SECRET not configured")
+        pytest.skip("V3 admin password not configured")
 
     response = client.post(
         "/api/auth/login",
@@ -118,10 +122,10 @@ async def test_v3_auth_login_invalid_credentials(client: TestClient):
 async def test_v3_auth_me_endpoint(client: TestClient):
     """Test getting current user with valid token."""
     admin_email = os.environ.get("V3_ADMIN_EMAIL", "admin@localhost")
-    admin_secret = os.environ.get("ADMIN_SECRET", "")
+    admin_secret = _configured_v3_password()
 
     if not admin_secret:
-        pytest.skip("ADMIN_SECRET not configured")
+        pytest.skip("V3 admin password not configured")
 
     # First, login
     login_response = client.post(
@@ -168,10 +172,10 @@ async def test_v3_auth_me_missing_token(client: TestClient):
 async def test_v3_auth_refresh_endpoint(client: TestClient):
     """Test refreshing access token."""
     admin_email = os.environ.get("V3_ADMIN_EMAIL", "admin@localhost")
-    admin_secret = os.environ.get("ADMIN_SECRET", "")
+    admin_secret = _configured_v3_password()
 
     if not admin_secret:
-        pytest.skip("ADMIN_SECRET not configured")
+        pytest.skip("V3 admin password not configured")
 
     # Login
     login_response = client.post(
@@ -208,10 +212,10 @@ async def test_v3_auth_refresh_invalid_token(client: TestClient):
 async def test_v3_auth_logout_endpoint(client: TestClient):
     """Test logout endpoint."""
     admin_email = os.environ.get("V3_ADMIN_EMAIL", "admin@localhost")
-    admin_secret = os.environ.get("ADMIN_SECRET", "")
+    admin_secret = _configured_v3_password()
 
     if not admin_secret:
-        pytest.skip("ADMIN_SECRET not configured")
+        pytest.skip("V3 admin password not configured")
 
     # Login
     login_response = client.post(

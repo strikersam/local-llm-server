@@ -4,6 +4,7 @@ import { AuthProvider, useAuth } from './AuthContext';
 import LoginPage from './pages/LoginPage';
 import AuthCallback from './pages/AuthCallback';
 import DashboardLayout from './pages/DashboardLayout';
+import SetupWizardPage from './pages/SetupWizardPage';
 
 function LoadingScreen({ message }) {
   return (
@@ -30,6 +31,7 @@ function AppRoutes() {
     <Routes>
       <Route path="/login" element={user ? <Navigate to="/" replace /> : <LoginPage />} />
       <Route path="/auth/callback" element={<AuthCallback />} />
+      <Route path="/bootstrap" element={<SetupWizardPage />} />
       <Route path="/*" element={<ProtectedRoute><DashboardLayout /></ProtectedRoute>} />
     </Routes>
   );
