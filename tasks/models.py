@@ -29,11 +29,15 @@ class TaskPriority(str, Enum):
 class ExecutionLogEntry(BaseModel):
     """Single entry in a task's execution log."""
     timestamp: float = Field(default_factory=time.time)
+    event_type: str = "event"
     level: str = "info"           # info | warning | error
     message: str
+    actor: str | None = None
+    task_status: TaskStatus | None = None
     runtime_id: str | None = None
     model_used: str | None = None
     tokens: int | None = None
+    raw_trace: dict[str, Any] | None = None
     metadata: dict[str, Any] = Field(default_factory=dict)
 
 
@@ -90,6 +94,7 @@ class Task(BaseModel):
 
     # Execution tracking
     execution_log: list[ExecutionLogEntry] = Field(default_factory=list)
+    pending_agent_run: bool = False
     last_runtime_id: str | None = None
     last_model_used: str | None = None
     tokens_used: int | None = None
@@ -107,6 +112,17 @@ class Task(BaseModel):
     # Escalation
     escalation_count: int = 0
     escalation_reason: str | None = None
+    blocked_reason: str | None = None
+    review_reason: str | None = None
+
+    # Origin / automation metadata
+    source: str = "manual"
+    source_id: str | None = None
+    source_run_id: str | None = None
+
+    # Execution result / error (populated by dispatcher)
+    result: str | None = None
+    error_message: str | None = None
 
     @field_validator("tags")
     @classmethod
@@ -145,6 +161,7 @@ class TaskCreateRequest(BaseModel):
     tags: list[str] = Field(default_factory=list)
     due_date: float | None = None
     requires_approval: bool = False
+    status: TaskStatus = TaskStatus.TODO
 
 
 class TaskUpdateRequest(BaseModel):

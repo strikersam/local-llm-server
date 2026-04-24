@@ -13,7 +13,9 @@ from __future__ import annotations
 import logging
 import secrets
 import time
-from dataclasses import dataclass
+import asyncio
+import inspect
+from dataclasses import dataclass, field
 from typing import Any, Callable
 
 log = logging.getLogger("qwen-scheduler")
@@ -34,6 +36,12 @@ class ScheduledJob:
     cron: str       # standard 5-field cron expression, e.g. "0 9 * * 1"
     instruction: str
     created_at: str
+    agent_id: str | None = None
+    runtime_id: str | None = None
+    model: str | None = None
+    task_type: str = "scheduled"
+    requires_approval: bool = False
+    tags: list[str] = field(default_factory=list)
     last_run: str | None = None
     run_count: int = 0
     enabled: bool = True
@@ -45,6 +53,12 @@ class ScheduledJob:
             "cron": self.cron,
             "instruction": self.instruction,
             "created_at": self.created_at,
+            "agent_id": self.agent_id,
+            "runtime_id": self.runtime_id,
+            "model": self.model,
+            "task_type": self.task_type,
+            "requires_approval": self.requires_approval,
+            "tags": list(self.tags or []),
             "last_run": self.last_run,
             "run_count": self.run_count,
             "enabled": self.enabled,
@@ -84,6 +98,12 @@ class AgentScheduler:
         name: str,
         cron: str,
         instruction: str,
+        agent_id: str | None = None,
+        runtime_id: str | None = None,
+        model: str | None = None,
+        task_type: str = "scheduled",
+        requires_approval: bool = False,
+        tags: list[str] | None = None,
     ) -> ScheduledJob:
         """Register a new job.  Returns the created :class:`ScheduledJob`."""
         job_id = "job_" + secrets.token_hex(6)
@@ -93,6 +113,12 @@ class AgentScheduler:
             cron=cron,
             instruction=instruction,
             created_at=_now(),
+            agent_id=agent_id,
+            runtime_id=runtime_id,
+            model=model,
+            task_type=task_type,
+            requires_approval=requires_approval,
+            tags=list(tags or []),
         )
         self._jobs[job_id] = job
         self._register_aps(job)
@@ -129,6 +155,9 @@ class AgentScheduler:
     def shutdown(self) -> None:
         if self._aps and self._aps.running:
             self._aps.shutdown(wait=False)
+
+    def set_on_fire(self, on_fire: Callable[[ScheduledJob], Any] | None) -> None:
+        self._on_fire = on_fire
 
     # ------------------------------------------------------------------
     # Internal
@@ -167,7 +196,14 @@ class AgentScheduler:
         log.info("Firing job %s (%s)", job_id, job.name)
         if self._on_fire:
             try:
-                self._on_fire(job)
+                result = self._on_fire(job)
+                if inspect.isawaitable(result):
+                    try:
+                        loop = asyncio.get_running_loop()
+                    except RuntimeError:
+                        asyncio.run(result)
+                    else:
+                        loop.create_task(result)
             except Exception as exc:
                 log.error("on_fire callback for job %s raised: %s", job_id, exc)
 

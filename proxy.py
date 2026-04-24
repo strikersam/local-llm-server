@@ -77,6 +77,7 @@ from workflow.ide_bridge import handle_workflow_ide_chat
 # v3: Runtime layer and task system
 from runtimes import runtime_router, get_runtime_manager
 from tasks import task_router
+from tasks.automation import TaskAutomationService
 from tasks.dispatcher import TaskDispatcher
 from tasks.store import get_task_store, set_task_store
 from agents.api import agent_router
@@ -454,6 +455,7 @@ BACKGROUND_AGENT  = BackgroundAgent()
 COORDINATOR       = AgentCoordinator(ollama_base=OLLAMA_BASE, workspace_root=str(Path(__file__).resolve().parent))
 BROWSER_SESSION   = BrowserSession()
 QUICK_NOTE_QUEUE  = QuickNoteQueue()
+TASK_AUTOMATION   = TaskAutomationService(store=get_task_store())
 start_processor(QUICK_NOTE_QUEUE, repo_root=Path(__file__).resolve().parent)
 
 WEBUI_STORE = JsonConfigStore()
@@ -555,8 +557,11 @@ async def init_mongodb():
         _mongo_db = _mongo_client["local_llm_server"]
         # Initialize agent store with MongoDB
         from agents.store import AgentStore
+        from tasks.store import TaskStore
         agent_store = AgentStore(db=_mongo_db)
+        task_store = TaskStore(db=_mongo_db)
         set_agent_store(agent_store)
+        set_task_store(task_store)
         log.info("MongoDB connected for agent store persistence")
     except Exception as e:
         log.warning(f"MongoDB unavailable for agent store: {e}. Using in-memory store.")
@@ -652,12 +657,11 @@ _dispatcher_task: asyncio.Task | None = None
 async def start_task_dispatcher():
     global _task_dispatcher, _dispatcher_task
     # Initialize global task store before starting dispatcher
-    store = get_task_store()
     _task_dispatcher = TaskDispatcher(
-        ollama_base=OLLAMA_BASE,
         workspace_root=str(Path(__file__).resolve().parent),
         poll_interval_s=10.0,
     )
+    SCHEDULER.set_on_fire(TASK_AUTOMATION.handle_scheduled_job)
     _dispatcher_task = asyncio.create_task(_task_dispatcher.run_forever())
     log.info("Task dispatcher started in background")
 
@@ -1257,11 +1261,27 @@ class ScheduleJobRequest(BaseModel):
     name: str = Field(..., min_length=1, max_length=200)
     cron: str = Field(..., min_length=9, max_length=100)
     instruction: str = Field(..., min_length=1, max_length=4000)
+    agent_id: str | None = Field(default=None, max_length=64)
+    runtime_id: str | None = Field(default=None, max_length=64)
+    model: str | None = Field(default=None, max_length=200)
+    task_type: str = Field(default="scheduled", max_length=64)
+    requires_approval: bool = False
+    tags: list[str] = Field(default_factory=list)
 
 
 @app.post("/agent/scheduler/jobs")
 async def scheduler_create(body: ScheduleJobRequest, auth: AuthContext = Depends(verify_api_key)):
-    job = SCHEDULER.create(name=body.name, cron=body.cron, instruction=body.instruction)
+    job = SCHEDULER.create(
+        name=body.name,
+        cron=body.cron,
+        instruction=body.instruction,
+        agent_id=body.agent_id,
+        runtime_id=body.runtime_id,
+        model=body.model,
+        task_type=body.task_type,
+        requires_approval=body.requires_approval,
+        tags=body.tags,
+    )
     return job.as_dict()
 
 
@@ -1338,6 +1358,28 @@ async def playbook_run(playbook_id: str, auth: AuthContext = Depends(verify_api_
         run = PLAYBOOKS.start_run(playbook_id)
     except KeyError:
         raise HTTPException(status_code=404, detail="Playbook not found")
+    playbook = PLAYBOOKS.get(playbook_id)
+    created_task_ids: list[str] = []
+    if playbook:
+        for step in playbook.steps:
+            task = await TASK_AUTOMATION.create_playbook_task(
+                owner_id=auth.email,
+                playbook_id=playbook.playbook_id,
+                run_id=run.run_id,
+                playbook_name=playbook.name,
+                step_id=step.step_id,
+                instruction=step.instruction,
+                model=step.model,
+                tags=list(playbook.tags),
+            )
+            created_task_ids.append(task.task_id)
+        PLAYBOOKS.finish_run(
+            run.run_id,
+            step_results=[{"step_id": step.step_id, "task_id": task_id} for step, task_id in zip(playbook.steps, created_task_ids)],
+            created_task_ids=created_task_ids,
+            status="running",
+        )
+        run = PLAYBOOKS.get_run(run.run_id) or run
     return run.as_dict()
 
 

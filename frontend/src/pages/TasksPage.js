@@ -6,7 +6,7 @@
  */
 import React, { useState, useEffect, useCallback } from 'react';
 import { Plus, RefreshCw, X, Loader2, AlertTriangle, RotateCcw, ArrowUpCircle } from 'lucide-react';
-import { listTasks, createTask, updateTask, retryTask, escalateTask, fmtErr } from '../api';
+import { listTasks, createTask, updateTask, retryTask, escalateTask, addTaskComment, fmtErr } from '../api';
 
 function cls(...p) { return p.filter(Boolean).join(' '); }
 
@@ -36,6 +36,7 @@ const COLS = [
   { id: 'in_review',   label: 'IN REVIEW',   color: '#F59E0B' },
   { id: 'blocked',     label: 'BLOCKED',     color: '#EF4444' },
   { id: 'done',        label: 'DONE',        color: '#10B981' },
+  { id: 'failed',      label: 'FAILED',      color: '#7C3AED' },
 ];
 
 const PRIORITY_DOT = {
@@ -53,7 +54,7 @@ function PriorityDot({ priority }) {
 function StatusDot({ status }) {
   const colors = {
     todo: '#6E6E80', in_progress: '#10B981', in_review: '#F59E0B',
-    blocked: '#EF4444', done: '#3B82F6',
+    blocked: '#EF4444', done: '#3B82F6', failed: '#7C3AED',
   };
   return <div className="w-2 h-2 rounded-full shrink-0" style={{ background: colors[status] || '#6E6E80' }} />;
 }
@@ -116,9 +117,10 @@ function TaskCard({ task, isSelected, onClick }) {
 
 // ── Task detail panel ──────────────────────────────────────────────────────────
 
-function TaskDetailPanel({ task, onClose, onStatusChange, onRetry, onEscalate }) {
-  const STATUSES = ['todo', 'in_progress', 'in_review', 'blocked', 'done'];
+function TaskDetailPanel({ task, onClose, onStatusChange, onRetry, onEscalate, onComment }) {
+  const STATUSES = ['todo', 'in_progress', 'in_review', 'blocked', 'done', 'failed'];
   const [actionLoading, setActionLoading] = useState('');
+  const [commentBody, setCommentBody] = useState('');
 
   async function doStatusChange(s) {
     setActionLoading('status');
@@ -131,6 +133,17 @@ function TaskDetailPanel({ task, onClose, onStatusChange, onRetry, onEscalate })
   async function doEscalate() {
     setActionLoading('escalate');
     try { await onEscalate(task.task_id); } finally { setActionLoading(''); }
+  }
+  async function doComment() {
+    const body = commentBody.trim();
+    if (!body) return;
+    setActionLoading('comment');
+    try {
+      await onComment(task.task_id, body);
+      setCommentBody('');
+    } finally {
+      setActionLoading('');
+    }
   }
 
   return (
@@ -186,7 +199,8 @@ function TaskDetailPanel({ task, onClose, onStatusChange, onRetry, onEscalate })
         <div className="space-y-2">
           {[
             { label: 'Agent',    value: task.agent_id || '—' },
-            { label: 'Runtime',  value: task.runtime_id || '—' },
+            { label: 'Runtime',  value: task.last_runtime_id || task.runtime_id || '—' },
+            { label: 'Model',    value: task.last_model_used || task.model_preference || '—' },
             { label: 'Priority', value: task.priority || 'medium' },
             { label: 'Updated',  value: relTime(task.updated_at) },
           ].map(({ label, value }) => (
@@ -204,6 +218,15 @@ function TaskDetailPanel({ task, onClose, onStatusChange, onRetry, onEscalate })
             style={{ borderColor: 'rgba(239,68,68,0.2)', background: 'rgba(239,68,68,0.05)' }}>
             <div className="text-[9px] font-mono uppercase tracking-wider mb-1" style={{ color: '#EF4444' }}>Blocked — reason</div>
             <div className="text-[11px] font-mono leading-relaxed" style={{ color: 'rgba(252,165,165,0.8)' }}>{task.blocked_reason}</div>
+          </div>
+        )}
+
+        {/* Review reason */}
+        {task.review_reason && (
+          <div className="p-3 border rounded-lg"
+            style={{ borderColor: 'rgba(245,158,11,0.2)', background: 'rgba(245,158,11,0.05)' }}>
+            <div className="text-[9px] font-mono uppercase tracking-wider mb-1" style={{ color: '#F59E0B' }}>In review</div>
+            <div className="text-[11px] font-mono leading-relaxed" style={{ color: 'rgba(253,230,138,0.85)' }}>{task.review_reason}</div>
           </div>
         )}
 
@@ -234,6 +257,68 @@ function TaskDetailPanel({ task, onClose, onStatusChange, onRetry, onEscalate })
               : <ArrowUpCircle size={11} />}
             Escalate
           </button>
+        </div>
+
+        {/* Comments */}
+        <div>
+          <div className="text-[9px] font-mono uppercase tracking-wider mb-2" style={{ color: C.muted }}>Discussion</div>
+          <div className="space-y-2">
+            {(task.comments || []).length === 0 && (
+              <div className="text-[10px] font-mono" style={{ color: C.muted }}>No comments yet.</div>
+            )}
+            {(task.comments || []).map(comment => (
+              <div key={comment.comment_id} className="rounded-lg border px-3 py-2"
+                style={{ borderColor: 'rgba(255,255,255,0.06)', background: 'rgba(255,255,255,0.02)' }}>
+                <div className="flex items-center justify-between gap-2 mb-1">
+                  <span className="text-[10px] font-mono" style={{ color: C.secondary }}>{comment.author}</span>
+                  <span className="text-[9px] font-mono" style={{ color: C.muted }}>{relTime(comment.created_at)}</span>
+                </div>
+                <div className="text-[11px] leading-relaxed" style={{ color: C.primary }}>{comment.body}</div>
+              </div>
+            ))}
+          </div>
+          <div className="mt-2 space-y-2">
+            <textarea
+              value={commentBody}
+              onChange={e => setCommentBody(e.target.value)}
+              rows={3}
+              placeholder="Add a comment to continue the task…"
+              className="w-full rounded-lg border bg-transparent px-3 py-2 text-[11px] outline-none resize-y"
+              style={{ borderColor: 'rgba(255,255,255,0.08)', color: C.primary }}
+            />
+            <button onClick={doComment} disabled={actionLoading === 'comment' || !commentBody.trim()}
+              className="px-3 py-2 text-[10px] font-mono uppercase tracking-wider rounded-lg disabled:opacity-40"
+              style={{ background: C.accent, color: 'white' }}>
+              {actionLoading === 'comment' ? 'Posting…' : 'Post Comment'}
+            </button>
+          </div>
+        </div>
+
+        {/* Execution history */}
+        <div>
+          <div className="text-[9px] font-mono uppercase tracking-wider mb-2" style={{ color: C.muted }}>Execution history</div>
+          <div className="space-y-2">
+            {(task.execution_log || []).length === 0 && (
+              <div className="text-[10px] font-mono" style={{ color: C.muted }}>No history yet.</div>
+            )}
+            {(task.execution_log || []).slice().reverse().map((entry, idx) => (
+              <div key={`${entry.timestamp}-${idx}`} className="rounded-lg border px-3 py-2"
+                style={{ borderColor: 'rgba(255,255,255,0.06)', background: 'rgba(255,255,255,0.02)' }}>
+                <div className="flex items-center justify-between gap-2 mb-1">
+                  <span className="text-[9px] font-mono uppercase tracking-wider" style={{ color: C.tertiary }}>
+                    {entry.event_type || entry.level}
+                  </span>
+                  <span className="text-[9px] font-mono" style={{ color: C.muted }}>{relTime(entry.timestamp)}</span>
+                </div>
+                <div className="text-[11px] leading-relaxed" style={{ color: C.primary }}>{entry.message}</div>
+                {(entry.runtime_id || entry.model_used || entry.actor) && (
+                  <div className="mt-1 text-[9px] font-mono" style={{ color: C.muted }}>
+                    {[entry.actor, entry.runtime_id, entry.model_used].filter(Boolean).join(' · ')}
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
         </div>
       </div>
     </div>
@@ -295,19 +380,25 @@ export default function TasksPage() {
   const [error, setError]           = useState('');
 
   const load = useCallback(async () => {
-    setLoading(true);
+    setLoading(prev => prev && tasks.length === 0);
     setError('');
     try {
       const r = await listTasks({ limit: 200 });
-      setTasks(r.data.tasks || []);
+      const nextTasks = r.data.tasks || [];
+      setTasks(nextTasks);
+      setSelected(prev => prev ? nextTasks.find(t => t.task_id === prev.task_id) || null : null);
     } catch (e) {
       setError(fmtErr(e));
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [tasks.length]);
 
   useEffect(() => { load(); }, [load]);
+  useEffect(() => {
+    const timer = setInterval(() => { load(); }, 5000);
+    return () => clearInterval(timer);
+  }, [load]);
 
   // Agents derived from task data
   const agents = [...new Set(tasks.map(t => t.agent_id).filter(Boolean))];
@@ -329,11 +420,19 @@ export default function TasksPage() {
   async function handleRetry(taskId) {
     const r = await retryTask(taskId);
     setTasks(prev => prev.map(t => t.task_id === taskId ? r.data.task : t));
+    if (selected?.task_id === taskId) setSelected(r.data.task);
   }
 
   async function handleEscalate(taskId) {
     const r = await escalateTask(taskId);
     setTasks(prev => prev.map(t => t.task_id === taskId ? r.data.task : t));
+    if (selected?.task_id === taskId) setSelected(r.data.task);
+  }
+
+  async function handleComment(taskId, body) {
+    const r = await addTaskComment(taskId, { body });
+    setTasks(prev => prev.map(t => t.task_id === taskId ? r.data.task : t));
+    if (selected?.task_id === taskId) setSelected(r.data.task);
   }
 
   const openCount = tasks.filter(t => t.status !== 'done').length;
@@ -468,6 +567,7 @@ export default function TasksPage() {
           onStatusChange={handleStatusChange}
           onRetry={handleRetry}
           onEscalate={handleEscalate}
+          onComment={handleComment}
         />
       )}
     </div>

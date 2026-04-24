@@ -1,22 +1,23 @@
 {
   "schema_version": "1",
-  "session_id": "retrofit-ai-system-2026-04-01",
-  "status": "done",
-  "last_updated": "2026-04-01T19:25:00Z",
-  "next_step": null,
+  "session_id": "multica-workflow-retrofit-2026-04-24",
+  "status": "in_progress",
+  "last_updated": "2026-04-24T22:55:00Z",
+  "next_step": "Resolve the pre-existing router baseline failure and run the full suite; then manually verify the task board flow in the browser.",
   "completed_steps": [
-    "repo-inspection", "bootstrap-state", "gitignore-update",
-    "root-claude-md", "local-claude-mds", "skills-system",
-    "hooks-guardrails", "changelog-enforcement", "github-actions-ci",
-    "multi-agent-orchestration", "auto-resume-system", "openclaw-integration",
-    "docs-architecture", "docs-runbooks", "docs-adrs",
-    "pr-template-codeowners", "self-test-verification"
+    "audit-multica-gap",
+    "test-first-task-workflow",
+    "task-lifecycle-service",
+    "runtime-aware-task-execution",
+    "automation-task-unification",
+    "tasks-ui-history-comments",
+    "targeted-regression-verification",
+    "changelog-update"
   ],
   "tests_run": [
-    "py_compile scripts/ai_runner.py — PASS",
-    "ai_runner.py manifest — PASS",
-    "ai_runner.py audit — PASS",
-    "ai_runner.py changelog-check — PASS",
-    "ai_runner.py test-resume (isolated) — PASS"
+    "./.venv/bin/python -m pytest -x tests/test_tasks_workflow.py — PASS",
+    "./.venv/bin/python -m pytest -x tests/test_tasks_workflow.py tests/test_tasks.py tests/test_scheduler.py tests/test_playbook.py — PASS",
+    "./.venv/bin/python -m pytest -x tests/test_features_api.py tests/test_agent_api.py tests/test_tasks.py tests/test_scheduler.py tests/test_playbook.py tests/test_tasks_workflow.py — PASS",
+    "./.venv/bin/python -m pytest -x — FAIL (pre-existing failure in tests/test_model_router.py::test_claude_opus_maps_to_reasoning_model)"
   ]
 }

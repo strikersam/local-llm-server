@@ -153,6 +153,24 @@ class TaskStore:
 
         return [Task.model_validate(d) for d in docs]
 
+    async def list_pending(self, *, limit: int = 50) -> list[Task]:
+        """Return tasks queued for agent execution."""
+        if self._mode == "mongo":
+            cursor = self._collection.find(
+                {"pending_agent_run": True, "status": {"$in": [TaskStatus.TODO.value, TaskStatus.IN_PROGRESS.value]}},
+                {"_id": 0},
+            ).sort("updated_at", 1).limit(limit)
+            docs = await cursor.to_list(length=limit)
+        else:
+            docs = [
+                value for value in self._mem.values()
+                if value.get("pending_agent_run") is True
+                and value.get("status") in {TaskStatus.TODO.value, TaskStatus.IN_PROGRESS.value}
+            ]
+            docs.sort(key=lambda d: d.get("updated_at", d.get("created_at", 0)))
+            docs = docs[:limit]
+        return [Task.model_validate(d) for d in docs]
+
     async def count_for_user(self, owner_id: str) -> dict[str, int]:
         """Return counts per status for a user's tasks."""
         if self._mode == "mongo":

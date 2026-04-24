@@ -64,6 +64,7 @@ class PlaybookRun:
     started_at: str
     finished_at: str | None = None
     step_results: list[dict[str, Any]] = field(default_factory=list)
+    created_task_ids: list[str] = field(default_factory=list)
     status: str = "pending"  # pending | running | done | failed
 
     def as_dict(self) -> dict[str, Any]:
@@ -74,6 +75,7 @@ class PlaybookRun:
             "started_at": self.started_at,
             "finished_at": self.finished_at,
             "step_results": self.step_results,
+            "created_task_ids": self.created_task_ids,
             "status": self.status,
         }
 
@@ -190,10 +192,12 @@ class PlaybookLibrary:
         run_id: str,
         step_results: list[dict[str, Any]],
         *,
+        created_task_ids: list[str] | None = None,
         status: str = "done",
     ) -> PlaybookRun:
         run = self._runs[run_id]
         run.step_results = step_results
+        run.created_task_ids = list(created_task_ids or run.created_task_ids)
         run.finished_at = _now()
         run.status = status
         return run

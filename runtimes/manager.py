@@ -164,6 +164,7 @@ def _build_default_manager() -> RuntimeManager:
     from runtimes.adapters.goose import GooseAdapter
     from runtimes.adapters.openhands import OpenHandsAdapter
     from runtimes.adapters.aider import AiderAdapter
+    from runtimes.adapters.internal_agent import InternalAgentAdapter
 
     policy = RoutingPolicy(
         never_use_paid_providers=os.environ.get("RUNTIME_NEVER_PAID", "true").lower() == "true",
@@ -178,6 +179,7 @@ def _build_default_manager() -> RuntimeManager:
         },
     )
     mgr = RuntimeManager(policy=policy)
+    mgr.register(InternalAgentAdapter())
     mgr.register(HermesAdapter())
     mgr.register(OpenCodeAdapter())
     mgr.register(GooseAdapter())

@@ -1,6 +1,6 @@
-# NEXT ACTION — AI Engineering Retrofit
+# NEXT ACTION — Multica Workflow Follow-Up
 
-**Session:** `repo-ai-retrofit` (2026-04-01)
+**Session:** `multica-workflow-retrofit` (2026-04-24)
 **Resume command:** `python scripts/ai_runner.py resume`
 **Status file:** `.claude/state/agent-state.json`
 **Checkpoint log:** `.claude/state/checkpoint.jsonl`
@@ -9,40 +9,31 @@
 
 ## Current Objective
 
-Retrofit `local-llm-server` into a repo-native AI engineering system with:
-durable memory, reusable skills, deterministic hooks, mandatory tests + changelog
-enforcement, multi-agent orchestration, OpenClaw integration, and auto-resume.
+Close the remaining gap between the new Multica-style task workflow and the live product:
+verify UI behavior manually, decide whether to add SSE/WebSocket updates, and address the
+pre-existing unrelated router test failure before a full green suite.
 
 ---
 
 ## Completed Steps
 
-- [x] Repo inspection (stack: Python 3.13, FastAPI, pytest, ollama proxy)
-- [x] Directory scaffold created
-- [x] Bootstrap state files written
-- [x] `.gitignore` updated (allow `.claude/` project files)
-- [x] Root `CLAUDE.md` created
-- [x] Local `CLAUDE.md` for `agent/`, `router/`
-- [x] `.claude/skills/` — all 10 required skills
-- [x] `.claude/hooks/` — pre-commit, pre-push, commit-msg (blocking)
-- [x] `.githooks/` upgraded (soft→hard changelog check)
-- [x] GitHub Actions CI workflow
-- [x] GitHub Actions changelog-check workflow
-- [x] `.github/PULL_REQUEST_TEMPLATE.md`
-- [x] `.github/CODEOWNERS`
-- [x] `.claude/agents/` — planner, implementer, reviewer, judge personas
-- [x] `scripts/ai_runner.py` — auto-resume watchdog
-- [x] `docs/architecture/` — overview, agent-orchestration
-- [x] `docs/runbooks/` — auto-resume, release
-- [x] `docs/adrs/` — 3 ADRs
-- [x] `docs/admin/github-branch-protection.md`
+- [x] Audit current task/agent/runtime/scheduler/frontend gaps against the requested Multica behavior
+- [x] Add lifecycle-focused workflow tests (`tests/test_tasks_workflow.py`)
+- [x] Implement task lifecycle service with real transition rules, review/block semantics, and threaded comments
+- [x] Route task execution through runtime-aware coordinator with agent-definition binding
+- [x] Unify scheduler and playbook runs through task creation
+- [x] Update Tasks UI to show comments, execution history, and actual runtime/model details
+- [x] Update changelog and targeted regression coverage
 
 ## Next Step
 
-- [ ] **Step 17 — Self-test & verification**
-  - Run `pytest` to ensure all tests still pass
-  - Run hook simulation
-  - Verify `scripts/ai_runner.py` checkpoint/resume cycle
+- [ ] Run the full test suite after resolving the existing router baseline failure in `tests/test_model_router.py`
+- [ ] Manually verify the task board flow in the browser:
+  - create an agent with runtime + model
+  - create a task in each lane
+  - comment on an in-review task and confirm it re-queues
+  - trigger a scheduler job and confirm a real task appears
+- [ ] Decide whether to add SSE/WebSocket delivery for task updates instead of polling
 
 ## If Interrupted
 
