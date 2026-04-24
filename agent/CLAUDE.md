@@ -83,14 +83,6 @@ AGENT_VERIFIER_MODEL  Default: deepseek-r1:32b
 
 Override these in `.env` for testing without large models.
 
-## Provider Support (OpenAI-compatible)
-
-`AgentRunner` can target any OpenAI-compatible endpoint (`/v1/chat/completions`) by passing:
-- `provider_headers` (e.g. `Authorization: Bearer ...`) for hosted providers
-- `provider_temperature` to control sampling when the backend supports it
-
-Step results include `observations` (tool calls/results) to support the Web UI’s “tool usage” timeline.
-
 ---
 
 ## Skills to Use When Modifying This Package

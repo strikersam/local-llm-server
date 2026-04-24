@@ -151,13 +151,7 @@ if (-not $ngrokExe) {
     Get-Process -Name "ngrok" -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
     Start-Sleep -Milliseconds 500
 
-    $ngrokArgs = @("http", "$($env:PROXY_PORT)", "--log=stderr")
-    if ($env:NGROK_DOMAIN) {
-        $ngrokArgs += "--url=$($env:NGROK_DOMAIN)"
-    }
-
-    $ngrokProc = Start-Process -FilePath $ngrokExe `
-        -ArgumentList $ngrokArgs `
+    $ngrokProc = Start-Process -FilePath "$SCRIPT_DIR\run_tunnel.bat" `
         -WorkingDirectory $SCRIPT_DIR `
         -RedirectStandardOutput "$LOG_DIR\tunnel.log" `
         -RedirectStandardError  "$LOG_DIR\tunnel-err.log" `
@@ -168,25 +162,15 @@ if (-not $ngrokExe) {
     for ($i = 1; $i -le 15; $i++) {
         Start-Sleep -Seconds 1
         try {
-            $listener = Get-NetTCPConnection -LocalPort 4040 -State Listen -ErrorAction Stop | Select-Object -First 1
-            if ($listener) {
-                try {
-                    $apiResp = Invoke-RestMethod -Uri "http://localhost:4040/api/tunnels" -TimeoutSec 3 -ErrorAction Stop
-                    $https = $apiResp.tunnels | Where-Object { $_.public_url -like "https://*" } | Select-Object -First 1
-                    if ($https) {
-                        $tunnelUrl = $https.public_url
-                        # Persist as PUBLIC_URL so admin UI and proxy reflect it immediately
-                        [System.Environment]::SetEnvironmentVariable("PUBLIC_URL", $tunnelUrl, "Process")
-                    }
-                } catch {}
+            $apiResp = Invoke-RestMethod -Uri "http://localhost:4040/api/tunnels" -TimeoutSec 2 -ErrorAction Stop
+            $https = $apiResp.tunnels | Where-Object { $_.public_url -like "https://*" } | Select-Object -First 1
+            if ($https) {
+                $tunnelUrl = $https.public_url
+                # Persist as PUBLIC_URL so admin UI and proxy reflect it immediately
+                [System.Environment]::SetEnvironmentVariable("PUBLIC_URL", $tunnelUrl, "Process")
                 break
             }
         } catch {}
-    }
-
-    if (-not (Get-NetTCPConnection -LocalPort 4040 -State Listen -ErrorAction SilentlyContinue | Select-Object -First 1)) {
-        Write-Host "[FAIL] Tunnel did not become ready. Check $LOG_DIR\tunnel-err.log" -ForegroundColor Red
-        exit 1
     }
 
     Write-Host "[OK] Tunnel started (PID $($ngrokProc.Id))" -ForegroundColor Green
@@ -201,7 +185,7 @@ if (-not $ngrokExe) {
         }
         Write-Host ""
     } else {
-        Write-Host "  (Tunnel API listener is up; public URL not fetched yet)" -ForegroundColor Gray
+        Write-Host "  Could not detect URL yet - check Admin UI or http://localhost:4040" -ForegroundColor Yellow
     }
 }
 

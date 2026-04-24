@@ -1,0 +1,58 @@
+#!/usr/bin/env sh
+# commit-msg — enforce changelog update on meaningful commits
+#
+# Rejects commits with code/config changes but no docs/changelog.md update,
+# UNLESS the commit subject starts with an exempt prefix.
+#
+# Exempt prefixes (no changelog required):
+#   chore:  docs:  style:  ci:  test:  revert:  build:  wip:
+#
+# Activate with: git config core.hooksPath .claude/hooks
+
+COMMIT_MSG_FILE="$1"
+COMMIT_MSG=$(head -1 "$COMMIT_MSG_FILE")
+
+RED='\033[0;31m'
+GRN='\033[0;32m'
+RST='\033[0m'
+
+# ── Exempt prefixes ────────────────────────────────────────────────────────────
+
+case "$COMMIT_MSG" in
+    chore:*|docs:*|style:*|ci:*|test:*|revert:*|build:*|wip:*|Merge*)
+        exit 0
+        ;;
+esac
+
+# ── Check if any meaningful code was staged ───────────────────────────────────
+
+CODE_STAGED=$(git diff --cached --name-only | grep -cE '\.(py|sh|ps1|bat|yaml|yml|json|toml)$' 2>/dev/null || echo "0")
+
+if [ "$CODE_STAGED" -eq 0 ]; then
+    exit 0
+fi
+
+# ── Check if changelog was staged ─────────────────────────────────────────────
+
+CHANGELOG_STAGED=$(git diff --cached --name-only | grep -c 'docs/changelog\.md' 2>/dev/null || echo "0")
+
+if [ "$CHANGELOG_STAGED" -eq 0 ]; then
+    printf "\n${RED}[commit-msg] BLOCKED: No docs/changelog.md update staged.${RST}\n"
+    echo ""
+    echo "  This commit changes code but docs/changelog.md was not updated."
+    echo ""
+    echo "  Options:"
+    echo "    1. Add a changelog entry under [Unreleased] in docs/changelog.md"
+    echo "       and re-stage it with: git add docs/changelog.md"
+    echo ""
+    echo "    2. If this is a chore/doc/style/ci/test change, prefix your commit:"
+    echo "       git commit -m 'chore: your message'"
+    echo "       git commit -m 'test: your message'"
+    echo "       git commit -m 'ci: your message'"
+    echo ""
+    echo "  See: .claude/skills/changelog-enforcer/SKILL.md"
+    echo ""
+    exit 1
+fi
+
+exit 0

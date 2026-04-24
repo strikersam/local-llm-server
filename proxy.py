@@ -128,6 +128,15 @@ logging.basicConfig(
 )
 log = logging.getLogger("qwen-proxy")
 
+_ollama_host = urlsplit(OLLAMA_BASE).hostname or ""
+if _ollama_host not in ("localhost", "127.0.0.1", "::1") and not _ollama_host.endswith(".local"):
+    log.warning(
+        "OLLAMA_BASE=%r is not a local address — LLM calls will route over the network. "
+        "If this is your public tunnel URL (ngrok/cloudflare), the proxy will call itself and fail when the tunnel is offline. "
+        "For local Ollama, set OLLAMA_BASE=http://localhost:11434 in .env.",
+        OLLAMA_BASE,
+    )
+
 if not VALID_API_KEYS and len(KEY_STORE) == 0:
     log.warning(
         "⚠  No API keys configured: set API_KEYS and/or create keys with generate_api_key.py (KEYS_FILE). "
@@ -208,8 +217,14 @@ def verify_api_key(
     authorization: str | None = Header(default=None),
     x_api_key: str | None = Header(default=None, alias="x-api-key"),
 ) -> AuthContext:
-    """Accept both Authorization: Bearer <key> (standard) and x-api-key: <key> (Claude Code)."""
+    """Accept API key from: Bearer token, x-api-key header, or ?api_key= query param (for Claude SDK).
+    
+    For localhost requests, auth is optional (Claude Code runs locally).
+    For remote requests, auth is required.
+    """
     key = ""
+    
+    # Try from headers first
     if x_api_key:
         key = x_api_key.strip()
     elif authorization:
@@ -217,11 +232,38 @@ def verify_api_key(
             key = authorization[7:].strip()
         else:
             key = authorization.strip()
+    
+    # Claude-code SDK doesn't send headers, check query param as fallback
+    if not key:
+        api_key_from_query = request.query_params.get("api_key", "").strip()
+        if api_key_from_query:
+            key = api_key_from_query
+    
+    # Allow unauthenticated access from localhost (Claude Code runs locally)
+    client_host = request.client.host if request.client else ""
+    is_localhost = client_host in ("127.0.0.1", "localhost", "::1", "[::1]")
+    
+    # DEBUG: Log what we received
+    if LOG_LEVEL == "DEBUG":
+        log.debug(f"Auth check: client={client_host}, is_localhost={is_localhost}, key={key[:20] if key else 'EMPTY'}...")
 
     if not key:
+        if is_localhost:
+            # Allow unauthenticated localhost requests (for Claude Code CLI)
+            if LOG_LEVEL == "DEBUG":
+                log.debug("Allowing localhost request without auth (Claude Code CLI)")
+            return AuthContext(
+                key="localhost-stub",
+                email="localhost",
+                department="local-dev",
+                key_id=None,
+                source="localhost",
+            )
+        if LOG_LEVEL == "DEBUG":
+            log.debug(f"DEBUG: No API key found for remote request from {client_host}")
         raise HTTPException(
             status_code=401,
-            detail="Missing API key. Set Authorization: Bearer <key> or x-api-key: <key>",
+            detail="Missing API key.  Set Authorization: Bearer <key> or x-api-key: <key>",
         )
 
     rec = KEY_STORE.lookup_plain_key(key)
@@ -243,7 +285,7 @@ def verify_api_key(
             key_id=None,
             source="legacy",
         )
-    log.warning("Rejected request with invalid API key")
+    log.warning(f"Rejected request with invalid API key from {client_host}: {key[:20]}...")
     raise HTTPException(status_code=403, detail="Invalid API key")
 
 
@@ -324,6 +366,24 @@ def _provider_headers_for_request(secret: object, request: Request, auth: AuthCo
 # ─── App ────────────────────────────────────────────────────────────────────────
 
 app = FastAPI(title="LLM Relay — Control Plane", version="3.0.0", docs_url=None, redoc_url=None)
+
+# DEBUG: Log all incoming requests with headers  
+from starlette.middleware.base import BaseHTTPMiddleware
+from starlette.requests import Request as StarletteRequest
+
+class DebugHeadersMiddleware(BaseHTTPMiddleware):
+    async def dispatch(self, request: StarletteRequest, call_next):
+        if LOG_LEVEL == "DEBUG":
+            path = request.url.path
+            method = request.method
+            auth_header = request.headers.get("authorization", "")
+            x_api_key = request.headers.get("x-api-key", "")
+            log.debug(f"{method} {path} | Authorization: {auth_header[:30] if auth_header else 'NONE'}... | x-api-key: {x_api_key[:20] if x_api_key else 'NONE'}...")
+        response = await call_next(request)
+        return response
+
+if LOG_LEVEL == "DEBUG":
+    app.add_middleware(DebugHeadersMiddleware)
 
 app.add_middleware(
     CORSMiddleware,
@@ -1383,12 +1443,7 @@ async def anthropic_messages(request: Request, auth: AuthContext = Depends(verif
 
 @app.get("/v1/models")
 async def list_models_openai(auth: AuthContext = Depends(verify_api_key)):
-    """List available models — union of live Ollama models, router registry, and Claude aliases.
-
-    Claude aliases (e.g. claude-sonnet-4-6) are included so that Claude Code and
-    other Anthropic SDK clients can discover and select them without manual config.
-    """
-    from router.model_router import _get_model_map
+    """List available models — union of live Ollama models and the router registry."""
     from router.registry import get_registry
     try:
         async with httpx.AsyncClient(timeout=5) as client:
@@ -1411,44 +1466,7 @@ async def list_models_openai(auth: AuthContext = Depends(verify_api_key)):
         for name in registry
         if name not in ollama_set
     ]
-    # Claude/Anthropic model aliases from MODEL_MAP — lets Claude Code and
-    # Anthropic SDK clients discover which model names this proxy accepts.
-    alias_set = set(m["id"] for m in local_entries + registry_only)
-    alias_entries = [
-        {"id": alias, "object": "model", "owned_by": "proxy-alias"}
-        for alias in _get_model_map()
-        if alias not in alias_set
-    ]
-    return {"object": "list", "data": local_entries + registry_only + alias_entries}
-
-
-# ─── iPhone Quick Notes ───────────────────────────────────────────────────────
-
-class QuickNoteRequest(BaseModel):
-    url: str = Field(..., min_length=10, max_length=2048)
-
-
-@app.post("/v1/quick-notes")
-async def quick_note_add(
-    body: QuickNoteRequest,
-    auth: AuthContext = Depends(verify_api_key),
-):
-    note = QUICK_NOTE_QUEUE.add(body.url)
-    log.info("QuickNote added by %s: %s", auth.email, body.url)
-    return note.as_dict()
-
-
-@app.get("/v1/quick-notes")
-async def quick_note_list(auth: AuthContext = Depends(verify_api_key)):
-    notes = QUICK_NOTE_QUEUE.list_all()
-    return {
-        "notes": [n.as_dict() for n in notes],
-        "total": len(notes),
-        "pending": sum(1 for n in notes if n.status == "pending"),
-        "processing": sum(1 for n in notes if n.status == "processing"),
-        "done": sum(1 for n in notes if n.status == "done"),
-        "failed": sum(1 for n in notes if n.status == "failed"),
-    }
+    return {"object": "list", "data": local_entries + registry_only}
 
 
 # ─── Ollama native routes (/api/*) ─────────────────────────────────────────────
