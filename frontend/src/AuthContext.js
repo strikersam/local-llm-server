@@ -32,7 +32,7 @@ export function AuthProvider({ children }) {
     const { data } = await apiLogin(email, password);
     localStorage.setItem('access_token', data.access_token);
     localStorage.setItem('refresh_token', data.refresh_token);
-    setUser({ _id: data._id, email: data.email, name: data.name, role: data.role });
+    setUser({ id: data.id, email: data.email, name: data.name, role: data.role });
     return data;
   };
 

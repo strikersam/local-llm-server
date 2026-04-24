@@ -16,6 +16,7 @@ class TaskStatus(str, Enum):
     IN_REVIEW   = "in_review"
     BLOCKED     = "blocked"
     DONE        = "done"
+    FAILED      = "failed"
 
 
 class TaskPriority(str, Enum):

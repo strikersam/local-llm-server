@@ -187,3 +187,20 @@ class TaskStore:
             docs.sort(key=lambda d: d.get("due_date", 0))
             docs = docs[:20]
         return [Task.model_validate(d) for d in docs]
+
+
+_global_store: TaskStore | None = None
+
+
+def get_task_store() -> TaskStore:
+    """Get or create the global task store instance."""
+    global _global_store
+    if _global_store is None:
+        _global_store = TaskStore()
+    return _global_store
+
+
+def set_task_store(store: TaskStore) -> None:
+    """Set the global task store instance (e.g., during app startup with MongoDB)."""
+    global _global_store
+    _global_store = store

@@ -373,7 +373,7 @@ export default function SetupWizardPage({ onComplete }) {
                   </p>
                   <div className="flex gap-2">
                     <input
-                      className="flex-1 border rounded-lg px-3 py-2 text-sm bg-white"
+                      className="flex-1 border border-gray-300 rounded-lg px-3 py-2 text-base text-gray-900 bg-white focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200 focus:outline-none"
                       value={backendUrlInput}
                       onChange={e => setBackendUrlInput(e.target.value)}
                       placeholder="http://localhost:8000"
@@ -427,7 +427,7 @@ export default function SetupWizardPage({ onComplete }) {
                       <div>
                         <label className="text-sm font-medium text-gray-700">Ollama URL</label>
                         <input
-                          className="w-full mt-1 border rounded-lg px-3 py-2 text-sm"
+                          className="w-full mt-1 border border-gray-300 rounded-lg px-3 py-2 text-base text-gray-900 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200 focus:outline-none"
                           value={ollamaUrl}
                           onChange={e => setOllamaUrl(e.target.value)}
                           placeholder="http://localhost:11434"
@@ -436,7 +436,7 @@ export default function SetupWizardPage({ onComplete }) {
                       <div>
                         <label className="text-sm font-medium text-gray-700">Repository Folder</label>
                         <input
-                          className="w-full mt-1 border rounded-lg px-3 py-2 text-sm font-mono"
+                          className="w-full mt-1 border border-gray-300 rounded-lg px-3 py-2 text-base text-gray-900 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200 focus:outline-none"
                           value={repoPath}
                           onChange={e => setRepoPath(e.target.value)}
                           placeholder="/path/to/local-llm-server"
@@ -446,7 +446,7 @@ export default function SetupWizardPage({ onComplete }) {
                       <div>
                         <label className="text-sm font-medium text-gray-700">Models Folder</label>
                         <input
-                          className="w-full mt-1 border rounded-lg px-3 py-2 text-sm font-mono"
+                          className="w-full mt-1 border border-gray-300 rounded-lg px-3 py-2 text-base text-gray-900 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200 focus:outline-none"
                           value={modelsPath}
                           onChange={e => setModelsPath(e.target.value)}
                           placeholder="/path/to/models"
@@ -466,7 +466,7 @@ export default function SetupWizardPage({ onComplete }) {
                     <div className="ml-8 mb-3">
                       <label className="text-sm font-medium text-gray-700">OpenAI API Key</label>
                       <input
-                        className="w-full mt-1 border rounded-lg px-3 py-2 text-sm"
+                        className="w-full mt-1 border border-gray-300 rounded-lg px-3 py-2 text-base text-gray-900 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200 focus:outline-none"
                         type="password"
                         value={openaiKey}
                         onChange={e => setOpenaiKey(e.target.value)}
@@ -486,7 +486,7 @@ export default function SetupWizardPage({ onComplete }) {
                     <div className="ml-8">
                       <label className="text-sm font-medium text-gray-700">Anthropic API Key</label>
                       <input
-                        className="w-full mt-1 border rounded-lg px-3 py-2 text-sm"
+                        className="w-full mt-1 border border-gray-300 rounded-lg px-3 py-2 text-base text-gray-900 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200 focus:outline-none"
                         type="password"
                         value={anthropicKey}
                         onChange={e => setAnthropicKey(e.target.value)}
@@ -506,7 +506,7 @@ export default function SetupWizardPage({ onComplete }) {
                     <div className="ml-8">
                       <label className="text-sm font-medium text-gray-700">Google AI API Key</label>
                       <input
-                        className="w-full mt-1 border rounded-lg px-3 py-2 text-sm"
+                        className="w-full mt-1 border border-gray-300 rounded-lg px-3 py-2 text-base text-gray-900 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200 focus:outline-none"
                         type="password"
                         value={googleKey}
                         onChange={e => setGoogleKey(e.target.value)}
@@ -526,7 +526,7 @@ export default function SetupWizardPage({ onComplete }) {
                     <div className="ml-8">
                       <label className="text-sm font-medium text-gray-700">Azure OpenAI API Key</label>
                       <input
-                        className="w-full mt-1 border rounded-lg px-3 py-2 text-sm"
+                        className="w-full mt-1 border border-gray-300 rounded-lg px-3 py-2 text-base text-gray-900 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200 focus:outline-none"
                         type="password"
                         value={azureKey}
                         onChange={e => setAzureKey(e.target.value)}
@@ -546,7 +546,7 @@ export default function SetupWizardPage({ onComplete }) {
                     <div className="ml-8">
                       <label className="text-sm font-medium text-gray-700">GitHub Copilot Token</label>
                       <input
-                        className="w-full mt-1 border rounded-lg px-3 py-2 text-sm"
+                        className="w-full mt-1 border border-gray-300 rounded-lg px-3 py-2 text-base text-gray-900 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200 focus:outline-none"
                         type="password"
                         value={copilotKey}
                         onChange={e => setCopilotKey(e.target.value)}
@@ -645,13 +645,13 @@ export default function SetupWizardPage({ onComplete }) {
                 <div className="space-y-3">
                   <div>
                     <label className="text-sm font-medium text-gray-700">Default / Coder Model</label>
-                    <input className="w-full mt-1 border rounded-lg px-3 py-2 text-sm font-mono"
+                    <input className="w-full mt-1 border border-gray-300 rounded-lg px-3 py-2 text-base text-gray-900 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200 focus:outline-none"
                       value={defaultModel} onChange={e => setDefaultModel(e.target.value)}
                       placeholder="qwen3-coder:30b" />
                   </div>
                   <div>
                     <label className="text-sm font-medium text-gray-700">Reviewer Model</label>
-                    <input className="w-full mt-1 border rounded-lg px-3 py-2 text-sm font-mono"
+                    <input className="w-full mt-1 border border-gray-300 rounded-lg px-3 py-2 text-base text-gray-900 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200 focus:outline-none"
                       value={reviewerModel} onChange={e => setReviewerModel(e.target.value)}
                       placeholder="deepseek-r1:32b" />
                   </div>
@@ -691,17 +691,17 @@ export default function SetupWizardPage({ onComplete }) {
                 <div className="space-y-3">
                   <div>
                     <label className="text-sm font-medium text-gray-700">Agent Name</label>
-                    <input className="w-full mt-1 border rounded-lg px-3 py-2 text-sm"
+                    <input className="w-full mt-1 border border-gray-300 rounded-lg px-3 py-2 text-base text-gray-900 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200 focus:outline-none"
                       value={agentName} onChange={e => setAgentName(e.target.value)} />
                   </div>
                   <div>
                     <label className="text-sm font-medium text-gray-700">Model</label>
-                    <input className="w-full mt-1 border rounded-lg px-3 py-2 text-sm font-mono"
+                    <input className="w-full mt-1 border border-gray-300 rounded-lg px-3 py-2 text-base text-gray-900 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200 focus:outline-none"
                       value={agentModel} onChange={e => setAgentModel(e.target.value)} />
                   </div>
                   <div>
                     <label className="text-sm font-medium text-gray-700">Cost Policy</label>
-                    <select className="w-full mt-1 border rounded-lg px-3 py-2 text-sm"
+                    <select className="w-full mt-1 border border-gray-300 rounded-lg px-3 py-2 text-base text-gray-900 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200 focus:outline-none"
                       value={costPolicy} onChange={e => setCostPolicy(e.target.value)}>
                       <option value="local_only">Local only (no cloud costs)</option>
                       <option value="allow_paid">Allow paid escalation</option>
@@ -744,7 +744,7 @@ export default function SetupWizardPage({ onComplete }) {
                     {enableLangfuse && (
                       <div className="ml-6 mt-2">
                         <label className="text-sm font-medium text-gray-700">Langfuse Host</label>
-                        <input className="w-full mt-1 border rounded-lg px-3 py-2 text-sm"
+                        <input className="w-full mt-1 border border-gray-300 rounded-lg px-3 py-2 text-base text-gray-900 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200 focus:outline-none"
                           value={langfuseHost} onChange={e => setLangfuseHost(e.target.value)} />
                         <p className="text-xs text-gray-400 mt-1">Add your Langfuse API keys in Settings → Secrets after setup.</p>
                       </div>

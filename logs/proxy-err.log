@@ -1,0 +1,5 @@
+2026-04-01 22:43:56,987 [INFO] Admin: POST /admin/keys (API) and browser UI at /admin/ui/login (session after login)
+INFO:     Started server process [29949]
+INFO:     Waiting for application startup.
+INFO:     Application startup complete.
+INFO:     Uvicorn running on http://0.0.0.0:8000 (Press CTRL+C to quit)

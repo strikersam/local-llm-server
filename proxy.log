@@ -1,0 +1,106 @@
+INFO:     Will watch for changes in these directories: ['/Users/swaminathan.balasub/Desktop/Syncthing/local-llm-server']
+INFO:     Uvicorn running on http://127.0.0.1:8000 (Press CTRL+C to quit)
+INFO:     Started reloader process [98076] using WatchFiles
+2026-04-24 22:32:51,465 [INFO] Admin: POST /admin/keys (API) and browser UI at /admin/ui/login (session after login)
+2026-04-24 22:32:51,490 [INFO] AgentSessionStore loaded 123 session(s) from .data/agent.db
+2026-04-24 22:32:51,492 [INFO] Indexed 11 local skills from .claude/skills
+2026-04-24 22:32:51,492 [INFO] pyaudio not installed — microphone recording unavailable (pip install pyaudio)
+2026-04-24 22:32:51,492 [INFO] Browser automation disabled (set BROWSER_AUTOMATION_ENABLED=true to enable)
+2026-04-24 22:32:51,492 [INFO] QuickNote processor started (interval=4h, branch=master)
+2026-04-24 22:32:51,517 [INFO] ArtifactStore ready: root=.data/workflow/artifacts db=.data/workflow/workflow.db
+2026-04-24 22:32:51,517 [INFO] AgentSwarm ready | coder=qwen3-coder:30b | reviewer=deepseek-r1:32b
+2026-04-24 22:32:51,517 [INFO] Loaded 0 workflow run(s) from DB
+2026-04-24 22:32:51,517 [INFO] WorkflowEngine ready: base=http://127.0.0.1:11434 db=.data/workflow/workflow.db runs=0 swarm=yes
+2026-04-24 22:32:51,527 [INFO] CRISPY WorkflowEngine mounted at /workflow/*
+2026-04-24 22:32:51,529 [INFO] Runtime layer mounted at /runtimes/*
+2026-04-24 22:32:51,535 [INFO] Task system mounted at /api/tasks/*
+2026-04-24 22:32:51,537 [INFO] Agent profiles mounted at /api/agents/*
+2026-04-24 22:32:51,537 [INFO] Hardware detection mounted at /api/hardware/*
+2026-04-24 22:32:51,539 [INFO] Secrets store mounted at /api/secrets/*
+2026-04-24 22:32:51,541 [INFO] V3 JWT auth mounted at /api/auth/*
+2026-04-24 22:32:51,545 [INFO] V3 Models & Providers mounted at /api/models/*, /api/providers/*, /api/stats, /api/activity
+2026-04-24 22:32:51,546 [INFO] Social auth (OAuth) mounted at /api/social/*
+2026-04-24 22:32:51,548 [INFO] Setup wizard mounted at /api/setup/* (public — no API key required)
+2026-04-24 22:32:51,551 [INFO] Direct Chat mounted at /api/chat/* (requires JWT token)
+2026-04-24 22:32:51,552 [INFO] Cost insights mounted at /api/observability/*
+2026-04-24 22:32:51,556 [INFO] GitHub integration mounted at /api/github/*
+2026-04-24 22:32:51,559 [INFO] Workspace sync mounted at /api/sync/*
+INFO:     Started server process [98079]
+INFO:     Waiting for application startup.
+2026-04-24 22:32:51,606 [WARNING] TaskStore: running in in-memory mode (no MongoDB). Data will be lost on restart.
+2026-04-24 22:32:51,606 [INFO] Task dispatcher started in background
+2026-04-24 22:32:51,608 [INFO] Registered runtime hermes (tier=first_class)
+2026-04-24 22:32:51,608 [INFO] Registered runtime opencode (tier=first_class)
+2026-04-24 22:32:51,608 [INFO] Registered runtime goose (tier=tier_2)
+2026-04-24 22:32:51,608 [INFO] Registered runtime aider (tier=tier_3)
+2026-04-24 22:32:51,608 [INFO] RuntimeHealthService started (interval=30s)
+2026-04-24 22:32:51,608 [INFO] RuntimeManager started with 4 runtime(s)
+2026-04-24 22:32:51,608 [INFO] RuntimeManager started (4 runtimes registered)
+2026-04-24 22:32:51,608 [INFO] TaskDispatcher started (poll_interval=10.0s, workspace=/Users/swaminathan.balasub/Desktop/Syncthing/local-llm-server)
+INFO:     Application startup complete.
+/Users/swaminathan.balasub/Desktop/Syncthing/local-llm-server/.venv/lib/python3.12/site-packages/jwt/api_jwt.py:365: InsecureKeyLengthWarning: The HMAC key is 21 bytes long, which is below the minimum recommended length of 32 bytes for SHA256. See RFC 7518 Section 3.2.
+  decoded = self.decode_complete(
+INFO:     127.0.0.1:65215 - "POST /api/tasks/ HTTP/1.1" 201 Created
+2026-04-24 22:33:11,612 [INFO] Executing task task_714b9005b7046452: Test Task 3 - Final
+2026-04-24 22:33:11,628 [INFO] HTTP Request: GET http://127.0.0.1:11434/api/tags "HTTP/1.1 200 OK"
+2026-04-24 22:33:11,628 [WARNING] ModelRouter: preferred model 'deepseek-r1:32b' not available in Ollama (task=reasoning, requested=None) — trying fallback chain
+2026-04-24 22:33:11,628 [INFO] ModelRouter: using fallback model 'gemma4:27b'
+2026-04-24 22:33:11,646 [INFO] HTTP Request: POST http://127.0.0.1:11434/v1/chat/completions "HTTP/1.1 404 Not Found"
+2026-04-24 22:33:11,647 [ERROR] Task task_714b9005b7046452 failed: Client error '404 Not Found' for url 'http://127.0.0.1:11434/v1/chat/completions'
+For more information check: https://developer.mozilla.org/en-US/docs/Web/HTTP/Status/404
+Traceback (most recent call last):
+  File "/Users/swaminathan.balasub/Desktop/Syncthing/local-llm-server/tasks/dispatcher.py", line 72, in _execute_task
+    result = await runner.run(
+             ^^^^^^^^^^^^^^^^^
+  File "/Users/swaminathan.balasub/Desktop/Syncthing/local-llm-server/agent/loop.py", line 95, in run
+    plan = await self._generate_plan(
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/swaminathan.balasub/Desktop/Syncthing/local-llm-server/agent/loop.py", line 160, in _generate_plan
+    raw = await self._chat_json(planner_model, messages)
+          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/swaminathan.balasub/Desktop/Syncthing/local-llm-server/agent/loop.py", line 536, in _chat_json
+    raw = await self._chat_text(model, messages)
+          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/swaminathan.balasub/Desktop/Syncthing/local-llm-server/agent/loop.py", line 505, in _chat_text
+    resp.raise_for_status()
+  File "/Users/swaminathan.balasub/Desktop/Syncthing/local-llm-server/.venv/lib/python3.12/site-packages/httpx/_models.py", line 829, in raise_for_status
+    raise HTTPStatusError(message, request=request, response=self)
+httpx.HTTPStatusError: Client error '404 Not Found' for url 'http://127.0.0.1:11434/v1/chat/completions'
+For more information check: https://developer.mozilla.org/en-US/docs/Web/HTTP/Status/404
+2026-04-24 22:33:11,648 [ERROR] TaskDispatcher error: "Task" object has no field "error"
+Traceback (most recent call last):
+  File "/Users/swaminathan.balasub/Desktop/Syncthing/local-llm-server/tasks/dispatcher.py", line 72, in _execute_task
+    result = await runner.run(
+             ^^^^^^^^^^^^^^^^^
+  File "/Users/swaminathan.balasub/Desktop/Syncthing/local-llm-server/agent/loop.py", line 95, in run
+    plan = await self._generate_plan(
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/swaminathan.balasub/Desktop/Syncthing/local-llm-server/agent/loop.py", line 160, in _generate_plan
+    raw = await self._chat_json(planner_model, messages)
+          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/swaminathan.balasub/Desktop/Syncthing/local-llm-server/agent/loop.py", line 536, in _chat_json
+    raw = await self._chat_text(model, messages)
+          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/swaminathan.balasub/Desktop/Syncthing/local-llm-server/agent/loop.py", line 505, in _chat_text
+    resp.raise_for_status()
+  File "/Users/swaminathan.balasub/Desktop/Syncthing/local-llm-server/.venv/lib/python3.12/site-packages/httpx/_models.py", line 829, in raise_for_status
+    raise HTTPStatusError(message, request=request, response=self)
+httpx.HTTPStatusError: Client error '404 Not Found' for url 'http://127.0.0.1:11434/v1/chat/completions'
+For more information check: https://developer.mozilla.org/en-US/docs/Web/HTTP/Status/404
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/Users/swaminathan.balasub/Desktop/Syncthing/local-llm-server/tasks/dispatcher.py", line 43, in run_forever
+    await self._poll_and_execute()
+  File "/Users/swaminathan.balasub/Desktop/Syncthing/local-llm-server/tasks/dispatcher.py", line 58, in _poll_and_execute
+    await self._execute_task(task)
+  File "/Users/swaminathan.balasub/Desktop/Syncthing/local-llm-server/tasks/dispatcher.py", line 88, in _execute_task
+    task.error = str(exc)
+    ^^^^^^^^^^
+  File "/Users/swaminathan.balasub/Desktop/Syncthing/local-llm-server/.venv/lib/python3.12/site-packages/pydantic/main.py", line 1048, in __setattr__
+    elif (setattr_handler := self._setattr_handler(name, value)) is not None:
+                             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/swaminathan.balasub/Desktop/Syncthing/local-llm-server/.venv/lib/python3.12/site-packages/pydantic/main.py", line 1095, in _setattr_handler
+    raise ValueError(f'"{cls.__name__}" object has no field "{name}"')
+ValueError: "Task" object has no field "error"

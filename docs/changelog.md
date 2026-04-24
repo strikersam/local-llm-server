@@ -8,7 +8,17 @@
 
 ## [Unreleased]
 
+### Added
+- **V3 API Authentication (`tokens.py`, `handlers/v3_auth.py`)** — JWT-based auth system for v3 dashboard. `/api/auth/login` accepts email/password, returns `access_token` (1h) + `refresh_token` (7d). `/api/auth/me` returns current user. `/api/auth/refresh` refreshes access token. `/api/auth/logout` (stateless). Uses HS256 algorithm with `V3_JWT_SECRET` env var. Coexists with existing `/admin/*` session-based auth. Full test coverage in `tests/test_v3_auth.py` (13 tests).
+- **V3 API Models & Providers (`handlers/v3_models.py`)** — `/api/models` lists all models (Ollama + registry). `/api/models/{name}` gets model details. `/api/models/pull` pulls a model from Ollama. `/api/models/{name}/delete` deletes a model. `/api/providers` lists available providers (Ollama local). `/api/stats` returns system stats (CPU, memory, disk, model counts). `/api/activity` returns activity log (stub, returns sample data). All endpoints require V3 JWT authentication.
+- **Task Auto-Execution Dispatcher (`tasks/dispatcher.py`)** — Background service that polls task store every 10s for TODO tasks and auto-executes them via AgentRunner. Implements multi-agent pattern: polls up to 5 tasks at once, executes each with status tracking (TODO → IN_PROGRESS → DONE/FAILED), stores result in task object. `TaskDispatcher` class with `run_forever()` async loop, integrated into proxy startup/shutdown. Dispatcher uses global `TaskStore` singleton shared with task API.
+- **Task Status FAILED** — Added `TaskStatus.FAILED` enum value to complement existing TODO, IN_PROGRESS, IN_REVIEW, BLOCKED, DONE statuses.
+
 ### Fixed
+- **Setup wizard backend connection**: Added `/api/health` endpoint with proper CORS headers and OPTIONS handler so setup wizard can test connectivity to backend at http://localhost:8000. Endpoint returns 200 OK with available models list.
+- **V3 frontend login error**: Fixed frontend configuration where `REACT_APP_BACKEND_URL` wasn't set, causing axios requests to fail (requests were going to localhost:3000 instead of localhost:8000). Properly configure env var on frontend startup.
+- **AuthContext bug**: Fixed `AuthContext.js` login handler which was accessing `data._id` instead of `data.id`, causing user object to have undefined id field. Matches LoginResponse model which returns `id` field.
+- **V3 auth password configuration**: Added `V3_ADMIN_PASSWORD` env var support to `handlers/v3_auth.py`. Falls back to `ADMIN_SECRET` for backward compatibility. Updated `.env` to use configurable password separate from API key secret.
 - **Setup wizard API key storage error (404)**: Added `/api/setup/secret` endpoint and updated `SetupWizardPage.js` to use it instead of the auth-protected `/api/secrets/` endpoint. Allows storing API keys during setup when users may not have full authentication yet (especially when accessing from GitHub Pages).
 - **GitHub Pages build error**: Removed duplicate `export const getMe` declaration in `frontend/src/api.js` (lines 63 and 193) that was blocking the GitHub Pages deploy workflow. The v3 dashboard is now live.
 - Add `psutil>=5.9.0`, `pytest-asyncio>=0.23.0`, and `cryptography>=41.0.0` to `requirements.txt` so CI installs all test dependencies.

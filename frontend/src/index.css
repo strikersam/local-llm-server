@@ -68,9 +68,18 @@ a:hover { color: var(--accent-hover); }
 
 input, textarea, select {
   font-family: inherit;
-  font-size: 14px;
+  font-size: 15px;
+  color: #1f2937;
   -webkit-appearance: none;
   appearance: none;
+}
+
+input::placeholder, textarea::placeholder {
+  color: #9ca3af;
+}
+
+input:focus, textarea:focus, select:focus {
+  outline: none;
 }
 
 /* ── Animations ─────────────────────────────────────────────────────── */

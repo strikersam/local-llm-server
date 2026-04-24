@@ -20,7 +20,7 @@ from tasks.models import (
     CommentAddRequest,
     ApprovalRequest,
 )
-from tasks.store import TaskStore
+from tasks.store import TaskStore, get_task_store
 
 log = logging.getLogger("qwen-proxy")
 
@@ -37,12 +37,8 @@ def _get_user(request: Request) -> Any:
 
 
 def _get_store(request: Request) -> TaskStore:
-    store = getattr(request.app.state, "task_store", None)
-    if store is None:
-        # Lazily create in-memory store if not initialised
-        request.app.state.task_store = TaskStore()
-        return request.app.state.task_store
-    return store
+    # Use the global task store (shared with dispatcher)
+    return get_task_store()
 
 
 def _is_admin(user: Any) -> bool:

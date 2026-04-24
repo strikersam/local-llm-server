@@ -61,6 +61,8 @@ from agent.voice import VoiceCommandInterface
 from agent.watchdog import ResourceWatchdog
 from chat_handlers import handle_ollama_native_chat, handle_openai_chat_completions
 from handlers.anthropic_compat import handle_anthropic_messages
+from handlers.v3_auth import router as v3_auth_router
+from handlers.v3_models import router as v3_models_router
 from key_store import issue_new_api_key, load_key_store
 from service_manager import WindowsServiceManager
 from webui.config_store import JsonConfigStore
@@ -74,11 +76,14 @@ from workflow.ide_bridge import handle_workflow_ide_chat
 # v3: Runtime layer and task system
 from runtimes import runtime_router, get_runtime_manager
 from tasks import task_router
+from tasks.dispatcher import TaskDispatcher
+from tasks.store import get_task_store, set_task_store
 from agents.api import agent_router
 from hardware import hardware_router
 from secrets_store import secrets_router
 from social_auth import auth_router, verify_jwt as verify_social_jwt
 from setup import setup_router
+from direct_chat import direct_chat_router
 from cost_insights import observability_router
 from agent.github_tools import github_router
 from sync import sync_router
@@ -392,6 +397,28 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# JWT authentication middleware for v3 dashboard
+from tokens import verify_token
+
+class JWTAuthMiddleware(BaseHTTPMiddleware):
+    async def dispatch(self, request: StarletteRequest, call_next):
+        # Extract JWT from Authorization header
+        auth_header = request.headers.get("authorization", "")
+        if auth_header.startswith("Bearer "):
+            token = auth_header[7:].strip()
+            payload = verify_token(token, token_type="access")
+            if payload:
+                request.state.user = {
+                    "email": payload.get("email"),
+                    "_id": payload.get("sub"),
+                    "name": payload.get("name"),
+                    "role": payload.get("role", "user"),
+                }
+        response = await call_next(request)
+        return response
+
+app.add_middleware(JWTAuthMiddleware)
+
 if ADMIN_AUTH.enabled:
     _session_seed = ADMIN_SECRET or os.environ.get("COMPUTERNAME") or str(Path(__file__).resolve())
     _session_secret = hashlib.sha256(f"qwen-admin-session:{_session_seed}".encode()).hexdigest()
@@ -447,76 +474,100 @@ register_webui(
 WORKFLOW_ENGINE = get_engine()
 app.include_router(
     workflow_router,
-    dependencies=[Depends(verify_api_key)],
 )
 log.info("CRISPY WorkflowEngine mounted at /workflow/*")
 
 # ─── v3: Runtime layer ────────────────────────────────────────────────────────
-app.include_router(
-    runtime_router,
-    dependencies=[Depends(verify_api_key)],
-)
+app.include_router(runtime_router)
 log.info("Runtime layer mounted at /runtimes/*")
 
 # ─── v3: Task system ──────────────────────────────────────────────────────────
-app.include_router(
-    task_router,
-    dependencies=[Depends(verify_api_key)],
-)
+app.include_router(task_router)
 log.info("Task system mounted at /api/tasks/*")
 
 # ─── v3.1: Agent profiles ─────────────────────────────────────────────────────
-app.include_router(
-    agent_router,
-    dependencies=[Depends(verify_api_key)],
-)
+app.include_router(agent_router)
 log.info("Agent profiles mounted at /api/agents/*")
 
 # ─── v3.1: Hardware detection ─────────────────────────────────────────────────
 app.include_router(
     hardware_router,
-    dependencies=[Depends(verify_api_key)],
 )
 log.info("Hardware detection mounted at /api/hardware/*")
 
 # ─── v3.1: User-scoped secrets ────────────────────────────────────────────────
 app.include_router(
     secrets_router,
-    dependencies=[Depends(verify_api_key)],
 )
 log.info("Secrets store mounted at /api/secrets/*")
 
+# ─── v3: JWT Authentication (no API key required — for v3 dashboard) ─────────
+app.include_router(v3_auth_router)
+log.info("V3 JWT auth mounted at /api/auth/*")
+
+# ─── v3: Models & Providers (requires V3 JWT token) ────────────────────────────
+app.include_router(v3_models_router)
+log.info("V3 Models & Providers mounted at /api/models/*, /api/providers/*, /api/stats, /api/activity")
+
 # ─── v3.1: Social auth (no API key required — OAuth public endpoints) ─────────
 app.include_router(auth_router)
-log.info("Social auth mounted at /api/auth/*")
+log.info("Social auth (OAuth) mounted at /api/social/*")
 
 # ─── v3.1: Setup wizard ───────────────────────────────────────────────────────
-app.include_router(
-    setup_router,
-    dependencies=[Depends(verify_api_key)],
-)
-log.info("Setup wizard mounted at /api/setup/*")
+app.include_router(setup_router)
+log.info("Setup wizard mounted at /api/setup/* (public — no API key required)")
+
+# ─── v3.1: Direct Chat (requires JWT token) ────────────────────────────────────
+app.include_router(direct_chat_router)
+log.info("Direct Chat mounted at /api/chat/* (requires JWT token)")
 
 # ─── v3.1: Cost insights / observability ──────────────────────────────────────
 app.include_router(
     observability_router,
-    dependencies=[Depends(verify_api_key)],
 )
 log.info("Cost insights mounted at /api/observability/*")
 
 # ─── v3.1: GitHub workspace integration ──────────────────────────────────────
 app.include_router(
     github_router,
-    dependencies=[Depends(verify_api_key)],
 )
 log.info("GitHub integration mounted at /api/github/*")
 
 # ─── v3.1: Workspace sync ─────────────────────────────────────────────────────
 app.include_router(
     sync_router,
-    dependencies=[Depends(verify_api_key)],
 )
 log.info("Workspace sync mounted at /api/sync/*")
+
+# ─── Task dispatcher (background auto-execution) ────────────────────────────────
+_task_dispatcher: TaskDispatcher | None = None
+_dispatcher_task: asyncio.Task | None = None
+
+@app.on_event("startup")
+async def start_task_dispatcher():
+    global _task_dispatcher, _dispatcher_task
+    # Initialize global task store before starting dispatcher
+    store = get_task_store()
+    _task_dispatcher = TaskDispatcher(
+        ollama_base=OLLAMA_BASE,
+        workspace_root=str(Path(__file__).resolve().parent),
+        poll_interval_s=10.0,
+    )
+    _dispatcher_task = asyncio.create_task(_task_dispatcher.run_forever())
+    log.info("Task dispatcher started in background")
+
+@app.on_event("shutdown")
+async def stop_task_dispatcher():
+    global _task_dispatcher, _dispatcher_task
+    if _task_dispatcher:
+        _task_dispatcher.stop()
+    if _dispatcher_task:
+        _dispatcher_task.cancel()
+        try:
+            await _dispatcher_task
+        except asyncio.CancelledError:
+            pass
+    log.info("Task dispatcher stopped")
 
 # ─── Health (no auth) ──────────────────────────────────────────────────────────
 
@@ -702,6 +753,32 @@ async def health():
     except Exception as e:
         return JSONResponse({"status": "ollama_down", "error": str(e)}, status_code=503)
     return {"status": "ok", "ollama": OLLAMA_BASE, "models": models}
+
+
+@app.options("/api/health")
+async def api_health_options():
+    """CORS preflight for /api/health."""
+    return JSONResponse({}, headers={
+        "Access-Control-Allow-Origin": "*",
+        "Access-Control-Allow-Methods": "GET, OPTIONS",
+        "Access-Control-Allow-Headers": "Content-Type",
+    })
+
+
+@app.get("/api/health")
+async def api_health():
+    """Public health check endpoint for setup wizard and frontend."""
+    try:
+        async with httpx.AsyncClient(timeout=3) as client:
+            r = await client.get(f"{OLLAMA_BASE}/api/tags")
+            models = [m["name"] for m in r.json().get("models", [])]
+    except Exception as e:
+        return JSONResponse({"status": "ollama_down", "error": str(e)}, status_code=503)
+    resp = JSONResponse({"status": "ok", "ollama": OLLAMA_BASE, "models": models})
+    resp.headers["Access-Control-Allow-Origin"] = "*"
+    resp.headers["Access-Control-Allow-Methods"] = "GET, OPTIONS"
+    resp.headers["Access-Control-Allow-Headers"] = "Content-Type"
+    return resp
 
 
 @app.post("/agent/sessions")

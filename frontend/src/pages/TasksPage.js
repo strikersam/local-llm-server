@@ -316,24 +316,24 @@ export default function TasksPage() {
 
   async function handleAdd({ title, status }) {
     const r = await createTask({ title, status, priority: 'medium' });
-    setTasks(prev => [r.data, ...prev]);
+    setTasks(prev => [r.data.task, ...prev]);
     setNewTaskCol(null);
   }
 
   async function handleStatusChange(taskId, status) {
     const r = await updateTask(taskId, { status });
-    setTasks(prev => prev.map(t => t.task_id === taskId ? r.data : t));
-    if (selected?.task_id === taskId) setSelected(r.data);
+    setTasks(prev => prev.map(t => t.task_id === taskId ? r.data.task : t));
+    if (selected?.task_id === taskId) setSelected(r.data.task);
   }
 
   async function handleRetry(taskId) {
     const r = await retryTask(taskId);
-    setTasks(prev => prev.map(t => t.task_id === taskId ? r.data : t));
+    setTasks(prev => prev.map(t => t.task_id === taskId ? r.data.task : t));
   }
 
   async function handleEscalate(taskId) {
     const r = await escalateTask(taskId);
-    setTasks(prev => prev.map(t => t.task_id === taskId ? r.data : t));
+    setTasks(prev => prev.map(t => t.task_id === taskId ? r.data.task : t));
   }
 
   const openCount = tasks.filter(t => t.status !== 'done').length;
