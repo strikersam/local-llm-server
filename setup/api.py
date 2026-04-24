@@ -65,13 +65,21 @@ class Step1Request(BaseModel):
     """Provider setup: which providers to use and their API keys."""
     use_ollama:       bool = True
     ollama_base_url:  str  = "http://localhost:11434"
+    repo_path:        str | None = None   # local-llm-server repo folder
+    models_path:      str | None = None   # Ollama models folder
     use_openai:       bool = False
     use_anthropic:    bool = False
+    use_google:       bool = False
+    use_azure:        bool = False
     use_groq:         bool = False
+    use_copilot:      bool = False
     # Note: API key values are stored via secrets_store, not here
     openai_secret_id:    str | None = None
     anthropic_secret_id: str | None = None
+    google_secret_id:    str | None = None
+    azure_secret_id:     str | None = None
     groq_secret_id:      str | None = None
+    copilot_secret_id:   str | None = None
 
 
 class Step2Request(BaseModel):

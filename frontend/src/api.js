@@ -1,15 +1,29 @@
 import axios from 'axios';
 
+export function getBackendUrl() {
+  return localStorage.getItem('backend_url') || process.env.REACT_APP_BACKEND_URL || '';
+}
+
+export function setBackendUrl(url) {
+  const cleaned = url.replace(/\/$/, '');
+  localStorage.setItem('backend_url', cleaned);
+  API.defaults.baseURL = cleaned;
+}
+
 const API = axios.create({
-  baseURL: process.env.REACT_APP_BACKEND_URL || '',
+  baseURL: getBackendUrl(),
   headers: { 'Content-Type': 'application/json' },
 });
 
-// Attach Bearer token to every request
+// Attach Bearer token and resolve dynamic backend URL on every request
 API.interceptors.request.use((config) => {
   const token = localStorage.getItem('access_token');
   if (token) {
     config.headers.Authorization = `Bearer ${token}`;
+  }
+  // Always use the latest stored backend URL (user may change it in setup wizard)
+  if (!config.baseURL || config.baseURL === '') {
+    config.baseURL = getBackendUrl();
   }
   return config;
 });
