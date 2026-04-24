@@ -35,7 +35,7 @@ from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, Field
 
 from rbac import UserRole, audit, get_user_role, require_admin
-from secrets_store import get_secrets_store
+from secrets_store import get_secrets_store, SecretRecord
 
 log = logging.getLogger("qwen-proxy")
 
@@ -325,11 +325,17 @@ async def store_secret_during_setup(request: Request):
         if not name or not value:
             raise HTTPException(status_code=400, detail="name and value are required")
 
+        user = getattr(request.state, "user", {}) or {}
+        uid = user.get("email") or user.get("_id") or "setup-user"
+
+        rec = SecretRecord(owner_id=uid, name=name, description=description)
+        rec.set_value(value)
+
         store = get_secrets_store()
-        uid = getattr(request.state, "user_id", "setup-user")
-        secret = store.create(uid, name, value, description)
-        audit("setup.secret_created", {"user_id": uid}, resource="secret", resource_id=secret.id)
-        return {"id": secret.id, "name": secret.name}
+        await store.create(rec)
+
+        audit("setup.secret_created", user, resource="secret", resource_id=rec.secret_id)
+        return {"id": rec.secret_id, "name": rec.name}
     except HTTPException:
         raise
     except Exception as e:
