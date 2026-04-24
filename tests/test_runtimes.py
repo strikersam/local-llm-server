@@ -220,9 +220,7 @@ class TestRuntimeRoutingPolicyEngine:
     def test_route_returns_result_and_decision(self):
         engine, _ = self._make_engine()
         spec = TaskSpec(task_id="t1", instruction="do something", task_type="code_generation")
-        result, decision = asyncio.get_event_loop().run_until_complete(
-            engine.route_and_execute(spec)
-        )
+        result, decision = asyncio.run(engine.route_and_execute(spec))
         assert result.success is True
         assert decision.selected_runtime_id == "stub"
         assert decision.task_id == "t1"
@@ -231,12 +229,12 @@ class TestRuntimeRoutingPolicyEngine:
         engine, _ = self._make_engine(health_available=False)
         spec = TaskSpec(task_id="t2", instruction="test", task_type="code_generation")
         with pytest.raises(RuntimeUnavailableError):
-            asyncio.get_event_loop().run_until_complete(engine.route_and_execute(spec))
+            asyncio.run(engine.route_and_execute(spec))
 
     def test_decision_log_populated(self):
         engine, _ = self._make_engine()
         spec = TaskSpec(task_id="t3", instruction="test", task_type="general")
-        asyncio.get_event_loop().run_until_complete(engine.route_and_execute(spec))
+        asyncio.run(engine.route_and_execute(spec))
         log = engine.get_decision_log()
         assert len(log) == 1
         assert log[0]["task_id"] == "t3"
@@ -253,7 +251,7 @@ class TestRuntimeRoutingPolicyEngine:
         engine = RuntimeRoutingPolicyEngine(reg, health, policy=policy)
 
         spec = TaskSpec(task_id="t4", instruction="write code", task_type="code_generation")
-        result, decision = asyncio.get_event_loop().run_until_complete(engine.route_and_execute(spec))
+        result, decision = asyncio.run(engine.route_and_execute(spec))
         assert decision.selected_runtime_id == "stub_t2"
 
 
@@ -327,7 +325,7 @@ class TestAdapterMetadata:
     def test_hermes_health_returns_health_object_when_offline(self):
         from runtimes.adapters.hermes import HermesAdapter
         adapter = HermesAdapter({"base_url": "http://localhost:1"})
-        health = asyncio.get_event_loop().run_until_complete(adapter.health_check())
+        health = asyncio.run(adapter.health_check())
         assert isinstance(health, RuntimeHealth)
         assert health.available is False
         assert health.error is not None
