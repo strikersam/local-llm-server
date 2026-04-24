@@ -23,9 +23,11 @@ Routes:
 
 from __future__ import annotations
 
+import json
 import logging
 import os
 import time
+from pathlib import Path
 from typing import Any
 
 import httpx
@@ -114,14 +116,47 @@ class Step5Request(BaseModel):
     send_anonymous_telemetry:        bool = False
 
 
-# ── In-memory state store ──────────────────────────────────────────────────────
+# ── Persistent state store ────────────────────────────────────────────────────
+
+_WIZARD_STATE_DIR = Path.home() / ".local-llm-server" / "wizard-states"
+_WIZARD_STATE_DIR.mkdir(parents=True, exist_ok=True)
 
 _wizard_states: dict[str, WizardState] = {}
 
 
+def _get_state_file(user_id: str) -> Path:
+    """Get the file path for a user's wizard state."""
+    safe_id = user_id.replace('/', '_').replace('\\', '_')
+    return _WIZARD_STATE_DIR / f"{safe_id}.json"
+
+
+def _load_wizard_state(user_id: str) -> WizardState:
+    """Load wizard state from disk, or create a new one if not found."""
+    state_file = _get_state_file(user_id)
+    if state_file.exists():
+        try:
+            with open(state_file) as f:
+                data = json.load(f)
+            return WizardState(**data)
+        except Exception as e:
+            log.warning("Failed to load wizard state for %s: %s", user_id, e)
+    return WizardState(user_id=user_id)
+
+
+def _save_wizard_state(state: WizardState) -> None:
+    """Persist wizard state to disk."""
+    state_file = _get_state_file(state.user_id)
+    try:
+        with open(state_file, 'w') as f:
+            json.dump(state.as_dict(), f, indent=2)
+    except Exception as e:
+        log.error("Failed to save wizard state for %s: %s", state.user_id, e)
+
+
 def get_wizard_state(user_id: str) -> WizardState:
+    """Get wizard state, loading from disk if not already in memory."""
     if user_id not in _wizard_states:
-        _wizard_states[user_id] = WizardState(user_id=user_id)
+        _wizard_states[user_id] = _load_wizard_state(user_id)
     return _wizard_states[user_id]
 
 
@@ -188,6 +223,7 @@ async def save_step1(request: Request, body: Step1Request):
     state = get_wizard_state(uid)
     state.step1_providers = body.model_dump()
     state.current_step    = max(state.current_step, 2)
+    _save_wizard_state(state)
     audit("setup.step1", getattr(request.state, "user", {}), resource="setup")
     return {"step": 1, "saved": True, "next_step": 2}
 
@@ -199,6 +235,7 @@ async def save_step2(request: Request, body: Step2Request):
     state = get_wizard_state(uid)
     state.step2_model  = body.model_dump()
     state.current_step = max(state.current_step, 3)
+    _save_wizard_state(state)
     audit("setup.step2", getattr(request.state, "user", {}), resource="setup")
     return {"step": 2, "saved": True, "next_step": 3}
 
@@ -210,6 +247,7 @@ async def save_step3(request: Request, body: Step3Request):
     state = get_wizard_state(uid)
     state.step3_runtimes = body.model_dump()
     state.current_step   = max(state.current_step, 4)
+    _save_wizard_state(state)
     audit("setup.step3", getattr(request.state, "user", {}), resource="setup")
     return {"step": 3, "saved": True, "next_step": 4}
 
@@ -221,6 +259,7 @@ async def save_step4(request: Request, body: Step4Request):
     state = get_wizard_state(uid)
     state.step4_agent  = body.model_dump()
     state.current_step = max(state.current_step, 5)
+    _save_wizard_state(state)
     audit("setup.step4", getattr(request.state, "user", {}), resource="setup")
     return {"step": 4, "saved": True, "next_step": 5}
 
@@ -232,6 +271,7 @@ async def save_step5(request: Request, body: Step5Request):
     state = get_wizard_state(uid)
     state.step5_policy = body.model_dump()
     state.current_step = 5
+    _save_wizard_state(state)
     audit("setup.step5", getattr(request.state, "user", {}), resource="setup")
     return {"step": 5, "saved": True, "next_step": "complete"}
 
@@ -243,6 +283,7 @@ async def complete_wizard(request: Request):
     state = get_wizard_state(uid)
     state.completed    = True
     state.completed_at = time.time()
+    _save_wizard_state(state)
     audit("setup.complete", getattr(request.state, "user", {}), resource="setup", outcome="success")
     log.info("Setup wizard completed for user %s", uid)
     return {"completed": True, "user_id": uid}
