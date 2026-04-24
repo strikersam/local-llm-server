@@ -22,6 +22,8 @@ import shutil
 import time
 from typing import Any
 
+import httpx
+
 from runtimes.base import (
     IntegrationMode,
     RuntimeAdapter,
@@ -60,6 +62,7 @@ class AiderAdapter(RuntimeAdapter):
 
     def __init__(self, config: dict[str, Any] | None = None) -> None:
         super().__init__(config)
+        self._base_url = (config or {}).get("base_url") or os.environ.get("AIDER_BASE_URL", "")
         self._bin = (config or {}).get("bin") or os.environ.get("AIDER_BIN", "aider")
         self._model = (
             (config or {}).get("model")
@@ -71,6 +74,26 @@ class AiderAdapter(RuntimeAdapter):
         )
 
     async def health_check(self) -> RuntimeHealth:
+        if self._base_url:
+            return await self._health_via_http()
+        return await self._health_via_cli()
+
+    async def _health_via_http(self) -> RuntimeHealth:
+        t0 = time.monotonic()
+        try:
+            async with httpx.AsyncClient(timeout=5.0) as client:
+                resp = await client.get(f"{self._base_url}/health")
+            latency_ms = (time.monotonic() - t0) * 1000
+            return RuntimeHealth(
+                runtime_id=self.RUNTIME_ID,
+                available=resp.status_code == 200,
+                latency_ms=round(latency_ms, 1),
+                error=None if resp.status_code == 200 else f"HTTP {resp.status_code}",
+            )
+        except Exception as exc:
+            return RuntimeHealth(runtime_id=self.RUNTIME_ID, available=False, error=str(exc))
+
+    async def _health_via_cli(self) -> RuntimeHealth:
         t0 = time.monotonic()
         bin_path = shutil.which(self._bin)
         if not bin_path:

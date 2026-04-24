@@ -7,9 +7,9 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import {
   Cpu, CheckCircle, XCircle, AlertCircle, RefreshCw,
-  Loader2, Zap, ChevronDown, PlayCircle, Shield,
+  Loader2, Zap, ChevronDown, PlayCircle, Shield, Power, PowerOff,
 } from 'lucide-react';
-import { listRuntimes, runTaskOnRuntime, getRoutingPolicy, fmtErr } from '../api';
+import { listRuntimes, runTaskOnRuntime, getRoutingPolicy, startRuntime, stopRuntime, startAllRuntimes, stopAllRuntimes, fmtErr } from '../api';
 
 function cls(...p) { return p.filter(Boolean).join(' '); }
 
@@ -28,12 +28,14 @@ const INTEGRATION_ICON = {
   experimental:     '🧪',
 };
 
-function RuntimeCard({ runtime, onRun }) {
+function RuntimeCard({ runtime, onRun, onRefresh }) {
   const [expanded, setExpanded] = useState(false);
   const [running, setRunning] = useState(false);
   const [runErr, setRunErr] = useState('');
   const [instruction, setInstruction] = useState('');
   const [result, setResult] = useState(null);
+  const [controlLoading, setControlLoading] = useState(false);
+  const [controlErr, setControlErr] = useState('');
 
   const h = runtime.health || {};
   const available = h.available;
@@ -52,6 +54,32 @@ function RuntimeCard({ runtime, onRun }) {
       setRunErr(fmtErr(e?.response?.data?.detail) || e.message);
     } finally {
       setRunning(false);
+    }
+  };
+
+  const handleStart = async () => {
+    setControlLoading(true);
+    setControlErr('');
+    try {
+      await startRuntime(runtime.runtime_id);
+      setTimeout(() => onRefresh?.(), 2000);
+    } catch (e) {
+      setControlErr(fmtErr(e?.response?.data?.detail) || e.message || 'Failed to start runtime');
+    } finally {
+      setControlLoading(false);
+    }
+  };
+
+  const handleStop = async () => {
+    setControlLoading(true);
+    setControlErr('');
+    try {
+      await stopRuntime(runtime.runtime_id);
+      setTimeout(() => onRefresh?.(), 2000);
+    } catch (e) {
+      setControlErr(fmtErr(e?.response?.data?.detail) || e.message || 'Failed to stop runtime');
+    } finally {
+      setControlLoading(false);
     }
   };
 
@@ -94,6 +122,18 @@ function RuntimeCard({ runtime, onRun }) {
                 <div className="text-[9px] text-[#444]">{Math.round(h.latency_ms)}ms</div>
               )}
             </div>
+            {(!available || circuitOpen) && (
+              <button onClick={handleStart} disabled={controlLoading}
+                className="flex items-center gap-1 px-2 py-1 bg-emerald-500/20 border border-emerald-500/30 text-[10px] text-emerald-400 rounded hover:bg-emerald-500/30 transition-colors disabled:opacity-40">
+                {controlLoading ? <Loader2 size={10} className="animate-spin" /> : <Power size={10} />} Start
+              </button>
+            )}
+            {available && !circuitOpen && (
+              <button onClick={handleStop} disabled={controlLoading}
+                className="flex items-center gap-1 px-2 py-1 bg-red-500/20 border border-red-500/30 text-[10px] text-red-400 rounded hover:bg-red-500/30 transition-colors disabled:opacity-40">
+                {controlLoading ? <Loader2 size={10} className="animate-spin" /> : <PowerOff size={10} />} Stop
+              </button>
+            )}
             <ChevronDown size={13} className={cls('text-[#444] transition-transform', expanded ? 'rotate-180' : '')} />
           </div>
         </div>
@@ -101,6 +141,9 @@ function RuntimeCard({ runtime, onRun }) {
 
       {expanded && (
         <div className="px-4 pb-4 border-t border-white/5 pt-3 space-y-4">
+          {/* Control error */}
+          {controlErr && <div className="text-[10px] text-red-400">{controlErr}</div>}
+
           {/* Capabilities */}
           <div>
             <div className="text-[9px] uppercase tracking-widest text-[#444] mb-2">Capabilities</div>
@@ -167,6 +210,8 @@ export default function RuntimesPage() {
   const [policy, setPolicy] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [controlLoading, setControlLoading] = useState(false);
+  const [success, setSuccess] = useState('');
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -181,6 +226,36 @@ export default function RuntimesPage() {
       setLoading(false);
     }
   }, []);
+
+  const handleStartAll = async () => {
+    setControlLoading(true);
+    setError('');
+    setSuccess('');
+    try {
+      await startAllRuntimes();
+      setSuccess('Starting all runtimes...');
+      setTimeout(() => { setSuccess(''); load(); }, 3000);
+    } catch (e) {
+      setError(fmtErr(e?.response?.data?.detail) || e.message || 'Failed to start all runtimes');
+    } finally {
+      setControlLoading(false);
+    }
+  };
+
+  const handleStopAll = async () => {
+    setControlLoading(true);
+    setError('');
+    setSuccess('');
+    try {
+      await stopAllRuntimes();
+      setSuccess('Stopping all runtimes...');
+      setTimeout(() => { setSuccess(''); load(); }, 3000);
+    } catch (e) {
+      setError(fmtErr(e?.response?.data?.detail) || e.message || 'Failed to stop all runtimes');
+    } finally {
+      setControlLoading(false);
+    }
+  };
 
   useEffect(() => { load(); }, [load]);
 
@@ -200,16 +275,34 @@ export default function RuntimesPage() {
           <div className="flex items-center gap-3">
             <span className="text-[11px] text-emerald-400">{online} online</span>
             {offline > 0 && <span className="text-[11px] text-red-400">{offline} offline</span>}
-            <button onClick={load} disabled={loading} className="text-[#444] hover:text-[#888] transition-colors">
-              <RefreshCw size={12} className={loading ? 'animate-spin' : ''} />
+            {offline > 0 && (
+              <button onClick={handleStartAll} disabled={controlLoading}
+                className="flex items-center gap-1 px-3 py-2 bg-emerald-500/20 border border-emerald-500/30 text-[11px] text-emerald-400 rounded-md hover:bg-emerald-500/30 transition-colors disabled:opacity-40">
+                {controlLoading ? <Loader2 size={11} className="animate-spin" /> : <Power size={11} />} Start All
+              </button>
+            )}
+            {online > 0 && (
+              <button onClick={handleStopAll} disabled={controlLoading}
+                className="flex items-center gap-1 px-3 py-2 bg-red-500/20 border border-red-500/30 text-[11px] text-red-400 rounded-md hover:bg-red-500/30 transition-colors disabled:opacity-40">
+                {controlLoading ? <Loader2 size={11} className="animate-spin" /> : <PowerOff size={11} />} Stop All
+              </button>
+            )}
+            <button onClick={load} disabled={loading || controlLoading} className="text-[#444] hover:text-[#888] transition-colors">
+              <RefreshCw size={12} className={loading || controlLoading ? 'animate-spin' : ''} />
             </button>
           </div>
         </div>
       </div>
 
       {error && (
-        <div className="mb-4 px-4 py-3 bg-amber-500/8 border border-amber-500/20 rounded-lg text-[12px] text-amber-400">
+        <div className="mb-4 px-4 py-3 bg-red-500/8 border border-red-500/20 rounded-lg text-[12px] text-red-400">
           {error}
+        </div>
+      )}
+
+      {success && (
+        <div className="mb-4 px-4 py-3 bg-emerald-500/8 border border-emerald-500/20 rounded-lg text-[12px] text-emerald-400">
+          {success}
         </div>
       )}
 
@@ -254,7 +347,7 @@ export default function RuntimesPage() {
       ) : (
         <div className="space-y-3">
           {runtimes.map(r => (
-            <RuntimeCard key={r.runtime_id} runtime={r} />
+            <RuntimeCard key={r.runtime_id} runtime={r} onRefresh={load} />
           ))}
         </div>
       )}

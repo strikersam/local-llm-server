@@ -150,28 +150,40 @@ async def run_task_on_runtime(
 
 
 @runtime_router.post("/{runtime_id}/start")
-async def start_runtime_container(runtime_id: str, request: Request) -> dict:
-    """Start a stopped runtime container (requires admin)."""
-    _require_admin(request)
-    return await start_runtime(runtime_id)
+async def start_runtime_container(runtime_id: str) -> dict:
+    """Start a stopped runtime container."""
+    result = await start_runtime(runtime_id)
+    if result.get("status") == "error":
+        raise HTTPException(status_code=500, detail=result.get("error", "Failed to start runtime"))
+    return result
 
 
 @runtime_router.post("/{runtime_id}/stop")
-async def stop_runtime_container(runtime_id: str, request: Request) -> dict:
-    """Stop a running runtime container (requires admin)."""
-    _require_admin(request)
-    return await stop_runtime(runtime_id)
+async def stop_runtime_container(runtime_id: str) -> dict:
+    """Stop a running runtime container."""
+    result = await stop_runtime(runtime_id)
+    if result.get("status") == "error":
+        raise HTTPException(status_code=500, detail=result.get("error", "Failed to stop runtime"))
+    return result
 
 
 @runtime_router.post("/start-all")
-async def start_all(request: Request) -> dict:
-    """Start all runtime containers (requires admin)."""
-    _require_admin(request)
-    return await start_all_runtimes()
+async def start_all() -> dict:
+    """Start all runtime containers."""
+    result = await start_all_runtimes()
+    # Check if any runtimes failed
+    for rt_id, rt_result in result.get("runtimes", {}).items():
+        if rt_result.get("status") == "error":
+            raise HTTPException(status_code=500, detail=f"{rt_id}: {rt_result.get('error', 'Unknown error')}")
+    return result
 
 
 @runtime_router.post("/stop-all")
-async def stop_all(request: Request) -> dict:
-    """Stop all runtime containers (requires admin)."""
-    _require_admin(request)
-    return await stop_all_runtimes()
+async def stop_all() -> dict:
+    """Stop all runtime containers."""
+    result = await stop_all_runtimes()
+    # Check if any runtimes failed
+    for rt_id, rt_result in result.get("runtimes", {}).items():
+        if rt_result.get("status") == "error":
+            raise HTTPException(status_code=500, detail=f"{rt_id}: {rt_result.get('error', 'Unknown error')}")
+    return result

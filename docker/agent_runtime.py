@@ -12,6 +12,7 @@ from __future__ import annotations
 import os
 import httpx
 from fastapi import FastAPI, HTTPException
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
 app = FastAPI(title="Agent Runtime")
@@ -51,7 +52,7 @@ class ChatResponse(BaseModel):
 
 @app.get("/health")
 async def health():
-    """Health check endpoint."""
+    """Health check — always 200 if container is up; reports ollama status in body."""
     try:
         async with httpx.AsyncClient(timeout=5.0) as client:
             resp = await client.get(f"{OLLAMA_BASE}/api/tags")
@@ -62,7 +63,11 @@ async def health():
                 "models": len(resp.json().get("models", [])),
             }
     except Exception as e:
-        return {"status": "error", "runtime": RUNTIME_NAME, "error": str(e)}, 503
+        return {
+            "status": "degraded",
+            "runtime": RUNTIME_NAME,
+            "backend": str(e),
+        }
 
 
 @app.get("/v1/models")

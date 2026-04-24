@@ -163,6 +163,10 @@ export const getRoutingPolicy = () => API.get('/runtimes/policy');
 export const updateRoutingPolicy = (data) => API.put('/runtimes/policy', data);
 export const getDecisionLog = (limit = 100) => API.get('/runtimes/decisions', { params: { limit } });
 export const runTaskOnRuntime = (runtimeId, data) => API.post(`/runtimes/${runtimeId}/run`, data);
+export const startRuntime = (runtimeId) => API.post(`/runtimes/${runtimeId}/start`);
+export const stopRuntime = (runtimeId) => API.post(`/runtimes/${runtimeId}/stop`);
+export const startAllRuntimes = () => API.post('/runtimes/start-all');
+export const stopAllRuntimes = () => API.post('/runtimes/stop-all');
 
 // ── Tasks (v3) ────────────────────────────────────────────────────────────────
 export const listTasks = (params = {}) => API.get('/api/tasks/', { params });

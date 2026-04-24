@@ -8,6 +8,9 @@
 
 ## [Unreleased]
 
+### Changed
+- **Runtime start/stop control** — Removed admin auth requirement from `/runtime/{id}/start`, `/runtime/{id}/stop`, `/runtime/start-all`, and `/runtime/stop-all` endpoints. Added proper error handling with HTTP 500 status on failures. Updated frontend RuntimesPage with start/stop buttons for individual runtimes and bulk start-all/stop-all buttons. Status updates automatically refresh after 2–3 seconds.
+
 ### Added
 - **Agent Runtime Auto-Service (`docker-compose.yml`, `Dockerfile.runtime`, `proxy.py`)** — Four lightweight agent runtimes (hermes, opencode, goose, aider) now ship as first-class Docker services that auto-start with the proxy. Each runtime exposes OpenAI-compatible `/v1/chat/completions` endpoints (port 8002–8005) and is automatically registered in the agent store on proxy startup. Runtimes appear immediately in LLM Relay dashboard. Routes traffic to configured Ollama models. Healthchecks ensure all runtimes are healthy before proxy starts. Environment variable `REGISTER_RUNTIMES=1` (default) enables auto-registration on startup.
 - **Agent Runtime Registration (`scripts/register_agent_runtimes.py`)** — New setup script to register external agent runtimes (hermes, opencode, goose, aider) into the agent store. Creates `AgentDefinition` entries with task type mapping and system ownership. Stores agents in MongoDB (or in-memory fallback). Run on initial setup with `python scripts/register_agent_runtimes.py`. Use `--reset` flag to re-register all runtimes.

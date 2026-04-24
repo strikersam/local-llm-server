@@ -12,10 +12,10 @@ from typing import Any
 log = logging.getLogger("qwen-proxy")
 
 RUNTIME_CONTAINERS = {
-    "hermes": "llm-server-hermes",
-    "opencode": "llm-server-opencode",
-    "goose": "llm-server-goose",
-    "aider": "llm-server-aider",
+    "hermes": "hermes",
+    "opencode": "opencode",
+    "goose": "goose",
+    "aider": "aider",
 }
 
 
@@ -27,10 +27,10 @@ async def start_runtime(runtime_id: str) -> dict[str, Any]:
     container_name = RUNTIME_CONTAINERS[runtime_id]
     try:
         subprocess.run(
-            ["docker", "compose", "start", container_name],
+            ["docker", "compose", "up", "-d", "--no-deps", "--no-recreate", container_name],
             check=True,
             capture_output=True,
-            timeout=30,
+            timeout=120,
         )
         log.info(f"Started runtime: {runtime_id}")
         return {
@@ -75,7 +75,7 @@ async def stop_runtime(runtime_id: str) -> dict[str, Any]:
             ["docker", "compose", "stop", container_name],
             check=True,
             capture_output=True,
-            timeout=30,
+            timeout=60,
         )
         log.info(f"Stopped runtime: {runtime_id}")
         return {
