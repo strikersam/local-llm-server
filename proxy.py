@@ -74,6 +74,14 @@ from workflow.ide_bridge import handle_workflow_ide_chat
 # v3: Runtime layer and task system
 from runtimes import runtime_router, get_runtime_manager
 from tasks import task_router
+from agents.api import agent_router
+from hardware import hardware_router
+from secrets_store import secrets_router
+from social_auth import auth_router, verify_jwt as verify_social_jwt
+from setup import setup_router
+from cost_insights import observability_router
+from agent.github_tools import github_router
+from sync import sync_router
 
 # ─── Config ────────────────────────────────────────────────────────────────────
 
@@ -396,6 +404,59 @@ app.include_router(
     dependencies=[Depends(verify_api_key)],
 )
 log.info("Task system mounted at /api/tasks/*")
+
+# ─── v3.1: Agent profiles ─────────────────────────────────────────────────────
+app.include_router(
+    agent_router,
+    dependencies=[Depends(verify_api_key)],
+)
+log.info("Agent profiles mounted at /api/agents/*")
+
+# ─── v3.1: Hardware detection ─────────────────────────────────────────────────
+app.include_router(
+    hardware_router,
+    dependencies=[Depends(verify_api_key)],
+)
+log.info("Hardware detection mounted at /api/hardware/*")
+
+# ─── v3.1: User-scoped secrets ────────────────────────────────────────────────
+app.include_router(
+    secrets_router,
+    dependencies=[Depends(verify_api_key)],
+)
+log.info("Secrets store mounted at /api/secrets/*")
+
+# ─── v3.1: Social auth (no API key required — OAuth public endpoints) ─────────
+app.include_router(auth_router)
+log.info("Social auth mounted at /api/auth/*")
+
+# ─── v3.1: Setup wizard ───────────────────────────────────────────────────────
+app.include_router(
+    setup_router,
+    dependencies=[Depends(verify_api_key)],
+)
+log.info("Setup wizard mounted at /api/setup/*")
+
+# ─── v3.1: Cost insights / observability ──────────────────────────────────────
+app.include_router(
+    observability_router,
+    dependencies=[Depends(verify_api_key)],
+)
+log.info("Cost insights mounted at /api/observability/*")
+
+# ─── v3.1: GitHub workspace integration ──────────────────────────────────────
+app.include_router(
+    github_router,
+    dependencies=[Depends(verify_api_key)],
+)
+log.info("GitHub integration mounted at /api/github/*")
+
+# ─── v3.1: Workspace sync ─────────────────────────────────────────────────────
+app.include_router(
+    sync_router,
+    dependencies=[Depends(verify_api_key)],
+)
+log.info("Workspace sync mounted at /api/sync/*")
 
 # ─── Health (no auth) ──────────────────────────────────────────────────────────
 

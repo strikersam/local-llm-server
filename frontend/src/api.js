@@ -174,4 +174,67 @@ export const deleteAgent = (id) => API.delete(`/api/agents/${id}`);
 // ── Audit log (v3) ────────────────────────────────────────────────────────────
 export const getAuditLog = (limit = 100) => API.get('/api/audit-log', { params: { limit } });
 
+// ── Hardware (v3.1) ───────────────────────────────────────────────────────────
+export const getHardwareProfile = () => API.get('/api/hardware/profile');
+export const refreshHardwareProfile = () => API.get('/api/hardware/profile/refresh');
+export const checkModelCompatibility = (modelName) =>
+  API.get(`/api/hardware/compatibility/${encodeURIComponent(modelName)}`);
+export const batchModelCompatibility = (models) =>
+  API.post('/api/hardware/compatibility/batch', { models });
+
+// ── Secrets (v3.1) ────────────────────────────────────────────────────────────
+export const listSecrets = () => API.get('/api/secrets/');
+export const createSecret = (data) => API.post('/api/secrets/', data);
+export const getSecretMeta = (id) => API.get(`/api/secrets/${id}`);
+export const updateSecret = (id, data) => API.put(`/api/secrets/${id}`, data);
+export const deleteSecret = (id) => API.delete(`/api/secrets/${id}`);
+
+// ── Social auth (v3.1) ────────────────────────────────────────────────────────
+export const getMe = () => API.get('/api/auth/me');
+export const listUsers = () => API.get('/api/auth/users');
+export const changeUserRole = (userId, role) =>
+  API.post(`/api/auth/users/${userId}/role`, { role });
+
+// ── Setup wizard (v3.1) ───────────────────────────────────────────────────────
+export const getSetupState = () => API.get('/api/setup/state');
+export const saveSetupStep = (step, data) => API.put(`/api/setup/step/${step}`, data);
+export const completeSetup = () => API.post('/api/setup/complete');
+export const detectHardwareForSetup = () => API.get('/api/setup/detect/hardware');
+export const detectModelsForSetup = (ollamaUrl) =>
+  API.get('/api/setup/detect/models', { params: { ollama_url: ollamaUrl } });
+
+// ── Cost insights / observability (v3.1) ──────────────────────────────────────
+export const getSavings = (period = 'month', bucket = 'day') =>
+  API.get('/api/observability/savings', { params: { period, bucket } });
+export const getUserSavings = (userId, period = 'month') =>
+  API.get(`/api/observability/savings/${userId}`, { params: { period } });
+export const getUsage = (period = 'month') =>
+  API.get('/api/observability/usage', { params: { period } });
+
+// ── GitHub workspace (v3.1) ───────────────────────────────────────────────────
+export const listGithubReposV2 = () => API.get('/api/github/repos');
+export const getGithubRepo = (owner, repo) => API.get(`/api/github/repos/${owner}/${repo}`);
+export const listGithubBranchesV2 = (owner, repo) =>
+  API.get(`/api/github/repos/${owner}/${repo}/branches`);
+export const listGithubPRs = (owner, repo, state = 'open') =>
+  API.get(`/api/github/repos/${owner}/${repo}/pulls`, { params: { state } });
+export const initWorkspace = (owner, repo) =>
+  API.post(`/api/github/repos/${owner}/${repo}/workspace/init`);
+export const getWorkspaceStatus = (owner, repo) =>
+  API.get(`/api/github/repos/${owner}/${repo}/workspace/status`);
+export const getWorkspaceDiff = (owner, repo) =>
+  API.get(`/api/github/repos/${owner}/${repo}/workspace/diff`);
+export const commitWorkspace = (owner, repo, data) =>
+  API.post(`/api/github/repos/${owner}/${repo}/workspace/commit`, data);
+
+// ── Workspace sync (v3.1) ─────────────────────────────────────────────────────
+export const getSyncStatus = () => API.get('/api/sync/status');
+export const listSyncPeers = () => API.get('/api/sync/peers');
+export const addSyncPeer = (data) => API.post('/api/sync/peers', data);
+export const removeSyncPeer = (id) => API.delete(`/api/sync/peers/${id}`);
+export const pushFolder = (folder) => API.post(`/api/sync/push/${folder}`);
+export const pullFolder = (folder) => API.post(`/api/sync/pull/${folder}`);
+export const listSyncConflicts = () => API.get('/api/sync/conflicts');
+export const resolveConflict = (id) => API.post(`/api/sync/conflicts/${id}/resolve`);
+
 export default API;

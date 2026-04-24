@@ -219,28 +219,111 @@ class RuntimeRoutingPolicyEngine:
                 except Exception as fb_exc:
                     log.warning("Fallback runtime %s also failed: %s", fid, fb_exc)
 
-        # Step 7: Paid escalation (only if policy allows)
+        # Step 7: Paid escalation — routed through ProviderManager
         if spec.allow_paid_escalation and not self._policy.never_use_paid_providers:
-            if not self._policy.require_approval_before_paid_escalation:
-                log.warning("All local runtimes failed; escalating to paid provider for task %s",
-                            spec.task_id)
-                decision.escalated = True
-                decision.escalation_reason = "All local runtimes failed"
-                # Placeholder — real escalation goes through ProviderManager
+            if self._policy.require_approval_before_paid_escalation:
                 raise RuntimeUnavailableError(
                     "*",
-                    "Paid escalation requested but not yet wired to ProviderManager in this build. "
-                    "Implement by routing spec through webui.providers.ProviderManager.",
+                    "All local runtimes failed; paid escalation requires human approval "
+                    "(require_approval_before_paid_escalation=True).",
                 )
-            else:
+            # Check daily escalation budget
+            today_escalations = sum(
+                1 for d in self._decision_log
+                if d.escalated and (time.time() - d.timestamp) < 86400
+            )
+            if (
+                self._policy.max_paid_escalations_per_day > 0
+                and today_escalations >= self._policy.max_paid_escalations_per_day
+            ):
                 raise RuntimeUnavailableError(
                     "*",
-                    "All local runtimes failed; paid escalation requires human approval.",
+                    f"Paid escalation budget exhausted "
+                    f"({today_escalations}/{self._policy.max_paid_escalations_per_day} today).",
                 )
+            # Attempt escalation via ProviderManager
+            escalation_result = await self._escalate_via_provider_manager(spec, decision)
+            if escalation_result is not None:
+                return escalation_result
+
         raise RuntimeUnavailableError(
             "*",
             "All runtimes failed and policy prevents paid escalation.",
         )
+
+    async def _escalate_via_provider_manager(
+        self,
+        spec: TaskSpec,
+        decision: RoutingDecision,
+    ) -> TaskResult | None:
+        """Attempt paid escalation through ProviderManager.
+
+        Routes the task to the first available cloud provider.  Returns a
+        TaskResult on success, or None if no cloud provider is configured.
+        """
+        try:
+            from webui.providers import ProviderManager
+            import httpx as _httpx
+
+            pm = ProviderManager()
+            providers = await pm.list_providers() if hasattr(pm, "list_providers") else []
+
+            for provider_rec in providers:
+                pname = getattr(provider_rec, "name", "") or ""
+                if pname.lower() in ("ollama", "local"):
+                    continue   # skip local providers
+
+                base_url = getattr(provider_rec, "base_url", "") or ""
+                api_key  = getattr(provider_rec, "api_key", "") or ""
+
+                if not base_url or not api_key:
+                    continue
+
+                # Build an OpenAI-compatible chat completion request
+                model = spec.model_preference or "gpt-4o-mini"
+                try:
+                    async with _httpx.AsyncClient(timeout=60) as client:
+                        resp = await client.post(
+                            f"{base_url.rstrip('/')}/chat/completions",
+                            headers={
+                                "Authorization": f"Bearer {api_key}",
+                                "Content-Type": "application/json",
+                            },
+                            json={
+                                "model":    model,
+                                "messages": [{"role": "user", "content": spec.instruction}],
+                            },
+                        )
+                        if resp.status_code == 200:
+                            data    = resp.json()
+                            output  = data["choices"][0]["message"]["content"]
+                            decision.escalated           = True
+                            decision.escalation_reason   = f"Local runtimes unavailable; escalated to {pname}"
+                            decision.selected_runtime_id = f"paid:{pname}"
+                            decision.model_used          = model
+                            decision.provider_used       = pname
+                            log.warning(
+                                "PAID ESCALATION: task %s escalated to %s model %s",
+                                spec.task_id, pname, model,
+                            )
+                            return TaskResult(
+                                runtime_id=f"paid:{pname}",
+                                task_id=spec.task_id,
+                                success=True,
+                                output=output,
+                                model_used=model,
+                                provider_used=pname,
+                            )
+                except Exception as provider_exc:
+                    log.warning("Paid escalation to %s failed: %s", pname, provider_exc)
+                    continue
+
+        except ImportError:
+            log.debug("ProviderManager not available for paid escalation.")
+        except Exception as e:
+            log.error("Paid escalation error: %s", e)
+
+        return None
 
     # ── Audit log ─────────────────────────────────────────────────────────────
 

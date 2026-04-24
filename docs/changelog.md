@@ -6,6 +6,81 @@
 <!-- Every commit or merge to master MUST add an entry to [Unreleased]         -->
 <!-- or to the appropriate version section before merging.                     -->
 
+## [3.1.0] — 2026-04-23
+
+### Overview
+
+Version 3.1 extends the v3 Control Plane with **platform-wide architectural additions**: hardware-aware model routing, GitHub workspace integration with local clone/commit/PR flows, Syncthing-style cross-machine workspace sync, a Power User RBAC tier, per-user encrypted secrets, social login (GitHub + Google OAuth), a 5-step Setup Wizard, comprehensive cost-savings insights, and extended audit visibility. All previously documented v3.0 limitations have been resolved.
+
+### Added — RBAC Power User Role
+
+- **`rbac.py`** — New `UserRole.POWER_USER` intermediate tier. 11 new permissions added (`VIEW_ALL_TASKS`, `MANAGE_WORKSPACE_AGENTS`, `VIEW_WORKSPACE_SECRETS`, `MANAGE_WORKSPACE_SECRETS`, `VIEW_RUNTIME_HEALTH`, `VIEW_ROUTING_DECISIONS`, `MANAGE_WORKSPACE_REPOS`, `VIEW_COST_INSIGHTS`, `UPGRADE_USERS`, etc.). `POWER_USER_ACTIVITY_PERMISSIONS` frozenset exported. UI badge: "Power User" (blue, distinct from Admin amber). New helpers: `is_power_user_or_above()`, `role_label()`, `require_power_user()` FastAPI dependency.
+- **Audit log extended** — `audit()` now captures: `secrets_used` (IDs only, never values), `runtime_machine` (runtime ID + hostname), `repo_workspace` (git URL), `agent_id`. New `get_audit_log()` filters: `resource`, `outcome`. Google OAuth token pattern added to `mask_secret()`.
+
+### Added — Hardware-Aware Model Compatibility (`hardware/`)
+
+- **`hardware/__init__.py`** — Package init.
+- **`hardware/detector.py`** — `detect_hardware()`: detects CPU (psutil + py-cpuinfo), RAM (psutil), NVIDIA GPU (nvidia-smi), AMD GPU (rocm-smi), Apple Silicon MPS, Intel Arc (xpu-smi). `HardwareProfile`, `GPUDevice` dataclasses. `_MODEL_REQUIREMENTS` database (25 entries covering 0.1B–405B models). `check_model_compatibility()` → `ModelCompatibility` with `COMPATIBLE | DEGRADED | INCOMPATIBLE` labels. `get_hardware_profile()` with 5-min TTL cache. `hardware_router` at `/api/hardware/`: profile, refresh, per-model compat, batch compat.
+
+### Added — User-Scoped Secrets Store (`secrets_store.py`)
+
+- **`secrets_store.py`** — Three scopes: `user` (owner-only), `workspace` (power users+), `global` (admin-only). AES-256-GCM encryption at rest via `cryptography` package (XOR fallback). `SECRET_STORE_KEY` env var. `SecretsStore` with owner isolation. `secrets_router` at `/api/secrets/`. Raw values **never** returned by API. Key hint shown (`sk-pr****xyz`). `MANAGE_WORKSPACE_SECRETS` permission gate for workspace-scope secrets.
+
+### Added — Social Login (`social_auth.py`)
+
+- **`social_auth.py`** — GitHub OAuth (`/api/auth/github/login` → callback) and Google OAuth (`/api/auth/google/login` → callback). CSRF state parameter with 10-min TTL. HMAC-HS256 JWT issuance (`JWT_SECRET` env var, warns if not set). Auto-create `StandardUser` on first login; never auto-downgrades existing roles. `verify_jwt()` for middleware. `/api/auth/me`, `/api/auth/users`, `/api/auth/users/{id}/role` endpoints.
+- **`frontend/src/pages/AuthCallback.js`** — Updated to handle both legacy token flow and new v3.1 JWT flow (`?token=...&provider=github|google`).
+- **`frontend/src/pages/LoginPage.js`** — Social login buttons already present, now correctly point to `/api/auth/github/login` and `/api/auth/google/login`.
+
+### Added — Setup Wizard (`setup/`)
+
+- **`setup/__init__.py`** and **`setup/api.py`** — 5-step wizard: (1) Provider Setup (Ollama + cloud toggles), (2) Local Model Detection (hardware + Ollama model list), (3) Runtime Config, (4) Default Agent, (5) Policy & Privacy. State persisted per-user in memory. `GET /api/setup/state`, `PUT /api/setup/step/{1-5}`, `POST /api/setup/complete`, `POST /api/setup/reset` (admin). Hardware + model detection endpoints.
+- **`frontend/src/pages/SetupWizardPage.js`** — Full 5-step wizard UI with progress bar, hardware display, model picker, and policy toggles. Accessible at `/setup` via nav.
+
+### Added — Cost Insights (`cost_insights.py`)
+
+- **`cost_insights.py`** — `record_usage()`: per-request token/cost tracking. `compute_savings()` and `compute_time_series()`: aggregate savings vs cloud APIs per period (day/week/month). `observability_router` at `/api/observability/`: savings summary, per-user savings (admin), usage breakdown by model.
+- **`frontend/src/pages/ObservabilityPage.js`** — Full rewrite with: savings stat cards, time-series bar chart, per-model savings breakdown, savings celebration banner.
+
+### Added — GitHub Workspace Integration (`agent/github_tools.py`)
+
+- **`agent/github_tools.py`** — Extended: `GitHubTools` with `get_repo()`, `list_pull_requests()`, `commit_file()` (backward-compat shims). `LocalWorkspace` class: `clone_or_pull()`, `current_branch()`, `diff()`, `status()`, `create_branch()`, `stage_and_commit()`, `push()` — all using `asyncio.create_subprocess_exec` (never `shell=True`). Token cleared from remote URL after push. `github_router` at `/api/github/`: repos, branches, PRs, workspace init/status/diff/commit.
+- Tokens fetched from `SecretsStore` (secrets tagged "github") with env var fallback.
+
+### Added — Workspace Sync (`sync/`)
+
+- **`sync/__init__.py`** and **`sync/service.py`** — `SyncService`: peer management, file index, push/pull per folder, HMAC-authenticated peer-to-peer transfers, conflict detection + `.conflict.{ts}` rename, conflict resolution UI. `sync_router` at `/api/sync/`: status, peers CRUD, push/pull, file index, receive (peer endpoint), conflicts.
+- Sync folders: `skills/`, `workspaces/`, `runtime_configs/`, `tool_configs/`. Works offline (queues when peers unavailable).
+
+### Added — Agent Profiles Backend (`agents/`)
+
+- **`agents/store.py`** — `AgentDefinition` model with `owner_id`, `runtime_id`, `task_types`, `cost_policy`, `is_public`, `use_count`. `AgentStore` with MongoDB + in-memory fallback, owner isolation, `list_for_user(include_public=True)`, `list_all()`.
+- **`agents/api.py`** — `agent_router` at `/api/agents/`: CRUD, use-count tracking. Power users may create workspace (public) agents. Resolves previous "known limitation" where frontend degraded with empty list.
+
+### Fixed — Paid Escalation
+
+- **`runtimes/routing.py`** — `_escalate_via_provider_manager()`: fully wired to `ProviderManager`. Iterates configured non-local providers, builds OpenAI-compatible chat completion request, logs PAID ESCALATION at WARNING. Daily budget check against `max_paid_escalations_per_day`. Resolves previous "known limitation" with descriptive placeholder error.
+
+### Updated — Frontend
+
+- **`frontend/src/pages/DashboardLayout.js`** — Power User badge (blue). `SetupWizardPage` import + `/setup` route. Version updated to v3.1.
+- **`frontend/src/api.js`** — New v3.1 API helpers: hardware (4), secrets (5), auth (3), setup (5), savings (3), GitHub workspace (8), sync (8).
+
+### Updated — Tests
+
+- **`tests/test_rbac.py`** — 12 new tests: Power User permissions, `require_power_user` dependency, audit extended fields, audit filter by user_id.
+- **`tests/test_hardware.py`** — 18 new tests: model requirement lookup, COMPATIBLE/DEGRADED/INCOMPATIBLE labelling, GPU VRAM logic, CPU-only fallback, `as_dict` contract.
+- **`tests/test_secrets.py`** — 14 new tests: AES-GCM roundtrip, owner isolation, admin bypass, workspace scope, update re-encryption, delete guards.
+
+### Resolved Limitations (from v3.0.0)
+
+1. ✅ Agent profiles backend now implemented (`agents/store.py`, `agents/api.py`).
+2. ✅ Paid escalation wired to `ProviderManager` (`runtimes/routing.py`).
+3. ✅ Setup Wizard implemented (`setup/`, `SetupWizardPage.js`).
+4. ✅ Langfuse cost-savings widgets implemented (`cost_insights.py`, `ObservabilityPage.js`).
+
+---
+
 ## [3.0.0] — 2026-04-23
 
 ### Overview

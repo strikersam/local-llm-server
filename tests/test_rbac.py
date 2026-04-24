@@ -11,9 +11,14 @@ from rbac import (
     Permission,
     ROLE_PERMISSIONS,
     ADMIN_ACTIVITY_PERMISSIONS,
+    POWER_USER_ACTIVITY_PERMISSIONS,
     get_user_role,
     has_permission,
+    is_admin,
+    is_power_user_or_above,
+    role_label,
     require_admin,
+    require_power_user,
     require_permission,
     audit,
     get_audit_log,
@@ -25,6 +30,36 @@ from rbac import (
 # ── Role resolution ───────────────────────────────────────────────────────────
 
 class TestGetUserRole:
+
+    def test_power_user_role_from_dict(self):
+        assert get_user_role({"role": "power_user"}) == UserRole.POWER_USER
+
+    def test_role_label_admin(self):
+        assert role_label({"role": "admin"}) == "Admin"
+
+    def test_role_label_power_user(self):
+        assert role_label({"role": "power_user"}) == "Power User"
+
+    def test_role_label_user(self):
+        assert role_label({"role": "user"}) == "User"
+
+    def test_is_admin_true(self):
+        assert is_admin({"role": "admin"}) is True
+
+    def test_is_admin_false_for_power_user(self):
+        assert is_admin({"role": "power_user"}) is False
+
+    def test_is_power_user_or_above_true_for_admin(self):
+        assert is_power_user_or_above({"role": "admin"}) is True
+
+    def test_is_power_user_or_above_true_for_power_user(self):
+        assert is_power_user_or_above({"role": "power_user"}) is True
+
+    def test_is_power_user_or_above_false_for_user(self):
+        assert is_power_user_or_above({"role": "user"}) is False
+
+
+class TestGetUserRole_Orig:
 
     def test_admin_role_from_dict(self):
         assert get_user_role({"role": "admin"}) == UserRole.ADMIN
@@ -71,6 +106,25 @@ class TestHasPermission:
     def test_manage_all_api_keys_is_admin_activity(self):
         assert Permission.MANAGE_ALL_API_KEYS in ADMIN_ACTIVITY_PERMISSIONS
 
+    def test_power_user_has_workspace_permissions(self):
+        pu = {"role": "power_user"}
+        assert has_permission(pu, Permission.VIEW_ALL_TASKS)
+        assert has_permission(pu, Permission.MANAGE_WORKSPACE_AGENTS)
+        assert has_permission(pu, Permission.VIEW_RUNTIME_HEALTH)
+        assert has_permission(pu, Permission.VIEW_COST_INSIGHTS)
+
+    def test_power_user_lacks_admin_permissions(self):
+        pu = {"role": "power_user"}
+        assert not has_permission(pu, Permission.MANAGE_ALL_USERS)
+        assert not has_permission(pu, Permission.MANAGE_PROVIDERS_GLOBAL)
+        assert not has_permission(pu, Permission.MANAGE_ROUTING_POLICY)
+
+    def test_power_user_activity_set_is_not_empty(self):
+        assert len(POWER_USER_ACTIVITY_PERMISSIONS) > 0
+
+    def test_view_runtime_health_is_power_user_activity(self):
+        assert Permission.VIEW_RUNTIME_HEALTH in POWER_USER_ACTIVITY_PERMISSIONS
+
 
 # ── FastAPI dependencies ──────────────────────────────────────────────────────
 
@@ -111,6 +165,22 @@ class TestRequireAdmin:
             dep(req)
         assert exc_info.value.status_code == 403
 
+    def test_require_power_user_passes_for_power_user(self):
+        req = self._make_request("power_user")
+        user = require_power_user(req)
+        assert user is not None
+
+    def test_require_power_user_passes_for_admin(self):
+        req = self._make_request("admin")
+        user = require_power_user(req)
+        assert user is not None
+
+    def test_require_power_user_blocks_standard_user(self):
+        req = self._make_request("user")
+        with pytest.raises(HTTPException) as exc_info:
+            require_power_user(req)
+        assert exc_info.value.status_code == 403
+
 
 # ── Audit log ─────────────────────────────────────────────────────────────────
 
@@ -138,6 +208,31 @@ class TestAuditLog:
         log = get_audit_log(limit=100)
         assert isinstance(log, list)
         assert len(log) > 0
+
+    def test_audit_extended_fields(self):
+        import rbac
+        user = {"role": "admin", "email": "admin@test.com"}
+        audit(
+            "test_extended",
+            user,
+            resource="repo",
+            secrets_used=["secret_abc123"],
+            runtime_machine="hermes@myhost",
+            repo_workspace="https://github.com/example/repo",
+            agent_id="agent_def456",
+        )
+        entry = rbac._audit_log[-1]
+        assert entry["secrets_used"] == ["secret_abc123"]
+        assert entry["runtime_machine"] == "hermes@myhost"
+        assert entry["repo_workspace"] == "https://github.com/example/repo"
+        assert entry["agent_id"] == "agent_def456"
+
+    def test_audit_filter_by_user_id(self):
+        import rbac
+        user = {"role": "user", "email": "filter_test@test.com"}
+        audit("test_filter", user)
+        log = get_audit_log(limit=100, user_id="filter_test@test.com")
+        assert all(e["user_id"] == "filter_test@test.com" for e in log)
 
 
 # ── Secret masking ────────────────────────────────────────────────────────────
