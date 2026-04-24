@@ -2,7 +2,7 @@
 
 # LLM Relay
 
-**A complete self-hosted AI platform — unified dashboard, multi-provider LLM routing, AI agent with memory, knowledge wiki, Telegram bot control, and full Langfuse observability.**
+**A complete self-hosted AI control plane — unified dashboard, multi-agent orchestration, local-first LLM routing, hardware-aware model selection, social login, and full cost observability.**
 
 [![Stars](https://img.shields.io/github/stars/strikersam/local-llm-server?style=flat-square&color=yellow)](https://github.com/strikersam/local-llm-server/stargazers)
 [![Forks](https://img.shields.io/github/forks/strikersam/local-llm-server?style=flat-square&color=blue)](https://github.com/strikersam/local-llm-server/network)
@@ -11,10 +11,35 @@
 [![FastAPI](https://img.shields.io/badge/FastAPI-async-009688?style=flat-square&logo=fastapi)](https://fastapi.tiangolo.com/)
 [![Docker](https://img.shields.io/badge/Docker-Compose-2496ED?style=flat-square&logo=docker)](https://www.docker.com/)
 [![Ollama](https://img.shields.io/badge/Ollama-local%20LLMs-black?style=flat-square)](https://ollama.com/)
+[![Version](https://img.shields.io/badge/version-3.1.0-002FA7?style=flat-square)](CHANGELOG.md)
 
 *Drop-in OpenAI-compatible proxy — point Cursor, Claude Code, Aider, or Continue at it and everything just works. Your hardware. Your data. Zero API bills.*
 
 </div>
+
+---
+
+## ✨ v3.1 — Control Plane Design System
+
+v3.1 is a major architectural and UX overhaul, designed from the ground up as an **AI agent control plane** rather than a simple proxy dashboard.
+
+### What's new in v3.1
+
+| Area | What changed |
+|---|---|
+| **Control Plane UI** | New `#0F0F13` dark surface, 4-level text hierarchy, Geist font, `rounded-xl` cards matching the design bundle |
+| **Kanban Task Board** | Multica-style swim lanes (TODO → IN PROGRESS → IN REVIEW → BLOCKED → DONE) with slide-in detail panels |
+| **Navigation** | 5-section sidebar: WORKSPACE / AGENTS / KNOWLEDGE / INFRASTRUCTURE / SYSTEM |
+| **RBAC v3** | Three-tier role model: Admin / Power User / User — 27 permission flags, audit trail |
+| **Social Login** | GitHub OAuth + Google OAuth with HMAC-HS256 JWT, CSRF state protection |
+| **User-scoped Secrets** | AES-256-GCM at-rest encryption, scoped per USER / WORKSPACE / GLOBAL |
+| **Hardware Detection** | CPU / RAM / NVIDIA / AMD / Apple Silicon / Intel Arc — model compatibility labels |
+| **Agent Runtimes** | Hermes, OpenCode, Goose, OpenHands, Aider — all managed from one panel |
+| **Setup Wizard** | 5-step first-run wizard (provider → models → runtimes → agent → policy) |
+| **Cost Insights** | Savings vs cloud APIs, per-user breakdowns, time-series charts |
+| **GitHub Workspace** | Clone/pull repos, diff, commit, push, open PRs — all async, never shell=True |
+| **Peer Sync** | Syncthing-style HMAC-authenticated workspace sync with conflict detection |
+| **Paid Escalation** | 8-step routing engine: local-first → fallback → paid escalation via ProviderManager |
 
 ---
 
