@@ -16,6 +16,11 @@ venv/
 .data/
 *.db
 
+# Log files
+*.log
+frontend/frontend.log
+proxy.log
+
 # Build artifacts
 frontend/build/
 dist/
