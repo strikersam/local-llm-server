@@ -8,6 +8,10 @@
 
 ## [Unreleased]
 
+### Fixed
+- **Setup wizard API key storage 404 (`frontend/src/pages/SetupWizardPage.js`)** — `storeApiKey` now uses the shared axios `API` instance (with auth token + correct base URL) as its primary path, falling back to the public `/api/setup/secret` endpoint only when the secrets API is unavailable. Eliminates "Not Found" errors caused by stale `backend_url` in localStorage routing to a server without setup routes.
+- **Setup wizard backend URL auto-detection** — On mount, the wizard now defaults to `window.location.origin` when no `backend_url` is stored in localStorage. Fixes the post-login case where the wizard and API are served from the same host but the URL was never explicitly configured.
+
 ### Added
 - **Setup wizard prefill from saved backend state (`frontend/src/pages/SetupWizardPage.js`)** — `GET /api/setup/state` response now fully populates all 5 wizard steps on open. Provider toggles, model names, runtime flags, agent config, and policy settings are all restored from the last saved state.
 - **localStorage draft persistence (`frontend/src/pages/SetupWizardPage.js`)** — Each "Next" click writes a non-sensitive draft to `localStorage` (`llm_relay_setup_draft`). The wizard loads this draft as a fallback when the backend is unreachable (e.g., GitHub Pages before backend URL is configured).

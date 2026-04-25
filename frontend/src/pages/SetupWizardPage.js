@@ -267,19 +267,21 @@ export default function SetupWizardPage({ onComplete }) {
   // ─── Initial load ───────────────────────────────────────────────────────────
 
   useEffect(() => {
-    const url = getBackendUrl();
-    if (url) {
-      testBackendConnection(url).then(connected => {
-        if (connected) loadSavedState();
-      });
-    } else {
-      // No backend URL configured — load from localStorage draft if available
-      const draft = loadDraft();
-      if (draft) {
-        applyDraftState(draft);
-        if (draft.currentStep) setStep(draft.currentStep);
+    // If no backend URL is configured, default to the current page's origin.
+    // This covers the post-login dashboard case where the user hasn't explicitly
+    // set the backend URL but the wizard and API are served from the same host.
+    const url = getBackendUrl() || window.location.origin;
+    testBackendConnection(url).then(connected => {
+      if (connected) loadSavedState();
+      else {
+        // Fall back to localStorage draft
+        const draft = loadDraft();
+        if (draft) {
+          applyDraftState(draft);
+          if (draft.currentStep) setStep(draft.currentStep);
+        }
       }
-    }
+    });
   }, []); // eslint-disable-line
 
   // ─── Hardware / model detection (Step 2) ───────────────────────────────────
@@ -385,26 +387,44 @@ export default function SetupWizardPage({ onComplete }) {
   const storeApiKey = useCallback(async (key, keyName) => {
     if (!key) return null;
     try {
-      const baseUrl = backendUrl || getBackendUrl() || '';
-      const response = await fetch(`${baseUrl}/api/setup/secret`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          name: `${keyName}-key-setup`,
-          value: key,
-          description: `${keyName} API key from setup wizard`,
-        }),
+      // Use the shared axios API instance so auth token + base URL are applied
+      // consistently, regardless of what backendUrl state holds.
+      const result = await createSecret({
+        name: `${keyName}-key-setup`,
+        value: key,
+        description: `${keyName} API key from setup wizard`,
       });
-      if (!response.ok) {
-        const errorData = await response.json().catch(() => ({ detail: response.statusText }));
-        throw new Error(errorData.detail || `HTTP ${response.status}`);
-      }
-      const result = await response.json();
-      return result.id;
+      return result.data?.id ?? null;
     } catch (e) {
-      console.error(`Failed to store ${keyName} key:`, e);
-      alert(`Failed to store ${keyName} API key: ${e.message}`);
-      return null;
+      // Fall back to the setup-specific public endpoint when the secrets API
+      // is unreachable (e.g. first-run before auth is configured).
+      try {
+        const baseUrl = (backendUrl || getBackendUrl() || '').replace(/\/$/, '');
+        const response = await fetch(`${baseUrl}/api/setup/secret`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            ...(localStorage.getItem('access_token')
+              ? { Authorization: `Bearer ${localStorage.getItem('access_token')}` }
+              : {}),
+          },
+          body: JSON.stringify({
+            name: `${keyName}-key-setup`,
+            value: key,
+            description: `${keyName} API key from setup wizard`,
+          }),
+        });
+        if (!response.ok) {
+          const errorData = await response.json().catch(() => ({ detail: response.statusText }));
+          throw new Error(errorData.detail || `HTTP ${response.status}`);
+        }
+        const data = await response.json();
+        return data.id ?? null;
+      } catch (fallbackErr) {
+        console.error(`Failed to store ${keyName} key:`, fallbackErr);
+        alert(`Failed to store ${keyName} API key: ${fallbackErr.message}`);
+        return null;
+      }
     }
   }, [backendUrl]);
 
