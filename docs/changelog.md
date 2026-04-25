@@ -8,6 +8,11 @@
 
 ## [Unreleased]
 
+## [2.2.1] — 2026-04-25
+
+### Fixed
+- **Login throws "something went wrong" after CRISPY agent seeding commit** — `seed_default_providers` was accidentally removed when `seed_default_agents` was added; its body was merged into the new function leaving `ensure_bootstrap` calling a non-existent function. Restored `seed_default_providers` as a standalone async function.
+
 ## [2.2.0] — 2026-04-25
 
 ### Fixed
