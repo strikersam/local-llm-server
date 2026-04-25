@@ -256,6 +256,15 @@ export const getWorkspaceDiff = (owner, repo) =>
 export const commitWorkspace = (owner, repo, data) =>
   API.post(`/api/github/repos/${owner}/${repo}/workspace/commit`, data);
 
+// ── Schedules (agent/scheduler) ───────────────────────────────────────────────
+export const listSchedules = () => API.get('/agent/scheduler/jobs');
+export const createSchedule = (data) => API.post('/agent/scheduler/jobs', data);
+export const getSchedule = (id) => API.get(`/agent/scheduler/jobs/${id}`);
+export const triggerSchedule = (id) => API.post(`/agent/scheduler/jobs/${id}/trigger`);
+export const deleteSchedule = (id) => API.delete(`/agent/scheduler/jobs/${id}`);
+export const pauseSchedule = (id) => API.patch(`/agent/scheduler/jobs/${id}`, { status: 'paused' });
+export const resumeSchedule = (id) => API.patch(`/agent/scheduler/jobs/${id}`, { status: 'active' });
+
 // ── Workspace sync (v3.1) ─────────────────────────────────────────────────────
 export const getSyncStatus = () => API.get('/api/sync/status');
 export const listSyncPeers = () => API.get('/api/sync/peers');

@@ -3,9 +3,9 @@ import { Routes, Route, NavLink, Navigate, useNavigate } from 'react-router-dom'
 import { useAuth } from '../AuthContext';
 import {
   LayoutDashboard, MessageSquare, BookOpen, Upload, Activity,
-  Settings, LogOut, Menu, X, Cpu, ChevronRight, Layers, BarChart3,
-  Box, Github, Shield, Bot, CheckSquare, Radio, ClipboardList,
-  FileText, Zap, Lock, Map, Calendar, TrendingUp,
+  Settings, LogOut, Menu, X, Cpu, Layers, BarChart3,
+  Github, Shield, Bot, CheckSquare, Radio,
+  Zap, Lock, Calendar, TrendingUp,
 } from 'lucide-react';
 import ControlPlanePage from './ControlPlanePage';
 import DashboardHome from './DashboardHome';
@@ -23,6 +23,10 @@ import AgentsPage from './AgentsPage';
 import TasksPage from './TasksPage';
 import RuntimesPage from './RuntimesPage';
 import SetupWizardPage from './SetupWizardPage';
+import SchedulesPage from './SchedulesPage';
+import RoutingPolicyPage from './RoutingPolicyPage';
+import KnowledgePage from './KnowledgePage';
+import LogsPage from './LogsPage';
 
 /**
  * navSections — v3.1 navigation matching the Control Plane design.
@@ -47,29 +51,28 @@ function buildNavSections(isAdmin, isPowerUser) {
       label: 'AGENTS',
       items: [
         { to: '/agents', icon: Bot, label: 'Agent Roster' },
-        { to: '/activity', icon: Calendar, label: 'Schedules' },
+        { to: '/schedules', icon: Calendar, label: 'Schedules' },
         { to: '/chat', icon: MessageSquare, label: 'Direct Chat' },
       ],
     },
     {
       label: 'KNOWLEDGE',
       items: [
-        { to: '/wiki', icon: BookOpen, label: 'Wiki' },
-        { to: '/sources', icon: Upload, label: 'Sources' },
-        { to: '/github', icon: Github, label: 'GitHub' },
+        { to: '/knowledge', icon: BookOpen, label: 'Wiki & Sources' },
       ],
     },
     {
       label: 'INFRASTRUCTURE',
       items: [
         { to: '/runtimes', icon: Radio, label: 'Agent Runtimes' },
+        { to: '/routing', icon: TrendingUp, label: 'Routing Policy' },
         { to: '/providers', icon: Layers, label: 'Setup' },
-        { to: '/observability', icon: TrendingUp, label: 'Routing & Logs' },
       ],
     },
     {
       label: 'SYSTEM',
       items: [
+        { to: '/logs', icon: BarChart3, label: 'Logs' },
         { to: '/setup', icon: Zap, label: 'Setup Wizard' },
         ...(isAdmin || isPowerUser ? [
           { to: '/admin', icon: Shield, label: 'Admin Portal', adminOnly: true },
@@ -265,23 +268,28 @@ export default function DashboardLayout() {
 
             {/* Agents */}
             <Route path="/agents" element={<div className="h-full overflow-y-auto"><AgentsPage /></div>} />
+            <Route path="/schedules" element={<div className="h-full overflow-y-auto"><SchedulesPage /></div>} />
             <Route path="/chat" element={<ChatPage />} />
             <Route path="/chat/:sessionId" element={<ChatPage />} />
 
-            {/* Knowledge */}
-            <Route path="/wiki" element={<div className="h-full overflow-y-auto"><WikiPage /></div>} />
-            <Route path="/wiki/:slug" element={<div className="h-full overflow-y-auto"><WikiPage /></div>} />
-            <Route path="/sources" element={<div className="h-full overflow-y-auto"><SourcesPage /></div>} />
-            <Route path="/github" element={<div className="h-full overflow-y-auto"><GitHubPage /></div>} />
+            {/* Knowledge — consolidated Wiki + Sources + GitHub */}
+            <Route path="/knowledge" element={<div className="h-full overflow-hidden"><KnowledgePage /></div>} />
+            {/* Legacy knowledge routes redirect */}
+            <Route path="/wiki" element={<Navigate to="/knowledge" replace />} />
+            <Route path="/wiki/:slug" element={<Navigate to="/knowledge" replace />} />
+            <Route path="/sources" element={<Navigate to="/knowledge" replace />} />
+            <Route path="/github" element={<Navigate to="/knowledge" replace />} />
 
             {/* Infrastructure */}
             <Route path="/runtimes" element={<div className="h-full overflow-y-auto"><RuntimesPage /></div>} />
+            <Route path="/routing" element={<div className="h-full overflow-y-auto"><RoutingPolicyPage /></div>} />
             <Route path="/providers" element={<div className="h-full overflow-y-auto"><ProvidersPage /></div>} />
             <Route path="/models" element={<div className="h-full overflow-y-auto"><ModelsPage /></div>} />
-            <Route path="/observability" element={<div className="h-full overflow-y-auto"><ObservabilityPage /></div>} />
+            <Route path="/observability" element={<Navigate to="/logs" replace />} />
 
-            {/* System */}
-            <Route path="/activity" element={<div className="h-full overflow-y-auto"><ActivityPage /></div>} />
+            {/* System — consolidated Logs */}
+            <Route path="/logs" element={<div className="h-full overflow-hidden"><LogsPage /></div>} />
+            <Route path="/activity" element={<Navigate to="/logs" replace />} />
             <Route path="/setup" element={<div className="h-full overflow-y-auto"><SetupWizardPage /></div>} />
             <Route path="/admin" element={<AdminPortalPage />} />
             <Route path="/settings" element={<div className="h-full overflow-y-auto"><SettingsPage /></div>} />
