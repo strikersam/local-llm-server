@@ -4,6 +4,7 @@ import logging
 import re
 from dataclasses import dataclass
 from typing import Any
+from urllib.parse import urlparse
 
 import httpx
 
@@ -27,12 +28,15 @@ def normalize_base_url(base_url: str) -> str:
 def openai_compat_url(base_url: str, path: str) -> str:
     """Build an OpenAI-compatible URL for a provider base URL.
 
-    Supports base URLs either with or without a trailing /v1.
+    Supports base URLs either with or without a trailing /v1. URLs that
+    already carry a non-root path (e.g. /v1beta/openai for Google Gemini)
+    are used as-is; bare hosts get /v1 appended.
     """
     base = normalize_base_url(base_url)
     if not path.startswith("/"):
         path = "/" + path
-    if base.endswith("/v1"):
+    parsed = urlparse(base)
+    if parsed.path and parsed.path != "/":
         return f"{base}{path}"
     return f"{base}/v1{path}"
 
