@@ -9,9 +9,15 @@
  *   5 Policy Preferences  — cost / privacy / escalation settings
  *
  * Shown automatically on first login; can be re-opened from Settings.
+ *
+ * Persistence:
+ *   - Saved to backend via /api/setup/state (per authenticated user)
+ *   - Also cached in localStorage as draft for offline/GitHub-Pages resilience
+ *   - On load: backend wins; falls back to localStorage draft if no backend
  */
 
 import React, { useState, useEffect, useCallback } from 'react';
+import { useNavigate } from 'react-router-dom';
 import {
   getSetupState,
   saveSetupStep,
@@ -21,7 +27,25 @@ import {
   createSecret,
   getBackendUrl,
   setBackendUrl,
+  getPublicPath,
 } from '../api';
+
+// ─── localStorage draft helpers ──────────────────────────────────────────────
+
+const SETUP_DRAFT_KEY = 'llm_relay_setup_draft';
+
+function saveDraft(data) {
+  try { localStorage.setItem(SETUP_DRAFT_KEY, JSON.stringify(data)); } catch {}
+}
+
+function loadDraft() {
+  try {
+    const s = localStorage.getItem(SETUP_DRAFT_KEY);
+    return s ? JSON.parse(s) : null;
+  } catch { return null; }
+}
+
+// ─── Constants ────────────────────────────────────────────────────────────────
 
 const STEPS = [
   { num: 1, title: 'Provider Setup',     icon: '🔌' },
@@ -34,42 +58,25 @@ const STEPS = [
 const pill = (label, color = 'green') =>
   `inline-block px-2 py-0.5 rounded text-xs font-semibold bg-${color}-100 text-${color}-800`;
 
+// ─── Component ────────────────────────────────────────────────────────────────
+
 export default function SetupWizardPage({ onComplete }) {
+  const navigate = useNavigate();
   const [step, setStep] = useState(1);
   const [saving, setSaving] = useState(false);
   const [hardware, setHardware] = useState(null);
   const [models, setModels] = useState([]);
   const [done, setDone] = useState(false);
+  const [loadingState, setLoadingState] = useState(false);
 
-  // Backend URL config — shown when running from GitHub Pages or no backend URL set
+  // Backend connection
   const [backendUrl, setBackendUrlState] = useState(getBackendUrl);
   const [backendUrlInput, setBackendUrlInput] = useState(getBackendUrl() || 'http://localhost:8000');
   const [backendConnected, setBackendConnected] = useState(false);
   const [checkingBackend, setCheckingBackend] = useState(false);
-  const needsBackendConfig = !getBackendUrl() || window.location.hostname === 'strikersam.github.io';
+  const [connectError, setConnectError] = useState('');
 
-  const testBackendConnection = useCallback(async (url) => {
-    setCheckingBackend(true);
-    try {
-      const r = await fetch(`${url.replace(/\/$/, '')}/api/health`);
-      if (r.ok) {
-        setBackendUrl(url);
-        setBackendUrlState(url);
-        setBackendConnected(true);
-        return true;
-      }
-    } catch {}
-    setBackendConnected(false);
-    setCheckingBackend(false);
-    return false;
-  }, []);
-
-  useEffect(() => {
-    const stored = getBackendUrl();
-    if (stored) testBackendConnection(stored);
-  }, []); // eslint-disable-line
-
-  // Step 1
+  // Step 1 — Providers
   const [useOllama, setUseOllama] = useState(true);
   const [ollamaUrl, setOllamaUrl] = useState('http://localhost:11434');
   const [useOpenAI, setUseOpenAI] = useState(false);
@@ -88,7 +95,7 @@ export default function SetupWizardPage({ onComplete }) {
   const [copilotKey, setCopilotKey] = useState('');
   const [copilotSecretId, setCopilotSecretId] = useState(null);
 
-  // Step 2
+  // Step 2 — Models
   const [defaultModel, setDefaultModel] = useState('qwen3-coder:30b');
   const [reviewerModel, setReviewerModel] = useState('deepseek-r1:32b');
   const [repoPath, setRepoPath] = useState('');
@@ -98,32 +105,184 @@ export default function SetupWizardPage({ onComplete }) {
   const [proxyRunning, setProxyRunning] = useState(false);
   const [tunnelRunning, setTunnelRunning] = useState(false);
 
-  // Step 3
+  // Step 3 — Runtimes
   const [enableHermes, setEnableHermes] = useState(true);
   const [enableOpenCode, setEnableOpenCode] = useState(false);
   const [enableAider, setEnableAider] = useState(false);
 
-  // Step 4
+  // Step 4 — Agent
   const [agentName, setAgentName] = useState('My Agent');
   const [agentModel, setAgentModel] = useState('qwen3-coder:30b');
   const [costPolicy, setCostPolicy] = useState('local_only');
 
-  // Step 5
+  // Step 5 — Policy
   const [neverPaid, setNeverPaid] = useState(true);
   const [requireApproval, setRequireApproval] = useState(true);
   const [enableLangfuse, setEnableLangfuse] = useState(false);
   const [langfuseHost, setLangfuseHost] = useState('https://cloud.langfuse.com');
 
-  useEffect(() => {
-    getSetupState().then(r => {
-      if (r.data.completed) {
+  // ─── State population helpers ───────────────────────────────────────────────
+
+  const applyWizardState = useCallback((state) => {
+    const p   = state.step1_providers || {};
+    const m   = state.step2_model     || {};
+    const rt  = state.step3_runtimes  || {};
+    const a   = state.step4_agent     || {};
+    const pol = state.step5_policy    || {};
+
+    if (Object.keys(p).length) {
+      setUseOllama(p.use_ollama ?? true);
+      setOllamaUrl(p.ollama_base_url || 'http://localhost:11434');
+      setRepoPath(p.repo_path || '');
+      setModelsPath(p.models_path || '');
+      setUseOpenAI(p.use_openai ?? false);
+      setOpenaiSecretId(p.openai_secret_id || null);
+      setUseAnthropic(p.use_anthropic ?? false);
+      setAnthropicSecretId(p.anthropic_secret_id || null);
+      setUseGoogle(p.use_google ?? false);
+      setGoogleSecretId(p.google_secret_id || null);
+      setUseAzure(p.use_azure ?? false);
+      setAzureSecretId(p.azure_secret_id || null);
+      setUseCopilot(p.use_copilot ?? false);
+      setCopilotSecretId(p.copilot_secret_id || null);
+    }
+    if (Object.keys(m).length) {
+      setDefaultModel(m.default_model || 'qwen3-coder:30b');
+      setReviewerModel(m.reviewer_model || 'deepseek-r1:32b');
+    }
+    if (Object.keys(rt).length) {
+      setEnableHermes(rt.enable_hermes ?? true);
+      setEnableOpenCode(rt.enable_opencode ?? false);
+      setEnableAider(rt.enable_aider ?? false);
+    }
+    if (Object.keys(a).length) {
+      setAgentName(a.agent_name || 'My Agent');
+      setAgentModel(a.agent_model || 'qwen3-coder:30b');
+      setCostPolicy(a.cost_policy || 'local_only');
+    }
+    if (Object.keys(pol).length) {
+      setNeverPaid(pol.never_use_paid_providers ?? true);
+      setRequireApproval(pol.require_approval_before_paid ?? true);
+      setEnableLangfuse(pol.enable_langfuse ?? false);
+      setLangfuseHost(pol.langfuse_host || 'https://cloud.langfuse.com');
+    }
+  }, []);
+
+  const applyDraftState = useCallback((draft) => {
+    if (!draft) return;
+    const p   = draft.step1 || {};
+    const m   = draft.step2 || {};
+    const rt  = draft.step3 || {};
+    const a   = draft.step4 || {};
+    const pol = draft.step5 || {};
+
+    if (p.useOllama !== undefined)     setUseOllama(p.useOllama);
+    if (p.ollamaUrl)                   setOllamaUrl(p.ollamaUrl);
+    if (p.repoPath !== undefined)      setRepoPath(p.repoPath || '');
+    if (p.modelsPath !== undefined)    setModelsPath(p.modelsPath || '');
+    if (p.useOpenAI !== undefined)     setUseOpenAI(p.useOpenAI);
+    if (p.openaiSecretId)              setOpenaiSecretId(p.openaiSecretId);
+    if (p.useAnthropic !== undefined)  setUseAnthropic(p.useAnthropic);
+    if (p.anthropicSecretId)           setAnthropicSecretId(p.anthropicSecretId);
+    if (p.useGoogle !== undefined)     setUseGoogle(p.useGoogle);
+    if (p.googleSecretId)              setGoogleSecretId(p.googleSecretId);
+    if (p.useAzure !== undefined)      setUseAzure(p.useAzure);
+    if (p.azureSecretId)               setAzureSecretId(p.azureSecretId);
+    if (p.useCopilot !== undefined)    setUseCopilot(p.useCopilot);
+    if (p.copilotSecretId)             setCopilotSecretId(p.copilotSecretId);
+
+    if (m.defaultModel)   setDefaultModel(m.defaultModel);
+    if (m.reviewerModel)  setReviewerModel(m.reviewerModel);
+
+    if (rt.enableHermes   !== undefined) setEnableHermes(rt.enableHermes);
+    if (rt.enableOpenCode !== undefined) setEnableOpenCode(rt.enableOpenCode);
+    if (rt.enableAider    !== undefined) setEnableAider(rt.enableAider);
+
+    if (a.agentName)                   setAgentName(a.agentName);
+    if (a.agentModel)                  setAgentModel(a.agentModel);
+    if (a.costPolicy)                  setCostPolicy(a.costPolicy);
+
+    if (pol.neverPaid        !== undefined) setNeverPaid(pol.neverPaid);
+    if (pol.requireApproval  !== undefined) setRequireApproval(pol.requireApproval);
+    if (pol.enableLangfuse   !== undefined) setEnableLangfuse(pol.enableLangfuse);
+    if (pol.langfuseHost)                   setLangfuseHost(pol.langfuseHost);
+  }, []);
+
+  const loadSavedState = useCallback(async () => {
+    setLoadingState(true);
+    try {
+      const r = await getSetupState();
+      const state = r.data;
+      if (state.completed) {
         setDone(true);
         if (onComplete) onComplete();
-      } else {
-        setStep(r.data.current_step || 1);
+        return;
       }
-    }).catch(() => {});
+      setStep(state.current_step || 1);
+      applyWizardState(state);
+    } catch {
+      // Backend unavailable — fall back to localStorage draft
+      const draft = loadDraft();
+      if (draft) {
+        applyDraftState(draft);
+        if (draft.currentStep) setStep(draft.currentStep);
+      }
+    } finally {
+      setLoadingState(false);
+    }
+  }, [onComplete, applyWizardState, applyDraftState]);
+
+  // ─── Backend connection ─────────────────────────────────────────────────────
+
+  const testBackendConnection = useCallback(async (url) => {
+    setCheckingBackend(true);
+    setConnectError('');
+    try {
+      const r = await fetch(`${url.replace(/\/$/, '')}/api/health`);
+      if (r.ok) {
+        setBackendUrl(url);
+        setBackendUrlState(url);
+        setBackendConnected(true);
+        setCheckingBackend(false);
+        return true;
+      }
+      setConnectError(`Backend returned ${r.status}. Check the URL.`);
+    } catch (e) {
+      const msg = (e.message || '').toLowerCase();
+      if (msg.includes('failed to fetch') || msg.includes('networkerror') || msg.includes('cors')) {
+        setConnectError(
+          `Cannot reach backend at ${url}. ` +
+          `If running locally, ensure it's started and CORS allows ${window.location.origin}. ` +
+          `If using an ngrok/tunnel URL, verify the tunnel is active.`
+        );
+      } else {
+        setConnectError(`Connection failed: ${e.message}`);
+      }
+    }
+    setBackendConnected(false);
+    setCheckingBackend(false);
+    return false;
   }, []);
+
+  // ─── Initial load ───────────────────────────────────────────────────────────
+
+  useEffect(() => {
+    const url = getBackendUrl();
+    if (url) {
+      testBackendConnection(url).then(connected => {
+        if (connected) loadSavedState();
+      });
+    } else {
+      // No backend URL configured — load from localStorage draft if available
+      const draft = loadDraft();
+      if (draft) {
+        applyDraftState(draft);
+        if (draft.currentStep) setStep(draft.currentStep);
+      }
+    }
+  }, []); // eslint-disable-line
+
+  // ─── Hardware / model detection (Step 2) ───────────────────────────────────
 
   const loadHardware = useCallback(async () => {
     try {
@@ -136,7 +295,16 @@ export default function SetupWizardPage({ onComplete }) {
     } catch {}
   }, [ollamaUrl]);
 
+  // ─── Local daemon (Step 2 — only relevant when running locally) ─────────────
+
+  const isDeployed = window.location.hostname !== 'localhost' &&
+                     window.location.hostname !== '127.0.0.1';
+
   const checkDaemonConnection = useCallback(async () => {
+    if (isDeployed) {
+      setDaemonConnected(false);
+      return;
+    }
     setDaemonChecking(true);
     try {
       const r = await fetch('http://localhost:3001/api/status');
@@ -153,7 +321,7 @@ export default function SetupWizardPage({ onComplete }) {
     } finally {
       setDaemonChecking(false);
     }
-  }, []);
+  }, [isDeployed]);
 
   const configureDaemon = async () => {
     if (!repoPath || !modelsPath) {
@@ -168,7 +336,6 @@ export default function SetupWizardPage({ onComplete }) {
       });
       const data = await r.json();
       if (data.success) {
-        alert('Configuration saved!');
         await checkDaemonConnection();
       } else {
         alert('Configuration failed: ' + data.message);
@@ -188,7 +355,7 @@ export default function SetupWizardPage({ onComplete }) {
         alert('Failed to start ' + service + ': ' + data.message);
       }
     } catch (e) {
-      alert('Error: ' + e.message);
+      alert('Error starting service: ' + e.message);
     }
   };
 
@@ -202,23 +369,22 @@ export default function SetupWizardPage({ onComplete }) {
         alert('Failed to stop ' + service + ': ' + data.message);
       }
     } catch (e) {
-      alert('Error: ' + e.message);
+      alert('Error stopping service: ' + e.message);
     }
   };
 
   useEffect(() => {
     if (step === 2) {
       loadHardware();
-      if (useOllama) {
-        checkDaemonConnection();
-      }
+      if (useOllama && !isDeployed) checkDaemonConnection();
     }
-  }, [step, loadHardware, useOllama, checkDaemonConnection]);
+  }, [step, loadHardware, useOllama, isDeployed, checkDaemonConnection]);
+
+  // ─── API key storage ────────────────────────────────────────────────────────
 
   const storeApiKey = useCallback(async (key, keyName) => {
     if (!key) return null;
     try {
-      // During setup, use the setup-specific secret endpoint (no auth required)
       const baseUrl = backendUrl || getBackendUrl() || '';
       const response = await fetch(`${baseUrl}/api/setup/secret`, {
         method: 'POST',
@@ -242,36 +408,46 @@ export default function SetupWizardPage({ onComplete }) {
     }
   }, [backendUrl]);
 
+  // ─── Persist draft to localStorage ─────────────────────────────────────────
+
+  const persistDraft = useCallback((currentStep) => {
+    saveDraft({
+      currentStep,
+      step1: { useOllama, ollamaUrl, repoPath, modelsPath, useOpenAI, openaiSecretId, useAnthropic, anthropicSecretId, useGoogle, googleSecretId, useAzure, azureSecretId, useCopilot, copilotSecretId },
+      step2: { defaultModel, reviewerModel },
+      step3: { enableHermes, enableOpenCode, enableAider },
+      step4: { agentName, agentModel, costPolicy },
+      step5: { neverPaid, requireApproval, enableLangfuse, langfuseHost },
+    });
+  }, [useOllama, ollamaUrl, repoPath, modelsPath, useOpenAI, openaiSecretId, useAnthropic, anthropicSecretId, useGoogle, googleSecretId, useAzure, azureSecretId, useCopilot, copilotSecretId, defaultModel, reviewerModel, enableHermes, enableOpenCode, enableAider, agentName, agentModel, costPolicy, neverPaid, requireApproval, enableLangfuse, langfuseHost]);
+
+  // ─── Save step ──────────────────────────────────────────────────────────────
+
   const handleSave = async () => {
     setSaving(true);
     try {
-      // Step 1: Store any API keys provided
       let newOpenaiSecretId = openaiSecretId;
       let newAnthropicSecretId = anthropicSecretId;
+      let newGoogleSecretId = googleSecretId;
+      let newAzureSecretId = azureSecretId;
+      let newCopilotSecretId = copilotSecretId;
 
       if (useOpenAI && openaiKey && !openaiSecretId) {
         newOpenaiSecretId = await storeApiKey(openaiKey, 'OpenAI');
         if (newOpenaiSecretId) setOpenaiSecretId(newOpenaiSecretId);
       }
-
       if (useAnthropic && anthropicKey && !anthropicSecretId) {
         newAnthropicSecretId = await storeApiKey(anthropicKey, 'Anthropic');
         if (newAnthropicSecretId) setAnthropicSecretId(newAnthropicSecretId);
       }
-
-      let newGoogleSecretId = googleSecretId;
       if (useGoogle && googleKey && !googleSecretId) {
         newGoogleSecretId = await storeApiKey(googleKey, 'Google');
         if (newGoogleSecretId) setGoogleSecretId(newGoogleSecretId);
       }
-
-      let newAzureSecretId = azureSecretId;
       if (useAzure && azureKey && !azureSecretId) {
         newAzureSecretId = await storeApiKey(azureKey, 'Azure');
         if (newAzureSecretId) setAzureSecretId(newAzureSecretId);
       }
-
-      let newCopilotSecretId = copilotSecretId;
       if (useCopilot && copilotKey && !copilotSecretId) {
         newCopilotSecretId = await storeApiKey(copilotKey, 'Copilot');
         if (newCopilotSecretId) setCopilotSecretId(newCopilotSecretId);
@@ -284,29 +460,44 @@ export default function SetupWizardPage({ onComplete }) {
         4: { agent_name: agentName, agent_model: agentModel, cost_policy: costPolicy },
         5: { never_use_paid_providers: neverPaid, require_approval_before_paid: requireApproval, enable_langfuse: enableLangfuse, langfuse_host: langfuseHost },
       };
-      console.log(`[SetupWizard] Saving Step ${step}:`, payloads[step]);
-      const result = await saveSetupStep(step, payloads[step]);
-      console.log(`[SetupWizard] Step ${step} saved successfully:`, result);
+
+      // Always persist to localStorage first (resilient to network issues)
+      persistDraft(step);
+
+      if (backendConnected) {
+        await saveSetupStep(step, payloads[step]);
+      }
+
       if (step < 5) {
         setStep(s => s + 1);
       } else {
-        await completeSetup();
+        if (backendConnected) await completeSetup();
+        // Clear draft on completion
+        try { localStorage.removeItem(SETUP_DRAFT_KEY); } catch {}
         setDone(true);
         if (onComplete) onComplete();
       }
     } catch (error) {
       console.error(`[SetupWizard] Error saving Step ${step}:`, error);
-      alert(`Failed to save step: ${error.response?.data?.detail || error.message}`);
+      const detail = error.response?.data?.detail || error.message;
+      alert(`Failed to save step: ${detail}`);
     } finally {
       setSaving(false);
     }
   };
+
+  // ─── Helpers ────────────────────────────────────────────────────────────────
 
   const compatClass = (label) => {
     if (!hardware || !label) return '';
     const map = { compatible: 'text-green-600', degraded: 'text-yellow-600', incompatible: 'text-red-600' };
     return map[label] || '';
   };
+
+  // Show backend banner when: no URL configured, OR we have a URL but aren't connected yet
+  const showBackendBanner = !backendConnected;
+
+  // ─── Done screen ────────────────────────────────────────────────────────────
 
   if (done) {
     return (
@@ -315,13 +506,18 @@ export default function SetupWizardPage({ onComplete }) {
           <div className="text-5xl mb-4">🎉</div>
           <h1 className="text-2xl font-bold text-gray-800 mb-2">You're all set!</h1>
           <p className="text-gray-500 mb-6">Your AI Agent Control Plane is ready to use.</p>
-          <a href="/control-plane" className="bg-indigo-600 text-white px-6 py-2 rounded-lg hover:bg-indigo-700">
+          <button
+            onClick={() => navigate(getPublicPath('/'))}
+            className="bg-indigo-600 text-white px-6 py-2 rounded-lg hover:bg-indigo-700"
+          >
             Open Control Plane →
-          </a>
+          </button>
         </div>
       </div>
     );
   }
+
+  // ─── Render ─────────────────────────────────────────────────────────────────
 
   return (
     <div className="min-h-screen bg-gray-50 flex">
@@ -357,8 +553,8 @@ export default function SetupWizardPage({ onComplete }) {
       <div className="flex-1 p-8 overflow-auto">
         <div className="max-w-2xl mx-auto">
 
-          {/* Backend URL banner — shown on GitHub Pages or when backend not configured */}
-          {(needsBackendConfig || !backendConnected) && (
+          {/* Backend connection banner */}
+          {showBackendBanner && (
             <div className={`mb-6 p-4 rounded-xl border ${backendConnected ? 'bg-green-50 border-green-200' : 'bg-amber-50 border-amber-300'}`}>
               <div className="flex items-center gap-2 mb-2 font-semibold text-sm">
                 <span>{backendConnected ? '🟢' : '🟡'}</span>
@@ -369,7 +565,9 @@ export default function SetupWizardPage({ onComplete }) {
               {!backendConnected && (
                 <>
                   <p className="text-xs text-gray-600 mb-3">
-                    Enter the URL of your running local-llm-server. Use <code className="bg-white px-1 rounded">http://localhost:8000</code> if running locally, or your ngrok tunnel URL.
+                    Enter the URL of your running local-llm-server. Use{' '}
+                    <code className="bg-white px-1 rounded">http://localhost:8000</code> if
+                    running locally, or your ngrok/Cloudflare tunnel URL for remote access.
                   </p>
                   <div className="flex gap-2">
                     <input
@@ -377,19 +575,42 @@ export default function SetupWizardPage({ onComplete }) {
                       value={backendUrlInput}
                       onChange={e => setBackendUrlInput(e.target.value)}
                       placeholder="http://localhost:8000"
-                      onKeyDown={e => e.key === 'Enter' && testBackendConnection(backendUrlInput)}
+                      onKeyDown={e => {
+                        if (e.key === 'Enter') {
+                          testBackendConnection(backendUrlInput).then(ok => {
+                            if (ok) loadSavedState();
+                          });
+                        }
+                      }}
                     />
                     <button
-                      onClick={() => testBackendConnection(backendUrlInput)}
+                      onClick={() => testBackendConnection(backendUrlInput).then(ok => {
+                        if (ok) loadSavedState();
+                      })}
                       disabled={checkingBackend}
                       className="px-4 py-2 bg-indigo-600 text-white rounded-lg text-sm font-medium hover:bg-indigo-700 disabled:opacity-50"
                     >
                       {checkingBackend ? 'Checking…' : 'Connect'}
                     </button>
                   </div>
-                  <p className="text-xs text-red-500 mt-1">⚠ Steps cannot be saved until connected to a backend.</p>
+                  {connectError && (
+                    <div className="mt-2 p-2 bg-red-50 border border-red-200 rounded text-xs text-red-700">
+                      ⚠ {connectError}
+                    </div>
+                  )}
+                  <p className="text-xs text-amber-700 mt-2">
+                    ⚠ Steps will be saved locally until a backend is connected.
+                  </p>
                 </>
               )}
+            </div>
+          )}
+
+          {/* Loading state */}
+          {loadingState && (
+            <div className="mb-4 flex items-center gap-2 text-sm text-indigo-600">
+              <div className="w-4 h-4 border-2 border-indigo-600 border-t-transparent rounded-full animate-spin" />
+              Loading your saved configuration…
             </div>
           )}
 
@@ -408,12 +629,15 @@ export default function SetupWizardPage({ onComplete }) {
           </div>
 
           <div className="bg-white rounded-2xl shadow p-8">
-            {/* Step 1 */}
+
+            {/* ── Step 1: Provider Setup ─────────────────────────────────── */}
             {step === 1 && (
               <div>
                 <h2 className="text-xl font-bold text-gray-800 mb-1">Provider Setup</h2>
                 <p className="text-gray-500 text-sm mb-6">Choose which AI providers you want to use. Local-first is the default.</p>
                 <div className="space-y-4">
+
+                  {/* Ollama */}
                   <label className="flex items-center gap-3 p-4 border rounded-xl cursor-pointer hover:border-indigo-400 transition-colors">
                     <input type="checkbox" checked={useOllama} onChange={e => setUseOllama(e.target.checked)} className="w-4 h-4" />
                     <div>
@@ -455,6 +679,8 @@ export default function SetupWizardPage({ onComplete }) {
                       </div>
                     </div>
                   )}
+
+                  {/* OpenAI */}
                   <label className="flex items-center gap-3 p-4 border rounded-xl cursor-pointer hover:border-indigo-400 transition-colors">
                     <input type="checkbox" checked={useOpenAI} onChange={e => setUseOpenAI(e.target.checked)} className="w-4 h-4" />
                     <div className="flex-1">
@@ -470,11 +696,13 @@ export default function SetupWizardPage({ onComplete }) {
                         type="password"
                         value={openaiKey}
                         onChange={e => setOpenaiKey(e.target.value)}
-                        placeholder="sk-..."
+                        placeholder={openaiSecretId ? '(key already saved — enter to replace)' : 'sk-...'}
                       />
                       {openaiSecretId && <div className="text-xs text-green-600 mt-1">✓ API key saved securely</div>}
                     </div>
                   )}
+
+                  {/* Anthropic */}
                   <label className="flex items-center gap-3 p-4 border rounded-xl cursor-pointer hover:border-indigo-400 transition-colors">
                     <input type="checkbox" checked={useAnthropic} onChange={e => setUseAnthropic(e.target.checked)} className="w-4 h-4" />
                     <div className="flex-1">
@@ -490,11 +718,13 @@ export default function SetupWizardPage({ onComplete }) {
                         type="password"
                         value={anthropicKey}
                         onChange={e => setAnthropicKey(e.target.value)}
-                        placeholder="sk-ant-..."
+                        placeholder={anthropicSecretId ? '(key already saved — enter to replace)' : 'sk-ant-...'}
                       />
                       {anthropicSecretId && <div className="text-xs text-green-600 mt-1">✓ API key saved securely</div>}
                     </div>
                   )}
+
+                  {/* Google */}
                   <label className="flex items-center gap-3 p-4 border rounded-xl cursor-pointer hover:border-indigo-400 transition-colors">
                     <input type="checkbox" checked={useGoogle} onChange={e => setUseGoogle(e.target.checked)} className="w-4 h-4" />
                     <div className="flex-1">
@@ -510,11 +740,13 @@ export default function SetupWizardPage({ onComplete }) {
                         type="password"
                         value={googleKey}
                         onChange={e => setGoogleKey(e.target.value)}
-                        placeholder="AIza..."
+                        placeholder={googleSecretId ? '(key already saved — enter to replace)' : 'AIza...'}
                       />
                       {googleSecretId && <div className="text-xs text-green-600 mt-1">✓ API key saved securely</div>}
                     </div>
                   )}
+
+                  {/* Azure */}
                   <label className="flex items-center gap-3 p-4 border rounded-xl cursor-pointer hover:border-indigo-400 transition-colors">
                     <input type="checkbox" checked={useAzure} onChange={e => setUseAzure(e.target.checked)} className="w-4 h-4" />
                     <div className="flex-1">
@@ -530,11 +762,13 @@ export default function SetupWizardPage({ onComplete }) {
                         type="password"
                         value={azureKey}
                         onChange={e => setAzureKey(e.target.value)}
-                        placeholder="your-azure-api-key"
+                        placeholder={azureSecretId ? '(key already saved — enter to replace)' : 'your-azure-api-key'}
                       />
                       {azureSecretId && <div className="text-xs text-green-600 mt-1">✓ API key saved securely</div>}
                     </div>
                   )}
+
+                  {/* GitHub Copilot */}
                   <label className="flex items-center gap-3 p-4 border rounded-xl cursor-pointer hover:border-indigo-400 transition-colors">
                     <input type="checkbox" checked={useCopilot} onChange={e => setUseCopilot(e.target.checked)} className="w-4 h-4" />
                     <div className="flex-1">
@@ -550,70 +784,74 @@ export default function SetupWizardPage({ onComplete }) {
                         type="password"
                         value={copilotKey}
                         onChange={e => setCopilotKey(e.target.value)}
-                        placeholder="ghu_..."
+                        placeholder={copilotSecretId ? '(token already saved — enter to replace)' : 'ghu_...'}
                       />
                       {copilotSecretId && <div className="text-xs text-green-600 mt-1">✓ Token saved securely</div>}
                     </div>
                   )}
                 </div>
                 <p className="text-xs text-gray-400 mt-4">
-                  💡 API keys for cloud providers are stored securely in Settings → Secrets after setup.
+                  💡 API keys are stored securely in Settings → Secrets. They are never exposed in the UI or committed to source control.
                 </p>
               </div>
             )}
 
-            {/* Step 2 */}
+            {/* ── Step 2: Local Models ───────────────────────────────────── */}
             {step === 2 && (
               <div>
                 <h2 className="text-xl font-bold text-gray-800 mb-1">Local Models</h2>
-                <p className="text-gray-500 text-sm mb-4">We detected your hardware. Configure local setup and choose the best models for your machine.</p>
+                <p className="text-gray-500 text-sm mb-4">Configure local setup and choose the best models for your machine.</p>
 
-                {/* Local Services — daemon control */}
+                {/* Local daemon control (local-only) */}
                 {useOllama && (
                   <div className="bg-blue-50 border border-blue-200 rounded-xl p-5 mb-6">
                     <div className="font-semibold text-gray-800 mb-3">⚙️ Local Services</div>
-
-                    {/* Daemon Status */}
-                    <div className="mb-4 p-3 bg-white rounded-lg border border-gray-200">
-                      <div className="flex items-center justify-between">
-                        <div className="flex items-center gap-2">
-                          <span>{daemonConnected ? '🟢' : '🔴'}</span>
-                          <span className="text-sm font-medium">
-                            {daemonConnected ? 'Daemon Connected' : 'Daemon Not Connected'}
-                          </span>
-                        </div>
-                        <button onClick={checkDaemonConnection} className="text-xs text-indigo-600 hover:underline">
-                          Refresh
-                        </button>
+                    {isDeployed ? (
+                      <div className="p-3 bg-white rounded-lg border border-gray-200 text-sm text-gray-500">
+                        🌐 Running on a deployed instance — local daemon control is only available when running locally.
+                        Services are managed by your backend at <code className="bg-gray-100 px-1 rounded">{backendUrl}</code>.
                       </div>
-                      {!daemonConnected && (
-                        <p className="text-xs text-gray-500 mt-1">Start with: <code className="bg-gray-100 px-1 rounded">python service_daemon.py</code></p>
-                      )}
-                    </div>
-
-                    {/* Service Controls */}
-                    {daemonConnected && (
-                      <div className="space-y-2">
-                        <div className="text-xs font-medium text-gray-700 mb-1">Services</div>
-                        <div className="grid grid-cols-2 gap-2">
-                          <button
-                            onClick={() => proxyRunning ? stopService('proxy') : startService('proxy')}
-                            className={`px-2 py-1.5 rounded text-xs font-medium ${
-                              proxyRunning ? 'bg-red-100 text-red-700 hover:bg-red-200' : 'bg-green-100 text-green-700 hover:bg-green-200'
-                            }`}
-                          >
-                            {proxyRunning ? '⏹️ Stop Proxy' : '▶️ Start Proxy'}
-                          </button>
-                          <button
-                            onClick={() => tunnelRunning ? stopService('tunnel') : startService('tunnel')}
-                            className={`px-2 py-1.5 rounded text-xs font-medium ${
-                              tunnelRunning ? 'bg-red-100 text-red-700 hover:bg-red-200' : 'bg-green-100 text-green-700 hover:bg-green-200'
-                            }`}
-                          >
-                            {tunnelRunning ? '⏹️ Stop Tunnel' : '▶️ Start Tunnel'}
-                          </button>
+                    ) : (
+                      <>
+                        <div className="mb-4 p-3 bg-white rounded-lg border border-gray-200">
+                          <div className="flex items-center justify-between">
+                            <div className="flex items-center gap-2">
+                              <span>{daemonConnected ? '🟢' : '🔴'}</span>
+                              <span className="text-sm font-medium">
+                                {daemonChecking ? 'Checking…' : daemonConnected ? 'Daemon Connected' : 'Daemon Not Connected'}
+                              </span>
+                            </div>
+                            <button onClick={checkDaemonConnection} className="text-xs text-indigo-600 hover:underline">
+                              Refresh
+                            </button>
+                          </div>
+                          {!daemonConnected && (
+                            <p className="text-xs text-gray-500 mt-1">
+                              Start with: <code className="bg-gray-100 px-1 rounded">python service_daemon.py</code>
+                            </p>
+                          )}
                         </div>
-                      </div>
+
+                        {daemonConnected && (
+                          <div className="space-y-2">
+                            <div className="text-xs font-medium text-gray-700 mb-1">Services</div>
+                            <div className="grid grid-cols-2 gap-2">
+                              <button
+                                onClick={() => proxyRunning ? stopService('proxy') : startService('proxy')}
+                                className={`px-2 py-1.5 rounded text-xs font-medium ${proxyRunning ? 'bg-red-100 text-red-700 hover:bg-red-200' : 'bg-green-100 text-green-700 hover:bg-green-200'}`}
+                              >
+                                {proxyRunning ? '⏹️ Stop Proxy' : '▶️ Start Proxy'}
+                              </button>
+                              <button
+                                onClick={() => tunnelRunning ? stopService('tunnel') : startService('tunnel')}
+                                className={`px-2 py-1.5 rounded text-xs font-medium ${tunnelRunning ? 'bg-red-100 text-red-700 hover:bg-red-200' : 'bg-green-100 text-green-700 hover:bg-green-200'}`}
+                              >
+                                {tunnelRunning ? '⏹️ Stop Tunnel' : '▶️ Start Tunnel'}
+                              </button>
+                            </div>
+                          </div>
+                        )}
+                      </>
                     )}
                   </div>
                 )}
@@ -659,16 +897,16 @@ export default function SetupWizardPage({ onComplete }) {
               </div>
             )}
 
-            {/* Step 3 */}
+            {/* ── Step 3: Runtime Config ─────────────────────────────────── */}
             {step === 3 && (
               <div>
                 <h2 className="text-xl font-bold text-gray-800 mb-1">Runtime Configuration</h2>
                 <p className="text-gray-500 text-sm mb-5">Enable the coding runtimes you have installed on this machine.</p>
                 <div className="space-y-3">
                   {[
-                    { key: 'hermes', label: 'Hermes', desc: 'Local LLM relay (built-in) — First Class', val: enableHermes, set: setEnableHermes, badge: 'Recommended' },
-                    { key: 'opencode', label: 'OpenCode', desc: 'VS Code-style agent runtime', val: enableOpenCode, set: setEnableOpenCode },
-                    { key: 'aider', label: 'Aider', desc: 'Git-native coding agent', val: enableAider, set: setEnableAider },
+                    { key: 'hermes',   label: 'Hermes',   desc: 'Local LLM relay (built-in) — First Class', val: enableHermes,   set: setEnableHermes,   badge: 'Recommended' },
+                    { key: 'opencode', label: 'OpenCode', desc: 'VS Code-style agent runtime',              val: enableOpenCode, set: setEnableOpenCode },
+                    { key: 'aider',    label: 'Aider',    desc: 'Git-native coding agent',                  val: enableAider,    set: setEnableAider },
                   ].map(r => (
                     <label key={r.key} className="flex items-center gap-3 p-4 border rounded-xl cursor-pointer hover:border-indigo-300 transition-colors">
                       <input type="checkbox" checked={r.val} onChange={e => r.set(e.target.checked)} className="w-4 h-4" />
@@ -683,7 +921,7 @@ export default function SetupWizardPage({ onComplete }) {
               </div>
             )}
 
-            {/* Step 4 */}
+            {/* ── Step 4: Default Agent ──────────────────────────────────── */}
             {step === 4 && (
               <div>
                 <h2 className="text-xl font-bold text-gray-800 mb-1">Default Agent</h2>
@@ -711,7 +949,7 @@ export default function SetupWizardPage({ onComplete }) {
               </div>
             )}
 
-            {/* Step 5 */}
+            {/* ── Step 5: Policy & Privacy ───────────────────────────────── */}
             {step === 5 && (
               <div>
                 <h2 className="text-xl font-bold text-gray-800 mb-1">Policy & Privacy</h2>
@@ -754,7 +992,7 @@ export default function SetupWizardPage({ onComplete }) {
               </div>
             )}
 
-            {/* Navigation */}
+            {/* ── Navigation ─────────────────────────────────────────────── */}
             <div className="flex items-center justify-between mt-8 pt-6 border-t">
               <button
                 onClick={() => setStep(s => s - 1)}
@@ -765,8 +1003,7 @@ export default function SetupWizardPage({ onComplete }) {
               </button>
               <button
                 onClick={handleSave}
-                disabled={saving || (!backendConnected && needsBackendConfig)}
-                title={!backendConnected && needsBackendConfig ? 'Connect to backend first' : ''}
+                disabled={saving}
                 className="px-6 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 text-sm font-medium disabled:opacity-50"
               >
                 {saving ? 'Saving...' : step === 5 ? '🚀 Complete Setup' : 'Next →'}

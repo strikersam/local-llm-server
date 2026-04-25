@@ -945,6 +945,79 @@ All LLM endpoints require a `Bearer` token from `API_KEYS` or `KEYS_FILE`.
 
 ---
 
+## Setup Wizard & Deployment Guide
+
+### How the Setup Wizard works
+
+The 5-step Setup Wizard configures providers, models, runtimes, the default agent, and cost policy.
+
+**Persistence:**
+- Each step is saved to the backend (`PUT /api/setup/step/{1-5}`) and also cached in `localStorage` under the key `llm_relay_setup_draft`.
+- On next open the wizard loads your saved state automatically — fields come pre-filled from the backend (or from the localStorage draft if the backend is unreachable).
+- Completing the wizard clears the draft and marks setup as done. The wizard will not appear again for that user.
+
+**Returning to setup:** use the **Setup Wizard** link in the sidebar under SYSTEM, or navigate to `/setup`.
+
+---
+
+### Configuring API keys safely
+
+**Local development** (backend running on your machine):
+
+1. Copy `.env.example` to `.env` and fill in the keys you have.
+2. Start the backend: `uvicorn proxy:app --reload --port 8000`
+3. Open `http://localhost:3000` and log in.
+4. The Setup Wizard will detect the backend at `http://localhost:8000` automatically.
+
+**GitHub Pages / deployed dashboard:**
+
+The deployed frontend at `https://strikersam.github.io/local-llm-server/` is a static site — it has **no backend of its own**. You must provide the URL of a running backend.
+
+Steps:
+1. Start your local-llm-server or expose it via ngrok/Cloudflare Tunnel.
+2. Visit `https://strikersam.github.io/local-llm-server/login`.
+3. Click **"Open the setup wizard"** at the bottom of the login card.
+4. Enter your backend URL (e.g. `https://my-ngrok-url.ngrok-free.app`) and click **Connect**.
+5. Log in — the dashboard will use your remote backend for all API calls.
+
+Your backend URL is stored in `localStorage` so you only need to set it once per browser.
+
+**Keys are never stored in this repository or in the static build.**
+All API keys (Anthropic, OpenAI, etc.) entered in the wizard are sent to your backend via
+`POST /api/setup/secret` and stored encrypted server-side. Only the secret ID is kept in the wizard state.
+
+**Build-time backend injection (optional):** set the `RENDER_BACKEND_URL` GitHub secret in your repository settings to bake the backend URL into the static build. This removes the need for the setup step on every fresh browser.
+
+---
+
+### Service detection after login
+
+When you log in to a connected backend, the app:
+1. Calls `GET /api/setup/state` to check if the Setup Wizard has been completed.
+2. If **not completed**, redirects you to `/setup` automatically.
+3. If **completed**, loads the dashboard with your saved provider/runtime configuration.
+
+Provider availability is determined from the saved setup state (Step 1):
+- Providers you enabled with a stored secret → shown as **available** (green).
+- Providers you enabled but without a key → shown as **requires key** with a link to Setup.
+- Ollama → probed via `GET /api/setup/detect/models` (backend proxies the Ollama check).
+
+If a service fails to start or a key is missing, the relevant page (Runtimes, Providers) shows a **Retry** or **Configure** button to resolve it without re-running the full wizard.
+
+---
+
+### CORS configuration for remote deployments
+
+If your backend is on a different origin than the frontend (e.g. `http://localhost:8000` vs `https://strikersam.github.io`), set `FRONTEND_URL` in your backend `.env`:
+
+```
+FRONTEND_URL=https://strikersam.github.io
+```
+
+The FastAPI CORS middleware uses this to allow cross-origin requests from the dashboard.
+
+---
+
 ## License
 
 Open source. Use it, fork it, ship it.

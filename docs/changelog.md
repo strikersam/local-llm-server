@@ -8,6 +8,19 @@
 
 ## [Unreleased]
 
+### Added
+- **Setup wizard prefill from saved backend state (`frontend/src/pages/SetupWizardPage.js`)** — `GET /api/setup/state` response now fully populates all 5 wizard steps on open. Provider toggles, model names, runtime flags, agent config, and policy settings are all restored from the last saved state.
+- **localStorage draft persistence (`frontend/src/pages/SetupWizardPage.js`)** — Each "Next" click writes a non-sensitive draft to `localStorage` (`llm_relay_setup_draft`). The wizard loads this draft as a fallback when the backend is unreachable (e.g., GitHub Pages before backend URL is configured).
+- **Service detection utility (`frontend/src/utils/serviceDetection.js`)** — `detectAllServices()` probes backend health, Ollama availability, and configured cloud providers from setup state. `summarizeServices()` groups results by tier for UI display.
+- **Frontend test suite (`frontend/src/__tests__/`)** — 41 tests across setup wizard persistence/prefill, service detection, and routing. Uses `@testing-library/react`.
+- **Post-login setup redirect (`frontend/src/App.js` `SetupGuard`)** — On first load after login, if `GET /api/setup/state` shows setup incomplete, the user is redirected to `/setup` automatically. Skips silently when no backend URL is configured.
+
+### Fixed
+- **Setup wizard `needsBackendConfig` logic** — Removed sticky `window.location.hostname === 'strikersam.github.io'` check that permanently blocked the connection form even after connecting. Banner now hides correctly once backend responds to `/api/health`.
+- **Done screen broken link** — `<a href="/control-plane">` replaced with a `<button>` using `useNavigate` that routes to `/` (ControlPlanePage). Avoids full page reload and correctly respects `PUBLIC_URL` base path.
+- **Daemon control UI on deployed instance** — When running on a non-localhost host, the Step 2 "Local Services" panel now shows a clear note that daemon control is only available locally, instead of silently failing with `localhost:3001` CORS errors.
+- **CORS/network error messaging** — `testBackendConnection` now shows a descriptive error (with expected CORS origin) when `fetch` throws, rather than failing silently.
+
 ### Changed
 - **Multica-style task workflow (`tasks/*`, `proxy.py`, `agent/scheduler.py`, `agent/playbook.py`, `runtimes/*`)** — Reworked tasks from ad hoc status edits into a lifecycle-driven workflow with enforced transitions, blocked/review semantics, queued agent execution, runtime-aware dispatch, agent-definition binding, execution history, threaded task comments, and automation-created tasks. Scheduler fires and playbook runs now create real tasks routed through the same task system, and task execution records the runtime/model actually used.
 - **Runtime start/stop control** — Removed admin auth requirement from `/runtime/{id}/start`, `/runtime/{id}/stop`, `/runtime/start-all`, and `/runtime/stop-all` endpoints. Added proper error handling with HTTP 500 status on failures. Updated frontend RuntimesPage with start/stop buttons for individual runtimes and bulk start-all/stop-all buttons. Status updates automatically refresh after 2–3 seconds.
