@@ -763,6 +763,7 @@ async def ensure_bootstrap() -> None:
         set_agent_store(AgentStore(db=db))
         set_task_store(TaskStore(db=db))
         await seed_admin()
+        await seed_default_agents()
         await seed_default_providers()
         _BOOTSTRAP_DONE = True
 
@@ -783,7 +784,54 @@ async def seed_admin():
         await db.users.update_one({"email": ADMIN_EMAIL}, {"$set": {"password_hash": hash_password(ADMIN_PASSWORD)}})
 
 
-async def seed_default_providers():
+async def seed_default_agents() -> None:
+    """Seed the five built-in CRISPY agent profiles if they don't exist yet.
+
+    These are public (workspace-visible) and owned by the admin account so every
+    user can see and use them immediately without manual setup.
+    """
+    from agents.profiles import load_all_profiles
+    from agents.store import AgentDefinition, get_agent_store
+
+    _TASK_TYPES: dict[str, list[str]] = {
+        "scout":     ["research", "code_review", "general"],
+        "architect": ["planning", "design", "general"],
+        "coder":     ["code_generation", "repo_editing", "tool_use"],
+        "reviewer":  ["code_review", "general"],
+        "verifier":  ["shell_exec", "tool_use"],
+    }
+    _COST_POLICY: dict[str, str] = {
+        "scout":     "local_only",
+        "architect": "local_only",
+        "coder":     "local_only",
+        "reviewer":  "local_only",
+        "verifier":  "local_only",
+    }
+
+    store = get_agent_store()
+    profiles = load_all_profiles()
+
+    for role, profile in profiles.items():
+        # Idempotency: skip if an agent with this role tag already exists
+        existing = await db.agent_definitions.find_one({"tags": f"crispy:{role}"})
+        if existing:
+            continue
+
+        agent = AgentDefinition(
+            owner_id=ADMIN_EMAIL,
+            name=profile.name,
+            description=f"CRISPY {profile.name} — {profile.label}",
+            model=profile.model,
+            system_prompt=profile.system_prompt,
+            is_public=True,
+            cost_policy=_COST_POLICY.get(role, "local_only"),
+            task_types=_TASK_TYPES.get(role, ["general"]),
+            tags=["crispy", f"crispy:{role}", "built-in"],
+        )
+        await store.create(agent)
+        log.info("Seeded CRISPY agent: %s (%s)", profile.name, profile.model)
+
+
     defaults = [
         {
             "provider_id": "ollama-local",

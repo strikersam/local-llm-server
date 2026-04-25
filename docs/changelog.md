@@ -8,6 +8,16 @@
 
 ## [Unreleased]
 
+## [2.2.0] — 2026-04-25
+
+### Fixed
+- **Docker not found shown as red error on Runtimes page** — `start_runtime` / `stop_runtime` now return `docker_unavailable: true` (200 OK) instead of `status: "error"` which triggered a 500 and a red `controlErr` in the UI. Frontend now renders this as a blue info note.
+- **Bulk start-all / stop-all also no longer 500 on Docker absence** — each runtime result's `docker_unavailable` flag is checked before raising `HTTPException`.
+
+### Added
+- **CRISPY agent profiles seeded on first boot** — `seed_default_agents()` runs in `ensure_bootstrap` and creates the five built-in roles (Scout, Architect, Coder, Reviewer, Verifier) as public workspace agents. Idempotent via `crispy:<role>` tag check.
+- **`dockerNote` info state in `RuntimeCard`** — Start/Stop on a sidecar runtime in a Docker-less environment now shows a blue info banner instead of a red error.
+
 ## [2.1.0] — 2026-04-25
 
 ### Fixed

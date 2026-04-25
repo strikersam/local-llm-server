@@ -153,6 +153,8 @@ async def run_task_on_runtime(
 async def start_runtime_container(runtime_id: str) -> dict:
     """Start a stopped runtime container."""
     result = await start_runtime(runtime_id)
+    if result.get("docker_unavailable"):
+        return result  # 200 with informational payload — not an error
     if result.get("status") == "error":
         raise HTTPException(status_code=500, detail=result.get("error", "Failed to start runtime"))
     return result
@@ -162,6 +164,8 @@ async def start_runtime_container(runtime_id: str) -> dict:
 async def stop_runtime_container(runtime_id: str) -> dict:
     """Stop a running runtime container."""
     result = await stop_runtime(runtime_id)
+    if result.get("docker_unavailable"):
+        return result
     if result.get("status") == "error":
         raise HTTPException(status_code=500, detail=result.get("error", "Failed to stop runtime"))
     return result
@@ -171,9 +175,8 @@ async def stop_runtime_container(runtime_id: str) -> dict:
 async def start_all() -> dict:
     """Start all runtime containers."""
     result = await start_all_runtimes()
-    # Check if any runtimes failed
     for rt_id, rt_result in result.get("runtimes", {}).items():
-        if rt_result.get("status") == "error":
+        if rt_result.get("status") == "error" and not rt_result.get("docker_unavailable"):
             raise HTTPException(status_code=500, detail=f"{rt_id}: {rt_result.get('error', 'Unknown error')}")
     return result
 
@@ -182,8 +185,7 @@ async def start_all() -> dict:
 async def stop_all() -> dict:
     """Stop all runtime containers."""
     result = await stop_all_runtimes()
-    # Check if any runtimes failed
     for rt_id, rt_result in result.get("runtimes", {}).items():
-        if rt_result.get("status") == "error":
+        if rt_result.get("status") == "error" and not rt_result.get("docker_unavailable"):
             raise HTTPException(status_code=500, detail=f"{rt_id}: {rt_result.get('error', 'Unknown error')}")
     return result

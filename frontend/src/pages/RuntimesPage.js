@@ -57,12 +57,19 @@ function RuntimeCard({ runtime, onRun, onRefresh }) {
     }
   };
 
+  const [dockerNote, setDockerNote] = useState('');
+
   const handleStart = async () => {
     setControlLoading(true);
     setControlErr('');
+    setDockerNote('');
     try {
-      await startRuntime(runtime.runtime_id);
-      setTimeout(() => onRefresh?.(), 2000);
+      const res = await startRuntime(runtime.runtime_id);
+      if (res?.data?.docker_unavailable) {
+        setDockerNote('Docker lifecycle control is only available when running locally. The runtime may still respond if its HTTP endpoint is reachable.');
+      } else {
+        setTimeout(() => onRefresh?.(), 2000);
+      }
     } catch (e) {
       setControlErr(fmtErr(e?.response?.data?.detail) || e.message || 'Failed to start runtime');
     } finally {
@@ -73,13 +80,20 @@ function RuntimeCard({ runtime, onRun, onRefresh }) {
   const handleStop = async () => {
     setControlLoading(true);
     setControlErr('');
+    setDockerNote('');
     try {
-      await stopRuntime(runtime.runtime_id);
-      setTimeout(() => onRefresh?.(), 2000);
+      const res = await stopRuntime(runtime.runtime_id);
+      if (res?.data?.docker_unavailable) {
+        setDockerNote('Docker lifecycle control is only available when running locally.');
+      } else {
+        setTimeout(() => onRefresh?.(), 2000);
+      }
     } catch (e) {
       setControlErr(fmtErr(e?.response?.data?.detail) || e.message || 'Failed to stop runtime');
     } finally {
       setControlLoading(false);
+    }
+  };
     }
   };
 
@@ -143,6 +157,11 @@ function RuntimeCard({ runtime, onRun, onRefresh }) {
         <div className="px-4 pb-4 border-t border-white/5 pt-3 space-y-4">
           {/* Control error */}
           {controlErr && <div className="text-[10px] text-red-400">{controlErr}</div>}
+          {dockerNote && (
+            <div className="text-[10px] text-[#4477FF] bg-[#002FA7]/8 border border-[#002FA7]/20 rounded px-3 py-2">
+              ℹ️ {dockerNote}
+            </div>
+          )}
 
           {/* Capabilities */}
           <div>

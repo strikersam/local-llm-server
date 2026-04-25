@@ -51,8 +51,13 @@ async def start_runtime(runtime_id: str) -> dict[str, Any]:
         return {
             "runtime_id": runtime_id,
             "action": "start",
-            "status": "error",
-            "error": "Docker not found. Install Docker to manage runtimes.",
+            "status": "docker_unavailable",
+            "docker_unavailable": True,
+            "message": (
+                "Docker is not available in this environment. "
+                "Runtime lifecycle control only works locally with Docker installed. "
+                "The runtime may still be reachable if its HTTP endpoint is configured."
+            ),
         }
     except Exception as e:
         log.error(f"Error starting {runtime_id}: {e}")
@@ -91,6 +96,14 @@ async def stop_runtime(runtime_id: str) -> dict[str, Any]:
             "action": "stop",
             "status": "error",
             "error": error_msg,
+        }
+    except FileNotFoundError:
+        return {
+            "runtime_id": runtime_id,
+            "action": "stop",
+            "status": "docker_unavailable",
+            "docker_unavailable": True,
+            "message": "Docker is not available in this environment.",
         }
     except Exception as e:
         log.error(f"Error stopping {runtime_id}: {e}")
