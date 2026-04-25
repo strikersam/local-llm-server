@@ -21,6 +21,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 from motor.motor_asyncio import AsyncIOMotorClient
 from bson import ObjectId
+from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.middleware.sessions import SessionMiddleware
 
 from backend.llm_providers import (
@@ -725,6 +726,33 @@ app.add_middleware(
 
 client = AsyncIOMotorClient(MONGO_URL)
 db = client[DB_NAME]
+
+
+class JWTUserStateMiddleware(BaseHTTPMiddleware):
+    """Populate request.state.user from a valid Bearer JWT.
+
+    Task and agent routers read request.state.user directly (rather than
+    using Depends(get_current_user)), so this middleware bridges the gap.
+    """
+
+    async def dispatch(self, request: Request, call_next):
+        auth = request.headers.get("Authorization", "")
+        if auth.startswith("Bearer "):
+            token = auth[7:].strip()
+            try:
+                payload = jwt.decode(token, JWT_SECRET, algorithms=[JWT_ALGORITHM])
+                if payload.get("type") == "access":
+                    user = await db.users.find_one({"_id": ObjectId(payload["sub"])})
+                    if user:
+                        user["_id"] = str(user["_id"])
+                        user.pop("password_hash", None)
+                        request.state.user = user
+            except Exception:
+                pass
+        return await call_next(request)
+
+
+app.add_middleware(JWTUserStateMiddleware)
 
 _BOOTSTRAP_DONE = False
 _BOOTSTRAP_LOCK = asyncio.Lock()

@@ -10,6 +10,8 @@
 
 ### Fixed
 - **Login throws "something went wrong" after CRISPY agent seeding commit** — `seed_default_providers` was accidentally removed when `seed_default_agents` was added; its body was merged into the new function leaving `ensure_bootstrap` calling a non-existent function. Restored `seed_default_providers` as a standalone async function.
+- **Tasks page returns 401 for authenticated users** — `tasks/api.py` reads `request.state.user` but `backend/server.py` never populated it. Added `JWTUserStateMiddleware` to the backend app that decodes the Bearer JWT and writes the user dict to `request.state.user`, matching the pattern used in `proxy.py`.
+- **Agent chat returns 400 Bad Request when using Google Gemini** — `openai_compat_url()` unconditionally appended `/v1` to any base URL that didn't already end with `/v1`. Google's OpenAI-compat endpoint is `https://generativelanguage.googleapis.com/v1beta/openai` (no trailing `/v1`), so the helper was building an invalid double-versioned path. Fixed by parsing the URL: if the base already carries a non-root path it is used as-is; otherwise `/v1` is appended.
 
 ## [2.2.0] — 2026-04-25
 

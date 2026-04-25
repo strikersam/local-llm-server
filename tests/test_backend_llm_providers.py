@@ -24,6 +24,18 @@ def test_openai_compat_url_does_not_double_v1():
     )
 
 
+def test_openai_compat_url_google_gemini_does_not_inject_v1():
+    # Google's OpenAI-compat surface is at /v1beta/openai — adding /v1 would
+    # produce an invalid double-version path and a 400 from the API.
+    assert (
+        openai_compat_url(
+            "https://generativelanguage.googleapis.com/v1beta/openai",
+            "/chat/completions",
+        )
+        == "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions"
+    )
+
+
 @pytest.mark.anyio
 async def test_chat_completion_text_sends_auth_header_and_parses_content():
     seen: dict[str, str] = {}
