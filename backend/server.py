@@ -832,6 +832,7 @@ async def seed_default_agents() -> None:
         log.info("Seeded CRISPY agent: %s (%s)", profile.name, profile.model)
 
 
+async def seed_default_providers():
     defaults = [
         {
             "provider_id": "ollama-local",
