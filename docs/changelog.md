@@ -8,6 +8,19 @@
 
 ## [Unreleased]
 
+## [2.1.0] — 2026-04-25
+
+### Fixed
+- **`ModuleNotFoundError: No module named 'rbac'` in deployed agent runs** — `Dockerfile.backend` was missing `COPY rbac.py`, so the RBAC module was absent from the Docker image. Agent loop crashed on startup before executing any tools.
+- **404 on `/api/agents/`, `/runtimes/`, `/api/tasks/`** — `agent_router`, `runtime_router`, and `task_router` were defined but never mounted in `backend/server.py`. All three are now included via `app.include_router()` before the SPA catch-all.
+- **`AgentStore` and `TaskStore` running in in-memory mode on deployment** — The stores were never wired to the shared `AsyncIOMotorClient` instance. Bootstrap now calls `set_agent_store(AgentStore(db=db))` and `set_task_store(TaskStore(db=db))` so data persists across restarts in MongoDB.
+
+### Added
+- **MongoDB indexes for agents and tasks** — `ensure_bootstrap` now creates unique indexes on `agent_definitions.agent_id` and `tasks.task_id`, plus secondary indexes on `owner_id` and `status` for efficient queries.
+- **`Dockerfile.backend` now includes all required packages** — Added `COPY` directives for `agents/`, `runtimes/`, `tasks/`, `handlers/`, `workflow/`, `sync/`, `setup/`, and `rbac.py`.
+
+
+
 ### Fixed
 - **Setup wizard API key storage 404 (`frontend/src/pages/SetupWizardPage.js`)** — `storeApiKey` now uses the shared axios `API` instance (with auth token + correct base URL) as its primary path, falling back to the public `/api/setup/secret` endpoint only when the secrets API is unavailable. Eliminates "Not Found" errors caused by stale `backend_url` in localStorage routing to a server without setup routes.
 - **Setup wizard backend URL auto-detection** — On mount, the wizard now defaults to `window.location.origin` when no `backend_url` is stored in localStorage. Fixes the post-login case where the wizard and API are served from the same host but the URL was never explicitly configured.

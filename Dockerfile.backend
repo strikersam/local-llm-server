@@ -8,6 +8,14 @@ RUN pip install --no-cache-dir -r backend/requirements.txt
 COPY backend/ backend/
 COPY agent/ agent/
 COPY router/ router/
+COPY agents/ agents/
+COPY runtimes/ runtimes/
+COPY tasks/ tasks/
+COPY handlers/ handlers/
+COPY workflow/ workflow/
+COPY sync/ sync/
+COPY setup/ setup/
+COPY rbac.py rbac.py
 
 EXPOSE 8001
 

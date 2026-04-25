@@ -30,6 +30,13 @@ from backend.llm_providers import (
     normalize_base_url,
 )
 
+# Feature routers — agents, runtimes, tasks
+from agents.api import agent_router
+from agents.store import AgentStore, set_agent_store
+from runtimes.api import runtime_router
+from tasks.api import task_router
+from tasks.store import TaskStore, set_task_store
+
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 log = logging.getLogger("llm-wiki")
 
@@ -746,6 +753,15 @@ async def ensure_bootstrap() -> None:
         await db.github_settings.create_index("user_id", unique=True)
         # oauth_states has a 10-minute TTL — MongoDB drops stale records automatically
         await db.oauth_states.create_index("created_at", expireAfterSeconds=600)
+        # Indexes for feature routers
+        await db.agent_definitions.create_index("agent_id", unique=True)
+        await db.agent_definitions.create_index("owner_id")
+        await db.tasks.create_index("task_id", unique=True)
+        await db.tasks.create_index("owner_id")
+        await db.tasks.create_index("status")
+        # Wire feature stores to the shared MongoDB connection
+        set_agent_store(AgentStore(db=db))
+        set_task_store(TaskStore(db=db))
         await seed_admin()
         await seed_default_providers()
         _BOOTSTRAP_DONE = True
@@ -2274,6 +2290,11 @@ async def create_github_pr(
         log.error("GitHub API %s error: %s", exc.response.status_code, exc.response.text)
         raise HTTPException(status_code=exc.response.status_code, detail="GitHub API error") from exc
 
+
+# ─── Feature Routers ────────────────────────────────────────────────────────────
+app.include_router(agent_router)
+app.include_router(runtime_router)
+app.include_router(task_router)
 
 # ─── Serve React Frontend (Replit compatibility) ────────────────────────────────
 # Mount the built React app and serve index.html for unknown routes (SPA routing)
