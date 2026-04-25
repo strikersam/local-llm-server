@@ -21,6 +21,12 @@ venv/
 frontend/frontend.log
 proxy.log
 
+# Secrets / local key material
+keys.json
+
+# Runtime process files
+server.pids
+
 # Build artifacts
 frontend/build/
 dist/

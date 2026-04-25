@@ -26,6 +26,7 @@ from dotenv import load_dotenv
 # Load .env before any config reads (uvicorn does not load .env by default).
 load_dotenv()
 from collections import defaultdict
+from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from typing import AsyncIterator
 
@@ -118,9 +119,10 @@ WEAK_ADMIN_SECRETS = frozenset({
     "secret",
     "your-admin-secret",
 })
-# Comma-separated origins, or * (default). Example: https://app.example.com,https://other.com
-_raw_cors = os.environ.get("CORS_ORIGINS", "*").strip()
-CORS_ORIGINS = [o.strip() for o in _raw_cors.split(",") if o.strip()] or ["*"]
+# Comma-separated origins. Safer default is local-only for browser clients.
+_default_cors = "http://localhost,http://127.0.0.1,http://localhost:3000,http://127.0.0.1:3000"
+_raw_cors = os.environ.get("CORS_ORIGINS", _default_cors).strip()
+CORS_ORIGINS = [o.strip() for o in _raw_cors.split(",") if o.strip()] or _default_cors.split(",")
 
 # Refuse example / default keys from .env templates (must not be used in production)
 WEAK_API_KEYS = frozenset({
@@ -218,6 +220,22 @@ def check_rate_limit(api_key: str) -> None:
         )
     _rate_buckets[api_key].append(now)
 
+LOCALHOST_BYPASS_PATHS = frozenset({
+    "/v1/messages",
+    "/v1/chat/completions",
+    "/api/chat",
+})
+
+
+def _localhost_auth_bypass_allowed(request: Request) -> bool:
+    path = request.url.path
+    if path in LOCALHOST_BYPASS_PATHS:
+        return True
+    if path.startswith("/api/") and path in {"/api/chat"}:
+        return True
+    return False
+
+
 # ─── Auth dependency ────────────────────────────────────────────────────────────
 
 def verify_api_key(
@@ -253,13 +271,13 @@ def verify_api_key(
     
     # DEBUG: Log what we received
     if LOG_LEVEL == "DEBUG":
-        log.debug(f"Auth check: client={client_host}, is_localhost={is_localhost}, key={key[:20] if key else 'EMPTY'}...")
+        key_preview = (key[:20] + "...") if key else "EMPTY"
+        log.debug("Auth check: client=%r, is_localhost=%s, key=%r", client_host, is_localhost, key_preview)
 
     if not key:
-        if is_localhost:
-            # Allow unauthenticated localhost requests (for Claude Code CLI)
+        if is_localhost and _localhost_auth_bypass_allowed(request):
             if LOG_LEVEL == "DEBUG":
-                log.debug("Allowing localhost request without auth (Claude Code CLI)")
+                log.debug("Allowing localhost request without auth on approved local-only path")
             return AuthContext(
                 key="localhost-stub",
                 email="localhost",
@@ -268,7 +286,7 @@ def verify_api_key(
                 source="localhost",
             )
         if LOG_LEVEL == "DEBUG":
-            log.debug(f"DEBUG: No API key found for remote request from {client_host}")
+            log.debug("No API key found for remote request from %r", client_host)
         raise HTTPException(
             status_code=401,
             detail="Missing API key.  Set Authorization: Bearer <key> or x-api-key: <key>",
@@ -293,7 +311,11 @@ def verify_api_key(
             key_id=None,
             source="legacy",
         )
-    log.warning(f"Rejected request with invalid API key from {client_host}: {key[:20]}...")
+    log.warning(
+        "Rejected request with invalid API key from %r: %r",
+        client_host,
+        (key[:20] + "...") if key else "EMPTY",
+    )
     raise HTTPException(status_code=403, detail="Invalid API key")
 
 
@@ -373,7 +395,128 @@ def _provider_headers_for_request(secret: object, request: Request, auth: AuthCo
 
 # ─── App ────────────────────────────────────────────────────────────────────────
 
-app = FastAPI(title="LLM Relay — Control Plane", version="3.0.0", docs_url=None, redoc_url=None)
+_mongo_client: AsyncIOMotorClient | None = None
+_mongo_db: AsyncIOMotorDatabase | None = None
+_task_dispatcher: TaskDispatcher | None = None
+_dispatcher_task: asyncio.Task | None = None
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    global _mongo_client, _mongo_db, _task_dispatcher, _dispatcher_task, TASK_AUTOMATION
+
+    mongo_url = os.environ.get("MONGO_URL", "mongodb://localhost:27017")
+    try:
+        _mongo_client = AsyncIOMotorClient(mongo_url)
+        _mongo_db = _mongo_client["local_llm_server"]
+        from agents.store import AgentStore
+        from tasks.store import TaskStore
+        agent_store = AgentStore(db=_mongo_db)
+        task_store = TaskStore(db=_mongo_db)
+        set_agent_store(agent_store)
+        set_task_store(task_store)
+        log.info("MongoDB connected for agent store persistence")
+    except Exception as e:
+        log.warning("MongoDB unavailable for agent store: %s. Using in-memory store.", e)
+
+    should_register = os.environ.get("REGISTER_RUNTIMES", "").lower() in ("1", "true", "yes")
+    if should_register:
+        try:
+            from agents.store import AgentDefinition
+            runtimes = {
+                "hermes": {
+                    "name": "Hermes (Executor)",
+                    "description": "Fast, lightweight code execution runtime",
+                    "task_types": ["code_generation", "refactoring"],
+                    "model": "hermes:latest",
+                    "base_url": "http://hermes:8080",
+                },
+                "opencode": {
+                    "name": "OpenCode (Generator)",
+                    "description": "Code generation and scaffolding runtime",
+                    "task_types": ["code_generation", "scaffolding"],
+                    "model": "opencode:latest",
+                    "base_url": "http://opencode:8080",
+                },
+                "goose": {
+                    "name": "Goose (Multi-Purpose)",
+                    "description": "Multi-purpose AI development agent",
+                    "task_types": ["code_generation", "testing", "review"],
+                    "model": "goose:latest",
+                    "base_url": "http://goose:8080",
+                },
+                "aider": {
+                    "name": "Aider (Pair Programmer)",
+                    "description": "Pair programming and collaborative development",
+                    "task_types": ["code_generation", "refactoring", "debugging"],
+                    "model": "aider:latest",
+                    "base_url": "http://aider:8080",
+                },
+            }
+            store = get_agent_store()
+            for runtime_id, config in runtimes.items():
+                existing = await store.get(runtime_id)
+                if existing:
+                    log.info("Runtime %s already registered, skipping", runtime_id)
+                    continue
+                agent = AgentDefinition(
+                    agent_id=runtime_id,
+                    owner_id="system",
+                    name=config["name"],
+                    description=config["description"],
+                    model=config["model"],
+                    runtime_id=runtime_id,
+                    task_types=config["task_types"],
+                    is_public=True,
+                    cost_policy="local_only",
+                    tags=["runtime", "system", "docker"],
+                )
+                await store.create(agent)
+                log.info("Registered runtime: %s -> %s", runtime_id, agent.name)
+        except Exception as e:
+            log.error("Failed to register agent runtimes: %s", e, exc_info=True)
+
+    mgr = get_runtime_manager()
+    await mgr.start()
+    log.info("RuntimeManager started (%d runtimes registered)", len(mgr._registry.ids()))
+
+    _task_dispatcher = TaskDispatcher(
+        workspace_root=str(Path(__file__).resolve().parent),
+        poll_interval_s=10.0,
+    )
+    TASK_AUTOMATION = TaskAutomationService(store=get_task_store())
+    SCHEDULER.set_on_fire(TASK_AUTOMATION.handle_scheduled_job)
+    _dispatcher_task = asyncio.create_task(_task_dispatcher.run_forever())
+    log.info("Task dispatcher started in background")
+
+    try:
+        yield
+    finally:
+        if _task_dispatcher:
+            _task_dispatcher.stop()
+        if _dispatcher_task:
+            _dispatcher_task.cancel()
+            try:
+                await _dispatcher_task
+            except asyncio.CancelledError:
+                pass
+        log.info("Task dispatcher stopped")
+
+        await mgr.stop()
+        log.info("RuntimeManager stopped")
+
+        if _mongo_client:
+            _mongo_client.close()
+            log.info("MongoDB connection closed")
+
+
+app = FastAPI(
+    title="LLM Relay — Control Plane",
+    version="3.0.0",
+    docs_url=None,
+    redoc_url=None,
+    lifespan=lifespan,
+)
 
 # DEBUG: Log all incoming requests with headers  
 from starlette.middleware.base import BaseHTTPMiddleware
@@ -405,11 +548,14 @@ from tokens import verify_token
 
 class JWTAuthMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: StarletteRequest, call_next):
-        # Extract JWT from Authorization header
+        request.state.user = None
         auth_header = request.headers.get("authorization", "")
         if auth_header.startswith("Bearer "):
             token = auth_header[7:].strip()
-            payload = verify_token(token, token_type="access")
+            try:
+                payload = verify_token(token, token_type="access")
+            except Exception:
+                payload = None
             if payload:
                 request.state.user = {
                     "email": payload.get("email"),
@@ -455,7 +601,7 @@ BACKGROUND_AGENT  = BackgroundAgent()
 COORDINATOR       = AgentCoordinator(ollama_base=OLLAMA_BASE, workspace_root=str(Path(__file__).resolve().parent))
 BROWSER_SESSION   = BrowserSession()
 QUICK_NOTE_QUEUE  = QuickNoteQueue()
-TASK_AUTOMATION   = TaskAutomationService(store=get_task_store())
+TASK_AUTOMATION: TaskAutomationService = TaskAutomationService(store=get_task_store())
 start_processor(QUICK_NOTE_QUEUE, repo_root=Path(__file__).resolve().parent)
 
 WEBUI_STORE = JsonConfigStore()
@@ -543,140 +689,7 @@ app.include_router(
 )
 log.info("Workspace sync mounted at /api/sync/*")
 
-# ─── MongoDB initialization for agent store ──────────────────────────────────
-_mongo_client: AsyncIOMotorClient | None = None
-_mongo_db: AsyncIOMotorDatabase | None = None
 
-@app.on_event("startup")
-async def init_mongodb():
-    """Initialize MongoDB connection for agent store persistence."""
-    global _mongo_client, _mongo_db
-    mongo_url = os.environ.get("MONGO_URL", "mongodb://localhost:27017")
-    try:
-        _mongo_client = AsyncIOMotorClient(mongo_url)
-        _mongo_db = _mongo_client["local_llm_server"]
-        # Initialize agent store with MongoDB
-        from agents.store import AgentStore
-        from tasks.store import TaskStore
-        agent_store = AgentStore(db=_mongo_db)
-        task_store = TaskStore(db=_mongo_db)
-        set_agent_store(agent_store)
-        set_task_store(task_store)
-        log.info("MongoDB connected for agent store persistence")
-    except Exception as e:
-        log.warning(f"MongoDB unavailable for agent store: {e}. Using in-memory store.")
-        # Fallback to in-memory store
-        pass
-
-@app.on_event("shutdown")
-async def close_mongodb():
-    """Close MongoDB connection on shutdown."""
-    global _mongo_client
-    if _mongo_client:
-        _mongo_client.close()
-        log.info("MongoDB connection closed")
-
-# ─── Agent Runtime Registration ──────────────────────────────────────────────────
-
-@app.on_event("startup")
-async def register_agent_runtimes():
-    """Auto-register agent runtimes from Docker on startup."""
-    should_register = os.environ.get("REGISTER_RUNTIMES", "").lower() in ("1", "true", "yes")
-    if not should_register:
-        return
-
-    try:
-        from agents.store import AgentStore, AgentDefinition
-
-        # Define runtime configurations
-        runtimes = {
-            "hermes": {
-                "name": "Hermes (Executor)",
-                "description": "Fast, lightweight code execution runtime",
-                "task_types": ["code_generation", "refactoring"],
-                "model": "hermes:latest",
-                "base_url": "http://hermes:8080",
-            },
-            "opencode": {
-                "name": "OpenCode (Generator)",
-                "description": "Code generation and scaffolding runtime",
-                "task_types": ["code_generation", "scaffolding"],
-                "model": "opencode:latest",
-                "base_url": "http://opencode:8080",
-            },
-            "goose": {
-                "name": "Goose (Multi-Purpose)",
-                "description": "Multi-purpose AI development agent",
-                "task_types": ["code_generation", "testing", "review"],
-                "model": "goose:latest",
-                "base_url": "http://goose:8080",
-            },
-            "aider": {
-                "name": "Aider (Pair Programmer)",
-                "description": "Pair programming and collaborative development",
-                "task_types": ["code_generation", "refactoring", "debugging"],
-                "model": "aider:latest",
-                "base_url": "http://aider:8080",
-            },
-        }
-
-        store = get_agent_store()
-
-        for runtime_id, config in runtimes.items():
-            # Check if already exists
-            existing = await store.get(runtime_id)
-            if existing:
-                log.info(f"Runtime {runtime_id} already registered, skipping")
-                continue
-
-            # Create new agent definition
-            agent = AgentDefinition(
-                agent_id=runtime_id,
-                owner_id="system",
-                name=config["name"],
-                description=config["description"],
-                model=config["model"],
-                runtime_id=runtime_id,
-                task_types=config["task_types"],
-                is_public=True,
-                cost_policy="local_only",
-                tags=["runtime", "system", "docker"],
-            )
-
-            await store.create(agent)
-            log.info(f"✓ Registered runtime: {runtime_id} → {agent.name}")
-
-    except Exception as e:
-        log.error(f"Failed to register agent runtimes: {e}", exc_info=True)
-
-# ─── Task dispatcher (background auto-execution) ────────────────────────────────
-_task_dispatcher: TaskDispatcher | None = None
-_dispatcher_task: asyncio.Task | None = None
-
-@app.on_event("startup")
-async def start_task_dispatcher():
-    global _task_dispatcher, _dispatcher_task
-    # Initialize global task store before starting dispatcher
-    _task_dispatcher = TaskDispatcher(
-        workspace_root=str(Path(__file__).resolve().parent),
-        poll_interval_s=10.0,
-    )
-    SCHEDULER.set_on_fire(TASK_AUTOMATION.handle_scheduled_job)
-    _dispatcher_task = asyncio.create_task(_task_dispatcher.run_forever())
-    log.info("Task dispatcher started in background")
-
-@app.on_event("shutdown")
-async def stop_task_dispatcher():
-    global _task_dispatcher, _dispatcher_task
-    if _task_dispatcher:
-        _task_dispatcher.stop()
-    if _dispatcher_task:
-        _dispatcher_task.cancel()
-        try:
-            await _dispatcher_task
-        except asyncio.CancelledError:
-            pass
-    log.info("Task dispatcher stopped")
 
 # ─── Health (no auth) ──────────────────────────────────────────────────────────
 
@@ -866,12 +879,7 @@ async def health():
 
 @app.options("/api/health")
 async def api_health_options():
-    """CORS preflight for /api/health."""
-    return JSONResponse({}, headers={
-        "Access-Control-Allow-Origin": "*",
-        "Access-Control-Allow-Methods": "GET, OPTIONS",
-        "Access-Control-Allow-Headers": "Content-Type",
-    })
+    return JSONResponse({})
 
 
 @app.get("/api/health")
@@ -883,11 +891,7 @@ async def api_health():
             models = [m["name"] for m in r.json().get("models", [])]
     except Exception as e:
         return JSONResponse({"status": "ollama_down", "error": str(e)}, status_code=503)
-    resp = JSONResponse({"status": "ok", "ollama": OLLAMA_BASE, "models": models})
-    resp.headers["Access-Control-Allow-Origin"] = "*"
-    resp.headers["Access-Control-Allow-Methods"] = "GET, OPTIONS"
-    resp.headers["Access-Control-Allow-Headers"] = "Content-Type"
-    return resp
+    return JSONResponse({"status": "ok", "ollama": OLLAMA_BASE, "models": models})
 
 
 @app.get("/runtimes-ui")
@@ -1149,17 +1153,16 @@ async def history_snip(
     auth: AuthContext = Depends(verify_api_key),
 ):
     """Remove specific messages from session history by index."""
-    session = AGENT_SESSIONS.get(session_id)
-    if session is None:
-        raise HTTPException(status_code=404, detail="Unknown session")
     indices_set = set(body.indices)
-    kept = [msg for i, msg in enumerate(session.history) if i not in indices_set]
-    removed = len(session.history) - len(kept)
     with AGENT_SESSIONS._lock:
         s = AGENT_SESSIONS._sessions.get(session_id)
-        if s:
-            s.history = kept
-    return {"removed": removed, "remaining": len(kept)}
+        if s is None:
+            raise HTTPException(status_code=404, detail="Unknown session")
+        kept = [msg for i, msg in enumerate(s.history) if i not in indices_set]
+        removed = len(s.history) - len(kept)
+        s.history = kept
+        remaining = len(kept)
+    return {"removed": removed, "remaining": remaining}
 
 
 # ─── Adaptive Permissions ─────────────────────────────────────────────────────
@@ -1613,7 +1616,9 @@ async def proxy_request(request: Request, target_path: str, auth: AuthContext | 
             )
         
         duration_ms = int((time.perf_counter() - start_time) * 1000)
-        data = resp.json() if resp.headers.get("content-type", "").startswith("application/json") else resp.text
+        response_content_type = resp.headers.get("content-type", "")
+        is_json_response = response_content_type.startswith("application/json")
+        data = resp.json() if is_json_response else resp.content
 
         # Track legacy generation/completion usage
         if auth and target_path in ("api/generate", "v1/completions") and request.method == "POST":
@@ -1655,9 +1660,20 @@ async def proxy_request(request: Request, target_path: str, auth: AuthContext | 
             except Exception as exc:
                 log.debug("Trackable proxy observation failed: %s", exc)
 
-        return JSONResponse(
+        if is_json_response:
+            return JSONResponse(
+                content=data,
+                status_code=resp.status_code,
+            )
+
+        passthrough_headers = {}
+        if response_content_type:
+            passthrough_headers["Content-Type"] = response_content_type
+
+        return Response(
             content=data,
             status_code=resp.status_code,
+            headers=passthrough_headers,
         )
 
 # ─── Anthropic Messages API (/v1/messages) ─────────────────────────────────────
@@ -1761,7 +1777,6 @@ async def openai_compat(path: str, request: Request, auth: AuthContext = Depends
         # Inject the crispy-workflow pseudo-model
         existing_ids = {m.get("id", "") for m in data.get("data", [])}
         if "crispy-workflow" not in existing_ids:
-            import time
             data.setdefault("data", []).insert(0, {
                 "id": "crispy-workflow",
                 "object": "model",
@@ -1774,16 +1789,13 @@ async def openai_compat(path: str, request: Request, auth: AuthContext = Depends
             })
         return JSONResponse(content=data)
     if path == "chat/completions" and request.method == "POST":
-        # Let /v1/workflow/chat handle crispy-workflow model before generic routing
         body_bytes = await request.body()
         try:
             payload_peek = json.loads(body_bytes) if body_bytes else {}
         except Exception:
             payload_peek = {}
+
         if payload_peek.get("model") == "crispy-workflow":
-            from fastapi import Request as _Req
-            from starlette.datastructures import Headers
-            # Re-use the ide_bridge directly with already-read body
             return await handle_workflow_ide_chat(
                 request=request,
                 engine=WORKFLOW_ENGINE,
@@ -1793,32 +1805,16 @@ async def openai_compat(path: str, request: Request, auth: AuthContext = Depends
                 key_id=auth.key_id,
                 body_override=body_bytes,
             )
+
         return await handle_openai_chat_completions(
             request=request,
             ollama_base=OLLAMA_BASE,
             email=auth.email,
             department=auth.department,
             key_id=auth.key_id,
+            body_override=body_bytes,
         )
     return await proxy_request(request, f"v1/{path}", auth=auth)
-
-# ─── v3: Runtime Manager lifecycle ────────────────────────────────────────────
-
-@app.on_event("startup")
-async def _start_runtime_manager() -> None:
-    """Start the runtime health polling loop on server startup."""
-    mgr = get_runtime_manager()
-    await mgr.start()
-    log.info("RuntimeManager started (%d runtimes registered)", len(mgr._registry.ids()))
-
-
-@app.on_event("shutdown")
-async def _stop_runtime_manager() -> None:
-    """Gracefully stop the runtime manager on shutdown."""
-    mgr = get_runtime_manager()
-    await mgr.stop()
-    log.info("RuntimeManager stopped")
-
 
 # ─── Entry point ────────────────────────────────────────────────────────────────
 

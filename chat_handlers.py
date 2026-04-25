@@ -232,8 +232,9 @@ async def handle_openai_chat_completions(
     email: str,
     department: str,
     key_id: str | None,
+    body_override: bytes | None = None,
 ) -> JSONResponse | StreamingResponse:
-    body = await request.body()
+    body = body_override if body_override is not None else await request.body()
 
     try:
         payload: dict[str, Any] = json.loads(body) if body else {}
