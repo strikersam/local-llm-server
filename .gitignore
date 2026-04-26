@@ -49,3 +49,12 @@ Thumbs.db
 .claude/todos
 # But DO commit project-level AI engineering files in .claude/
 # (skills, hooks, commands, agents, state are intentionally versioned)
+-e 
+# Environment and credential files
+.env
+.env.*
+*.env
+credentials.json
+*.pem
+*.key
+.credentials
