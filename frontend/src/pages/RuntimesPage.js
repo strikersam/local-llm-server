@@ -9,7 +9,11 @@ import {
   Cpu, CheckCircle, XCircle, AlertCircle, RefreshCw,
   Loader2, Zap, ChevronDown, PlayCircle, Shield, Power, PowerOff,
 } from 'lucide-react';
-import { listRuntimes, runTaskOnRuntime, getRoutingPolicy, startRuntime, stopRuntime, startAllRuntimes, stopAllRuntimes, fmtErr } from '../api';
+import { 
+  listRuntimes, runTaskOnRuntime, getRoutingPolicy, 
+  startRuntime, stopRuntime, startAllRuntimes, 
+  stopAllRuntimes, refreshRuntimeHealth, fmtErr 
+} from '../api';
 
 function cls(...p) { return p.filter(Boolean).join(' '); }
 
@@ -260,10 +264,13 @@ export default function RuntimesPage() {
   const [controlLoading, setControlLoading] = useState(false);
   const [success, setSuccess] = useState('');
 
-  const load = useCallback(async () => {
+  const load = useCallback(async (forceVerify = false) => {
     setLoading(true);
     setError('');
     try {
+      if (forceVerify) {
+        await refreshRuntimeHealth();
+      }
       const [rr, pr] = await Promise.allSettled([
         listRuntimes().then(r => setRuntimes(r.data.runtimes || [])),
         getRoutingPolicy().then(r => setPolicy(r.data.policy)),
@@ -360,8 +367,12 @@ export default function RuntimesPage() {
                 {controlLoading ? <Loader2 size={11} className="animate-spin" /> : <PowerOff size={11} />} Stop All
               </button>
             )}
-            <button onClick={load} disabled={loading || controlLoading} className="text-[#444] hover:text-[#888] transition-colors">
+            <button onClick={() => load(true)} disabled={loading || controlLoading} 
+              className="text-[#444] hover:text-[#888] transition-colors flex items-center gap-1.5 px-2 py-1 h-8"
+              title="Force health check refresh"
+            >
               <RefreshCw size={12} className={loading || controlLoading ? 'animate-spin' : ''} />
+              <span className="text-[10px] uppercase tracking-wider font-semibold opacity-60">Refresh</span>
             </button>
           </div>
         </div>

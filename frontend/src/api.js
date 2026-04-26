@@ -171,6 +171,7 @@ export const authorizeGithubRepos = (repoNames) => API.post('/api/github/authori
 export const listRuntimes = () => API.get('/runtimes/');
 export const getRuntime = (id) => API.get(`/runtimes/${id}`);
 export const getRuntimeHealth = () => API.get('/runtimes/health');
+export const refreshRuntimeHealth = () => API.post('/runtimes/health/refresh');
 export const getRoutingPolicy = () => API.get('/runtimes/policy');
 export const updateRoutingPolicy = (data) => API.put('/runtimes/policy', data);
 export const getDecisionLog = (limit = 100) => API.get('/runtimes/decisions', { params: { limit } });

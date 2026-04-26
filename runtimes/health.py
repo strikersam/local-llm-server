@@ -107,6 +107,11 @@ class RuntimeHealthService:
             for h in self._cache.values()
         ]
 
+    async def verify_all(self) -> list[dict]:
+        """Force an immediate health check of all runtimes and return results."""
+        await self._poll_all()
+        return self.all_health()
+
     # ── Internal ──────────────────────────────────────────────────────────────
 
     async def _poll_loop(self) -> None:

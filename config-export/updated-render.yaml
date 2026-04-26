@@ -1,0 +1,84 @@
+services:
+  - type: web
+    name: local-llm-server
+    env: docker
+    dockerfilePath: ./Dockerfile.backend
+    plan: free
+    healthCheckPath: /api/health
+    envVars:
+      # ── MongoDB Atlas ──
+      # Create a free M0 cluster at https://cloud.mongodb.com and paste the URI here
+      - key: MONGO_URL
+        sync: false
+      - key: DB_NAME
+        value: llm_wiki_dashboard
+
+      # ── JWT / Auth ──
+      - key: JWT_SECRET
+        generateValue: true
+      - key: ADMIN_EMAIL
+        value: admin@llmrelay.local
+      - key: ADMIN_PASSWORD
+        sync: false
+
+      # ── LLM Provider ──
+      - key: LLM_PROVIDER
+        value: ollama
+      - key: OLLAMA_BASE_URL
+        sync: false
+
+      # ── Frontend ──
+      - key: FRONTEND_URL
+        value: https://strikersam.github.io
+
+      # ═══════════════════════════════════════════════════════
+      # AGENT RUNTIME CONFIGURATIONS
+      # Add these to connect the proxy to externally-hosted runtimes
+      # ═══════════════════════════════════════════════════════
+
+      # Runtime base URLs (set to your deployed runtime services)
+      - key: HERMES_BASE_URL
+        sync: false
+      - key: OPENCODE_BASE_URL
+        sync: false
+      - key: GOOSE_BASE_URL
+        sync: false
+      - key: AIDER_BASE_URL
+        sync: false
+      - key: OPENHANDS_BASE_URL
+        sync: false
+
+      # Runtime routing policy
+      - key: RUNTIME_NEVER_PAID
+        value: "true"
+      - key: RUNTIME_MAX_PAID_ESCALATIONS
+        value: "0"
+      - key: RUNTIME_DEFAULT
+        value: "hermes"
+      - key: RUNTIME_CODE_GENERATION
+        value: "opencode"
+      - key: RUNTIME_CODE_REVIEW
+        value: "opencode"
+      - key: RUNTIME_REPO_EDITING
+        value: "opencode"
+      - key: RUNTIME_GIT_OPS
+        value: "aider"
+      - key: RUNTIME_HEALTH_POLL_SEC
+        value: "30"
+
+      # OpenHands (experimental — set OPENHANDS_ENABLED=true to enable)
+      - key: OPENHANDS_ENABLED
+        value: "false"
+
+      # Adapter-specific settings
+      - key: HERMES_API_KEY
+        sync: false
+      - key: HERMES_TIMEOUT_SEC
+        value: "300"
+      - key: AIDER_MODEL
+        value: "ollama/qwen3-coder:14b"
+      - key: GOOSE_MODEL
+        value: "qwen3-coder:14b"
+      - key: GOOSE_PROFILE
+        value: "default"
+

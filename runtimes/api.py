@@ -78,6 +78,14 @@ async def runtime_health_summary() -> dict:
     return {"health": mgr.health_summary()}
 
 
+@runtime_router.post("/health/refresh")
+async def refresh_runtime_health() -> dict:
+    """Force an immediate health check for all runtimes."""
+    mgr = get_runtime_manager()
+    health = await mgr._health.verify_all()
+    return {"health": health, "message": "Health refresh complete"}
+
+
 @runtime_router.get("/policy")
 async def get_policy() -> dict:
     return {"policy": get_runtime_manager().get_policy()}
