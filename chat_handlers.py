@@ -15,6 +15,7 @@ from fastapi import HTTPException, Request
 from fastapi.responses import JSONResponse, Response, StreamingResponse
 
 from langfuse_obs import emit_chat_observation
+from provider_router import ProviderConfig, ProviderFallbackError, ProviderRouter
 from router import get_router
 from router.health import invalidate_cache as _invalidate_health_cache
 
@@ -316,7 +317,29 @@ async def handle_openai_chat_completions(
             },
         )
 
-    resp = await _post_with_fallback(target_url, forward, headers, routing.fallback_chain)
+    primary_provider = ProviderConfig(
+        provider_id="ollama-local",
+        type="ollama",
+        base_url=ollama_base,
+        default_model=model,
+        priority=0,
+    )
+    try:
+        provider_result = await ProviderRouter.from_env(primary_provider=primary_provider).chat_completion(
+            payload,
+            model_fallbacks=routing.fallback_chain,
+        )
+    except ProviderFallbackError as exc:
+        log.error("All LLM providers failed: %s", exc)
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+    resp = provider_result.response
+    model = provider_result.model
+    routing_meta = {
+        **routing_meta,
+        "provider_fallback_provider": provider_result.provider.provider_id,
+        "provider_fallback_attempts": ProviderRouter.attempts_header(provider_result.attempts),
+    }
 
     upstream_ct = resp.headers.get("content-type", "")
     if upstream_ct.startswith("application/json"):
@@ -336,7 +359,11 @@ async def handle_openai_chat_completions(
     return JSONResponse(
         content=data,
         status_code=resp.status_code,
-        headers={"X-Routing-Mode": routing.mode, "X-Routing-Model": model},
+        headers={
+            "X-Routing-Mode": routing.mode,
+            "X-Routing-Model": model,
+            "X-LLM-Provider": provider_result.provider.provider_id,
+        },
     )
 
 

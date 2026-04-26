@@ -25,6 +25,7 @@ from agent.prompts import (
 from agent.state import AgentSessionStore
 from agent.tools import WorkspaceTools
 from agent.user_memory import UserMemoryStore
+from provider_router import ProviderConfig, ProviderRouter
 from router import get_router
 
 log = logging.getLogger("qwen-agent")
@@ -497,13 +498,18 @@ class AgentRunner:
         payload: dict[str, Any] = {"model": model, "messages": messages, "stream": False}
         if self.provider_temperature is not None:
             payload["temperature"] = self.provider_temperature
-        headers = {"Content-Type": "application/json", **self.provider_headers}
         start = time.perf_counter()
-        async with httpx.AsyncClient(timeout=httpx.Timeout(300.0, connect=10.0)) as client:
-            resp = await client.post(f"{self.ollama_base}/v1/chat/completions", json=payload, headers=headers)
+        primary = ProviderConfig(
+            provider_id="agent-primary",
+            type="ollama" if "11434" in self.ollama_base or "ollama" in self.ollama_base else "openai-compatible",
+            base_url=self.ollama_base,
+            headers=dict(self.provider_headers),
+            default_model=model,
+            priority=0,
+        )
+        result = await ProviderRouter.from_env(primary_provider=primary).chat_completion(payload)
         duration_ms = int((time.perf_counter() - start) * 1000)
-        resp.raise_for_status()
-        data = resp.json()
+        data = result.response.json()
         out_text = data["choices"][0]["message"]["content"]
         
         # Emit Langfuse observation

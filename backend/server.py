@@ -30,6 +30,7 @@ from backend.llm_providers import (
     list_openai_models,
     normalize_base_url,
 )
+from provider_router import ProviderConfig, ProviderFallbackError, ProviderRouter, extract_openai_text
 
 # Feature routers — agents, runtimes, tasks
 from agents.api import agent_router
@@ -302,6 +303,8 @@ app = FastAPI(title="LLM Relay — Unified Platform", version="2.0.0", lifespan=
 
 
 frontend_url = os.environ.get("FRONTEND_URL", "http://localhost:3000").rstrip("/")
+_raw_cors_origins = os.environ.get("CORS_ORIGINS", "*").strip()
+CORS_ORIGINS = [origin.strip() for origin in _raw_cors_origins.split(",") if origin.strip()] or ["*"]
 
 # ─── Social Login (GitHub & Google) ───────────────────────────────────────────
 
@@ -711,7 +714,7 @@ async def google_callback(request: Request, code: str = None, state: str = None)
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=CORS_ORIGINS if "CORS_ORIGINS" in globals() else ["*"],
+    allow_origins=CORS_ORIGINS,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -1210,12 +1213,21 @@ async def call_llm(
         default_model=(str(provider.get("default_model") or "").strip() or None),
     )
     try:
-        return await chat_completion_text(
-            cfg,
-            messages=messages,
-            model=model,
-            temperature=temperature,
+        primary = ProviderConfig(
+            provider_id=str(provider.get("provider_id") or "active-provider"),
+            type=cfg.type,
+            base_url=cfg.base_url,
+            api_key=cfg.api_key,
+            default_model=model or cfg.default_model,
+            priority=0,
         )
+        result = await ProviderRouter.from_env(primary_provider=primary).chat_completion(
+            {"model": model or cfg.default_model, "messages": messages, "temperature": temperature, "stream": False}
+        )
+        return extract_openai_text(result.response.json())
+    except ProviderFallbackError as exc:
+        log.error("LLM provider fallback exhausted: %s", exc)
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
     except httpx.HTTPStatusError as exc:
         # Surface helpful provider-specific guidance.
         status = exc.response.status_code

@@ -45,7 +45,7 @@ from agent.background import BackgroundAgent, BackgroundTask
 from agent.browser import BrowserSession
 from agent.commit_tracker import CommitAttribution, CommitTracker
 from agent.context import ContextCompressor
-from agent.coordinator import AgentCoordinator, WorkerSpec
+from agent.coordinator import AgentCoordinator, AgentSpec, MultiAgentSwarm, TaskSpec, WorkerSpec
 from agent.loop import AgentRunner
 from agent.memory import SessionMemory
 from agent.models import AgentRunRequest, AgentSessionCreateRequest
@@ -906,6 +906,12 @@ async def health():
     return {"status": "ok", "ollama": OLLAMA_BASE, "models": models}
 
 
+@app.get("/live")
+async def live():
+    """Container liveness check: confirms the proxy process is serving HTTP."""
+    return {"status": "ok", "service": "proxy"}
+
+
 @app.options("/api/health")
 async def api_health_options():
     return JSONResponse({})
@@ -1235,12 +1241,52 @@ async def budget_list(auth: AuthContext = Depends(verify_api_key)):
 
 class CoordinateRequest(BaseModel):
     goal: str = Field(..., min_length=1, max_length=2000)
-    workers: list[dict] = Field(..., min_length=1, max_length=10)
+    workers: list[dict] = Field(default_factory=list, max_length=10)
+    agents: list[dict] = Field(default_factory=list, max_length=20)
+    tasks: list[dict] = Field(default_factory=list, max_length=50)
     max_concurrent: int = Field(default=3, ge=1, le=10)
 
 
 @app.post("/agent/coordinate")
 async def coordinate(body: CoordinateRequest, auth: AuthContext = Depends(verify_api_key)):
+    if body.tasks:
+        agents = [
+            AgentSpec(
+                agent_id=a.get("agent_id", a.get("id", f"agent-{i}")),
+                role=a.get("role", "worker"),
+                capabilities=list(a.get("capabilities") or ["general"]),
+                model=a.get("model"),
+                max_parallel_tasks=int(a.get("max_parallel_tasks", 1)),
+            )
+            for i, a in enumerate(body.agents or [{"agent_id": "default-worker", "capabilities": ["general", "code", "research", "writing"]}])
+        ]
+        tasks = [
+            TaskSpec(
+                task_id=t.get("task_id", t.get("id", f"task-{i}")),
+                instruction=t["instruction"],
+                task_type=t.get("task_type", t.get("type", "general")),
+                dependencies=list(t.get("dependencies") or []),
+                priority=int(t.get("priority", 0)),
+                model=t.get("model"),
+                max_steps=int(t.get("max_steps", 3)),
+                retry_limit=int(t.get("retry_limit", 1)),
+            )
+            for i, t in enumerate(body.tasks)
+        ]
+        swarm = MultiAgentSwarm(ollama_base=OLLAMA_BASE, workspace_root=str(Path(__file__).resolve().parent))
+        result = await swarm.run(
+            goal=body.goal,
+            agents=agents,
+            tasks=tasks,
+            max_concurrent=body.max_concurrent,
+            email=auth.email,
+            department=auth.department,
+            key_id=auth.key_id,
+        )
+        return result.as_dict()
+
+    if not body.workers:
+        raise HTTPException(status_code=400, detail="Provide either workers or dependency-aware tasks")
     specs = [
         WorkerSpec(
             worker_id=w.get("worker_id", f"w{i}"),

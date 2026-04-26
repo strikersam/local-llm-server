@@ -31,10 +31,11 @@ services:
     volumes:
       - ollama_data:/root/.ollama
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:11434/api/tags"]
+      test: ["CMD", "ollama", "list"]
       interval: 15s
       timeout: 10s
       retries: 5
+      start_period: 30s
     # Uncomment for NVIDIA GPU support:
     # deploy:
     #   resources:
@@ -67,7 +68,7 @@ services:
       retries: 3
     depends_on:
       ollama:
-        condition: service_healthy
+        condition: service_started
 
   opencode:
     build:
@@ -91,7 +92,7 @@ services:
       retries: 3
     depends_on:
       ollama:
-        condition: service_healthy
+        condition: service_started
 
   goose:
     build:
@@ -115,7 +116,7 @@ services:
       retries: 3
     depends_on:
       ollama:
-        condition: service_healthy
+        condition: service_started
 
   aider:
     build:
@@ -139,7 +140,7 @@ services:
       retries: 3
     depends_on:
       ollama:
-        condition: service_healthy
+        condition: service_started
 
   # ── MongoDB (agent store & task persistence) ───────────────────────────────
   mongo:
@@ -178,17 +179,23 @@ services:
       - AIDER_BASE_URL=http://aider:8080
     depends_on:
       ollama:
-        condition: service_healthy
+        condition: service_started
       mongo:
         condition: service_healthy
       hermes:
-        condition: service_healthy
+        condition: service_started
       opencode:
-        condition: service_healthy
+        condition: service_started
       goose:
-        condition: service_healthy
+        condition: service_started
       aider:
-        condition: service_healthy
+        condition: service_started
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8000/live', timeout=5)\""]
+      interval: 15s
+      timeout: 10s
+      retries: 5
+      start_period: 20s
 
   # ── LLM Relay Dashboard (optional, profile: dashboard) ─────────────────────
   dashboard-backend:
@@ -209,7 +216,7 @@ services:
       mongo:
         condition: service_started
       ollama:
-        condition: service_healthy
+        condition: service_started
     profiles:
       - dashboard
 
