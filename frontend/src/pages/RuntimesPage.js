@@ -98,8 +98,6 @@ function RuntimeCard({ runtime, onRun, onRefresh }) {
       setControlLoading(false);
     }
   };
-    }
-  };
 
   return (
     <div className={cls(
