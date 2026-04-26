@@ -67,11 +67,13 @@ function RuntimeCard({ runtime, onRun, onRefresh }) {
       const res = await startRuntime(runtime.runtime_id);
       if (res?.data?.docker_unavailable) {
         setDockerNote('Docker lifecycle control is only available when running locally. The runtime may still respond if its HTTP endpoint is reachable.');
+        setExpanded(true);
       } else {
         setTimeout(() => onRefresh?.(), 2000);
       }
     } catch (e) {
       setControlErr(fmtErr(e?.response?.data?.detail) || e.message || 'Failed to start runtime');
+      setExpanded(true);
     } finally {
       setControlLoading(false);
     }
@@ -85,11 +87,13 @@ function RuntimeCard({ runtime, onRun, onRefresh }) {
       const res = await stopRuntime(runtime.runtime_id);
       if (res?.data?.docker_unavailable) {
         setDockerNote('Docker lifecycle control is only available when running locally.');
+        setExpanded(true);
       } else {
         setTimeout(() => onRefresh?.(), 2000);
       }
     } catch (e) {
       setControlErr(fmtErr(e?.response?.data?.detail) || e.message || 'Failed to stop runtime');
+      setExpanded(true);
     } finally {
       setControlLoading(false);
     }
@@ -278,8 +282,8 @@ export default function RuntimesPage() {
 
   useEffect(() => { load(); }, [load]);
 
-  const online = runtimes.filter(r => r.health?.available && !r.circuit_open).length;
-  const offline = runtimes.filter(r => r.health?.available === false || r.circuit_open).length;
+  const online = runtimes.filter(r => r.health?.available === true && !r.circuit_open).length;
+  const offline = runtimes.length - online;
 
   return (
     <div className="p-5 sm:p-6 lg:p-8 max-w-5xl mx-auto">
