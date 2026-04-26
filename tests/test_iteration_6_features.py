@@ -4,11 +4,16 @@ Test iteration 6 features:
 - Task creation stores the authenticated owner instead of 'unknown'
 - POST /runtimes/{id}/start and POST /runtimes/stop-all return non-blocking informational payloads
 - Chat fallback uses local/free providers first and returns approval_required before commercial fallback
+
+These are live-server integration tests — they are skipped automatically when the
+backend is not reachable (e.g. in CI without a running server).
 """
 
 import os
+import socket
 import pytest
 import requests
+from urllib.parse import urlparse
 
 # Use the public backend URL for testing
 BASE_URL = os.environ.get("REACT_APP_BACKEND_URL", "http://localhost:8001")
@@ -16,6 +21,29 @@ BASE_URL = os.environ.get("REACT_APP_BACKEND_URL", "http://localhost:8001")
 # Test credentials from test_credentials.md
 ADMIN_EMAIL = "admin@llmrelay.local"
 ADMIN_PASSWORD = "WikiAdmin2026!"
+
+
+def _server_reachable(url: str, timeout: float = 1.0) -> bool:
+    """Return True if we can open a TCP connection to the backend server."""
+    try:
+        parsed = urlparse(url)
+        host = parsed.hostname or "localhost"
+        port = parsed.port or (443 if parsed.scheme == "https" else 8001)
+        with socket.create_connection((host, port), timeout=timeout):
+            return True
+    except OSError:
+        return False
+
+
+_LIVE = _server_reachable(BASE_URL)
+
+# Skip the entire module when no live backend is available (e.g. CI without a
+# running server).  Using pytestmark at module level applies the marker to every
+# test class and function defined below.
+pytestmark = pytest.mark.skipif(
+    not _LIVE,
+    reason=f"Live backend not reachable at {BASE_URL} — skipping live-server integration tests",
+)
 
 
 class TestAuthAndTaskCreation:
