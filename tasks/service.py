@@ -292,31 +292,42 @@ class TaskExecutionCoordinator:
         )
         await self.store.update(task)
 
-        spec = self._build_spec(task, agent)
-        result, decision = await self.runtime_manager.execute(spec)
+        try:
+            spec = self._build_spec(task, agent)
+            result, decision = await self.runtime_manager.execute(spec)
 
-        task.last_runtime_id = decision.selected_runtime_id
-        task.last_model_used = result.model_used or decision.model_used
-        task.tokens_used = result.tokens_used
-        task.cost_usd = result.cost_usd
-        task.result = result.output
-        task.error_message = None
-        task.add_log(
-            f"Runtime selected: {decision.selected_runtime_id}",
-            event_type="runtime_selected",
-            actor="system:dispatcher",
-            task_status=task.status,
-            runtime_id=decision.selected_runtime_id,
-            model_used=result.model_used or decision.model_used,
-            metadata={
-                "reason": decision.reason,
-                "fallback_runtime_id": decision.fallback_runtime_id,
-                "fallback_attempted": decision.fallback_attempted,
-            },
-        )
+            task.last_runtime_id = decision.selected_runtime_id
+            task.last_model_used = result.model_used or decision.model_used
+            task.tokens_used = result.tokens_used
+            task.cost_usd = result.cost_usd
+            task.result = result.output
+            task.error_message = None
+            task.add_log(
+                f"Runtime selected: {decision.selected_runtime_id}",
+                event_type="runtime_selected",
+                actor="system:dispatcher",
+                task_status=task.status,
+                runtime_id=decision.selected_runtime_id,
+                model_used=result.model_used or decision.model_used,
+                metadata={
+                    "reason": decision.reason,
+                    "fallback_runtime_id": decision.fallback_runtime_id,
+                    "fallback_attempted": decision.fallback_attempted,
+                },
+            )
 
-        await self._apply_result(task, agent, result)
-        await self.store.update(task)
+            await self._apply_result(task, agent, result)
+        except Exception as exc:
+            log.error("Error executing task %s: %s", task.task_id, exc, exc_info=True)
+            task.error_message = str(exc)
+            self.workflow.transition(
+                task,
+                TaskStatus.FAILED,
+                actor="system:coordinator",
+                message=f"Execution failed: {exc}",
+            )
+        finally:
+            await self.store.update(task)
         return task
 
     async def _resolve_agent(self, task: Task) -> AgentDefinition | None:

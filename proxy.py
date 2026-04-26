@@ -452,6 +452,12 @@ async def lifespan(app: FastAPI):
                     "model": "aider:latest",
                     "base_url": "http://aider:8080",
                 },
+                "internal_agent": {
+                    "name": "Built-in Local Agent",
+                    "description": "Uses the internal AgentRunner and Ollama directly",
+                    "task_types": ["code_generation", "refactoring", "debugging", "general"],
+                    "model": os.environ.get("AGENT_PLANNER_MODEL", "gemma4:latest"),
+                },
             }
             store = get_agent_store()
             for runtime_id, config in runtimes.items():
@@ -484,6 +490,7 @@ async def lifespan(app: FastAPI):
         workspace_root=str(Path(__file__).resolve().parent),
         poll_interval_s=10.0,
     )
+    # Refresh TASK_AUTOMATION to use the MongoDB-backed store
     TASK_AUTOMATION = TaskAutomationService(store=get_task_store())
     SCHEDULER.set_on_fire(TASK_AUTOMATION.handle_scheduled_job)
     _dispatcher_task = asyncio.create_task(_task_dispatcher.run_forever())
@@ -550,19 +557,41 @@ class JWTAuthMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: StarletteRequest, call_next):
         request.state.user = None
         auth_header = request.headers.get("authorization", "")
+        token = None
         if auth_header.startswith("Bearer "):
             token = auth_header[7:].strip()
+        elif request.headers.get("x-api-key"):
+            token = request.headers.get("x-api-key")
+
+        if token:
+            log.info("Auth attempt with token: %s...", token[:10])
+            # 1. Try JWT
             try:
                 payload = verify_token(token, token_type="access")
-            except Exception:
-                payload = None
-            if payload:
+                if payload:
+                    log.info("JWT Auth success for %s", payload.get("email"))
+                    request.state.user = {
+                        "email": payload.get("email"),
+                        "_id": payload.get("sub"),
+                        "name": payload.get("name"),
+                        "role": payload.get("role", "user"),
+                    }
+                    return await call_next(request)
+            except Exception as e:
+                log.debug("JWT Auth failed: %s", e)
+            
+            # 2. Try Legacy API Keys
+            if token in VALID_API_KEYS:
+                log.info("Legacy API Key Auth success")
                 request.state.user = {
-                    "email": payload.get("email"),
-                    "_id": payload.get("sub"),
-                    "name": payload.get("name"),
-                    "role": payload.get("role", "user"),
+                    "email": "legacy@local",
+                    "_id": "legacy_user",
+                    "name": "Legacy API User",
+                    "role": "admin",
                 }
+            else:
+                log.warning("Token not in VALID_API_KEYS. VALID_API_KEYS has %d keys", len(VALID_API_KEYS))
+
         response = await call_next(request)
         return response
 
