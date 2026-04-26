@@ -173,19 +173,41 @@ async def stop_runtime_container(runtime_id: str) -> dict:
 
 @runtime_router.post("/start-all")
 async def start_all() -> dict:
-    """Start all runtime containers."""
+    """Start all runtime containers.
+
+    Returns partial results — individual runtime failures are included
+    in the response body rather than raising a 500, so the frontend can
+    show per-runtime status even when some runtimes (e.g. Docker-based
+    ones) are unavailable on the current host.
+    """
     result = await start_all_runtimes()
-    for rt_id, rt_result in result.get("runtimes", {}).items():
-        if rt_result.get("status") == "error" and not rt_result.get("docker_unavailable"):
-            raise HTTPException(status_code=500, detail=f"{rt_id}: {rt_result.get('error', 'Unknown error')}")
+    errors = {
+        rt_id: rt_res.get("error", "Unknown error")
+        for rt_id, rt_res in result.get("runtimes", {}).items()
+        if rt_res.get("status") == "error"
+    }
+    if errors:
+        result["errors"] = errors
+        result["partial"] = True
+        log.warning("start-all: %d runtime(s) failed: %s", len(errors), errors)
     return result
 
 
 @runtime_router.post("/stop-all")
 async def stop_all() -> dict:
-    """Stop all runtime containers."""
+    """Stop all runtime containers.
+
+    Returns partial results — individual runtime failures are included
+    in the response body rather than raising a 500.
+    """
     result = await stop_all_runtimes()
-    for rt_id, rt_result in result.get("runtimes", {}).items():
-        if rt_result.get("status") == "error" and not rt_result.get("docker_unavailable"):
-            raise HTTPException(status_code=500, detail=f"{rt_id}: {rt_result.get('error', 'Unknown error')}")
+    errors = {
+        rt_id: rt_res.get("error", "Unknown error")
+        for rt_id, rt_res in result.get("runtimes", {}).items()
+        if rt_res.get("status") == "error"
+    }
+    if errors:
+        result["errors"] = errors
+        result["partial"] = True
+        log.warning("stop-all: %d runtime(s) failed: %s", len(errors), errors)
     return result
