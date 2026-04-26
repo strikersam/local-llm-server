@@ -1,6 +1,6 @@
 <div align="center">
 
-# LLM Relay
+# # LLM Relay — Self-Hosted Local LLM Server & AI Control Plane
 
 **A complete self-hosted AI control plane — unified dashboard, multi-agent orchestration, local-first LLM routing, hardware-aware model selection, social login, and full cost observability.**
 
