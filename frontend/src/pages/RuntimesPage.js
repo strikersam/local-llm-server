@@ -69,6 +69,8 @@ function RuntimeCard({ runtime, onRun, onRefresh }) {
         setDockerNote('Docker lifecycle control is only available when running locally. The runtime may still respond if its HTTP endpoint is reachable.');
         setExpanded(true);
       } else {
+        // Provide immediate visual confirmation if not docker_unavailable
+        setDockerNote('Success: Start signal sent to ' + runtime.display_name);
         setTimeout(() => onRefresh?.(), 2000);
       }
     } catch (e) {
@@ -89,6 +91,7 @@ function RuntimeCard({ runtime, onRun, onRefresh }) {
         setDockerNote('Docker lifecycle control is only available when running locally.');
         setExpanded(true);
       } else {
+        setDockerNote('Success: Stop signal sent to ' + runtime.display_name);
         setTimeout(() => onRefresh?.(), 2000);
       }
     } catch (e) {
@@ -106,25 +109,32 @@ function RuntimeCard({ runtime, onRun, onRefresh }) {
       available ? 'border-white/8 hover:border-white/14' :
       available === false ? 'border-red-500/10 opacity-70' : 'border-white/8',
     )}>
-      <button className="w-full p-4 text-left" onClick={() => setExpanded(e => !e)}>
+      <div className="w-full p-4">
         <div className="flex items-start gap-3">
-          <div className="flex items-center justify-center w-8 h-8 rounded-lg bg-white/5 border border-white/8 text-lg flex-shrink-0">
-            {INTEGRATION_ICON[runtime.integration_mode] || '🤖'}
-          </div>
-          <div className="flex-1 min-w-0">
-            <div className="flex items-center gap-2 flex-wrap mb-1">
-              <span className="text-[13px] font-semibold text-white">{runtime.display_name}</span>
-              <span className={cls('text-[9px] px-2 py-0.5 rounded-full border font-mono', tierStyle)}>
-                {runtime.tier?.replace('_', ' ')}
-              </span>
-              <span className="text-[9px] font-mono text-[#444] border border-white/5 px-1.5 py-0.5 rounded">
-                {runtime.integration_mode?.replace('_', ' ')}
-              </span>
+          <button 
+            className="flex-1 text-left flex items-start gap-3 min-w-0" 
+            onClick={() => setExpanded(e => !e)}
+            aria-expanded={expanded}
+          >
+            <div className="flex items-center justify-center w-8 h-8 rounded-lg bg-white/5 border border-white/8 text-lg flex-shrink-0">
+              {INTEGRATION_ICON[runtime.integration_mode] || '🤖'}
             </div>
-            <p className="text-[10px] text-[#555] line-clamp-1">{runtime.description}</p>
-          </div>
+            <div className="flex-1 min-w-0">
+              <div className="flex items-center gap-2 flex-wrap mb-1">
+                <span className="text-[13px] font-semibold text-white">{runtime.display_name}</span>
+                <span className={cls('text-[9px] px-2 py-0.5 rounded-full border font-mono', tierStyle)}>
+                  {runtime.tier?.replace('_', ' ')}
+                </span>
+                <span className="text-[9px] font-mono text-[#444] border border-white/5 px-1.5 py-0.5 rounded">
+                  {runtime.integration_mode?.replace('_', ' ')}
+                </span>
+              </div>
+              <p className="text-[10px] text-[#555] line-clamp-1">{runtime.description}</p>
+            </div>
+          </button>
+
           <div className="flex items-center gap-2 flex-shrink-0">
-            <div className="text-right">
+            <div className="text-right mr-2">
               {circuitOpen ? (
                 <div className="text-[10px] text-amber-400 flex items-center gap-1"><AlertCircle size={10} /> Circuit Open</div>
               ) : available ? (
@@ -139,21 +149,34 @@ function RuntimeCard({ runtime, onRun, onRefresh }) {
               )}
             </div>
             {(!available || circuitOpen) && (
-              <button onClick={handleStart} disabled={controlLoading}
-                className="flex items-center gap-1 px-2 py-1 bg-emerald-500/20 border border-emerald-500/30 text-[10px] text-emerald-400 rounded hover:bg-emerald-500/30 transition-colors disabled:opacity-40">
-                {controlLoading ? <Loader2 size={10} className="animate-spin" /> : <Power size={10} />} Start
+              <button 
+                onClick={(e) => { e.stopPropagation(); handleStart(); }} 
+                disabled={controlLoading}
+                className="flex items-center gap-1 px-3 py-1.5 bg-emerald-500/20 border border-emerald-500/30 text-[10px] text-emerald-400 rounded hover:bg-emerald-500/30 transition-colors disabled:opacity-40 min-w-[70px] justify-center"
+              >
+                {controlLoading ? <Loader2 size={12} className="animate-spin" /> : <Power size={12} />} 
+                <span>Start</span>
               </button>
             )}
             {available && !circuitOpen && (
-              <button onClick={handleStop} disabled={controlLoading}
-                className="flex items-center gap-1 px-2 py-1 bg-red-500/20 border border-red-500/30 text-[10px] text-red-400 rounded hover:bg-red-500/30 transition-colors disabled:opacity-40">
-                {controlLoading ? <Loader2 size={10} className="animate-spin" /> : <PowerOff size={10} />} Stop
+              <button 
+                onClick={(e) => { e.stopPropagation(); handleStop(); }} 
+                disabled={controlLoading}
+                className="flex items-center gap-1 px-3 py-1.5 bg-red-500/20 border border-red-500/30 text-[10px] text-red-400 rounded hover:bg-red-500/30 transition-colors disabled:opacity-40 min-w-[70px] justify-center"
+              >
+                {controlLoading ? <Loader2 size={12} className="animate-spin" /> : <PowerOff size={12} />} 
+                <span>Stop</span>
               </button>
             )}
-            <ChevronDown size={13} className={cls('text-[#444] transition-transform', expanded ? 'rotate-180' : '')} />
+            <button 
+              onClick={() => setExpanded(e => !e)}
+              className="p-1 hover:bg-white/5 rounded transition-colors text-[#444] hover:text-white"
+            >
+              <ChevronDown size={14} className={cls('transition-transform', expanded ? 'rotate-180' : '')} />
+            </button>
           </div>
         </div>
-      </button>
+      </div>
 
       {expanded && (
         <div className="px-4 pb-4 border-t border-white/5 pt-3 space-y-4">
@@ -248,49 +271,57 @@ export default function RuntimesPage() {
     }
   }, []);
 
-  const handleStartAll = async () => {
+  const handleStartAll = async (e) => {
+    e?.stopPropagation();
     setControlLoading(true);
     setError('');
-    setSuccess('');
+    setSuccess('Signal sent: Starting all runtimes...');
     try {
       const res = await startAllRuntimes();
       const rts = Object.values(res?.data?.runtimes || {});
       if (rts.some(r => r.docker_unavailable)) {
         setError('Docker lifecycle control is only available locally. Cannot auto-start runtimes here.');
+        setSuccess('');
         load();
       } else if (res?.data?.partial) {
         setError('Some runtimes failed to start. Expand individual cards for details.');
+        setSuccess('');
         load();
       } else {
-        setSuccess('Starting all runtimes...');
+        setSuccess('All eligible runtimes are starting.');
         setTimeout(() => { setSuccess(''); load(); }, 3000);
       }
     } catch (e) {
       setError(fmtErr(e?.response?.data?.detail) || e.message || 'Failed to start all runtimes');
+      setSuccess('');
     } finally {
       setControlLoading(false);
     }
   };
 
-  const handleStopAll = async () => {
+  const handleStopAll = async (e) => {
+    e?.stopPropagation();
     setControlLoading(true);
     setError('');
-    setSuccess('');
+    setSuccess('Signal sent: Stopping all runtimes...');
     try {
       const res = await stopAllRuntimes();
       const rts = Object.values(res?.data?.runtimes || {});
       if (rts.some(r => r.docker_unavailable)) {
         setError('Docker lifecycle control is only available locally. Cannot auto-stop runtimes here.');
+        setSuccess('');
         load();
       } else if (res?.data?.partial) {
         setError('Some runtimes failed to stop. Expand individual cards for details.');
+        setSuccess('');
         load();
       } else {
-        setSuccess('Stopping all runtimes...');
+        setSuccess('All eligible runtimes are stopping.');
         setTimeout(() => { setSuccess(''); load(); }, 3000);
       }
     } catch (e) {
       setError(fmtErr(e?.response?.data?.detail) || e.message || 'Failed to stop all runtimes');
+      setSuccess('');
     } finally {
       setControlLoading(false);
     }
@@ -334,14 +365,16 @@ export default function RuntimesPage() {
       </div>
 
       {error && (
-        <div className="mb-4 px-4 py-3 bg-red-500/8 border border-red-500/20 rounded-lg text-[12px] text-red-400">
-          {error}
+        <div className="mb-6 px-4 py-3 bg-red-500/10 border border-red-500/30 rounded-xl text-[12px] text-red-400 flex items-center gap-3 animate-in fade-in slide-in-from-top-2 duration-300">
+          <AlertCircle size={14} className="flex-shrink-0" />
+          <span>{error}</span>
         </div>
       )}
 
       {success && (
-        <div className="mb-4 px-4 py-3 bg-emerald-500/8 border border-emerald-500/20 rounded-lg text-[12px] text-emerald-400">
-          {success}
+        <div className="mb-6 px-4 py-3 bg-emerald-500/10 border border-emerald-500/30 rounded-xl text-[12px] text-emerald-400 flex items-center gap-3 animate-in fade-in slide-in-from-top-2 duration-300">
+          <CheckCircle size={14} className="flex-shrink-0" />
+          <span>{success}</span>
         </div>
       )}
 
