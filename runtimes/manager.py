@@ -170,12 +170,12 @@ def _build_default_manager() -> RuntimeManager:
         never_use_paid_providers=os.environ.get("RUNTIME_NEVER_PAID", "true").lower() == "true",
         require_approval_before_paid_escalation=True,
         max_paid_escalations_per_day=int(os.environ.get("RUNTIME_MAX_PAID_ESCALATIONS", "0")),
-        preferred_runtime_id=os.environ.get("RUNTIME_DEFAULT", "hermes"),
+        preferred_runtime_id=os.environ.get("RUNTIME_DEFAULT", "internal_agent" if os.environ.get("RENDER") else "hermes"),
         task_type_runtime_overrides={
-            "code_generation": os.environ.get("RUNTIME_CODE_GENERATION", "opencode"),
-            "code_review": os.environ.get("RUNTIME_CODE_REVIEW", "opencode"),
-            "repo_editing": os.environ.get("RUNTIME_REPO_EDITING", "opencode"),
-            "git_operations": os.environ.get("RUNTIME_GIT_OPS", "aider"),
+            "code_generation": os.environ.get("RUNTIME_CODE_GENERATION"),
+            "code_review": os.environ.get("RUNTIME_CODE_REVIEW"),
+            "repo_editing": os.environ.get("RUNTIME_REPO_EDITING"),
+            "git_operations": os.environ.get("RUNTIME_GIT_OPS"),
         },
     )
     mgr = RuntimeManager(policy=policy)

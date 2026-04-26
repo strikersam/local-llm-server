@@ -43,7 +43,13 @@ class InternalAgentAdapter(RuntimeAdapter):
 
     def __init__(self, config: dict[str, Any] | None = None) -> None:
         super().__init__(config)
-        self._ollama_base = (config or {}).get("ollama_base") or os.environ.get("OLLAMA_BASE", "http://localhost:11434")
+        # Fallback order: config -> OLLAMA_BASE -> OLLAMA_BASE_URL -> default localhost
+        self._ollama_base = (
+            (config or {}).get("ollama_base") 
+            or os.environ.get("OLLAMA_BASE") 
+            or os.environ.get("OLLAMA_BASE_URL") 
+            or "http://localhost:11434"
+        )
         self._workspace_root = (config or {}).get("workspace_root") or str(Path(__file__).resolve().parents[2])
 
     async def health_check(self) -> RuntimeHealth:

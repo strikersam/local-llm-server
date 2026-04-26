@@ -94,7 +94,7 @@ from sync import sync_router
 
 # ─── Config ────────────────────────────────────────────────────────────────────
 
-OLLAMA_BASE    = os.environ.get("OLLAMA_BASE", "http://localhost:11434")
+OLLAMA_BASE    = os.environ.get("OLLAMA_BASE") or os.environ.get("OLLAMA_BASE_URL") or "http://localhost:11434"
 PROXY_PORT     = int(os.environ.get("PROXY_PORT", "8000"))
 RAW_KEYS       = os.environ.get("API_KEYS", "")
 VALID_API_KEYS = set(k.strip() for k in RAW_KEYS.split(",") if k.strip())
