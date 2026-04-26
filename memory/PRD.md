@@ -1,53 +1,36 @@
-# LLM Relay — PRD
+# PRD — LLM Relay Critical Issues Fixes
 
 ## Original Problem Statement
-Build a unified self-hosted AI platform (rebranded as "LLM Relay") that replicates Emergent/Lovable/Claude Code features. Single unified dashboard combining admin panel, Langfuse observability, knowledge wiki, model management, provider management. Accessible from one place. Connect to HuggingFace, Ollama cloud, or local models. Based on Karpathy's LLM Wiki gist + synthesized ideas from multiple sources including claw-code patterns.
+My repo has the attached issues as mentioned in the pdf and I would like you to fix all of them. You can do one by one in the order of severity and priority that you determine and keep pushing changes to master one by one. Do not stop until all the issues and fixed and tested.
 
-**Tagline**: Route, run, and control LLMs on your own hardware, not someone else's meter.
+User follow-up: fix by criticality/priority, proceed autonomously, make/test changes in the workspace; user will use Save to Github when ready.
 
-## Architecture
-- **Frontend**: React 18 + Tailwind CSS, unified dashboard on port 3000
-- **Backend**: FastAPI on port 8001, MongoDB, JWT auth
-- **LLM**: Multi-provider (Ollama local, OpenAI-compatible, HuggingFace, OpenRouter)
-- **Observability**: Langfuse (cloud.langfuse.com)
-- **Tunnel**: ngrok for public access
-- **Containers**: Docker Compose with profiles (public, full)
+## Architecture Decisions
+- Added a centralized `ProviderRouter` that supports priority-ordered provider fallback, retry with exponential backoff, health checking, OpenAI-compatible providers, Ollama native fallback, and Anthropic message conversion.
+- Wired provider fallback into proxy chat completions, backend chat calls, and `AgentRunner` so agent chat no longer depends on a single Ollama-only path.
+- Reworked multi-agent coordination around `MultiAgentSwarm`, task dependencies, capability-based agent assignment, bounded concurrency, blocked task reporting, and retry handling while preserving the legacy workers API.
+- Hardened Docker Compose startup by replacing strict Ollama health waits for dependent services with `service_started`, adding a process-level `/live` proxy liveness endpoint, and using `ollama list` for Ollama health.
 
-## What's Been Implemented
+## Implemented
+- Automatic provider fallback chain for `/v1/chat/completions`, backend LLM calls, and agent runtime LLM calls.
+- Dependency-aware `/agent/coordinate` flow with `agents` + `tasks`, plus backward-compatible `workers` support.
+- Structured provider attempt metadata and clear `503` failure when all configured providers fail.
+- Docker Compose health/dependency improvements and `/live` liveness endpoint.
+- Regression tests for provider fallback, model fallback, agent runner fallback, multi-agent dependencies, legacy coordinate compatibility, and compose validation.
 
-### Phase 1 — MVP (2026-04-09)
-- [x] Auth (JWT + cookies), Wiki CRUD, Chat agent, Source ingestion, Activity log
-
-### Phase 2 — Unified Platform (2026-04-09)
-- [x] Provider CRUD + test + set default
-- [x] Models Hub (Ollama pull/delete + cloud refs)
-- [x] API Key management (issue/revoke)
-- [x] Observability (Langfuse status + dashboard link)
-- [x] Enhanced Dashboard (6 stats, health badges, ngrok badge)
-- [x] Docker Compose with ngrok + proxy profiles
-
-### Phase 3 — Rebrand + Polish (2026-04-09)
-- [x] Rebranded to "LLM Relay"
-- [x] Generated hero image for login
-- [x] Fixed CORS for credentialed cookie requests
-- [x] Created .env.example (no secrets)
-- [x] Updated .gitignore
-- [x] Comprehensive README with API docs, provider setup, tool connection guides
-
-## Test Status
-- Backend: 100% (21/21)
-- Frontend: 100% (12/12 requirements)
+## Validation
+- Main-agent full test suite: `624 passed, 1 warning`.
+- Independent testing-agent backend validation: `22/22 targeted tests passed`; report at `/app/test_reports/iteration_5.json`.
+- Docker Compose syntax/health/dependency rules validated via YAML parsing because Docker CLI is unavailable in this environment.
 
 ## Backlog
+### P0
+- None remaining from the PDF issues.
+
 ### P1
-- Real-time chat streaming (SSE)
-- Wiki knowledge graph visualization
-- Source-to-wiki auto-generation
-- Token usage tracking with cost estimates
+- Enforce fail-fast production configuration for sensitive secrets and admin credentials in oversized legacy modules.
+- Add live integration tests for configured cloud providers when real API credentials are available.
 
 ### P2
-- Multi-user accounts
-- Dark/light theme toggle
-- Vector search with embeddings
-- Telegram bot integration
-- Code workspace panel (Claude Code-style file editor + terminal)
+- Split `proxy.py` and `backend/server.py` into smaller modules for easier review and safer future changes.
+- Add dashboard visibility for provider fallback attempts and multi-agent task timelines.

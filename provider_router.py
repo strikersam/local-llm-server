@@ -30,7 +30,8 @@ class ProviderConfig:
 
     def auth_headers(self) -> dict[str, str]:
         headers = {"Content-Type": "application/json", **self.headers}
-        if self.api_key and "Authorization" not in headers and "x-api-key" not in {k.lower(): v for k, v in headers.items()}:
+        lower_header_names = {k.lower() for k in headers}
+        if self.api_key and "authorization" not in lower_header_names and "x-api-key" not in lower_header_names:
             if self.type == "anthropic":
                 headers["x-api-key"] = self.api_key
                 headers["anthropic-version"] = os.environ.get("ANTHROPIC_VERSION", "2023-06-01")
@@ -125,12 +126,13 @@ class ProviderRouter:
             )
 
         hf_key = os.environ.get("HF_TOKEN") or os.environ.get("HUGGINGFACE_API_TOKEN")
-        if hf_key:
+        hf_base = os.environ.get("HF_BASE_URL")
+        if hf_key and hf_base:
             providers.append(
                 ProviderConfig(
                     provider_id="huggingface",
                     type="openai-compatible",
-                    base_url=os.environ.get("HF_BASE_URL") or "https://api-inference.huggingface.co",
+                    base_url=hf_base,
                     api_key=hf_key,
                     default_model=os.environ.get("HF_MODEL_ID") or "Qwen/Qwen2.5-Coder-7B-Instruct",
                     priority=20,
@@ -138,12 +140,13 @@ class ProviderRouter:
             )
 
         openrouter_key = os.environ.get("OPENROUTER_API_KEY")
-        if openrouter_key:
+        openrouter_base = os.environ.get("OPENROUTER_BASE_URL")
+        if openrouter_key and openrouter_base:
             providers.append(
                 ProviderConfig(
                     provider_id="openrouter",
                     type="openai-compatible",
-                    base_url=os.environ.get("OPENROUTER_BASE_URL") or "https://openrouter.ai/api/v1",
+                    base_url=openrouter_base,
                     api_key=openrouter_key,
                     default_model=os.environ.get("OPENROUTER_MODEL") or "qwen/qwen3-235b-a22b",
                     priority=30,
@@ -151,12 +154,13 @@ class ProviderRouter:
             )
 
         deepseek_key = os.environ.get("DEEPSEEK_API_KEY")
-        if deepseek_key:
+        deepseek_base = os.environ.get("DEEPSEEK_BASE_URL")
+        if deepseek_key and deepseek_base:
             providers.append(
                 ProviderConfig(
                     provider_id="deepseek",
                     type="openai-compatible",
-                    base_url=os.environ.get("DEEPSEEK_BASE_URL") or "https://api.deepseek.com",
+                    base_url=deepseek_base,
                     api_key=deepseek_key,
                     default_model=os.environ.get("DEEPSEEK_MODEL") or "deepseek-chat",
                     priority=40,
@@ -164,12 +168,13 @@ class ProviderRouter:
             )
 
         anthropic_key = os.environ.get("ANTHROPIC_API_KEY")
-        if anthropic_key:
+        anthropic_base = os.environ.get("ANTHROPIC_BASE_URL")
+        if anthropic_key and anthropic_base:
             providers.append(
                 ProviderConfig(
                     provider_id="anthropic",
                     type="anthropic",
-                    base_url=os.environ.get("ANTHROPIC_BASE_URL") or "https://api.anthropic.com",
+                    base_url=anthropic_base,
                     api_key=anthropic_key,
                     default_model=os.environ.get("ANTHROPIC_MODEL") or "claude-sonnet-4-5",
                     priority=50,
