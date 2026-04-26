@@ -140,7 +140,10 @@ function RuntimeCard({ runtime, onRun, onRefresh }) {
               ) : available ? (
                 <div className="text-[10px] text-emerald-400 flex items-center gap-1"><CheckCircle size={10} /> Online</div>
               ) : available === false ? (
-                <div className="text-[10px] text-red-400 flex items-center gap-1"><XCircle size={10} /> Offline</div>
+                <div className="text-[10px] text-red-400 flex flex-col items-end">
+                   <div className="flex items-center gap-1"><XCircle size={10} /> Offline</div>
+                   {h.error && <div className="text-[8px] text-red-500/60 max-w-[120px] truncate" title={h.error}>{h.error}</div>}
+                </div>
               ) : (
                 <div className="text-[10px] text-[#555]">Checking...</div>
               )}
