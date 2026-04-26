@@ -253,9 +253,18 @@ export default function RuntimesPage() {
     setError('');
     setSuccess('');
     try {
-      await startAllRuntimes();
-      setSuccess('Starting all runtimes...');
-      setTimeout(() => { setSuccess(''); load(); }, 3000);
+      const res = await startAllRuntimes();
+      const rts = Object.values(res?.data?.runtimes || {});
+      if (rts.some(r => r.docker_unavailable)) {
+        setError('Docker lifecycle control is only available locally. Cannot auto-start runtimes here.');
+        load();
+      } else if (res?.data?.partial) {
+        setError('Some runtimes failed to start. Expand individual cards for details.');
+        load();
+      } else {
+        setSuccess('Starting all runtimes...');
+        setTimeout(() => { setSuccess(''); load(); }, 3000);
+      }
     } catch (e) {
       setError(fmtErr(e?.response?.data?.detail) || e.message || 'Failed to start all runtimes');
     } finally {
@@ -268,9 +277,18 @@ export default function RuntimesPage() {
     setError('');
     setSuccess('');
     try {
-      await stopAllRuntimes();
-      setSuccess('Stopping all runtimes...');
-      setTimeout(() => { setSuccess(''); load(); }, 3000);
+      const res = await stopAllRuntimes();
+      const rts = Object.values(res?.data?.runtimes || {});
+      if (rts.some(r => r.docker_unavailable)) {
+        setError('Docker lifecycle control is only available locally. Cannot auto-stop runtimes here.');
+        load();
+      } else if (res?.data?.partial) {
+        setError('Some runtimes failed to stop. Expand individual cards for details.');
+        load();
+      } else {
+        setSuccess('Stopping all runtimes...');
+        setTimeout(() => { setSuccess(''); load(); }, 3000);
+      }
     } catch (e) {
       setError(fmtErr(e?.response?.data?.detail) || e.message || 'Failed to stop all runtimes');
     } finally {
