@@ -26,9 +26,22 @@ task_router = APIRouter(prefix="/api/tasks", tags=["tasks"])
 
 
 async def _current_user(request: Request) -> Any:
-    from server import get_current_user
-
-    return await get_current_user(request)
+    # Fast path: JWTUserStateMiddleware (production) or inject_user middleware
+    # (tests) has already validated the token and stored the user in request.state.
+    user = getattr(request.state, "user", None)
+    if user is not None:
+        return user
+    # Slow path: validate the Bearer token directly.  Try both import paths so
+    # the code works when run from the repo root AND from within backend/.
+    for mod_name in ("server", "backend.server"):
+        try:
+            import importlib
+            mod = importlib.import_module(mod_name)
+            return await mod.get_current_user(request)
+        except ModuleNotFoundError:
+            continue
+    from fastapi import HTTPException
+    raise HTTPException(status_code=401, detail="Not authenticated")
 
 
 def _get_store(_: Request) -> TaskStore:
