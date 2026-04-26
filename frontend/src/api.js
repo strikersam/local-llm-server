@@ -89,7 +89,7 @@ export const logout = () => {
 export const getMe = () => API.get('/api/auth/me');
 
 // Chat
-export const chatSend = (content, sessionId, model, providerId, temperature, agentMode = false) =>
+export const chatSend = (content, sessionId, model, providerId, temperature, agentMode = false, allowCommercialFallbackOnce = false) =>
   API.post('/api/chat/send', {
     content,
     session_id: sessionId,
@@ -97,6 +97,7 @@ export const chatSend = (content, sessionId, model, providerId, temperature, age
     provider_id: providerId || null,
     temperature: temperature ?? null,
     agent_mode: agentMode,
+    allow_commercial_fallback_once: allowCommercialFallbackOnce,
   });
 export const listSessions = () => API.get('/api/chat/sessions');
 export const getSession = (id) => API.get(`/api/chat/sessions/${id}`);

@@ -33,6 +33,11 @@ class TaskWorkflowService:
 
     async def create_task(self, task: Task, *, actor: str) -> Task:
         self._validate_status_payload(task.status, blocked_reason=task.blocked_reason, review_reason=task.review_reason)
+        auto_assigned_agent: AgentDefinition | None = None
+        if not task.agent_id and task.status in {TaskStatus.TODO, TaskStatus.IN_PROGRESS}:
+            auto_assigned_agent = await self._select_agent(task)
+            if auto_assigned_agent is not None:
+                task.agent_id = auto_assigned_agent.agent_id
         if task.agent_id and task.status in {TaskStatus.TODO, TaskStatus.IN_PROGRESS}:
             task.pending_agent_run = True
         task.add_log(
@@ -42,6 +47,18 @@ class TaskWorkflowService:
             task_status=task.status,
             metadata={"source": task.source},
         )
+        if auto_assigned_agent is not None:
+            task.add_log(
+                f"Auto-assigned to {auto_assigned_agent.name}",
+                event_type="agent_auto_assigned",
+                actor="system:auto-assignment",
+                task_status=task.status,
+                metadata={
+                    "agent_id": auto_assigned_agent.agent_id,
+                    "runtime_id": auto_assigned_agent.runtime_id,
+                    "task_type": task.task_type,
+                },
+            )
         await self.store.create(task)
         return task
 
@@ -244,6 +261,50 @@ class TaskWorkflowService:
         if status is TaskStatus.IN_REVIEW and not review_reason:
             raise ValueError("review_reason is required when moving a task to in_review")
 
+    async def _select_agent(self, task: Task) -> AgentDefinition | None:
+        agent_store = get_agent_store()
+        runtime_manager = get_runtime_manager()
+        candidates = await agent_store.list_for_user(task.owner_id, include_public=True)
+        if not candidates:
+            return None
+
+        def _score(agent: AgentDefinition) -> tuple[int, int, float]:
+            score = 0
+            task_types = {task_type.strip().lower() for task_type in (agent.task_types or []) if task_type}
+            task_type = (task.task_type or "general").strip().lower()
+
+            if task_type and task_type in task_types:
+                score += 100
+            elif "general" in task_types:
+                score += 45
+            elif not task_types:
+                score += 20
+
+            if task.runtime_id and agent.runtime_id == task.runtime_id:
+                score += 30
+            elif not task.runtime_id and agent.runtime_id:
+                runtime = runtime_manager.get_runtime(agent.runtime_id)
+                if runtime and runtime.get("health", {}).get("available") is True:
+                    score += 15
+
+            if task.model_preference and agent.model == task.model_preference:
+                score += 10
+
+            if agent.is_public:
+                score += 5
+
+            if any(tag.startswith("crispy:") for tag in agent.tags):
+                score += 3
+
+            return (score, -agent.use_count, -agent.created_at)
+
+        ranked = sorted(candidates, key=_score, reverse=True)
+        best = ranked[0]
+        best_score = _score(best)[0]
+        if best_score <= 0:
+            return None
+        return best
+
 
 class TaskExecutionCoordinator:
     """Executes tasks through the runtime layer using agent definitions."""
@@ -340,6 +401,25 @@ class TaskExecutionCoordinator:
 
         if task.agent_id:
             log.warning("Assigned agent %s not found; falling back to task configuration", task.agent_id)
+        auto_assigned = await self.workflow._select_agent(task)
+        if auto_assigned is not None:
+            previous = task.agent_id
+            task.agent_id = auto_assigned.agent_id
+            task.add_log(
+                f"Auto-assigned to {auto_assigned.name}",
+                event_type="agent_auto_assigned",
+                actor="system:auto-assignment",
+                task_status=task.status,
+                metadata={
+                    "previous_agent_id": previous,
+                    "agent_id": auto_assigned.agent_id,
+                    "runtime_id": auto_assigned.runtime_id,
+                },
+            )
+            await self.store.update(task)
+            auto_assigned.record_use()
+            await self.agent_store.update(auto_assigned)
+            return auto_assigned
         return None
 
     def _build_spec(self, task: Task, agent: AgentDefinition | None) -> TaskSpec:

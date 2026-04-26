@@ -6,6 +6,7 @@ import re
 import json
 import secrets
 import asyncio
+import sys
 from contextlib import asynccontextmanager
 import bcrypt
 import jwt
@@ -13,6 +14,13 @@ import httpx
 import logging
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
+
+ROOT_DIR = Path(__file__).resolve().parent.parent
+BACKEND_DIR = Path(__file__).resolve().parent
+if str(ROOT_DIR) not in sys.path:
+    sys.path.append(str(ROOT_DIR))
+if str(BACKEND_DIR) not in sys.path:
+    sys.path.append(str(BACKEND_DIR))
 
 from fastapi import FastAPI, HTTPException, Request, Depends, UploadFile, File, Form
 from fastapi.responses import JSONResponse, HTMLResponse, RedirectResponse
@@ -24,18 +32,25 @@ from bson import ObjectId
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.middleware.sessions import SessionMiddleware
 
-from backend.llm_providers import (
+from llm_providers import (
     LlmProviderConfig,
     chat_completion_text,
     list_openai_models,
     normalize_base_url,
 )
-from provider_router import ProviderConfig, ProviderFallbackError, ProviderRouter, extract_openai_text
+from provider_router import (
+    CommercialFallbackRequiredError,
+    ProviderConfig,
+    ProviderFallbackError,
+    ProviderRouter,
+    extract_openai_text,
+)
 
 # Feature routers — agents, runtimes, tasks
 from agents.api import agent_router
 from agents.store import AgentStore, set_agent_store
 from runtimes.api import runtime_router
+from runtimes.manager import get_runtime_manager
 from tasks.api import task_router
 from tasks.store import TaskStore, set_task_store
 
@@ -1070,6 +1085,8 @@ async def _run_agent_loop(
     provider: dict,
     requested_model: str | None = None,
     github_token: str | None = None,
+    provider_chain: list[ProviderConfig] | None = None,
+    allow_commercial_fallback: bool = True,
 ) -> str:
     try:
         from agent.loop import AgentRunner
@@ -1094,6 +1111,8 @@ async def _run_agent_loop(
         ollama_base=_resolve_ollama_url(provider.get("base_url") or OLLAMA_BASE),
         workspace_root=workspace_root,
         provider_headers=headers,
+        provider_chain=provider_chain,
+        allow_commercial_fallback=allow_commercial_fallback,
         provider_temperature=0.3, # default for agent
         github_token=github_token,
     )
@@ -1115,6 +1134,8 @@ async def _run_agent_loop(
             memory_store=UserMemoryStore(),
         )
         return result["summary"]
+    except CommercialFallbackRequiredError:
+        raise
     except Exception as exc:
         log.error("AgentRunner failed: %s", exc)
         return f"Agent error: {exc}"
@@ -1190,49 +1211,107 @@ async def get_active_provider():
         prov = await db.providers.find_one({})
     return prov
 
+
+def _fallback_local_provider_record() -> dict[str, str | int]:
+    return {
+        "provider_id": "ollama-local",
+        "name": "Ollama (Local)",
+        "type": "ollama",
+        "base_url": _resolve_ollama_url(OLLAMA_BASE),
+        "api_key": "",
+        "default_model": OLLAMA_MODEL,
+        "priority": 0,
+    }
+
+
+async def _list_configured_provider_records() -> list[dict]:
+    records = await db.providers.find({}).to_list(length=200)
+    filtered: list[dict] = []
+    for record in records:
+        base_url = str(record.get("base_url") or "").strip()
+        status = str(record.get("status") or "").strip().lower()
+        provider_type = str(record.get("type") or "").strip().lower()
+        has_key = bool(str(record.get("api_key") or "").strip())
+        if not base_url:
+            continue
+        if provider_type == "ollama" or status == "configured" or has_key:
+            filtered.append(record)
+    return filtered or [_fallback_local_provider_record()]
+
+
+def _chat_provider_policy(*, allow_commercial_fallback_once: bool = False) -> dict[str, bool]:
+    policy = get_runtime_manager().get_policy()
+    never_paid = bool(policy.get("never_use_paid_providers", True))
+    require_approval = bool(policy.get("require_approval_before_paid_escalation", True))
+    return {
+        "never_use_paid_providers": never_paid,
+        "require_approval_before_paid_escalation": require_approval,
+        "allow_commercial_fallback": (not never_paid) and (allow_commercial_fallback_once or not require_approval),
+    }
+
+
+async def _build_provider_router(
+    *,
+    primary_provider_id: str | None,
+    allow_commercial_fallback_once: bool = False,
+) -> tuple[ProviderRouter, dict[str, bool], dict]:
+    records = await _list_configured_provider_records()
+    policy = _chat_provider_policy(allow_commercial_fallback_once=allow_commercial_fallback_once)
+    router = ProviderRouter.from_provider_records(
+        records,
+        primary_provider_id=primary_provider_id,
+        include_commercial=not policy["never_use_paid_providers"],
+    )
+    primary = next(
+        (record for record in records if record.get("provider_id") == router.providers[0].provider_id),
+        _fallback_local_provider_record(),
+    ) if router.providers else _fallback_local_provider_record()
+    return router, policy, primary
+
 async def call_llm(
     messages: list[dict],
     *,
     model: str | None = None,
     temperature: float = 0.3,
     provider_id: str | None = None,
+    allow_commercial_fallback_once: bool = False,
 ) -> str:
     provider = await db.providers.find_one({"provider_id": provider_id}) if provider_id else await get_active_provider()
     if not provider:
-        provider = {
-            "provider_id": "ollama-local",
-            "type": "ollama",
-            "base_url": OLLAMA_BASE,
-            "api_key": "",
-            "default_model": OLLAMA_MODEL,
-        }
-    cfg = LlmProviderConfig(
-        type=str(provider.get("type") or "openai-compatible"),
-        base_url=normalize_base_url(str(provider.get("base_url") or OLLAMA_BASE)),
-        api_key=(str(provider.get("api_key") or "").strip() or None),
-        default_model=(str(provider.get("default_model") or "").strip() or None),
-    )
+        provider = _fallback_local_provider_record()
+    provider_type = str(provider.get("type") or "openai-compatible")
     try:
-        primary = ProviderConfig(
-            provider_id=str(provider.get("provider_id") or "active-provider"),
-            type=cfg.type,
-            base_url=cfg.base_url,
-            api_key=cfg.api_key,
-            default_model=model or cfg.default_model,
-            priority=0,
+        router, policy, primary_provider = await _build_provider_router(
+            primary_provider_id=str(provider.get("provider_id") or "") or None,
+            allow_commercial_fallback_once=allow_commercial_fallback_once,
         )
-        result = await ProviderRouter.from_env(primary_provider=primary).chat_completion(
-            {"model": model or cfg.default_model, "messages": messages, "temperature": temperature, "stream": False}
+        result = await router.chat_completion(
+            {
+                "model": model or primary_provider.get("default_model") or provider.get("default_model") or OLLAMA_MODEL,
+                "messages": messages,
+                "temperature": temperature,
+                "stream": False,
+            },
+            allow_commercial_fallback=policy["allow_commercial_fallback"],
         )
         return extract_openai_text(result.response.json())
+    except CommercialFallbackRequiredError as exc:
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "message": str(exc),
+                "approval_required": True,
+                "commercial_candidates": exc.candidates,
+            },
+        ) from exc
     except ProviderFallbackError as exc:
         log.error("LLM provider fallback exhausted: %s", exc)
         raise HTTPException(status_code=503, detail=str(exc)) from exc
     except httpx.HTTPStatusError as exc:
         # Surface helpful provider-specific guidance.
         status = exc.response.status_code
-        detail = f"LLM call failed ({cfg.type}, HTTP {status}): {exc.response.text}"
-        if status in (401, 403) and cfg.type in ("huggingface", "openai-compatible"):
+        detail = f"LLM call failed ({provider_type}, HTTP {status}): {exc.response.text}"
+        if status in (401, 403) and provider_type in ("huggingface", "openai-compatible"):
             detail = (
                 f"{detail}\n\n"
                 "This provider requires an API token. Set it in Providers → API Key "
@@ -1253,6 +1332,7 @@ class ChatMessage(BaseModel):
     provider_id: str | None = None
     temperature: float | None = Field(default=None, ge=0.0, le=2.0)
     agent_mode: bool = False  # When True, forces multi-agent orchestration regardless of complexity
+    allow_commercial_fallback_once: bool = False
 
 @app.post("/api/chat/send")
 async def chat_send(body: ChatMessage, user: dict = Depends(get_current_user)):
@@ -1283,6 +1363,7 @@ async def chat_send(body: ChatMessage, user: dict = Depends(get_current_user)):
     wiki_index = "\n".join(wiki_pages) if wiki_pages else "(empty wiki)"
 
     provider_id = body.provider_id or session.get("provider_id")
+    provider_hint_id = body.provider_id or None
     temperature = body.temperature if body.temperature is not None else (session.get("temperature") or 0.3)
 
     # Determine whether to use multi-agent orchestration.
@@ -1293,21 +1374,37 @@ async def chat_send(body: ChatMessage, user: dict = Depends(get_current_user)):
     _LLM_TIMEOUT_SEC   = 300   # 5 minutes for simple LLM calls
 
     if use_agent:
-        provider = await db.providers.find_one({"provider_id": provider_id}) if provider_id else await get_active_provider()
+        provider = await db.providers.find_one({"provider_id": provider_hint_id}) if provider_hint_id else await get_active_provider()
         if not provider:
-            provider = {"provider_id": "ollama-local", "type": "ollama", "base_url": OLLAMA_BASE, "api_key": "", "default_model": OLLAMA_MODEL}
+            provider = _fallback_local_provider_record()
         try:
+            router, policy, primary_provider = await _build_provider_router(
+                primary_provider_id=provider_hint_id,
+                allow_commercial_fallback_once=body.allow_commercial_fallback_once,
+            )
             response_text = await asyncio.wait_for(
                 _run_agent_loop(
                     instruction=body.content,
                     session_messages=messages[:-1],  # exclude the just-appended user msg
                     wiki_index=wiki_index,
-                    provider=provider,
+                    provider=primary_provider,
                     requested_model=body.model or session.get("model"),
                     github_token=user.get("github_repo_token"),
+                    provider_chain=router.providers[1:],
+                    allow_commercial_fallback=policy["allow_commercial_fallback"],
                 ),
                 timeout=_AGENT_TIMEOUT_SEC,
             )
+        except CommercialFallbackRequiredError as exc:
+            raise HTTPException(
+                status_code=409,
+                detail={
+                    "message": str(exc),
+                    "approval_required": True,
+                    "commercial_candidates": exc.candidates,
+                    "session_id": sid,
+                },
+            ) from exc
         except asyncio.TimeoutError:
             log.warning("Agent loop timed out after %ds — returning timeout message", _AGENT_TIMEOUT_SEC)
             response_text = (
@@ -1369,10 +1466,17 @@ async def chat_send(body: ChatMessage, user: dict = Depends(get_current_user)):
                     llm_messages,
                     model=body.model or session.get("model"),
                     temperature=float(temperature),
-                    provider_id=provider_id,
+                    provider_id=provider_hint_id,
+                    allow_commercial_fallback_once=body.allow_commercial_fallback_once,
                 ),
                 timeout=_LLM_TIMEOUT_SEC,
             )
+        except HTTPException as exc:
+            if exc.status_code == 409 and isinstance(exc.detail, dict) and exc.detail.get("approval_required"):
+                detail = dict(exc.detail)
+                detail.setdefault("session_id", sid)
+                raise HTTPException(status_code=409, detail=detail) from exc
+            raise
         except asyncio.TimeoutError:
             log.warning("LLM call timed out after %ds", _LLM_TIMEOUT_SEC)
             response_text = (

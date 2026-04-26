@@ -75,6 +75,16 @@ class ProviderFallbackError(RuntimeError):
         super().__init__(f"All configured LLM providers failed ({summary})")
 
 
+class CommercialFallbackRequiredError(RuntimeError):
+    def __init__(self, candidates: list[str]) -> None:
+        self.candidates = candidates
+        summary = ", ".join(candidates[:5]) or "commercial provider"
+        super().__init__(
+            "Commercial fallback requires user approval before switching providers "
+            f"({summary})."
+        )
+
+
 def _openai_url(base_url: str, path: str) -> str:
     base = base_url.strip().rstrip("/")
     parsed = urlparse(base)
@@ -94,6 +104,90 @@ def extract_openai_text(data: Any) -> str:
         return ""
     content = msg.get("content") or msg.get("reasoning_content") or ""
     return content if isinstance(content, str) else ""
+
+
+_COMMERCIAL_PROVIDER_IDS = {
+    "anthropic",
+    "openai",
+    "openrouter",
+    "together-ai",
+    "zhipu",
+    "dashscope",
+    "minimax",
+    "google-gemini",
+    "moonshot",
+}
+_FREE_CLOUD_PROVIDER_IDS = {
+    "huggingface-serverless",
+    "huggingface",
+    "deepseek",
+}
+_KNOWN_COMMERCIAL_HOSTS = (
+    "anthropic.com",
+    "openai.com",
+    "openrouter.ai",
+    "together.xyz",
+    "bigmodel.cn",
+    "aliyuncs.com",
+    "minimax.chat",
+    "googleapis.com",
+    "moonshot.cn",
+)
+_KNOWN_FREE_HOSTS = (
+    "huggingface.co",
+    "hf.space",
+    "deepseek.com",
+)
+
+
+def _provider_field(provider: ProviderConfig | dict[str, Any], field_name: str, default: Any = "") -> Any:
+    if isinstance(provider, dict):
+        return provider.get(field_name, default)
+    return getattr(provider, field_name, default)
+
+
+def provider_access_tier(provider: ProviderConfig | dict[str, Any]) -> str:
+    provider_id = str(_provider_field(provider, "provider_id", "") or "").strip().lower()
+    provider_type = str(_provider_field(provider, "type", "") or "").strip().lower()
+    base_url = str(_provider_field(provider, "base_url", "") or "").strip().lower()
+    hostname = (urlparse(base_url).hostname or "").lower()
+    name = str(_provider_field(provider, "name", "") or "").strip().lower()
+
+    if provider_id in _COMMERCIAL_PROVIDER_IDS or any(host in hostname for host in _KNOWN_COMMERCIAL_HOSTS):
+        return "commercial"
+    if provider_id in _FREE_CLOUD_PROVIDER_IDS or any(host in hostname for host in _KNOWN_FREE_HOSTS):
+        return "free_cloud"
+    if provider_type == "anthropic":
+        return "commercial"
+    if provider_type == "ollama" and hostname in {"localhost", "127.0.0.1", "ollama", "host.docker.internal", "::1"}:
+        return "local"
+    if hostname.startswith("192.168.") or hostname.startswith("10.") or hostname.startswith("172."):
+        return "windows_server"
+    if any(token in hostname for token in ("ngrok", "cloudflare", "trycloudflare")):
+        return "windows_server"
+    if any(token in name for token in ("windows", "remote", "server")):
+        return "windows_server"
+    if provider_type == "ollama":
+        return "windows_server"
+    if provider_type == "huggingface":
+        return "free_cloud"
+    return "windows_server"
+
+
+def is_commercial_provider(provider: ProviderConfig | dict[str, Any]) -> bool:
+    return provider_access_tier(provider) == "commercial"
+
+
+def provider_sort_key(provider: ProviderConfig | dict[str, Any]) -> tuple[int, int, str]:
+    tier_order = {
+        "local": 0,
+        "windows_server": 1,
+        "free_cloud": 2,
+        "commercial": 3,
+    }
+    priority = int(_provider_field(provider, "priority", 100) or 100)
+    provider_id = str(_provider_field(provider, "provider_id", "") or "")
+    return (tier_order.get(provider_access_tier(provider), 99), priority, provider_id)
 
 
 class ProviderRouter:
@@ -181,6 +275,43 @@ class ProviderRouter:
                 )
             )
 
+        return cls(sorted(providers, key=provider_sort_key))
+
+    @classmethod
+    def from_provider_records(
+        cls,
+        provider_records: list[dict[str, Any]],
+        *,
+        primary_provider_id: str | None = None,
+        include_commercial: bool = True,
+    ) -> "ProviderRouter":
+        providers: list[ProviderConfig] = []
+        selected: ProviderConfig | None = None
+
+        for record in provider_records:
+            base_url = str(record.get("base_url") or "").strip()
+            provider_id = str(record.get("provider_id") or "").strip()
+            if not provider_id or not base_url:
+                continue
+            if not include_commercial and is_commercial_provider(record):
+                continue
+            cfg = ProviderConfig(
+                provider_id=provider_id,
+                type=str(record.get("type") or "openai-compatible").strip(),
+                base_url=base_url,
+                api_key=(str(record.get("api_key") or "").strip() or None),
+                default_model=(str(record.get("default_model") or "").strip() or None),
+                priority=int(record.get("priority") or 100),
+                headers=dict(record.get("headers") or {}),
+            )
+            if primary_provider_id and provider_id == primary_provider_id:
+                selected = cfg
+            else:
+                providers.append(cfg)
+
+        providers = sorted(providers, key=provider_sort_key)
+        if selected is not None:
+            providers = [selected, *providers]
         return cls(providers)
 
     async def health_check(self, provider: ProviderConfig) -> bool:
@@ -206,13 +337,18 @@ class ProviderRouter:
         *,
         model_fallbacks: list[str] | None = None,
         max_retries: int = 2,
+        allow_commercial_fallback: bool = True,
     ) -> ProviderResult:
         attempts: list[ProviderAttempt] = []
+        deferred_commercial: list[str] = []
         if not self.providers:
             raise ProviderFallbackError(attempts)
 
         original_model = str(payload.get("model") or "").strip()
         for provider_index, provider in enumerate(self.providers):
+            if provider_index > 0 and is_commercial_provider(provider) and not allow_commercial_fallback:
+                deferred_commercial.append(provider.provider_id)
+                continue
             candidate_models = self._candidate_models(provider, original_model, model_fallbacks or [], provider_index == 0)
             for model in candidate_models:
                 provider_payload = dict(payload)
@@ -233,6 +369,10 @@ class ProviderRouter:
                         attempts.append(ProviderAttempt(provider.provider_id, model, None, error=str(exc), latency_ms=latency_ms))
                     if attempt_number < max_retries:
                         await asyncio.sleep(min(0.25 * (2**attempt_number), 2.0))
+        if deferred_commercial and not attempts:
+            raise CommercialFallbackRequiredError(deferred_commercial)
+        if deferred_commercial:
+            raise CommercialFallbackRequiredError(deferred_commercial)
         raise ProviderFallbackError(attempts)
 
     def _candidate_models(

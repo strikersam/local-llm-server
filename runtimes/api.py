@@ -19,6 +19,7 @@ from __future__ import annotations
 import secrets
 import logging
 from typing import Any
+from collections.abc import Mapping
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
@@ -55,10 +56,17 @@ class RunTaskBody(BaseModel):
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
-def _require_admin(request: Request) -> None:
+async def _require_admin(request: Request) -> None:
     """Dependency: reject non-admin callers."""
-    user = getattr(request.state, "user", None)
-    if user is None or getattr(user, "role", "user") != "admin":
+    from server import get_current_user
+
+    try:
+        user = await get_current_user(request)
+        role = user.get("role", "user") if isinstance(user, Mapping) else getattr(user, "role", "user")
+    except HTTPException:
+        user = None
+        role = "user"
+    if user is None or role != "admin":
         raise HTTPException(status_code=403, detail="Admin access required")
 
 
@@ -97,7 +105,7 @@ async def update_policy(
     request: Request,
 ) -> dict:
     """Update the routing policy.  Admin only."""
-    _require_admin(request)
+    await _require_admin(request)
     mgr = get_runtime_manager()
     updates = body.model_dump(exclude_none=True)
     mgr.update_policy(**updates)

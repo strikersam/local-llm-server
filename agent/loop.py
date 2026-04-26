@@ -25,7 +25,7 @@ from agent.prompts import (
 from agent.state import AgentSessionStore
 from agent.tools import WorkspaceTools
 from agent.user_memory import UserMemoryStore
-from provider_router import ProviderConfig, ProviderRouter
+from provider_router import CommercialFallbackRequiredError, ProviderConfig, ProviderRouter
 from router import get_router
 
 log = logging.getLogger("qwen-agent")
@@ -42,6 +42,8 @@ class AgentRunner:
         ollama_base: str,
         workspace_root: str | Path | None = None,
         provider_headers: dict[str, str] | None = None,
+        provider_chain: list[ProviderConfig] | None = None,
+        allow_commercial_fallback: bool = True,
         provider_temperature: float | None = None,
         session_store: AgentSessionStore | None = None,
         github_token: str | None = None,
@@ -53,6 +55,8 @@ class AgentRunner:
         # OpenAI-compatible base URL with /v1/chat/completions.
         self.ollama_base = ollama_base.rstrip("/")
         self.provider_headers = dict(provider_headers or {})
+        self.provider_chain = list(provider_chain or [])
+        self.allow_commercial_fallback = allow_commercial_fallback
         self.provider_temperature = provider_temperature
         self.tools = WorkspaceTools(workspace_root)
         from agent.github_tools import GitHubTools
@@ -215,6 +219,8 @@ class AgentRunner:
                     build_tool_prompt(goal=goal, step=step, observations=masked_obs, remaining_calls=remaining),
                 )
                 call = ToolCall.model_validate(tool_call)
+            except CommercialFallbackRequiredError:
+                raise
             except Exception as exc:
                 observations.append({"tool": "error", "result": f"tool selection failed: {exc}"})
                 continue
@@ -378,6 +384,8 @@ class AgentRunner:
     ) -> Any:
         try:
             return await self._dispatch_tool(tool, args, user_id=user_id, memory_store=memory_store)
+        except CommercialFallbackRequiredError:
+            raise
         except Exception as exc:
             # The harness catches tool failures as tool-call errors and feeds
             # them back to the model — it never surfaces raw exceptions.
@@ -490,6 +498,8 @@ class AgentRunner:
                 {"original_length": len(history), "summary_length": len(summary_text)},
             )
             return self.ctx.compact_history(history, compaction_summary=summary_text)
+        except CommercialFallbackRequiredError:
+            raise
         except Exception as exc:
             log.warning("context compaction failed (continuing uncompacted): %s", exc)
             return history
@@ -507,7 +517,11 @@ class AgentRunner:
             default_model=model,
             priority=0,
         )
-        result = await ProviderRouter.from_env(primary_provider=primary).chat_completion(payload)
+        router = ProviderRouter([primary, *self.provider_chain]) if self.provider_chain else ProviderRouter.from_env(primary_provider=primary)
+        result = await router.chat_completion(
+            payload,
+            allow_commercial_fallback=self.allow_commercial_fallback,
+        )
         duration_ms = int((time.perf_counter() - start) * 1000)
         data = result.response.json()
         out_text = data["choices"][0]["message"]["content"]
@@ -533,6 +547,8 @@ class AgentRunner:
                     latency_ms=duration_ms,
                     task_name="agent-task",
                 )
+            except CommercialFallbackRequiredError:
+                raise
             except Exception as exc:
                 log.debug("Agent Langfuse emit failed: %s", exc)
 
@@ -546,6 +562,8 @@ class AgentRunner:
                 if not isinstance(parsed, dict):
                     raise ValueError("Model did not return a JSON object")
                 return parsed
+            except CommercialFallbackRequiredError:
+                raise
             except Exception:
                 raw = await self._chat_text(
                     model,

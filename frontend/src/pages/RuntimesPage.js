@@ -69,7 +69,10 @@ function RuntimeCard({ runtime, onRun, onRefresh }) {
     setDockerNote('');
     try {
       const res = await startRuntime(runtime.runtime_id);
-      if (res?.data?.docker_unavailable) {
+      if (res?.data?.remote_managed) {
+        setDockerNote('This runtime is already reachable remotely. No local Docker start is needed here.');
+        setExpanded(true);
+      } else if (res?.data?.docker_unavailable) {
         setDockerNote('Docker lifecycle control is only available when running locally. The runtime may still respond if its HTTP endpoint is reachable.');
         setExpanded(true);
       } else {
@@ -91,7 +94,10 @@ function RuntimeCard({ runtime, onRun, onRefresh }) {
     setDockerNote('');
     try {
       const res = await stopRuntime(runtime.runtime_id);
-      if (res?.data?.docker_unavailable) {
+      if (res?.data?.remote_managed) {
+        setDockerNote('This runtime is managed remotely from its own host. Use the host controls if you need to stop it.');
+        setExpanded(true);
+      } else if (res?.data?.docker_unavailable) {
         setDockerNote('Docker lifecycle control is only available when running locally.');
         setExpanded(true);
       } else {
@@ -159,6 +165,7 @@ function RuntimeCard({ runtime, onRun, onRefresh }) {
               <button 
                 onClick={(e) => { e.stopPropagation(); handleStart(); }} 
                 disabled={controlLoading}
+                data-testid={`runtime-start-${runtime.runtime_id}`}
                 className="flex items-center gap-1 px-3 py-1.5 bg-emerald-500/20 border border-emerald-500/30 text-[10px] text-emerald-400 rounded hover:bg-emerald-500/30 transition-colors disabled:opacity-40 min-w-[70px] justify-center"
               >
                 {controlLoading ? <Loader2 size={12} className="animate-spin" /> : <Power size={12} />} 
@@ -169,6 +176,7 @@ function RuntimeCard({ runtime, onRun, onRefresh }) {
               <button 
                 onClick={(e) => { e.stopPropagation(); handleStop(); }} 
                 disabled={controlLoading}
+                data-testid={`runtime-stop-${runtime.runtime_id}`}
                 className="flex items-center gap-1 px-3 py-1.5 bg-red-500/20 border border-red-500/30 text-[10px] text-red-400 rounded hover:bg-red-500/30 transition-colors disabled:opacity-40 min-w-[70px] justify-center"
               >
                 {controlLoading ? <Loader2 size={12} className="animate-spin" /> : <PowerOff size={12} />} 
@@ -177,6 +185,7 @@ function RuntimeCard({ runtime, onRun, onRefresh }) {
             )}
             <button 
               onClick={() => setExpanded(e => !e)}
+              data-testid={`runtime-expand-${runtime.runtime_id}`}
               className="p-1 hover:bg-white/5 rounded transition-colors text-[#444] hover:text-white"
             >
               <ChevronDown size={14} className={cls('transition-transform', expanded ? 'rotate-180' : '')} />
@@ -188,9 +197,9 @@ function RuntimeCard({ runtime, onRun, onRefresh }) {
       {expanded && (
         <div className="px-4 pb-4 border-t border-white/5 pt-3 space-y-4">
           {/* Control error */}
-          {controlErr && <div className="text-[10px] text-red-400">{controlErr}</div>}
+          {controlErr && <div className="text-[10px] text-red-400" data-testid={`runtime-control-error-${runtime.runtime_id}`}>{controlErr}</div>}
           {dockerNote && (
-            <div className="text-[10px] text-[#4477FF] bg-[#002FA7]/8 border border-[#002FA7]/20 rounded px-3 py-2">
+            <div className="text-[10px] text-[#4477FF] bg-[#002FA7]/8 border border-[#002FA7]/20 rounded px-3 py-2" data-testid={`runtime-remote-note-${runtime.runtime_id}`}>
               ℹ️ {dockerNote}
             </div>
           )}
@@ -289,9 +298,13 @@ export default function RuntimesPage() {
     try {
       const res = await startAllRuntimes();
       const rts = Object.values(res?.data?.runtimes || {});
-      if (rts.some(r => r.docker_unavailable)) {
-        setError('Docker lifecycle control is only available locally. Cannot auto-start runtimes here.');
-        setSuccess('');
+      if (rts.some(r => r.remote_managed)) {
+        setSuccess('Remote runtimes are already managed on their own host. Refresh health after starting them there.');
+        setError('');
+        load();
+      } else if (rts.some(r => r.docker_unavailable)) {
+        setSuccess('This environment cannot control Docker directly. Manage remote runtimes on their host, then refresh health here.');
+        setError('');
         load();
       } else if (res?.data?.partial) {
         setError('Some runtimes failed to start. Expand individual cards for details.');
@@ -317,9 +330,13 @@ export default function RuntimesPage() {
     try {
       const res = await stopAllRuntimes();
       const rts = Object.values(res?.data?.runtimes || {});
-      if (rts.some(r => r.docker_unavailable)) {
-        setError('Docker lifecycle control is only available locally. Cannot auto-stop runtimes here.');
-        setSuccess('');
+      if (rts.some(r => r.remote_managed)) {
+        setSuccess('Remote runtimes are managed on their own host. Use the host controls if you need to stop them.');
+        setError('');
+        load();
+      } else if (rts.some(r => r.docker_unavailable)) {
+        setSuccess('This environment cannot control Docker directly. Use the remote host controls, then refresh health here.');
+        setError('');
         load();
       } else if (res?.data?.partial) {
         setError('Some runtimes failed to stop. Expand individual cards for details.');
@@ -357,17 +374,20 @@ export default function RuntimesPage() {
             {offline > 0 && <span className="text-[11px] text-red-400">{offline} offline</span>}
             {offline > 0 && (
               <button onClick={handleStartAll} disabled={controlLoading}
+                data-testid="runtimes-start-all-button"
                 className="flex items-center gap-1 px-3 py-2 bg-emerald-500/20 border border-emerald-500/30 text-[11px] text-emerald-400 rounded-md hover:bg-emerald-500/30 transition-colors disabled:opacity-40">
                 {controlLoading ? <Loader2 size={11} className="animate-spin" /> : <Power size={11} />} Start All
               </button>
             )}
             {online > 0 && (
               <button onClick={handleStopAll} disabled={controlLoading}
+                data-testid="runtimes-stop-all-button"
                 className="flex items-center gap-1 px-3 py-2 bg-red-500/20 border border-red-500/30 text-[11px] text-red-400 rounded-md hover:bg-red-500/30 transition-colors disabled:opacity-40">
                 {controlLoading ? <Loader2 size={11} className="animate-spin" /> : <PowerOff size={11} />} Stop All
               </button>
             )}
             <button onClick={() => load(true)} disabled={loading || controlLoading} 
+              data-testid="runtimes-refresh-button"
               className="text-[#444] hover:text-[#888] transition-colors flex items-center gap-1.5 px-2 py-1 h-8"
               title="Force health check refresh"
             >
@@ -379,14 +399,14 @@ export default function RuntimesPage() {
       </div>
 
       {error && (
-        <div className="mb-6 px-4 py-3 bg-red-500/10 border border-red-500/30 rounded-xl text-[12px] text-red-400 flex items-center gap-3 animate-in fade-in slide-in-from-top-2 duration-300">
+        <div className="mb-6 px-4 py-3 bg-red-500/10 border border-red-500/30 rounded-xl text-[12px] text-red-400 flex items-center gap-3 animate-in fade-in slide-in-from-top-2 duration-300" data-testid="runtimes-error-banner">
           <AlertCircle size={14} className="flex-shrink-0" />
           <span>{error}</span>
         </div>
       )}
 
       {success && (
-        <div className="mb-6 px-4 py-3 bg-emerald-500/10 border border-emerald-500/30 rounded-xl text-[12px] text-emerald-400 flex items-center gap-3 animate-in fade-in slide-in-from-top-2 duration-300">
+        <div className="mb-6 px-4 py-3 bg-emerald-500/10 border border-emerald-500/30 rounded-xl text-[12px] text-emerald-400 flex items-center gap-3 animate-in fade-in slide-in-from-top-2 duration-300" data-testid="runtimes-success-banner">
           <CheckCircle size={14} className="flex-shrink-0" />
           <span>{success}</span>
         </div>
