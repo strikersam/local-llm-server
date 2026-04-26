@@ -26,7 +26,14 @@ task_router = APIRouter(prefix="/api/tasks", tags=["tasks"])
 
 
 async def _current_user(request: Request) -> Any:
-    from server import get_current_user
+    user = getattr(request.state, "user", None)
+    if user is not None:
+        return user
+
+    try:
+        from server import get_current_user
+    except ModuleNotFoundError:
+        from backend.server import get_current_user
 
     return await get_current_user(request)
 

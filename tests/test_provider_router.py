@@ -10,6 +10,7 @@ from provider_router import (
     ProviderConfig,
     ProviderRouter,
     extract_openai_text,
+    is_commercial_provider,
 )
 
 
@@ -71,6 +72,18 @@ def test_provider_router_attempts_header_is_compact_json():
     assert json.loads(header) == []
 
 
+def test_provider_router_treats_emergent_anthropic_as_commercial():
+    provider = ProviderConfig(
+        provider_id="anthropic-universal",
+        type="emergent-anthropic",
+        base_url="emergent://anthropic",
+        api_key="test-key",
+        default_model="claude-sonnet-4-5-20250929",
+    )
+
+    assert is_commercial_provider(provider) is True
+
+
 @pytest.mark.anyio
 async def test_provider_router_prefers_local_then_remote_then_free_cloud(monkeypatch):
     calls: list[str] = []
@@ -118,3 +131,28 @@ async def test_provider_router_requires_approval_before_commercial_fallback(monk
         )
 
     assert exc.value.candidates == ["anthropic"]
+
+
+@pytest.mark.anyio
+async def test_provider_router_can_use_emergent_provider(monkeypatch):
+    async def fake_emergent(self, provider, payload):
+        return httpx.Response(200, json={"choices": [{"message": {"content": "ok from emergent"}}]})
+
+    monkeypatch.setattr(ProviderRouter, "_post_emergent_chat", fake_emergent)
+    router = ProviderRouter([
+        ProviderConfig(
+            provider_id="anthropic-universal",
+            type="emergent-anthropic",
+            base_url="emergent://anthropic",
+            api_key="test-key",
+            default_model="claude-sonnet-4-5-20250929",
+        )
+    ])
+
+    result = await router.chat_completion(
+        {"model": "claude-sonnet-4-5-20250929", "messages": [{"role": "user", "content": "hi"}]},
+        max_retries=0,
+        allow_commercial_fallback=True,
+    )
+
+    assert extract_openai_text(result.response.json()) == "ok from emergent"

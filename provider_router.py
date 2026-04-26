@@ -5,6 +5,7 @@ import json
 import logging
 import os
 import time
+import uuid
 from dataclasses import dataclass, field
 from typing import Any
 from urllib.parse import urlparse
@@ -108,6 +109,7 @@ def extract_openai_text(data: Any) -> str:
 
 _COMMERCIAL_PROVIDER_IDS = {
     "anthropic",
+    "anthropic-universal",
     "openai",
     "openrouter",
     "together-ai",
@@ -154,6 +156,8 @@ def provider_access_tier(provider: ProviderConfig | dict[str, Any]) -> str:
     name = str(_provider_field(provider, "name", "") or "").strip().lower()
 
     if provider_id in _COMMERCIAL_PROVIDER_IDS or any(host in hostname for host in _KNOWN_COMMERCIAL_HOSTS):
+        return "commercial"
+    if provider_type.startswith("emergent-"):
         return "commercial"
     if provider_id in _FREE_CLOUD_PROVIDER_IDS or any(host in hostname for host in _KNOWN_FREE_HOSTS):
         return "free_cloud"
@@ -275,6 +279,19 @@ class ProviderRouter:
                 )
             )
 
+        emergent_key = os.environ.get("EMERGENT_LLM_KEY")
+        if emergent_key:
+            providers.append(
+                ProviderConfig(
+                    provider_id="anthropic-universal",
+                    type="emergent-anthropic",
+                    base_url="emergent://anthropic",
+                    api_key=emergent_key,
+                    default_model=os.environ.get("EMERGENT_ANTHROPIC_MODEL") or "claude-sonnet-4-5-20250929",
+                    priority=60,
+                )
+            )
+
         return cls(sorted(providers, key=provider_sort_key))
 
     @classmethod
@@ -317,6 +334,8 @@ class ProviderRouter:
     async def health_check(self, provider: ProviderConfig) -> bool:
         try:
             async with httpx.AsyncClient(timeout=httpx.Timeout(10.0, connect=5.0)) as client:
+                if provider.type.startswith("emergent-"):
+                    return bool(provider.api_key)
                 if provider.type == "ollama":
                     resp = await client.get(f"{provider.normalized_base_url}/api/tags")
                 elif provider.type == "anthropic":
@@ -398,6 +417,8 @@ class ProviderRouter:
 
     async def _post_chat(self, provider: ProviderConfig, payload: dict[str, Any]) -> httpx.Response:
         headers = provider.auth_headers()
+        if provider.type.startswith("emergent-"):
+            return await self._post_emergent_chat(provider, payload)
         async with httpx.AsyncClient(timeout=httpx.Timeout(300.0, connect=10.0)) as client:
             if provider.type == "anthropic":
                 response = await client.post(
@@ -424,6 +445,67 @@ class ProviderRouter:
                 if native.status_code < 400:
                     return self._ollama_native_to_openai_response(native, str(payload.get("model") or ""))
             return response
+
+    async def _post_emergent_chat(self, provider: ProviderConfig, payload: dict[str, Any]) -> httpx.Response:
+        from emergentintegrations.llm.chat import LlmChat, UserMessage
+
+        provider_name = provider.type.replace("emergent-", "", 1)
+        session_id = f"{provider.provider_id}-{uuid.uuid4().hex}"
+        messages = payload.get("messages") or []
+        system_message, user_text = self._emergent_prompt(messages)
+        chat = LlmChat(
+            api_key=provider.api_key or "",
+            session_id=session_id,
+            system_message=system_message,
+        ).with_model(provider_name, str(payload.get("model") or provider.default_model or ""))
+        response_text = await chat.send_message(UserMessage(text=user_text))
+        return httpx.Response(
+            200,
+            json={
+                "id": f"chatcmpl-{uuid.uuid4().hex}",
+                "object": "chat.completion",
+                "created": int(time.time()),
+                "model": str(payload.get("model") or provider.default_model or ""),
+                "choices": [
+                    {
+                        "index": 0,
+                        "message": {"role": "assistant", "content": str(response_text)},
+                        "finish_reason": "stop",
+                    }
+                ],
+                "usage": {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0},
+            },
+        )
+
+    def _emergent_prompt(self, messages: list[dict[str, Any]]) -> tuple[str, str]:
+        system_parts: list[str] = []
+        transcript: list[str] = []
+        for message in messages:
+            role = str(message.get("role") or "user")
+            content = self._message_content_text(message.get("content"))
+            if not content:
+                continue
+            if role == "system":
+                system_parts.append(content)
+            else:
+                transcript.append(f"{role.upper()}: {content}")
+
+        system_message = "\n\n".join(system_parts) or "You are a helpful assistant."
+        user_text = "\n\n".join(transcript) or "USER: Hello"
+        return system_message, user_text
+
+    def _message_content_text(self, content: Any) -> str:
+        if isinstance(content, str):
+            return content.strip()
+        if isinstance(content, list):
+            parts: list[str] = []
+            for item in content:
+                if isinstance(item, dict):
+                    text = item.get("text") or item.get("content") or ""
+                    if isinstance(text, str) and text.strip():
+                        parts.append(text.strip())
+            return "\n".join(parts).strip()
+        return ""
 
     @staticmethod
     def _is_success(response: httpx.Response) -> bool:

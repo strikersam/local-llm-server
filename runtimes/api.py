@@ -58,7 +58,10 @@ class RunTaskBody(BaseModel):
 
 async def _require_admin(request: Request) -> None:
     """Dependency: reject non-admin callers."""
-    from server import get_current_user
+    try:
+        from server import get_current_user
+    except ModuleNotFoundError:
+        from backend.server import get_current_user
 
     user = await get_current_user(request)
     role = user.get("role", "user") if isinstance(user, Mapping) else getattr(user, "role", "user")
