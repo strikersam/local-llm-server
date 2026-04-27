@@ -94,6 +94,8 @@ def _resolve_ollama_url(url: str | None) -> str:
 HF_TOKEN = os.environ.get("HF_TOKEN") or os.environ.get("HUGGINGFACE_API_TOKEN", "")
 HF_BASE_URL = os.environ.get("HF_BASE_URL", "https://router.huggingface.co")
 HF_MODEL_ID = os.environ.get("HF_MODEL_ID", "Qwen/Qwen2.5-Coder-7B-Instruct")
+EMERGENT_LLM_KEY = os.environ.get("EMERGENT_LLM_KEY", "")
+EMERGENT_ANTHROPIC_MODEL = os.environ.get("EMERGENT_ANTHROPIC_MODEL", "claude-sonnet-4-5-20250929")
 
 LLM_PROVIDER = os.environ.get("LLM_PROVIDER", "deepseek")
 LANGFUSE_PK = os.environ.get("LANGFUSE_PUBLIC_KEY", "")
@@ -979,6 +981,16 @@ async def seed_default_providers():
             "default_model": "kimi-k2.5",
             "is_default": LLM_PROVIDER == "moonshot",
             "status": "configured" if MOONSHOT_API_KEY else "unconfigured",
+        },
+        {
+            "provider_id": "anthropic-universal",
+            "name": "Anthropic (Universal Key)",
+            "type": "emergent-anthropic",
+            "base_url": "emergent://anthropic",
+            "api_key": EMERGENT_LLM_KEY,
+            "default_model": EMERGENT_ANTHROPIC_MODEL,
+            "is_default": False,
+            "status": "configured" if EMERGENT_LLM_KEY else "unconfigured",
         },
     ]
     for p in defaults:

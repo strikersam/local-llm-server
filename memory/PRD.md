@@ -36,33 +36,34 @@
 - Updated Runtimes page messaging so remote-management/no-Docker states are treated as informational, not hard UI errors.
 - Fixed auth wiring for task/runtime API verification after backend restart and shared-module reload.
 - Testing agent also updated frontend proxy target to `http://localhost:8001` in `frontend/package.json`.
+- Added real commercial fallback support via `EMERGENT_LLM_KEY` in ignored local file `/app/backend/.env`.
+- Seeded a real provider record `anthropic-universal` (`emergent-anthropic`) and verified it is used only after approval.
+- Set local runtime policy default to allow paid fallback with approval (`RUNTIME_NEVER_PAID=false`, `require_approval_before_paid_escalation=true`).
 
 ## Verification Status
-- Targeted pytest from main agent: `16 passed`
-- Testing agent report: `/app/test_reports/iteration_6.json`
-  - Backend: `35/35 passed`
-  - Frontend: verified for runtime notices and chat approval modal structure
+- Targeted pytest from main agent: `18 passed`
+- Testing agent reports:
+  - `/app/test_reports/iteration_6.json` — backend `35/35 passed`, frontend verified
+  - `/app/test_reports/iteration_7.json` — backend `10/10 passed`, frontend `100% verified`
 - Manual curl verification by main agent:
   - authenticated task creation stores real owner id
   - task auto-assignment assigns an available agent
   - runtime start returns non-blocking informational payload in no-Docker environment
-  - commercial approval path returns `409 approval_required` when policy allows paid escalation and a commercial provider is present
+  - commercial approval path returns `409 approval_required`
+  - approved commercial retry returns `200` with a real live response
 
 ## Current Functional Notes
 - Task auto-assignment: WORKING
 - Remote runtime informational handling: WORKING
 - Commercial approval gate: WORKING
-- Baseline chat now returns a controlled provider failure instead of crashing when no usable live provider is available.
+- Live commercial fallback now works in this preview via `anthropic-universal` after approval.
+- Baseline chat now returns an approval prompt instead of crashing when paid escalation is needed.
 - No APIs were MOCKED.
 
 ## Known Environment Limitation
-- In this preview environment, currently configured live provider access is still limited, so baseline chat may return a controlled provider failure message until real provider connectivity/keys are available.
-- Approval behavior itself was verified using a temporary configured commercial provider during testing, then cleaned up.
+- The live provider setup currently depends on the ignored local file `/app/backend/.env`. To reproduce this behavior in another environment, add `EMERGENT_LLM_KEY` there or configure your own provider keys.
 
 ## Prioritized Backlog
-### P0
-- Verify live chat success with the user’s actual working provider credentials/environment (not just graceful failure + approval gate).
-
 ### P1
 - Expand frontend E2E coverage for the full approval-confirmation path after a real commercial provider is configured.
 - Add clearer provider-health indicators on the chat/setup surfaces.
@@ -71,4 +72,4 @@
 - Add fallback health and task timeline dashboard enhancements.
 
 ## Next Suggested Task
-- Wire in the user’s active provider credentials/environment for a final live-chat success pass across local/free/commercial tiers.
+- Add a provider-health panel so users can see which tier is currently available before sending a message.
