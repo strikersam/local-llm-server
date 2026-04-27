@@ -15,7 +15,9 @@ COPY handlers/ handlers/
 COPY workflow/ workflow/
 COPY sync/ sync/
 COPY setup/ setup/
+COPY hardware/ hardware/
 COPY rbac.py rbac.py
+COPY secrets_store.py secrets_store.py
 COPY provider_router.py provider_router.py
 
 EXPOSE 8001
