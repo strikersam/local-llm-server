@@ -16,6 +16,7 @@ COPY workflow/ workflow/
 COPY sync/ sync/
 COPY setup/ setup/
 COPY rbac.py rbac.py
+COPY provider_router.py provider_router.py
 
 EXPOSE 8001
 
