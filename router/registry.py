@@ -17,8 +17,8 @@ class ModelCapability:
     name: str
     strengths: list[str]
     context_window: int
-    type: str          # "coder" | "reasoning" | "general"
-    cost_tier: int     # 1=lightest, 2=medium, 3=heaviest (relative resource use)
+    type: str  # "coder" | "reasoning" | "general"
+    cost_tier: int  # 1=lightest, 2=medium, 3=heaviest (relative resource use)
     tags: list[str] = field(default_factory=list)
 
 
@@ -28,29 +28,57 @@ class ModelCapability:
 _DEFAULT_REGISTRY: dict[str, ModelCapability] = {
     "qwen3-coder:30b": ModelCapability(
         name="qwen3-coder:30b",
-        strengths=["code_generation", "code_debugging", "code_review", "tool_use",
-                   "long_context", "data_analysis", "conversation"],
+        strengths=[
+            "code_generation",
+            "code_debugging",
+            "code_review",
+            "tool_use",
+            "long_context",
+            "data_analysis",
+            "conversation",
+        ],
         context_window=32768,
         type="coder",
         cost_tier=2,
     ),
     "deepseek-r1:32b": ModelCapability(
         name="deepseek-r1:32b",
-        strengths=["reasoning", "analysis", "planning", "math", "complex_tasks", "data_analysis"],
+        strengths=[
+            "reasoning",
+            "analysis",
+            "planning",
+            "math",
+            "complex_tasks",
+            "data_analysis",
+        ],
         context_window=32768,
         type="reasoning",
         cost_tier=3,
     ),
     "deepseek-r1:32b-16k": ModelCapability(
         name="deepseek-r1:32b-16k",
-        strengths=["reasoning", "analysis", "planning", "math", "complex_tasks", "data_analysis"],
+        strengths=[
+            "reasoning",
+            "analysis",
+            "planning",
+            "math",
+            "complex_tasks",
+            "data_analysis",
+        ],
         context_window=16384,
         type="reasoning",
         cost_tier=3,
     ),
     "deepseek-r1:671b": ModelCapability(
         name="deepseek-r1:671b",
-        strengths=["reasoning", "analysis", "planning", "math", "complex_tasks", "data_analysis"],
+        strengths=[
+            "reasoning",
+            "analysis",
+            "planning",
+            "math",
+            "complex_tasks",
+            "data_analysis",
+        ],
         context_window=131072,
         type="reasoning",
         cost_tier=3,
@@ -59,7 +87,13 @@ _DEFAULT_REGISTRY: dict[str, ModelCapability] = {
     "qwen3-coder:7b": ModelCapability(
         name="qwen3-coder:7b",
         # Preferred for fast_response — smallest registered coder model
-        strengths=["code_generation", "code_debugging", "tool_use", "fast_response", "conversation"],
+        strengths=[
+            "code_generation",
+            "code_debugging",
+            "tool_use",
+            "fast_response",
+            "conversation",
+        ],
         context_window=32768,
         type="coder",
         cost_tier=1,
@@ -69,8 +103,16 @@ _DEFAULT_REGISTRY: dict[str, ModelCapability] = {
     # Interleaved-attention architecture; strong multimodal + code + tool-use.
     "gemma4:27b": ModelCapability(
         name="gemma4:27b",
-        strengths=["code_generation", "code_debugging", "code_review", "tool_use",
-                   "reasoning", "analysis", "long_context", "conversation"],
+        strengths=[
+            "code_generation",
+            "code_debugging",
+            "code_review",
+            "tool_use",
+            "reasoning",
+            "analysis",
+            "long_context",
+            "conversation",
+        ],
         context_window=128000,
         type="general",
         cost_tier=2,
@@ -78,8 +120,13 @@ _DEFAULT_REGISTRY: dict[str, ModelCapability] = {
     ),
     "gemma4:9b": ModelCapability(
         name="gemma4:9b",
-        strengths=["code_generation", "code_debugging", "tool_use",
-                   "conversation", "fast_response"],
+        strengths=[
+            "code_generation",
+            "code_debugging",
+            "tool_use",
+            "conversation",
+            "fast_response",
+        ],
         context_window=128000,
         type="general",
         cost_tier=1,
@@ -97,8 +144,16 @@ _DEFAULT_REGISTRY: dict[str, ModelCapability] = {
     # Flagship Qwen3-Coder variant; MoE architecture; best-in-class for code.
     "qwen3-coder:235b": ModelCapability(
         name="qwen3-coder:235b",
-        strengths=["code_generation", "code_debugging", "code_review", "tool_use",
-                   "long_context", "reasoning", "data_analysis", "complex_tasks"],
+        strengths=[
+            "code_generation",
+            "code_debugging",
+            "code_review",
+            "tool_use",
+            "long_context",
+            "reasoning",
+            "data_analysis",
+            "complex_tasks",
+        ],
         context_window=131072,
         type="coder",
         cost_tier=3,
@@ -108,8 +163,17 @@ _DEFAULT_REGISTRY: dict[str, ModelCapability] = {
     # Scout: 17Bx16E MoE, 10M context; Maverick: 17Bx128E, 1M context.
     "llama4-maverick:17b": ModelCapability(
         name="llama4-maverick:17b",
-        strengths=["code_generation", "code_debugging", "code_review", "tool_use",
-                   "reasoning", "analysis", "long_context", "conversation", "data_analysis"],
+        strengths=[
+            "code_generation",
+            "code_debugging",
+            "code_review",
+            "tool_use",
+            "reasoning",
+            "analysis",
+            "long_context",
+            "conversation",
+            "data_analysis",
+        ],
         context_window=1048576,
         type="general",
         cost_tier=2,
@@ -117,8 +181,14 @@ _DEFAULT_REGISTRY: dict[str, ModelCapability] = {
     ),
     "llama4-scout:17b": ModelCapability(
         name="llama4-scout:17b",
-        strengths=["code_generation", "code_debugging", "tool_use",
-                   "conversation", "fast_response", "data_analysis"],
+        strengths=[
+            "code_generation",
+            "code_debugging",
+            "tool_use",
+            "conversation",
+            "fast_response",
+            "data_analysis",
+        ],
         context_window=10485760,
         type="general",
         cost_tier=1,
@@ -128,9 +198,18 @@ _DEFAULT_REGISTRY: dict[str, ModelCapability] = {
     # 685B MoE model; strong code + reasoning; lower cost than R1.
     "deepseek-v3:685b": ModelCapability(
         name="deepseek-v3:685b",
-        strengths=["code_generation", "code_debugging", "code_review", "tool_use",
-                   "reasoning", "analysis", "planning", "long_context", "data_analysis",
-                   "conversation"],
+        strengths=[
+            "code_generation",
+            "code_debugging",
+            "code_review",
+            "tool_use",
+            "reasoning",
+            "analysis",
+            "planning",
+            "long_context",
+            "data_analysis",
+            "conversation",
+        ],
         context_window=131072,
         type="coder",
         cost_tier=2,
@@ -139,7 +218,14 @@ _DEFAULT_REGISTRY: dict[str, ModelCapability] = {
     # ── Claude aliases ────────────────────────────────────────────────────────
     "claude-3-5-sonnet-20241022": ModelCapability(
         name="claude-3-5-sonnet-20241022",
-        strengths=["code_generation", "code_debugging", "code_review", "tool_use", "long_context", "conversation"],
+        strengths=[
+            "code_generation",
+            "code_debugging",
+            "code_review",
+            "tool_use",
+            "long_context",
+            "conversation",
+        ],
         context_window=32768,
         type="coder",
         cost_tier=2,
@@ -155,12 +241,45 @@ _DEFAULT_REGISTRY: dict[str, ModelCapability] = {
     ),
     "qwen3.6:35b": ModelCapability(
         name="qwen3.6:35b",
-        strengths=["code_generation", "code_debugging", "code_review", "tool_use",
-                   "reasoning", "analysis", "long_context", "conversation", "multimodal"],
+        strengths=[
+            "code_generation",
+            "code_debugging",
+            "code_review",
+            "tool_use",
+            "reasoning",
+            "analysis",
+            "long_context",
+            "conversation",
+            "multimodal",
+        ],
         context_window=128000,
         type="general",
         cost_tier=2,
         tags=["qwen3.6", "moe", "multimodal"],
+    ),
+    # ── Installed local models ────────────────────────────────────────────────
+    "gemma4:latest": ModelCapability(
+        name="gemma4:latest",
+        strengths=[
+            "general",
+            "conversation",
+            "code_generation",
+            "analysis",
+            "reasoning",
+            "multimodal",
+        ],
+        context_window=8192,
+        type="general",
+        cost_tier=1,
+        tags=["google", "gemma4", "lightweight", "installed"],
+    ),
+    "tinyllama:latest": ModelCapability(
+        name="tinyllama:latest",
+        strengths=["general", "conversation", "fast_response"],
+        context_window=2048,
+        type="general",
+        cost_tier=1,
+        tags=["lightweight", "fast", "installed"],
     ),
 }
 
@@ -184,7 +303,9 @@ def get_registry() -> dict[str, ModelCapability]:
                 name, mtype, strengths_raw = parts
                 name = name.strip()
                 mtype = mtype.strip()
-                strengths = [s.strip() for s in strengths_raw.strip().split("+") if s.strip()]
+                strengths = [
+                    s.strip() for s in strengths_raw.strip().split("+") if s.strip()
+                ]
                 if name and strengths:
                     registry[name] = ModelCapability(
                         name=name,
@@ -209,13 +330,15 @@ def get_registry() -> dict[str, ModelCapability]:
                         context_window=registry[dst].context_window,
                         type=registry[dst].type,
                         cost_tier=registry[dst].cost_tier,
-                        tags=["alias"]
+                        tags=["alias"],
                     )
 
     return registry
 
 
-def best_model_for(category: str, registry: dict[str, ModelCapability] | None = None) -> str:
+def best_model_for(
+    category: str, registry: dict[str, ModelCapability] | None = None
+) -> str:
     """Return the name of the best model for a given task category.
 
     Falls back to AGENT_EXECUTOR_MODEL env var, then 'qwen3-coder:30b'.
@@ -225,10 +348,7 @@ def best_model_for(category: str, registry: dict[str, ModelCapability] | None = 
 
     # Models that have the category in strengths, sorted by cost_tier desc
     # (prefer the most capable model within the category)
-    candidates = [
-        cap for cap in registry.values()
-        if category in cap.strengths
-    ]
+    candidates = [cap for cap in registry.values() if category in cap.strengths]
     if candidates:
         candidates.sort(key=lambda c: c.cost_tier, reverse=True)
         return candidates[0].name

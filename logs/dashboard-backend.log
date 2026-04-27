@@ -1,0 +1,7 @@
+INFO:     Started server process [94457]
+INFO:     Waiting for application startup.
+2026-04-10 13:02:01,201 [INFO] LLM Relay Platform started — provider=ollama
+INFO:     Application startup complete.
+INFO:     Uvicorn running on http://127.0.0.1:8001 (Press CTRL+C to quit)
+2026-04-10 13:02:02,101 [INFO] HTTP Request: GET http://localhost:11434/api/tags "HTTP/1.1 200 OK"
+INFO:     127.0.0.1:53742 - "GET /api/health HTTP/1.1" 200 OK

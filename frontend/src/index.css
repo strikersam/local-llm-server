@@ -3,19 +3,30 @@
 @tailwind utilities;
 
 :root {
-  --bg-base: #0A0A0A;
-  --bg-surface: #111111;
-  --bg-elevated: #1A1A1A;
-  --text-primary: #FFFFFF;
-  --text-secondary: #A0A0A0;
-  --text-muted: #555555;
-  --border: rgba(255,255,255,0.08);
-  --border-strong: rgba(255,255,255,0.16);
-  --accent: #002FA7;
+  /* Palette — lifted from Control Plane design system */
+  --bg-base:    #0F0F13;
+  --bg-sidebar: #0D0D11;
+  --bg-surface: #141418;
+  --bg-elevated:#1A1A1E;
+  /* 4-level text hierarchy */
+  --text-primary:   #F2F2F6;
+  --text-secondary: #B2B2C4;
+  --text-tertiary:  #808094;
+  --text-muted:     #565666;
+  /* Borders */
+  --border:        rgba(255,255,255,0.06);
+  --border-soft:   rgba(255,255,255,0.06);
+  --border-strong: rgba(255,255,255,0.12);
+  /* Accent + status */
+  --accent:       #002FA7;
   --accent-hover: #0038CC;
-  --danger: #FF3333;
-  --warning: #F59E0B;
-  --radius: 6px;
+  --danger:       #EF4444;
+  --warning:      #F59E0B;
+  --success:      #10B981;
+  --radius: 12px;
+  /* Fonts */
+  --font-main: 'Geist', 'Outfit', system-ui, sans-serif;
+  --font-mono: 'IBM Plex Mono', 'JetBrains Mono', monospace;
 }
 
 * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -32,7 +43,7 @@ html, body, #root {
 }
 
 body {
-  font-family: 'Outfit', system-ui, -apple-system, sans-serif;
+  font-family: var(--font-main);
   font-size: 14px;
   line-height: 1.6;
   -webkit-font-smoothing: antialiased;
@@ -57,9 +68,18 @@ a:hover { color: var(--accent-hover); }
 
 input, textarea, select {
   font-family: inherit;
-  font-size: 14px;
+  font-size: 15px;
+  color: #1f2937;
   -webkit-appearance: none;
   appearance: none;
+}
+
+input::placeholder, textarea::placeholder {
+  color: #9ca3af;
+}
+
+input:focus, textarea:focus, select:focus {
+  outline: none;
 }
 
 /* ── Animations ─────────────────────────────────────────────────────── */
@@ -129,7 +149,7 @@ input, textarea, select {
 .wiki-content p { margin: 0.6rem 0; }
 .wiki-content ul, .wiki-content ol { padding-left: 1.5rem; margin: 0.5rem 0; }
 .wiki-content li { margin: 0.3rem 0; }
-.wiki-content code { font-family: 'JetBrains Mono', monospace; background: rgba(255,255,255,0.06); padding: 2px 6px; font-size: 0.85em; border: 1px solid var(--border); border-radius: 3px; }
+.wiki-content code { font-family: var(--font-mono); background: rgba(255,255,255,0.06); padding: 2px 6px; font-size: 0.85em; border: 1px solid var(--border); border-radius: 3px; }
 .wiki-content pre { background: rgba(0,0,0,0.5); border: 1px solid var(--border); border-radius: var(--radius); padding: 1rem; overflow-x: auto; margin: 0.75rem 0; }
 .wiki-content pre code { background: none; border: none; padding: 0; font-size: 0.875rem; }
 .wiki-content blockquote { border-left: 2px solid var(--accent); padding-left: 1rem; margin: 0.75rem 0; color: var(--text-muted); font-style: italic; }

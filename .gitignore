@@ -12,6 +12,22 @@ __pycache__/
 .venv/
 venv/
 
+# Runtime data (created by app/tests at runtime)
+.data/
+*.db
+
+# Log files
+*.log
+/**/*.js
+frontend/frontend.log
+proxy.log
+
+# Secrets / local key material
+keys.json
+
+# Runtime process files
+server.pids
+
 # Build artifacts
 frontend/build/
 dist/
@@ -28,44 +44,90 @@ dist/
 .DS_Store
 Thumbs.db
 
-# Logs
-*.log
-logs/
-*.pid
-
-# Agent tooling (local)
-.agents/
-
-# Database
-*.db
-
-# Keys
-keys.json
+# Claude Code ephemeral session state — do NOT commit these
+.claude/settings.local.json
+.claude/sessions/
+.claude/todos
+# But DO commit project-level AI engineering files in .claude/
+# (skills, hooks, commands, agents, state are intentionally versioned)
+-e 
+# Environment and credential files
+.env
+.env.*
+*.env
+credentials.json
 *.pem
 *.key
-
-# Emergent platform
-.emergent/
-
-# Memory (internal)
-memory/
-
-# Runtime data (auto-generated on startup, may contain user API keys)
-.data/
-
-# Agent session memory snapshots
-.agent_memory/
-
-# Test reports
-test_reports/
+.credentials
 -e 
-# Environment files
+# Environment and credential files
+.env
+.env.*
 *.env
-*.env.*
-
-# Runtime data (SQLite databases, persisted state, scheduler jobs)
-.data/
-data/
-
-# Attached assets (may contain secrets)
-attached_assets/
+credentials.json
+*.pem
+*.key
+.credentials
+-e 
+# Environment and credential files
+.env
+.env.*
+*.env
+credentials.json
+*.pem
+*.key
+.credentials
+-e 
+# Environment and credential files
+.env
+.env.*
+*.env
+credentials.json
+*.pem
+*.key
+.credentials
+-e 
+# Environment and credential files
+.env
+.env.*
+*.env
+credentials.json
+*.pem
+*.key
+.credentials
+-e 
+# Environment and credential files
+.env
+.env.*
+*.env
+credentials.json
+*.pem
+*.key
+.credentials
+-e 
+# Environment and credential files
+.env
+.env.*
+*.env
+credentials.json
+*.pem
+*.key
+.credentials
+-e 
+# Environment and credential files
+.env
+.env.*
+*.env
+credentials.json
+*.pem
+*.key
+.credentials
+-e 
+# Environment and credential files
+.env
+.env.*
+*.env
+credentials.json
+*.pem
+*.key
+.credentials

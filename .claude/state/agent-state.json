@@ -1,0 +1,22 @@
+{
+  "schema_version": "1",
+  "session_id": "github-pages-bug-sweep-2026-04-25",
+  "status": "completed",
+  "last_updated": "2026-04-25T00:40:00Z",
+  "next_step": "Deploy the updated build and verify the live GitHub Pages auth/bootstrap flow.",
+  "completed_steps": [
+    "reproduce-router-and-deployment-bugs",
+    "fix-router-model-map-fallback",
+    "fix-prelogin-bootstrap-route",
+    "fix-frontend-backend-resolution",
+    "fix-oauth-origin-checks",
+    "stabilize-router-and-v3-auth-tests",
+    "browser-verify-bootstrap-and-login",
+    "changelog-update"
+  ],
+  "tests_run": [
+    "./.venv/bin/pytest -x tests/test_model_router.py tests/test_frontend_deployment_guards.py — PASS",
+    "npm run build (frontend/) — PASS",
+    "./.venv/bin/pytest -x — PASS (613 passed)"
+  ]
+}

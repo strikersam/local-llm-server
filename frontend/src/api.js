@@ -1,15 +1,41 @@
 import axios from 'axios';
 
+export function getBackendUrl() {
+  return localStorage.getItem('backend_url') || process.env.REACT_APP_BACKEND_URL || '';
+}
+
+export function getPublicPath(path = '') {
+  const base = (process.env.PUBLIC_URL || '').replace(/\/$/, '');
+  if (!path) return base || '/';
+  const normalizedPath = path.startsWith('/') ? path : `/${path}`;
+  return `${base}${normalizedPath}` || normalizedPath;
+}
+
+function getApiUrl(path) {
+  const base = getBackendUrl();
+  return base ? `${base}${path}` : path;
+}
+
+export function setBackendUrl(url) {
+  const cleaned = url.replace(/\/$/, '');
+  localStorage.setItem('backend_url', cleaned);
+  API.defaults.baseURL = cleaned;
+}
+
 const API = axios.create({
-  baseURL: process.env.REACT_APP_BACKEND_URL || '',
+  baseURL: getBackendUrl(),
   headers: { 'Content-Type': 'application/json' },
 });
 
-// Attach Bearer token to every request
+// Attach Bearer token and resolve dynamic backend URL on every request
 API.interceptors.request.use((config) => {
   const token = localStorage.getItem('access_token');
   if (token) {
     config.headers.Authorization = `Bearer ${token}`;
+  }
+  // Always use the latest stored backend URL (user may change it in setup wizard)
+  if (!config.baseURL || config.baseURL === '') {
+    config.baseURL = getBackendUrl();
   }
   return config;
 });
@@ -27,7 +53,7 @@ API.interceptors.response.use(
         isRefreshing = true;
         try {
           const { data } = await axios.post(
-            `${process.env.REACT_APP_BACKEND_URL || ''}/api/auth/refresh`,
+            getApiUrl('/api/auth/refresh'),
             { refresh_token: refresh },
           );
           localStorage.setItem('access_token', data.access_token);
@@ -36,7 +62,7 @@ API.interceptors.response.use(
         } catch {
           localStorage.removeItem('access_token');
           localStorage.removeItem('refresh_token');
-          window.location.href = '/login';
+          window.location.href = getPublicPath('/login');
         } finally {
           isRefreshing = false;
         }
@@ -63,7 +89,7 @@ export const logout = () => {
 export const getMe = () => API.get('/api/auth/me');
 
 // Chat
-export const chatSend = (content, sessionId, model, providerId, temperature, agentMode = false) =>
+export const chatSend = (content, sessionId, model, providerId, temperature, agentMode = false, allowCommercialFallbackOnce = false) =>
   API.post('/api/chat/send', {
     content,
     session_id: sessionId,
@@ -71,6 +97,7 @@ export const chatSend = (content, sessionId, model, providerId, temperature, age
     provider_id: providerId || null,
     temperature: temperature ?? null,
     agent_mode: agentMode,
+    allow_commercial_fallback_once: allowCommercialFallbackOnce,
   });
 export const listSessions = () => API.get('/api/chat/sessions');
 export const getSession = (id) => API.get(`/api/chat/sessions/${id}`);
@@ -140,5 +167,114 @@ export const listGithubPulls = (owner, repo, state = 'open') =>
 export const createGithubPR = (owner, repo, data) =>
   API.post(`/api/github/repos/${owner}/${repo}/pulls`, data);
 export const authorizeGithubRepos = (repoNames) => API.post('/api/github/authorize-repos', { repo_names: repoNames });
+
+// ── Runtimes (v3) ─────────────────────────────────────────────────────────────
+export const listRuntimes = () => API.get('/runtimes/');
+export const getRuntime = (id) => API.get(`/runtimes/${id}`);
+export const getRuntimeHealth = () => API.get('/runtimes/health');
+export const refreshRuntimeHealth = () => API.post('/runtimes/health/refresh');
+export const getRoutingPolicy = () => API.get('/runtimes/policy');
+export const updateRoutingPolicy = (data) => API.put('/runtimes/policy', data);
+export const getDecisionLog = (limit = 100) => API.get('/runtimes/decisions', { params: { limit } });
+export const runTaskOnRuntime = (runtimeId, data) => API.post(`/runtimes/${runtimeId}/run`, data);
+export const startRuntime = (runtimeId) => API.post(`/runtimes/${runtimeId}/start`);
+export const stopRuntime = (runtimeId) => API.post(`/runtimes/${runtimeId}/stop`);
+export const startAllRuntimes = () => API.post('/runtimes/start-all');
+export const stopAllRuntimes = () => API.post('/runtimes/stop-all');
+
+// ── Tasks (v3) ────────────────────────────────────────────────────────────────
+export const listTasks = (params = {}) => API.get('/api/tasks/', { params });
+export const createTask = (data) => API.post('/api/tasks/', data);
+export const getTask = (id) => API.get(`/api/tasks/${id}`);
+export const updateTask = (id, data) => API.patch(`/api/tasks/${id}`, data);
+export const deleteTask = (id) => API.delete(`/api/tasks/${id}`);
+export const retryTask = (id) => API.post(`/api/tasks/${id}/retry`);
+export const escalateTask = (id) => API.post(`/api/tasks/${id}/escalate`);
+export const addTaskComment = (id, data) => API.post(`/api/tasks/${id}/comments`, data);
+export const approveTaskCheckpoint = (id, data) => API.post(`/api/tasks/${id}/approve`, data);
+export const getTaskCounts = () => API.get('/api/tasks/counts');
+export const getDueSoonTasks = (withinHours = 24) =>
+  API.get('/api/tasks/due-soon', { params: { within_hours: withinHours } });
+
+// ── Agents (v3) ───────────────────────────────────────────────────────────────
+export const listAgents = () => API.get('/api/agents/');
+export const createAgent = (data) => API.post('/api/agents/', data);
+export const getAgent = (id) => API.get(`/api/agents/${id}`);
+export const updateAgent = (id, data) => API.put(`/api/agents/${id}`, data);
+export const deleteAgent = (id) => API.delete(`/api/agents/${id}`);
+
+// ── Audit log (v3) ────────────────────────────────────────────────────────────
+export const getAuditLog = (limit = 100) => API.get('/api/audit-log', { params: { limit } });
+
+// ── Hardware (v3.1) ───────────────────────────────────────────────────────────
+export const getHardwareProfile = () => API.get('/api/hardware/profile');
+export const refreshHardwareProfile = () => API.get('/api/hardware/profile/refresh');
+export const checkModelCompatibility = (modelName) =>
+  API.get(`/api/hardware/compatibility/${encodeURIComponent(modelName)}`);
+export const batchModelCompatibility = (models) =>
+  API.post('/api/hardware/compatibility/batch', { models });
+
+// ── Secrets (v3.1) ────────────────────────────────────────────────────────────
+export const listSecrets = () => API.get('/api/secrets/');
+export const createSecret = (data) => API.post('/api/secrets/', data);
+export const getSecretMeta = (id) => API.get(`/api/secrets/${id}`);
+export const updateSecret = (id, data) => API.put(`/api/secrets/${id}`, data);
+export const deleteSecret = (id) => API.delete(`/api/secrets/${id}`);
+
+// ── Social auth (v3.1) ────────────────────────────────────────────────────────
+export const listUsers = () => API.get('/api/auth/users');
+export const changeUserRole = (userId, role) =>
+  API.post(`/api/auth/users/${userId}/role`, { role });
+
+// ── Setup wizard (v3.1) ───────────────────────────────────────────────────────
+export const getSetupState = () => API.get('/api/setup/state');
+export const saveSetupStep = (step, data) => API.put(`/api/setup/step/${step}`, data);
+export const completeSetup = () => API.post('/api/setup/complete');
+export const detectHardwareForSetup = () => API.get('/api/setup/detect/hardware');
+export const detectModelsForSetup = (ollamaUrl) =>
+  API.get('/api/setup/detect/models', { params: { ollama_url: ollamaUrl } });
+
+// ── Cost insights / observability (v3.1) ──────────────────────────────────────
+export const getSavings = (period = 'month', bucket = 'day') =>
+  API.get('/api/observability/savings', { params: { period, bucket } });
+export const getUserSavings = (userId, period = 'month') =>
+  API.get(`/api/observability/savings/${userId}`, { params: { period } });
+export const getUsage = (period = 'month') =>
+  API.get('/api/observability/usage', { params: { period } });
+
+// ── GitHub workspace (v3.1) ───────────────────────────────────────────────────
+export const listGithubReposV2 = () => API.get('/api/github/repos');
+export const getGithubRepo = (owner, repo) => API.get(`/api/github/repos/${owner}/${repo}`);
+export const listGithubBranchesV2 = (owner, repo) =>
+  API.get(`/api/github/repos/${owner}/${repo}/branches`);
+export const listGithubPRs = (owner, repo, state = 'open') =>
+  API.get(`/api/github/repos/${owner}/${repo}/pulls`, { params: { state } });
+export const initWorkspace = (owner, repo) =>
+  API.post(`/api/github/repos/${owner}/${repo}/workspace/init`);
+export const getWorkspaceStatus = (owner, repo) =>
+  API.get(`/api/github/repos/${owner}/${repo}/workspace/status`);
+export const getWorkspaceDiff = (owner, repo) =>
+  API.get(`/api/github/repos/${owner}/${repo}/workspace/diff`);
+export const commitWorkspace = (owner, repo, data) =>
+  API.post(`/api/github/repos/${owner}/${repo}/workspace/commit`, data);
+
+// ── Schedules (agent/scheduler) ───────────────────────────────────────────────
+export const listSchedules = () => API.get('/agent/scheduler/jobs');
+export const createSchedule = (data) => API.post('/agent/scheduler/jobs', data);
+export const getSchedule = (id) => API.get(`/agent/scheduler/jobs/${id}`);
+export const triggerSchedule = (id) => API.post(`/agent/scheduler/jobs/${id}/trigger`);
+export const deleteSchedule = (id) => API.delete(`/agent/scheduler/jobs/${id}`);
+export const pauseSchedule = (id) => API.patch(`/agent/scheduler/jobs/${id}`, { status: 'paused' });
+export const resumeSchedule = (id) => API.patch(`/agent/scheduler/jobs/${id}`, { status: 'active' });
+
+// ── Workspace sync (v3.1) ─────────────────────────────────────────────────────
+export const getSyncStatus = () => API.get('/api/sync/status');
+export const listSyncPeers = () => API.get('/api/sync/peers');
+export const addSyncPeer = (data) => API.post('/api/sync/peers', data);
+export const removeSyncPeer = (id) => API.delete(`/api/sync/peers/${id}`);
+export const pushFolder = (folder) => API.post(`/api/sync/push/${folder}`);
+export const pullFolder = (folder) => API.post(`/api/sync/pull/${folder}`);
+export const listSyncConflicts = () => API.get('/api/sync/conflicts');
+export const resolveConflict = (id) => API.post(`/api/sync/conflicts/${id}/resolve`);
 
 export default API;

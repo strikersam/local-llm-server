@@ -1,53 +1,41 @@
-# LLM Relay — PRD
+# PRD — README Marketing Refresh
 
 ## Original Problem Statement
-Build a unified self-hosted AI platform (rebranded as "LLM Relay") that replicates Emergent/Lovable/Claude Code features. Single unified dashboard combining admin panel, Langfuse observability, knowledge wiki, model management, provider management. Accessible from one place. Connect to HuggingFace, Ollama cloud, or local models. Based on Karpathy's LLM Wiki gist + synthesized ideas from multiple sources including claw-code patterns.
+> There are a lot of new features and pages added to the repo. I don't see the readme doing justice. If you are an analyst and if you know how to market the repo well, take right screenshots and elevate the readme file.
 
-**Tagline**: Route, run, and control LLMs on your own hardware, not someone else's meter.
+## User Decisions
+- Style: hybrid (marketing + technical)
+- Screenshots: auto-detect, focus on **LLM Relay v3.1** features
+- Branding: pulled from existing repo (no new logo)
+- Audience: everyone (devs, recruiters, evaluators, end users)
+- Surprise me on extras (badges, comparisons, repo map, CTA)
 
-## Architecture
-- **Frontend**: React 18 + Tailwind CSS, unified dashboard on port 3000
-- **Backend**: FastAPI on port 8001, MongoDB, JWT auth
-- **LLM**: Multi-provider (Ollama local, OpenAI-compatible, HuggingFace, OpenRouter)
-- **Observability**: Langfuse (cloud.langfuse.com)
-- **Tunnel**: ngrok for public access
-- **Containers**: Docker Compose with profiles (public, full)
+## What Was Done — 2026-04-27
+1. Explored full repo to inventory v3.1 features (control plane, kanban, agents, runtimes, routing policy, providers, models, knowledge wiki, logs, RBAC admin, schedules, settings, setup wizard, login).
+2. Seeded the running backend with 4 demo agents, 8 demo tasks across all kanban lanes, and 4 wiki pages so screenshots tell a real story.
+3. Captured 14 fresh, high-quality screenshots of the live v3.1 UI (1920x1200, dark theme):
+   - `v3-login.png`, `v3-setup-wizard.png`, `v3-control-plane.png`,
+     `v3-tasks-kanban.png`, `v3-agents.png`, `v3-runtimes.png`,
+     `v3-routing.png`, `v3-providers.png`, `v3-models.png`,
+     `v3-knowledge.png`, `v3-chat.png`, `v3-logs.png`, `v3-admin.png`,
+     `v3-schedules.png`, `v3-settings.png`.
+4. Rewrote `/app/README.md` end-to-end:
+   - Hero + 60-second pitch with hard cost numbers
+   - "What's new in v3.1" feature matrix (13 pillars)
+   - Visual product tour (1 hero shot + 13 contextual screenshots)
+   - Comparison table vs Ollama / Paid API
+   - Tightened Quick Start, Connect Your Tools (collapsible per IDE)
+   - Cleaned API reference (collapsible by surface)
+   - Added repo map and refreshed troubleshooting
+   - Polished badges (for-the-badge style), styled CTA footer
+5. Helper script lives at `/app/scratch/seed_demo_data.py` for re-seeding screenshot data.
 
-## What's Been Implemented
+## Files Touched
+- `/app/README.md` (full rewrite, ~540 lines)
+- `/app/docs/screenshots/v3-*.png` (14 new screenshots)
+- `/app/scratch/seed_demo_data.py` (new — for repeatable demo data)
 
-### Phase 1 — MVP (2026-04-09)
-- [x] Auth (JWT + cookies), Wiki CRUD, Chat agent, Source ingestion, Activity log
-
-### Phase 2 — Unified Platform (2026-04-09)
-- [x] Provider CRUD + test + set default
-- [x] Models Hub (Ollama pull/delete + cloud refs)
-- [x] API Key management (issue/revoke)
-- [x] Observability (Langfuse status + dashboard link)
-- [x] Enhanced Dashboard (6 stats, health badges, ngrok badge)
-- [x] Docker Compose with ngrok + proxy profiles
-
-### Phase 3 — Rebrand + Polish (2026-04-09)
-- [x] Rebranded to "LLM Relay"
-- [x] Generated hero image for login
-- [x] Fixed CORS for credentialed cookie requests
-- [x] Created .env.example (no secrets)
-- [x] Updated .gitignore
-- [x] Comprehensive README with API docs, provider setup, tool connection guides
-
-## Test Status
-- Backend: 100% (21/21)
-- Frontend: 100% (12/12 requirements)
-
-## Backlog
-### P1
-- Real-time chat streaming (SSE)
-- Wiki knowledge graph visualization
-- Source-to-wiki auto-generation
-- Token usage tracking with cost estimates
-
-### P2
-- Multi-user accounts
-- Dark/light theme toggle
-- Vector search with embeddings
-- Telegram bot integration
-- Code workspace panel (Claude Code-style file editor + terminal)
+## Backlog / Nice-to-Have
+- Capture an animated GIF of the kanban → approval → run flow
+- Add a "Cost Saved" sparkline chart screenshot once that page renders data
+- Replace static placeholder Langfuse screenshots with live ones if the org enables Langfuse

@@ -1,9 +1,11 @@
-import React from 'react';
-import { Routes, Route, Navigate } from 'react-router-dom';
+import React, { useState, useEffect } from 'react';
+import { Routes, Route, Navigate, useNavigate } from 'react-router-dom';
 import { AuthProvider, useAuth } from './AuthContext';
 import LoginPage from './pages/LoginPage';
 import AuthCallback from './pages/AuthCallback';
 import DashboardLayout from './pages/DashboardLayout';
+import SetupWizardPage from './pages/SetupWizardPage';
+import { getSetupState, getBackendUrl } from './api';
 
 function LoadingScreen({ message }) {
   return (
@@ -23,6 +25,32 @@ function ProtectedRoute({ children }) {
   return children;
 }
 
+/**
+ * SetupGuard — wraps the dashboard and redirects to /setup if setup is incomplete.
+ * Only checks when a backend URL is configured; skips silently if no backend.
+ */
+function SetupGuard({ children }) {
+  const { user } = useAuth();
+  const navigate = useNavigate();
+  const [checked, setChecked] = useState(false);
+
+  useEffect(() => {
+    if (!user || !getBackendUrl()) {
+      setChecked(true);
+      return;
+    }
+    getSetupState()
+      .then(r => {
+        if (!r.data.completed) navigate('/setup', { replace: true });
+      })
+      .catch(() => {}) // don't block the dashboard if the call fails
+      .finally(() => setChecked(true));
+  }, [user, navigate]);
+
+  if (!checked) return <LoadingScreen message="Checking setup" />;
+  return children;
+}
+
 function AppRoutes() {
   const { user, loading } = useAuth();
   if (loading) return <LoadingScreen message="Initializing" />;
@@ -30,7 +58,21 @@ function AppRoutes() {
     <Routes>
       <Route path="/login" element={user ? <Navigate to="/" replace /> : <LoginPage />} />
       <Route path="/auth/callback" element={<AuthCallback />} />
-      <Route path="/*" element={<ProtectedRoute><DashboardLayout /></ProtectedRoute>} />
+
+      {/* Pre-auth setup wizard — configure backend URL before logging in */}
+      <Route path="/bootstrap" element={<SetupWizardPage />} />
+
+      {/* Protected dashboard (includes /setup as a nested route) */}
+      <Route
+        path="/*"
+        element={
+          <ProtectedRoute>
+            <SetupGuard>
+              <DashboardLayout />
+            </SetupGuard>
+          </ProtectedRoute>
+        }
+      />
     </Routes>
   );
 }

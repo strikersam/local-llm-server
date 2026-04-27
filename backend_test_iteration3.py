@@ -11,7 +11,7 @@ import time
 from datetime import datetime
 
 class LLMWikiAPITesterV3:
-    def __init__(self, base_url="https://53d0a2eb-4015-4eb8-bc7e-1a4ebda2c5e6.preview.emergentagent.com"):
+    def __init__(self, base_url="https://feature-spotlight-8.preview.emergentagent.com"):
         self.base_url = base_url
         self.session = requests.Session()
         self.tests_run = 0

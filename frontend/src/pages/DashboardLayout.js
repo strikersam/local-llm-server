@@ -3,8 +3,11 @@ import { Routes, Route, NavLink, Navigate, useNavigate } from 'react-router-dom'
 import { useAuth } from '../AuthContext';
 import {
   LayoutDashboard, MessageSquare, BookOpen, Upload, Activity,
-  Settings, LogOut, Menu, X, Cpu, ChevronRight, Layers, BarChart3, Box, Github, Shield
+  Settings, LogOut, Menu, X, Cpu, Layers, BarChart3,
+  Github, Shield, Bot, CheckSquare, Radio,
+  Zap, Lock, Calendar, TrendingUp,
 } from 'lucide-react';
+import ControlPlanePage from './ControlPlanePage';
 import DashboardHome from './DashboardHome';
 import ChatPage from './ChatPage';
 import WikiPage from './WikiPage';
@@ -16,37 +19,71 @@ import ObservabilityPage from './ObservabilityPage';
 import SettingsPage from './SettingsPage';
 import GitHubPage from './GitHubPage';
 import AdminPortalPage from './AdminPortalPage';
+import AgentsPage from './AgentsPage';
+import TasksPage from './TasksPage';
+import RuntimesPage from './RuntimesPage';
+import SetupWizardPage from './SetupWizardPage';
+import SchedulesPage from './SchedulesPage';
+import RoutingPolicyPage from './RoutingPolicyPage';
+import KnowledgePage from './KnowledgePage';
+import LogsPage from './LogsPage';
 
-const navSections = [
-  {
-    label: 'Core',
-    items: [
-      { to: '/', icon: LayoutDashboard, label: 'Dashboard', end: true },
-      { to: '/chat', icon: MessageSquare, label: 'Agent Chat' },
-      { to: '/wiki', icon: BookOpen, label: 'Wiki' },
-      { to: '/sources', icon: Upload, label: 'Sources' },
-      { to: '/github', icon: Github, label: 'GitHub' },
-    ],
-  },
-  {
-    label: 'Infrastructure',
-    items: [
-      { to: '/providers', icon: Layers, label: 'Providers' },
-      { to: '/models', icon: Box, label: 'Models Hub' },
-    ],
-  },
-  {
-    label: 'System',
-    items: [
-      { to: '/observability', icon: BarChart3, label: 'Observability' },
-      { to: '/activity', icon: Activity, label: 'Activity' },
-      { to: '/admin', icon: Shield, label: 'Admin Portal' },
-      { to: '/settings', icon: Settings, label: 'Settings' },
-    ],
-  },
-];
+/**
+ * navSections — v3.1 navigation matching the Control Plane design.
+ *
+ * Sections mirror the design bundle layout:
+ *  WORKSPACE   — Control Plane, Tasks
+ *  AGENTS      — Agent Roster, Schedules (Activity), Chat
+ *  KNOWLEDGE   — Wiki & Sources
+ *  INFRASTRUCTURE — Runtimes, Setup, Routing (Providers/Models/Obs)
+ *  SYSTEM      — Logs, Settings (Admin Portal for admin)
+ */
+function buildNavSections(isAdmin, isPowerUser) {
+  return [
+    {
+      label: 'WORKSPACE',
+      items: [
+        { to: '/', icon: LayoutDashboard, label: 'Control Plane', end: true },
+        { to: '/tasks', icon: CheckSquare, label: 'Tasks' },
+      ],
+    },
+    {
+      label: 'AGENTS',
+      items: [
+        { to: '/agents', icon: Bot, label: 'Agent Roster' },
+        { to: '/schedules', icon: Calendar, label: 'Schedules' },
+        { to: '/chat', icon: MessageSquare, label: 'Direct Chat' },
+      ],
+    },
+    {
+      label: 'KNOWLEDGE',
+      items: [
+        { to: '/knowledge', icon: BookOpen, label: 'Wiki & Sources' },
+      ],
+    },
+    {
+      label: 'INFRASTRUCTURE',
+      items: [
+        { to: '/runtimes', icon: Radio, label: 'Agent Runtimes' },
+        { to: '/routing', icon: TrendingUp, label: 'Routing Policy' },
+        { to: '/providers', icon: Layers, label: 'Setup' },
+      ],
+    },
+    {
+      label: 'SYSTEM',
+      items: [
+        { to: '/logs', icon: BarChart3, label: 'Logs' },
+        { to: '/setup', icon: Zap, label: 'Setup Wizard' },
+        ...(isAdmin || isPowerUser ? [
+          { to: '/admin', icon: Shield, label: 'Admin Portal', adminOnly: true },
+        ] : []),
+        { to: '/settings', icon: Settings, label: 'Settings' },
+      ],
+    },
+  ];
+}
 
-function NavItem({ to, icon: Icon, label, end, onClick }) {
+function NavItem({ to, icon: Icon, label, end, onClick, adminOnly }) {
   return (
     <NavLink
       to={to}
@@ -54,21 +91,24 @@ function NavItem({ to, icon: Icon, label, end, onClick }) {
       onClick={onClick}
       data-testid={`nav-${label.toLowerCase().replace(/\s/g, '-')}`}
       className={({ isActive }) =>
-        `group relative flex items-center gap-3 px-4 py-2.5 text-[13px] font-medium rounded-lg mx-2 transition-all duration-150
+        `group relative flex items-center gap-2.5 px-3 py-2 mx-2 text-[12.5px] font-medium rounded-lg transition-all duration-150
         ${isActive
-          ? 'bg-[#002FA7]/12 text-white'
-          : 'text-[#666666] hover:text-[#A0A0A0] hover:bg-white/[0.03]'
+          ? 'bg-[#002FA7]/10 text-white'
+          : 'text-[#808094] hover:text-[#B2B2C4] hover:bg-white/[0.04]'
         }`
       }
+      style={{ width: 'calc(100% - 16px)' }}
     >
       {({ isActive }) => (
         <>
           {isActive && (
-            <div className="absolute left-0 top-1/2 -translate-y-1/2 w-0.5 h-4 bg-[#002FA7] rounded-full" />
+            <div className="absolute left-0 top-1/2 -translate-y-1/2 w-0.5 h-4 rounded-full bg-[#002FA7]" />
           )}
-          <Icon size={15} className={({ isActive }) => isActive ? 'text-[#002FA7]' : ''} />
+          <Icon size={14} className={isActive ? 'text-[#002FA7]' : 'text-[#6E6E80] group-hover:text-[#8E8EA2]'} />
           <span className="flex-1 leading-none">{label}</span>
-          <ChevronRight size={11} className="opacity-0 group-hover:opacity-40 transition-opacity -translate-x-1 group-hover:translate-x-0 duration-150" />
+          {adminOnly && (
+            <Lock size={9} className="text-[#565666]" title="Admin only" />
+          )}
         </>
       )}
     </NavLink>
@@ -77,27 +117,36 @@ function NavItem({ to, icon: Icon, label, end, onClick }) {
 
 function SidebarContent({ user, onLogout, onClose }) {
   const initial = (user?.name || user?.email || 'A')[0].toUpperCase();
+  const isAdmin = user?.role === 'admin';
+  const isPowerUser = user?.role === 'power_user';
+  const navSections = buildNavSections(isAdmin, isPowerUser);
+
+  const roleColor = isAdmin ? '#002FA7' : isPowerUser ? '#3B82F6' : '#10B981';
+  const roleLabel = isAdmin ? 'admin' : isPowerUser ? 'power user' : 'user';
 
   return (
     <div className="flex flex-col h-full" data-testid="sidebar">
       {/* Logo */}
-      <div className="px-5 pt-5 pb-4 border-b border-white/6">
+      <div className="px-4 pt-4 pb-3 border-b" style={{ borderColor: 'rgba(255,255,255,0.06)' }}>
         <div className="flex items-center gap-2.5">
-          <div className="w-7 h-7 rounded-lg bg-[#002FA7] flex items-center justify-center shadow-[0_2px_8px_rgba(0,47,167,0.4)]">
-            <Cpu size={14} className="text-white" />
+          <div className="w-7 h-7 rounded-lg flex items-center justify-center"
+            style={{ background: '#002FA7', boxShadow: '0 2px 12px rgba(0,47,167,0.5)' }}>
+            <Cpu size={13} className="text-white" />
           </div>
           <div>
-            <div className="text-[13px] font-bold text-white tracking-tight" style={{ fontFamily: 'Outfit, sans-serif' }}>LLM Relay</div>
-            <div className="text-[10px] text-[#444444] font-mono leading-none mt-0.5">v2.0</div>
+            <div className="text-[13px] font-bold text-white tracking-tight"
+              style={{ fontFamily: 'var(--font-main)' }}>LLM Relay</div>
+            <div className="text-[9px] text-[#565666] font-mono leading-none mt-0.5">v3.1 · control plane</div>
           </div>
         </div>
       </div>
 
       {/* Nav */}
-      <nav className="flex-1 py-3 overflow-y-auto">
+      <nav className="flex-1 py-2 overflow-y-auto">
         {navSections.map(section => (
           <div key={section.label} className="mb-1">
-            <div className="px-6 pt-3 pb-1 text-[10px] tracking-[0.18em] uppercase text-[#333333] font-mono font-bold">
+            <div className="px-5 pt-3 pb-1 text-[9px] tracking-[0.18em] uppercase font-mono font-bold"
+              style={{ color: '#565666' }}>
               {section.label}
             </div>
             {section.items.map(item => (
@@ -108,22 +157,36 @@ function SidebarContent({ user, onLogout, onClose }) {
       </nav>
 
       {/* User footer */}
-      <div className="border-t border-white/6 p-3 space-y-1">
-        <div className="flex items-center gap-2.5 px-2 py-2 rounded-lg">
-          <div className="w-7 h-7 rounded-full bg-[#002FA7] flex items-center justify-center text-[11px] font-bold text-white shrink-0 shadow-[0_2px_8px_rgba(0,47,167,0.3)]">
+      <div className="p-3 space-y-0.5" style={{ borderTop: '1px solid rgba(255,255,255,0.06)' }}>
+        <div className="flex items-center gap-2.5 px-2 py-1.5 rounded-lg">
+          <div className="w-6 h-6 rounded-full flex items-center justify-center text-[10px] font-bold text-white shrink-0"
+            style={{ background: '#002FA7' }}>
             {initial}
           </div>
           <div className="flex-1 min-w-0">
-            <div className="text-[12px] text-[#CCCCCC] font-medium truncate">{user?.name || 'Admin'}</div>
-            <div className="text-[10px] text-[#444444] truncate font-mono">{user?.email}</div>
+            <div className="flex items-center gap-1.5">
+              <span className="text-[11.5px] font-medium truncate" style={{ color: '#D2D2E2' }}>
+                {user?.name || 'User'}
+              </span>
+              <span className="text-[7px] font-mono uppercase tracking-wider px-1 py-px rounded"
+                style={{ background: roleColor + '20', color: roleColor }}>
+                {roleLabel}
+              </span>
+            </div>
+            <div className="text-[9px] font-mono truncate" style={{ color: '#565666' }}>
+              {user?.email || 'local'}
+            </div>
           </div>
         </div>
         <button
           onClick={onLogout}
-          className="w-full flex items-center gap-2 px-2 py-2 rounded-lg text-[12px] text-[#555555] hover:text-[#FF4444] hover:bg-[#FF4444]/5 transition-all duration-150 font-medium"
+          className="w-full flex items-center gap-2 px-2 py-1.5 rounded-lg text-[11px] transition-all duration-150"
+          style={{ color: '#6E6E80' }}
+          onMouseEnter={e => { e.currentTarget.style.color = '#f87171'; e.currentTarget.style.background = 'rgba(239,68,68,0.05)'; }}
+          onMouseLeave={e => { e.currentTarget.style.color = '#6E6E80'; e.currentTarget.style.background = 'transparent'; }}
           data-testid="logout-button"
         >
-          <LogOut size={13} />
+          <LogOut size={12} />
           <span>Sign out</span>
         </button>
       </div>
@@ -144,30 +207,36 @@ export default function DashboardLayout() {
   const closeSidebar = useCallback(() => setSidebarOpen(false), []);
 
   return (
-    <div className="min-h-[100dvh] flex bg-[#0A0A0A]" data-testid="dashboard-layout">
+    <div className="min-h-[100dvh] flex" style={{ background: '#0F0F13', fontFamily: 'var(--font-main)' }}
+      data-testid="dashboard-layout">
 
       {/* Mobile top bar */}
-      <div className="lg:hidden fixed top-0 left-0 right-0 z-50 flex items-center gap-3 px-4 h-14 bg-[#0A0A0A]/95 backdrop-blur-sm border-b border-white/6">
+      <div className="lg:hidden fixed top-0 left-0 right-0 z-50 flex items-center gap-3 px-4 h-12"
+        style={{ background: '#0D0D11', borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
         <button
           onClick={() => setSidebarOpen(s => !s)}
-          className="p-2 rounded-lg bg-white/4 border border-white/8 text-white hover:bg-white/8 transition-colors"
+          className="w-7 h-7 flex items-center justify-center rounded border text-white"
+          style={{ borderColor: 'rgba(255,255,255,0.1)' }}
           data-testid="mobile-menu-toggle"
           aria-label="Toggle navigation"
         >
-          {sidebarOpen ? <X size={17} /> : <Menu size={17} />}
+          {sidebarOpen ? <X size={15} /> : <Menu size={15} />}
         </button>
         <div className="flex items-center gap-2">
-          <div className="w-6 h-6 rounded-md bg-[#002FA7] flex items-center justify-center">
-            <Cpu size={12} className="text-white" />
+          <div className="w-6 h-6 rounded-md flex items-center justify-center"
+            style={{ background: '#002FA7' }}>
+            <Cpu size={11} className="text-white" />
           </div>
-          <span className="text-[13px] font-bold text-white tracking-tight" style={{ fontFamily: 'Outfit, sans-serif' }}>LLM Relay</span>
+          <span className="text-[12px] font-bold text-white tracking-tight"
+            style={{ fontFamily: 'var(--font-main)' }}>LLM Relay</span>
         </div>
       </div>
 
       {/* Mobile overlay */}
       {sidebarOpen && (
         <div
-          className="lg:hidden fixed inset-0 bg-black/60 z-40 backdrop-blur-[2px]"
+          className="lg:hidden fixed inset-0 z-40 backdrop-blur-sm"
+          style={{ background: 'rgba(0,0,0,0.6)' }}
           onClick={closeSidebar}
           aria-hidden
         />
@@ -177,35 +246,60 @@ export default function DashboardLayout() {
       <aside
         className={`
           fixed lg:static inset-y-0 left-0 z-40
-          w-56 bg-[#0D0D0D] border-r border-white/6
+          w-52 flex flex-col
           transform transition-transform duration-200 ease-out
-          ${sidebarOpen ? 'translate-x-0 shadow-[4px_0_32px_rgba(0,0,0,0.5)]' : '-translate-x-full lg:translate-x-0'}
-          flex flex-col
+          ${sidebarOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0'}
         `}
+        style={{ background: '#0D0D11', borderRight: '1px solid rgba(255,255,255,0.06)' }}
       >
         <SidebarContent user={user} onLogout={handleLogout} onClose={closeSidebar} />
       </aside>
 
-      {/* Main content — ChatPage gets full height without inner scroll */}
-      <main className="flex-1 min-w-0 flex flex-col pt-14 lg:pt-0 overflow-hidden">
-        <Routes>
-          <Route path="/" element={<div className="overflow-y-auto flex-1"><DashboardHome /></div>} />
-          <Route path="/chat" element={<ChatPage />} />
-          <Route path="/chat/:sessionId" element={<ChatPage />} />
-          <Route path="/admin" element={<AdminPortalPage />} />
-          <Route path="/wiki" element={<div className="overflow-y-auto flex-1"><WikiPage /></div>} />
-          <Route path="/wiki/:slug" element={<div className="overflow-y-auto flex-1"><WikiPage /></div>} />
-          <Route path="/sources" element={<div className="overflow-y-auto flex-1"><SourcesPage /></div>} />
-          <Route path="/providers" element={<div className="overflow-y-auto flex-1"><ProvidersPage /></div>} />
-          <Route path="/models" element={<div className="overflow-y-auto flex-1"><ModelsPage /></div>} />
-          <Route path="/keys" element={<Navigate to="/admin" replace />} />
-          <Route path="/agentview" element={<Navigate to="/chat" replace />} />
-          <Route path="/github" element={<div className="overflow-y-auto flex-1"><GitHubPage /></div>} />
-          <Route path="/observability" element={<div className="overflow-y-auto flex-1"><ObservabilityPage /></div>} />
-          <Route path="/activity" element={<div className="overflow-y-auto flex-1"><ActivityPage /></div>} />
-          <Route path="/settings" element={<div className="overflow-y-auto flex-1"><SettingsPage /></div>} />
-          <Route path="*" element={<Navigate to="/" replace />} />
-        </Routes>
+      {/* Main content */}
+      <main className="flex-1 min-w-0 flex flex-col overflow-hidden" style={{ paddingTop: '0' }}>
+        <div className="flex-1 overflow-hidden pt-12 lg:pt-0">
+          <Routes>
+            {/* Control Plane home */}
+            <Route path="/" element={<div className="h-full overflow-y-auto"><ControlPlanePage /></div>} />
+            <Route path="/dashboard" element={<div className="h-full overflow-y-auto"><DashboardHome /></div>} />
+
+            {/* Workspace */}
+            <Route path="/tasks" element={<div className="h-full overflow-y-auto"><TasksPage /></div>} />
+
+            {/* Agents */}
+            <Route path="/agents" element={<div className="h-full overflow-y-auto"><AgentsPage /></div>} />
+            <Route path="/schedules" element={<div className="h-full overflow-y-auto"><SchedulesPage /></div>} />
+            <Route path="/chat" element={<ChatPage />} />
+            <Route path="/chat/:sessionId" element={<ChatPage />} />
+
+            {/* Knowledge — consolidated Wiki + Sources + GitHub */}
+            <Route path="/knowledge" element={<div className="h-full overflow-hidden"><KnowledgePage /></div>} />
+            {/* Legacy knowledge routes redirect */}
+            <Route path="/wiki" element={<Navigate to="/knowledge" replace />} />
+            <Route path="/wiki/:slug" element={<Navigate to="/knowledge" replace />} />
+            <Route path="/sources" element={<Navigate to="/knowledge" replace />} />
+            <Route path="/github" element={<Navigate to="/knowledge" replace />} />
+
+            {/* Infrastructure */}
+            <Route path="/runtimes" element={<div className="h-full overflow-y-auto"><RuntimesPage /></div>} />
+            <Route path="/routing" element={<div className="h-full overflow-y-auto"><RoutingPolicyPage /></div>} />
+            <Route path="/providers" element={<div className="h-full overflow-y-auto"><ProvidersPage /></div>} />
+            <Route path="/models" element={<div className="h-full overflow-y-auto"><ModelsPage /></div>} />
+            <Route path="/observability" element={<Navigate to="/logs" replace />} />
+
+            {/* System — consolidated Logs */}
+            <Route path="/logs" element={<div className="h-full overflow-hidden"><LogsPage /></div>} />
+            <Route path="/activity" element={<Navigate to="/logs" replace />} />
+            <Route path="/setup" element={<div className="h-full overflow-y-auto"><SetupWizardPage /></div>} />
+            <Route path="/admin" element={<AdminPortalPage />} />
+            <Route path="/settings" element={<div className="h-full overflow-y-auto"><SettingsPage /></div>} />
+
+            {/* Legacy redirects */}
+            <Route path="/keys" element={<Navigate to="/admin" replace />} />
+            <Route path="/agentview" element={<Navigate to="/chat" replace />} />
+            <Route path="*" element={<Navigate to="/" replace />} />
+          </Routes>
+        </div>
       </main>
     </div>
   );

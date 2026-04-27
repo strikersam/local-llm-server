@@ -165,6 +165,63 @@ function ModelPickerModal({ providers, onConfirm, onClose, initialProvider, init
   );
 }
 
+function CommercialApprovalModal({ approval, onApprove, onCancel }) {
+  if (!approval) return null;
+
+  return (
+    <div className="fixed inset-0 bg-black/75 backdrop-blur-sm z-50 flex items-center justify-center p-4" data-testid="commercial-approval-modal">
+      <div className="w-full max-w-lg bg-[#111111] border border-[#002FA7]/25 rounded-2xl shadow-2xl overflow-hidden">
+        <div className="px-5 py-4 border-b border-white/10">
+          <div className="text-sm font-bold font-mono tracking-wide text-white" data-testid="commercial-approval-title">
+            Commercial Fallback Approval
+          </div>
+          <p className="mt-2 text-xs text-[#A0A0A0] leading-relaxed" data-testid="commercial-approval-message">
+            {approval.message || 'The system needs permission before switching to a commercial provider for this request.'}
+          </p>
+        </div>
+
+        <div className="px-5 py-4 space-y-3">
+          <div>
+            <div className="text-[10px] font-mono uppercase tracking-[0.18em] text-[#737373] mb-2">Candidate providers</div>
+            <div className="flex flex-wrap gap-2" data-testid="commercial-approval-candidates">
+              {(approval.candidates || []).map((candidate) => (
+                <span
+                  key={candidate}
+                  className="px-2.5 py-1 rounded-full border border-[#002FA7]/25 bg-[#002FA7]/10 text-[10px] font-mono text-[#AFC4FF]"
+                >
+                  {candidate}
+                </span>
+              ))}
+            </div>
+          </div>
+
+          <div className="rounded-xl border border-white/10 bg-white/[0.02] px-4 py-3">
+            <div className="text-[10px] font-mono uppercase tracking-[0.18em] text-[#737373] mb-2">Request</div>
+            <p className="text-xs text-white leading-relaxed" data-testid="commercial-approval-request-preview">{approval.content}</p>
+          </div>
+        </div>
+
+        <div className="px-5 py-4 border-t border-white/10 flex gap-3">
+          <button
+            onClick={onCancel}
+            className="flex-1 py-2.5 border border-white/10 text-xs font-mono uppercase tracking-wider text-[#737373] hover:text-white hover:border-white/20 transition-colors"
+            data-testid="commercial-approval-cancel-button"
+          >
+            Stay on local/free
+          </button>
+          <button
+            onClick={onApprove}
+            className="flex-1 py-2.5 bg-[#002FA7] hover:bg-[#002585] text-white text-xs font-mono uppercase tracking-wider transition-colors"
+            data-testid="commercial-approval-approve-button"
+          >
+            Approve this request
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ── ChatPage ──────────────────────────────────────────────────────────────────
 export default function ChatPage() {
   const { sessionId: paramSid } = useParams();
@@ -186,6 +243,7 @@ export default function ChatPage() {
   // Auto / Manual mode
   const [mode,       setMode]       = useState(localStorage.getItem(LS_MODE) || 'auto');
   const [showPicker, setShowPicker] = useState(false);
+  const [approvalPrompt, setApprovalPrompt] = useState(null);
 
   const messagesEndRef = useRef(null);
   const inputRef       = useRef(null);
@@ -237,14 +295,14 @@ export default function ChatPage() {
     inputRef.current?.focus();
   };
 
-  const handleSend = async () => {
-    if (!input.trim() || sending) return;
-    const content = input.trim();
-    setInput('');
+  const sendMessage = async ({ content, nextSessionId = sessionId, allowCommercialFallbackOnce = false, appendUserBubble = true }) => {
+    if (!content.trim() || sending) return;
     setSending(true);
     setThinkingElapsed(0);
     elapsedTimerRef.current = setInterval(() => setThinkingElapsed(p => p + 1), 1000);
-    setMessages(prev => [...prev, { role: 'user', content }]);
+    if (appendUserBubble) {
+      setMessages(prev => [...prev, { role: 'user', content }]);
+    }
 
     // Auto mode: pass null model+provider → backend router classifies & picks best model.
     // Agent mode is always ON — full Plan→Execute→Verify loop for every message.
@@ -252,12 +310,36 @@ export default function ChatPage() {
     const sendProviderId = mode === 'auto' ? null : (providerId || null);
 
     try {
-      const { data } = await chatSend(content, sessionId, sendModel, sendProviderId, temperature, true /* agent always on */);
+      const { data } = await chatSend(
+        content,
+        nextSessionId,
+        sendModel,
+        sendProviderId,
+        temperature,
+        true,
+        allowCommercialFallbackOnce,
+      );
       setSessionId(data.session_id);
       setMessages(prev => [...prev, { role: 'assistant', content: data.response }]);
-      if (!sessionId) navigate(`/chat/${data.session_id}`, { replace: true });
+      if (!nextSessionId) navigate(`/chat/${data.session_id}`, { replace: true });
+      setApprovalPrompt(null);
       loadSessions();
     } catch (err) {
+      const detail = err?.response?.data?.detail;
+      if (detail?.approval_required) {
+        const approvalSessionId = detail.session_id || nextSessionId || sessionId;
+        if (approvalSessionId && !nextSessionId) {
+          setSessionId(approvalSessionId);
+          navigate(`/chat/${approvalSessionId}`, { replace: true });
+        }
+        setApprovalPrompt({
+          message: detail.message,
+          candidates: detail.commercial_candidates || [],
+          content,
+          sessionId: approvalSessionId,
+        });
+        return;
+      }
       setMessages(prev => [...prev, {
         role: 'assistant',
         content: `Error: ${fmtErr(err?.response?.data?.detail) || err?.message || 'Failed — check provider config.'}`,
@@ -268,6 +350,31 @@ export default function ChatPage() {
       setSending(false);
       setThinkingElapsed(0);
     }
+  };
+
+  const handleSend = async () => {
+    if (!input.trim() || sending) return;
+    const content = input.trim();
+    setInput('');
+    await sendMessage({ content, appendUserBubble: true });
+  };
+
+  const handleApproveCommercialFallback = async () => {
+    if (!approvalPrompt) return;
+    await sendMessage({
+      content: approvalPrompt.content,
+      nextSessionId: approvalPrompt.sessionId || sessionId,
+      allowCommercialFallbackOnce: true,
+      appendUserBubble: false,
+    });
+  };
+
+  const handleCancelCommercialFallback = () => {
+    setApprovalPrompt(null);
+    setMessages(prev => [...prev, {
+      role: 'assistant',
+      content: 'Commercial fallback cancelled. I stayed on local/free providers for this request.',
+    }]);
   };
 
   const handleDelete = async (sid, e) => {
@@ -285,6 +392,12 @@ export default function ChatPage() {
 
   return (
     <div className="h-full flex" data-testid="chat-page">
+      <CommercialApprovalModal
+        approval={approvalPrompt}
+        onApprove={handleApproveCommercialFallback}
+        onCancel={handleCancelCommercialFallback}
+      />
+
       {/* Model picker modal */}
       {showPicker && (
         <ModelPickerModal

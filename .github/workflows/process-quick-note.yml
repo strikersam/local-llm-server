@@ -1,13 +1,13 @@
 name: Process Quick Note
 
 on:
-  issues:
-    types: [opened, reopened]
+  schedule:
+    - cron: '0 */4 * * *'
   workflow_dispatch:
     inputs:
       issue_number:
-        description: "Issue number to process"
-        required: true
+        description: "Issue number to process (leave blank to auto-pick oldest)"
+        required: false
         type: string
 
 concurrency:
@@ -21,10 +21,6 @@ permissions:
 jobs:
   process:
     runs-on: ubuntu-latest
-    if: >
-      (github.event_name == 'issues' &&
-       startsWith(github.event.issue.title, 'quick-note:')) ||
-      github.event_name == 'workflow_dispatch'
 
     steps:
       - uses: actions/checkout@v4
@@ -32,25 +28,48 @@ jobs:
           token: ${{ secrets.GITHUB_TOKEN }}
           fetch-depth: 0
 
-      - name: Resolve issue number and URL
-        id: issue
+      - name: Find next pending quick-note issue
+        id: pick
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+          if [ -n "${{ github.event.inputs.issue_number }}" ]; then
             NUM="${{ github.event.inputs.issue_number }}"
+            echo "Manual override — using issue #$NUM"
           else
-            NUM="${{ github.event.issue.number }}"
+            NUM=$(gh issue list \
+              --repo "${{ github.repository }}" \
+              --state open \
+              --search "quick-note: in:title" \
+              --json number \
+              --limit 100 \
+              --jq 'sort_by(.number) | .[0].number // empty')
           fi
-          echo "number=$NUM" >> "$GITHUB_OUTPUT"
+          if [ -z "$NUM" ]; then
+            echo "No pending quick-note issues found — nothing to do."
+            echo "found=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "found=true" >> "$GITHUB_OUTPUT"
+            echo "number=$NUM" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Resolve issue body and extract URL / task
+        id: issue
+        if: steps.pick.outputs.found == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          NUM="${{ steps.pick.outputs.number }}"
           BODY=$(gh issue view "$NUM" --repo "${{ github.repository }}" --json body -q .body)
           URL=$(echo "$BODY" | grep -oE 'https?://[^[:space:]]+' | head -1)
           TASK=$(echo "$BODY" | grep -i "^Task:" | sed 's/^[Tt]ask:[[:space:]]*//')
+          echo "number=$NUM" >> "$GITHUB_OUTPUT"
           echo "url=$URL" >> "$GITHUB_OUTPUT"
           echo "task=$TASK" >> "$GITHUB_OUTPUT"
           echo "Resolved issue #$NUM → $URL | task: $TASK"
 
       - name: Comment processing started
+        if: steps.pick.outputs.found == 'true'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
@@ -59,13 +78,16 @@ jobs:
             --body "⏳ Processing started — fetching ${{ steps.issue.outputs.url }}"
 
       - uses: actions/setup-python@v5
+        if: steps.pick.outputs.found == 'true'
         with:
           python-version: "3.12"
 
       - name: Install Anthropic SDK
+        if: steps.pick.outputs.found == 'true'
         run: pip install anthropic
 
       - name: Fetch URL content
+        if: steps.pick.outputs.found == 'true'
         run: |
           URL="${{ steps.issue.outputs.url }}"
           if [ -z "$URL" ]; then
@@ -81,6 +103,7 @@ jobs:
           echo "Extracted $(wc -c < /tmp/note_content.txt) chars of plain text from $URL"
 
       - name: Write LLM script
+        if: steps.pick.outputs.found == 'true'
         run: |
           cat > /tmp/run_llm.py << 'PYEOF'
           import os, subprocess, sys, re
@@ -187,6 +210,7 @@ jobs:
 
       - name: Run LLM (smart routing — Sonnet for complex, Groq for simple)
         id: llm
+        if: steps.pick.outputs.found == 'true'
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
@@ -196,6 +220,7 @@ jobs:
 
       - name: Commit and push
         id: commit
+        if: steps.pick.outputs.found == 'true'
         run: |
           git config user.email "claude-actions@github.com"
           git config user.name "Claude Actions [bot]"
@@ -204,12 +229,12 @@ jobs:
             echo "changed=false" >> "$GITHUB_OUTPUT"
           else
             git commit -m "feat: implement quick-note from issue #${{ steps.issue.outputs.number }}"
-            git push origin master
+            git push -u origin master
             echo "changed=true" >> "$GITHUB_OUTPUT"
           fi
 
       - name: Close issue
-        if: always()
+        if: steps.pick.outputs.found == 'true' && always()
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |

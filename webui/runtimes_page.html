@@ -1,0 +1,331 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>LLM Server - Runtimes</title>
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+      background: #0f0f0f;
+      color: #e0e0e0;
+      padding: 20px;
+    }
+    .container {
+      max-width: 900px;
+      margin: 0 auto;
+    }
+    header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 40px;
+      border-bottom: 1px solid #333;
+      padding-bottom: 20px;
+    }
+    h1 {
+      font-size: 28px;
+      font-weight: 600;
+    }
+    .header-actions {
+      display: flex;
+      gap: 10px;
+    }
+    button {
+      padding: 10px 20px;
+      border: none;
+      border-radius: 6px;
+      font-size: 14px;
+      font-weight: 500;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+    .btn-primary {
+      background: #10a37f;
+      color: white;
+    }
+    .btn-primary:hover {
+      background: #0e8b6e;
+    }
+    .btn-secondary {
+      background: #444;
+      color: #e0e0e0;
+    }
+    .btn-secondary:hover {
+      background: #555;
+    }
+    .btn-danger {
+      background: #d32f2f;
+      color: white;
+    }
+    .btn-danger:hover {
+      background: #b71c1c;
+    }
+    .btn-sm {
+      padding: 6px 12px;
+      font-size: 12px;
+    }
+    .runtimes-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+      gap: 20px;
+      margin-bottom: 20px;
+    }
+    .runtime-card {
+      background: #1a1a1a;
+      border: 1px solid #333;
+      border-radius: 8px;
+      padding: 20px;
+      transition: all 0.2s;
+    }
+    .runtime-card:hover {
+      border-color: #10a37f;
+      background: #222;
+    }
+    .runtime-name {
+      font-size: 18px;
+      font-weight: 600;
+      margin-bottom: 8px;
+    }
+    .runtime-description {
+      font-size: 12px;
+      color: #999;
+      margin-bottom: 15px;
+      line-height: 1.5;
+    }
+    .status {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-bottom: 15px;
+      font-size: 13px;
+    }
+    .status-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: #666;
+    }
+    .status-dot.healthy {
+      background: #10a37f;
+    }
+    .status-dot.unhealthy {
+      background: #d32f2f;
+    }
+    .status-text {
+      color: #999;
+    }
+    .status-text.healthy {
+      color: #10a37f;
+    }
+    .status-text.unhealthy {
+      color: #d32f2f;
+    }
+    .runtime-actions {
+      display: flex;
+      gap: 8px;
+    }
+    .runtime-actions button {
+      flex: 1;
+      padding: 8px 12px;
+    }
+    .loading {
+      opacity: 0.6;
+      pointer-events: none;
+    }
+    .error {
+      color: #d32f2f;
+      font-size: 12px;
+      margin-top: 10px;
+    }
+    .success {
+      color: #10a37f;
+      font-size: 12px;
+      margin-top: 10px;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <header>
+      <h1>🚀 Agent Runtimes</h1>
+      <div class="header-actions">
+        <button class="btn-primary" onclick="startAll()">Start All</button>
+        <button class="btn-danger" onclick="stopAll()">Stop All</button>
+        <button class="btn-secondary btn-sm" onclick="refreshStatus()">Refresh</button>
+      </div>
+    </header>
+
+    <div class="runtimes-grid" id="runtimes-container">
+      <p>Loading runtimes...</p>
+    </div>
+  </div>
+
+  <script>
+    const API_BASE = '/runtimes';
+    const RUNTIMES = [
+      {
+        id: 'hermes',
+        name: 'Hermes',
+        description: 'Fast code executor'
+      },
+      {
+        id: 'opencode',
+        name: 'OpenCode',
+        description: 'Code generator & scaffolder'
+      },
+      {
+        id: 'goose',
+        name: 'Goose',
+        description: 'Multi-purpose agent'
+      },
+      {
+        id: 'aider',
+        name: 'Aider',
+        description: 'Pair programming assistant'
+      }
+    ];
+
+    async function getRuntimeStatus(runtimeId) {
+      try {
+        const response = await fetch(`${API_BASE}/${runtimeId}`);
+        if (!response.ok) return null;
+        return await response.json();
+      } catch (e) {
+        console.error(`Error fetching status for ${runtimeId}:`, e);
+        return null;
+      }
+    }
+
+    async function startRuntime(runtimeId, button) {
+      button.disabled = true;
+      button.classList.add('loading');
+      try {
+        const response = await fetch(`${API_BASE}/${runtimeId}/start`, { method: 'POST' });
+        const data = await response.json();
+        if (response.ok) {
+          showMessage(runtimeId, `Started ${runtimeId}`, 'success');
+          setTimeout(refreshStatus, 2000);
+        } else {
+          showMessage(runtimeId, `Error: ${data.error || 'Unknown error'}`, 'error');
+        }
+      } catch (e) {
+        showMessage(runtimeId, `Error: ${e.message}`, 'error');
+      } finally {
+        button.disabled = false;
+        button.classList.remove('loading');
+      }
+    }
+
+    async function stopRuntime(runtimeId, button) {
+      button.disabled = true;
+      button.classList.add('loading');
+      try {
+        const response = await fetch(`${API_BASE}/${runtimeId}/stop`, { method: 'POST' });
+        const data = await response.json();
+        if (response.ok) {
+          showMessage(runtimeId, `Stopped ${runtimeId}`, 'success');
+          setTimeout(refreshStatus, 2000);
+        } else {
+          showMessage(runtimeId, `Error: ${data.error || 'Unknown error'}`, 'error');
+        }
+      } catch (e) {
+        showMessage(runtimeId, `Error: ${e.message}`, 'error');
+      } finally {
+        button.disabled = false;
+        button.classList.remove('loading');
+      }
+    }
+
+    async function startAll() {
+      const buttons = document.querySelectorAll('.start-btn');
+      buttons.forEach(btn => {
+        btn.disabled = true;
+        btn.classList.add('loading');
+      });
+      try {
+        const response = await fetch(`${API_BASE}/start-all`, { method: 'POST' });
+        if (response.ok) {
+          setTimeout(refreshStatus, 2000);
+        }
+      } catch (e) {
+        console.error('Error starting all runtimes:', e);
+      }
+    }
+
+    async function stopAll() {
+      const buttons = document.querySelectorAll('.stop-btn');
+      buttons.forEach(btn => {
+        btn.disabled = true;
+        btn.classList.add('loading');
+      });
+      try {
+        const response = await fetch(`${API_BASE}/stop-all`, { method: 'POST' });
+        if (response.ok) {
+          setTimeout(refreshStatus, 2000);
+        }
+      } catch (e) {
+        console.error('Error stopping all runtimes:', e);
+      }
+    }
+
+    function showMessage(runtimeId, message, type) {
+      const card = document.querySelector(`[data-runtime="${runtimeId}"]`);
+      if (!card) return;
+
+      const existing = card.querySelector('.error, .success');
+      if (existing) existing.remove();
+
+      const div = document.createElement('div');
+      div.className = type;
+      div.textContent = message;
+      card.appendChild(div);
+
+      setTimeout(() => div.remove(), 3000);
+    }
+
+    async function refreshStatus() {
+      const container = document.getElementById('runtimes-container');
+      container.innerHTML = '';
+
+      for (const runtime of RUNTIMES) {
+        const status = await getRuntimeStatus(runtime.id);
+        const isHealthy = status?.health?.available;
+
+        const card = document.createElement('div');
+        card.className = 'runtime-card';
+        card.setAttribute('data-runtime', runtime.id);
+
+        const statusDot = isHealthy ? 'healthy' : 'unhealthy';
+        const statusText = isHealthy ? 'Healthy' : 'Not Running';
+        const statusClass = isHealthy ? 'healthy' : 'unhealthy';
+
+        card.innerHTML = `
+          <div class="runtime-name">${runtime.name}</div>
+          <div class="runtime-description">${runtime.description}</div>
+          <div class="status">
+            <div class="status-dot ${statusDot}"></div>
+            <span class="status-text ${statusClass}">${statusText}</span>
+          </div>
+          <div class="runtime-actions">
+            <button class="btn-primary btn-sm start-btn" onclick="startRuntime('${runtime.id}', this)">Start</button>
+            <button class="btn-danger btn-sm stop-btn" onclick="stopRuntime('${runtime.id}', this)">Stop</button>
+          </div>
+        `;
+
+        container.appendChild(card);
+      }
+    }
+
+    // Initial load
+    refreshStatus();
+    // Auto-refresh every 10 seconds
+    setInterval(refreshStatus, 10000);
+  </script>
+</body>
+</html>

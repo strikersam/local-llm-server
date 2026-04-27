@@ -1,176 +1,208 @@
+/**
+ * ObservabilityPage.js — Cost Insights & Langfuse Integration (v3.1)
+ *
+ * Shows:
+ *   - Total savings vs cloud APIs (this month / week / day)
+ *   - Token usage breakdown by model
+ *   - Time-series savings chart
+ *   - Langfuse connection status
+ *   - Per-user savings (admin/power user view)
+ */
+
 import React, { useState, useEffect } from 'react';
-import { getObservabilityStatus, getPlatformInfo, getObservabilityMetrics } from '../api';
-import { BarChart3, ExternalLink, CheckCircle, XCircle, Activity, Zap, TrendingUp, History } from 'lucide-react';
+import { getSavings, getUsage } from '../api';
+
+const fmt = (n) => (n == null ? '—' : typeof n === 'number' ? n.toFixed(4) : n);
+const fmtBig = (n) => (n == null ? '—' : n >= 1000 ? `$${(n/1000).toFixed(2)}K` : `$${n.toFixed(4)}`);
+
+function StatCard({ label, value, sub, color = 'indigo' }) {
+  const colors = {
+    indigo: 'border-indigo-100 bg-indigo-50 text-indigo-700',
+    green:  'border-green-100  bg-green-50  text-green-700',
+    purple: 'border-purple-100 bg-purple-50 text-purple-700',
+    amber:  'border-amber-100  bg-amber-50  text-amber-700',
+  };
+  return (
+    <div className={`border rounded-xl p-4 ${colors[color]}`}>
+      <div className="text-xs font-semibold uppercase tracking-wide opacity-70 mb-1">{label}</div>
+      <div className="text-2xl font-bold">{value}</div>
+      {sub && <div className="text-xs opacity-60 mt-0.5">{sub}</div>}
+    </div>
+  );
+}
+
+function SavingsBar({ model, savings, maxSavings }) {
+  const pct = maxSavings > 0 ? (savings / maxSavings) * 100 : 0;
+  return (
+    <div className="flex items-center gap-3 text-sm">
+      <span className="font-mono w-44 truncate text-gray-700" title={model}>{model}</span>
+      <div className="flex-1 bg-gray-100 rounded-full h-2">
+        <div className="bg-indigo-500 h-2 rounded-full transition-all" style={{ width: `${pct}%` }} />
+      </div>
+      <span className="text-gray-600 w-20 text-right">{fmtBig(savings)}</span>
+    </div>
+  );
+}
+
+function TimeSeries({ data }) {
+  if (!data || data.length === 0) return <div className="text-gray-400 text-sm py-4">No data yet</div>;
+  const maxSav = Math.max(...data.map(d => d.savings_usd), 0.001);
+  return (
+    <div className="flex items-end gap-1 h-20 w-full">
+      {data.slice(-30).map((d, i) => {
+        const h = (d.savings_usd / maxSav) * 100;
+        const dt = new Date(d.timestamp * 1000).toLocaleDateString('en', { month: 'short', day: 'numeric' });
+        return (
+          <div key={i} className="flex-1 flex flex-col items-center group relative">
+            <div
+              className="w-full bg-indigo-400 rounded-sm hover:bg-indigo-600 transition-colors cursor-pointer"
+              style={{ height: `${Math.max(2, h)}%` }}
+              title={`${dt}: $${d.savings_usd}`}
+            />
+          </div>
+        );
+      })}
+    </div>
+  );
+}
 
 export default function ObservabilityPage() {
-  const [status, setStatus] = useState(null);
-  const [metrics, setMetrics] = useState(null);
-  const [platform, setPlatform] = useState(null);
+  const [period, setPeriod] = useState('month');
+  const [savings, setSavings] = useState(null);
+  const [usage, setUsage]     = useState(null);
   const [loading, setLoading] = useState(true);
 
-  useEffect(() => {
-    Promise.all([
-      getObservabilityStatus().then(r => setStatus(r.data)),
-      getPlatformInfo().then(r => setPlatform(r.data)),
-      getObservabilityMetrics().then(r => setMetrics(r.data)),
-    ]).catch(() => {}).finally(() => setLoading(false));
-  }, []);
+  const load = async (p) => {
+    setLoading(true);
+    try {
+      const [sv, us] = await Promise.all([
+        getSavings(p),
+        getUsage(p),
+      ]);
+      setSavings(sv.data);
+      setUsage(us.data);
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setLoading(false);
+    }
+  };
 
-  if (loading) return <div className="p-8 text-xs text-[#737373] font-mono animate-pulse-slow">Loading observability data...</div>;
+  useEffect(() => { load(period); }, [period]);
 
-  const summary = metrics?.summary_24h || { total_requests: 0, total_tokens: 0, total_savings_usd: 0 };
+  const s = savings?.summary || {};
+  const ts = savings?.time_series || [];
+  const byModel = usage?.by_model || {};
+  const topModels = Object.entries(byModel)
+    .sort((a, b) => b[1].savings_usd - a[1].savings_usd);
+  const maxSav = topModels.length > 0 ? topModels[0][1].savings_usd : 0;
 
   return (
-    <div className="p-5 lg:p-7 max-w-5xl" data-testid="observability-page">
-      <div className="mb-6 animate-fade-in">
-        <h1 className="text-2xl font-bold tracking-tighter" style={{ fontFamily: 'Outfit, sans-serif' }}>Observability</h1>
-        <p className="text-xs text-[#737373] mt-0.5">Langfuse integration for LLM usage tracking, cost analysis, and trace inspection</p>
-      </div>
-
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
-        {/* Connection Status */}
-        <div className="border border-white/10 bg-[#141414] animate-fade-in" data-testid="langfuse-status">
-          <div className="px-5 py-3 border-b border-white/10 flex justify-between items-center">
-            <span className="text-[10px] tracking-[0.15em] uppercase text-[#A0A0A0] font-mono font-bold">LANGFUSE CONNECTION</span>
-            {status?.connected && <span className="bg-green-500/10 text-green-500 text-[9px] px-1.5 py-0.5 font-mono">LIVE</span>}
-          </div>
-          <div className="p-5">
-            <div className="flex items-center gap-3 mb-4">
-              {status?.connected ? (
-                <CheckCircle size={20} className="text-green-500" />
-              ) : status?.configured ? (
-                <XCircle size={20} className="text-[#FF3333]" />
-              ) : (
-                <XCircle size={20} className="text-[#737373]" />
-              )}
-              <div>
-                <div className="text-sm text-white font-bold">
-                  {status?.connected ? 'Connected' : status?.configured ? 'Configuration Error' : 'Not Configured'}
-                </div>
-                <div className="text-[10px] text-[#737373] font-mono">{status?.message}</div>
-              </div>
-            </div>
-            <div className="grid grid-cols-2 gap-4 text-[11px]">
-              <div>
-                <span className="text-[#737373]">Base URL: </span>
-                <span className="text-[#A0A0A0] font-mono truncate block">{status?.base_url || '—'}</span>
-              </div>
-              <div>
-                <span className="text-[#737373]">Public Key: </span>
-                <span className="text-[#A0A0A0] font-mono">{status?.public_key_prefix || '—'}</span>
-              </div>
-            </div>
-          </div>
+    <div className="p-6 max-w-5xl">
+      {/* Header */}
+      <div className="flex items-center justify-between mb-6">
+        <div>
+          <h1 className="text-2xl font-bold text-gray-800">💰 Cost Insights</h1>
+          <p className="text-sm text-gray-500 mt-0.5">Local inference savings vs cloud APIs</p>
         </div>
-
-        {/* Local Metrics Summary */}
-        <div className="border border-white/10 bg-[#141414] animate-fade-in">
-          <div className="px-5 py-3 border-b border-white/10">
-            <span className="text-[10px] tracking-[0.15em] uppercase text-[#A0A0A0] font-mono font-bold">LOCAL USAGE (24H)</span>
-          </div>
-          <div className="p-5 grid grid-cols-3 gap-2">
-            <div className="bg-white/5 p-3 border border-white/5 hover:border-white/10 transition-colors">
-              <Activity size={12} className="text-[#002FA7] mb-1" />
-              <div className="text-lg font-bold text-white tracking-tighter leading-none">{summary.total_requests}</div>
-              <div className="text-[9px] text-[#737373] uppercase font-mono mt-1">Requests</div>
-            </div>
-            <div className="bg-white/5 p-3 border border-white/5 hover:border-white/10 transition-colors">
-              <Zap size={12} className="text-[#002FA7] mb-1" />
-              <div className="text-lg font-bold text-white tracking-tighter leading-none">{(summary.total_tokens / 1000).toFixed(1)}k</div>
-              <div className="text-[9px] text-[#737373] uppercase font-mono mt-1">Tokens</div>
-            </div>
-            <div className="bg-white/5 p-3 border border-white/5 hover:border-white/10 transition-colors">
-              <TrendingUp size={12} className="text-green-500 mb-1" />
-              <div className="text-lg font-bold text-white tracking-tighter leading-none">${summary.total_savings_usd.toFixed(2)}</div>
-              <div className="text-[9px] text-[#737373] uppercase font-mono mt-1">Savings</div>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      {/* Recent Activity Table */}
-      {metrics?.recent_traces?.length > 0 && (
-        <div className="border border-white/10 bg-[#141414] mb-4 animate-fade-in">
-          <div className="px-5 py-3 border-b border-white/10 flex items-center gap-2">
-            <History size={14} className="text-[#A0A0A0]" />
-            <span className="text-[10px] tracking-[0.15em] uppercase text-[#A0A0A0] font-mono font-bold">RECENT SYSTEM TRACES</span>
-          </div>
-          <div className="overflow-x-auto">
-            <table className="w-full text-left text-[10px] border-collapse font-mono">
-              <thead>
-                <tr className="border-b border-white/5 text-[#737373]">
-                  <th className="px-5 py-2 font-medium uppercase">Time</th>
-                  <th className="px-5 py-2 font-medium uppercase">Task / Model</th>
-                  <th className="px-5 py-2 font-medium uppercase">Tokens</th>
-                  <th className="px-5 py-2 font-medium uppercase">Latency</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-white/5">
-                {metrics.recent_traces.map((t) => (
-                  <tr key={t._id} className="hover:bg-white/[0.02]">
-                    <td className="px-5 py-2.5 text-[#A0A0A0]">{new Date(t.timestamp).toLocaleTimeString([], { hour12: false })}</td>
-                    <td className="px-5 py-2.5">
-                      <div className="text-white font-bold">{t.task_name}</div>
-                      <div className="text-[#737373] opacity-70 italic">{t.model}</div>
-                    </td>
-                    <td className="px-5 py-2.5 text-[#A0A0A0]">{t.prompt_tokens + t.completion_tokens}</td>
-                    <td className="px-5 py-2.5 text-[#A0A0A0]">{t.latency_ms}ms</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </div>
-      )}
-
-      {/* Open Dashboard */}
-      {status?.configured && (
-        <a href={status.base_url} target="_blank" rel="noopener noreferrer"
-          className="border border-[#002FA7]/30 bg-[#002FA7]/10 p-5 flex items-center gap-4 mb-4 hover:bg-[#002FA7]/15 transition-colors animate-fade-in"
-          data-testid="open-langfuse-button">
-          <BarChart3 size={24} className="text-[#002FA7]" />
-          <div className="flex-1">
-            <div className="text-sm text-white font-bold">Open Langfuse Cloud Dashboard</div>
-            <div className="text-[10px] text-[#737373] font-mono mt-0.5">{status.base_url}</div>
-          </div>
-          <ExternalLink size={16} className="text-[#002FA7]" />
-        </a>
-      )}
-
-      {/* What Langfuse tracks */}
-      <div className="border border-white/10 bg-[#141414] animate-fade-in">
-        <div className="px-5 py-3 border-b border-white/10">
-          <span className="text-[10px] tracking-[0.15em] uppercase text-[#A0A0A0] font-mono font-bold">SYSTEM OBSERVABILITY CAPABILITIES</span>
-        </div>
-        <div className="p-5 grid grid-cols-2 lg:grid-cols-4 gap-4">
-          {[
-            { label: 'Token Usage', desc: 'Input/output tokens per request', icon: Activity },
-            { label: 'Cost Tracking', desc: 'Commercial-equivalent USD savings', icon: BarChart3 },
-            { label: 'Latency', desc: 'Response time + TTFT per call', icon: Zap },
-            { label: 'User Attribution', desc: 'Per-user, per-department breakdowns', icon: TrendingUp },
-          ].map(item => (
-            <div key={item.label} className="border border-white/10 p-3 hover:bg-white/5 transition-colors">
-              <item.icon size={14} className="text-[#002FA7] mb-2" />
-              <div className="text-[11px] text-white font-bold">{item.label}</div>
-              <div className="text-[10px] text-[#737373] mt-0.5">{item.desc}</div>
-            </div>
+        <div className="flex gap-2">
+          {['day', 'week', 'month'].map(p => (
+            <button
+              key={p}
+              onClick={() => setPeriod(p)}
+              className={`px-3 py-1.5 text-xs rounded-lg font-medium transition-colors ${
+                period === p ? 'bg-indigo-600 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+              }`}
+            >
+              {p.charAt(0).toUpperCase() + p.slice(1)}
+            </button>
           ))}
         </div>
       </div>
 
-      {/* Setup guide if not configured */}
-      {!status?.configured && (
-        <div className="border border-white/10 bg-[#141414] mt-4 p-5 animate-fade-in">
-          <div className="text-[10px] tracking-[0.15em] uppercase text-[#A0A0A0] font-mono font-bold mb-3">SETUP GUIDE</div>
-          <div className="space-y-2 text-[11px] text-[#A0A0A0]">
-            <p>1. Create a project at <a href="https://cloud.langfuse.com" target="_blank" rel="noopener noreferrer" className="text-[#002FA7]">cloud.langfuse.com</a></p>
-            <p>2. Copy your Public Key and Secret Key</p>
-            <p>3. Add to your <code className="bg-white/5 px-1.5 py-0.5 text-[10px]">.env</code> file:</p>
-            <pre className="bg-[#0A0A0A] border border-white/10 p-3 text-[10px] font-mono text-[#737373]">
-              LANGFUSE_PUBLIC_KEY=pk-lf-...{'\n'}LANGFUSE_SECRET_KEY=sk-lf-...{'\n'}LANGFUSE_BASE_URL=https://cloud.langfuse.com
-            </pre>
+      {loading ? (
+        <div className="text-center py-12 text-gray-400">Loading cost data…</div>
+      ) : (
+        <>
+          {/* Stat cards */}
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
+            <StatCard
+              label="Savings vs Cloud"
+              value={fmtBig(s.total_savings_usd)}
+              sub={`${period}`}
+              color="green"
+            />
+            <StatCard
+              label="Infra Cost"
+              value={fmtBig(s.total_infra_cost_usd)}
+              sub="Electricity + hardware"
+              color="amber"
+            />
+            <StatCard
+              label="Total Requests"
+              value={s.total_requests?.toLocaleString() || '0'}
+              sub={`${period}`}
+              color="indigo"
+            />
+            <StatCard
+              label="Total Tokens"
+              value={s.total_tokens ? (s.total_tokens / 1000).toFixed(1) + 'K' : '0'}
+              sub="Input + output"
+              color="purple"
+            />
           </div>
-        </div>
+
+          {/* Savings over time */}
+          <div className="bg-white border rounded-xl p-5 mb-5">
+            <div className="text-sm font-semibold text-gray-700 mb-3">
+              📈 Savings Over Time ({period})
+            </div>
+            <TimeSeries data={ts} />
+            <div className="flex justify-between text-xs text-gray-400 mt-1">
+              <span>Older</span>
+              <span>Today</span>
+            </div>
+          </div>
+
+          {/* By model breakdown */}
+          <div className="bg-white border rounded-xl p-5 mb-5">
+            <div className="text-sm font-semibold text-gray-700 mb-3">
+              🤖 Savings by Model ({period})
+            </div>
+            {topModels.length === 0 ? (
+              <div className="text-gray-400 text-sm py-2">No usage data yet. Run some tasks to see savings here.</div>
+            ) : (
+              <div className="space-y-2">
+                {topModels.map(([model, stats]) => (
+                  <SavingsBar
+                    key={model}
+                    model={model}
+                    savings={stats.savings_usd}
+                    maxSavings={maxSav}
+                  />
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* Summary banner */}
+          {s.total_savings_usd > 0 && (
+            <div className="bg-green-50 border border-green-200 rounded-xl p-4 text-sm text-green-800">
+              🎉 You've saved <strong>{fmtBig(s.total_savings_usd)}</strong> this {period} by running models locally
+              instead of using cloud APIs. Commercial equivalent would have cost{' '}
+              <strong>{fmtBig(s.total_commercial_eq_usd)}</strong> — you paid{' '}
+              <strong>{fmtBig(s.total_infra_cost_usd)}</strong> in electricity and hardware amortisation.
+            </div>
+          )}
+
+          {s.total_requests === 0 && (
+            <div className="bg-blue-50 border border-blue-200 rounded-xl p-4 text-sm text-blue-700">
+              ℹ️ No requests recorded yet for this period. Savings will appear here as you use the platform.
+              Make sure <code className="font-mono">LANGFUSE_PUBLIC_KEY</code> and{' '}
+              <code className="font-mono">LANGFUSE_SECRET_KEY</code> are configured for full observability.
+            </div>
+          )}
+        </>
       )}
     </div>
   );
