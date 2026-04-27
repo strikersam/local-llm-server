@@ -1,90 +1,41 @@
-# PRD — LLM Relay Runtime, Task Routing, and Fallback Fixes
+# PRD — README Marketing Refresh
 
 ## Original Problem Statement
-- Fix remote runtime control so deployed/non-local environments do not fail with a hard Docker-only error.
-- Restore seamless task auto-allocation so tasks can pick an available agent when none is manually assigned.
-- Fix provider fallback/chat so it follows the intended hierarchy and fails gracefully instead of crashing.
-- Require explicit user permission before switching to commercial models when the policy is configured that way.
+> There are a lot of new features and pages added to the repo. I don't see the readme doing justice. If you are an analyst and if you know how to market the repo well, take right screenshots and elevate the readme file.
 
-## Architecture Snapshot
-- Frontend: React dashboard in `/app/frontend`
-- Backend: FastAPI app in `/app/backend/server.py`
-- Shared backend modules:
-  - Provider routing: `/app/provider_router.py`
-  - Agent loop: `/app/agent/loop.py`
-  - Tasks: `/app/tasks/api.py`, `/app/tasks/service.py`
-  - Runtimes: `/app/runtimes/api.py`, `/app/runtimes/control.py`
+## User Decisions
+- Style: hybrid (marketing + technical)
+- Screenshots: auto-detect, focus on **LLM Relay v3.1** features
+- Branding: pulled from existing repo (no new logo)
+- Audience: everyone (devs, recruiters, evaluators, end users)
+- Surprise me on extras (badges, comparisons, repo map, CTA)
 
-## Implemented in This Fork
-### 2026-04-27 — Setup Wizard "Not Found" fix
-- Root cause: `backend/server.py` (the actual running FastAPI app) never mounted `setup_router` or `secrets_router`, so `PUT /api/setup/step/{n}` and `POST /api/secrets/` returned 404.
-- Fix in `backend/server.py`:
-  - Added imports: `from setup import setup_router`, `from secrets_store import secrets_router, get_secrets_store`.
-  - Registered both routers via `app.include_router(setup_router)` and `app.include_router(secrets_router)`.
-  - Initialised `get_secrets_store(db=db)` so secrets persist in MongoDB (instead of the in-memory fallback).
-- Verified with curl: `/api/setup/state`, all 5 `/api/setup/step/{n}`, `/api/setup/complete`, `/api/setup/secret`, and `/api/secrets/` all return 200.
+## What Was Done — 2026-04-27
+1. Explored full repo to inventory v3.1 features (control plane, kanban, agents, runtimes, routing policy, providers, models, knowledge wiki, logs, RBAC admin, schedules, settings, setup wizard, login).
+2. Seeded the running backend with 4 demo agents, 8 demo tasks across all kanban lanes, and 4 wiki pages so screenshots tell a real story.
+3. Captured 14 fresh, high-quality screenshots of the live v3.1 UI (1920x1200, dark theme):
+   - `v3-login.png`, `v3-setup-wizard.png`, `v3-control-plane.png`,
+     `v3-tasks-kanban.png`, `v3-agents.png`, `v3-runtimes.png`,
+     `v3-routing.png`, `v3-providers.png`, `v3-models.png`,
+     `v3-knowledge.png`, `v3-chat.png`, `v3-logs.png`, `v3-admin.png`,
+     `v3-schedules.png`, `v3-settings.png`.
+4. Rewrote `/app/README.md` end-to-end:
+   - Hero + 60-second pitch with hard cost numbers
+   - "What's new in v3.1" feature matrix (13 pillars)
+   - Visual product tour (1 hero shot + 13 contextual screenshots)
+   - Comparison table vs Ollama / Paid API
+   - Tightened Quick Start, Connect Your Tools (collapsible per IDE)
+   - Cleaned API reference (collapsible by surface)
+   - Added repo map and refreshed troubleshooting
+   - Polished badges (for-the-badge style), styled CTA footer
+5. Helper script lives at `/app/scratch/seed_demo_data.py` for re-seeding screenshot data.
 
-### 2026-04-27 — CI test pipeline fix
-- Fixed CI failures caused by tests requiring MongoDB and conflicting `/api/auth/login` endpoints between `proxy.app` and `backend/server.py`.
-- `.github/workflows/ci.yml`: added MongoDB 7 service container with health check, set `MONGO_URL`/`DB_NAME`/`ADMIN_EMAIL`/`ADMIN_PASSWORD` env vars for the pytest step.
-- `tests/conftest.py`: restored default `client` fixture to use `proxy.app` (V3 API) and added a separate `wiki_client` fixture for `backend/server.py`-specific tests.
-- `tests/test_iteration_7_features.py`: switched all `client` references to `wiki_client` so iteration 7 tests target the correct app surface.
-- Result: all 654 tests pass under `pytest -x` (same flag CI uses).
+## Files Touched
+- `/app/README.md` (full rewrite, ~540 lines)
+- `/app/docs/screenshots/v3-*.png` (14 new screenshots)
+- `/app/scratch/seed_demo_data.py` (new — for repeatable demo data)
 
-### 2026-04-26
-- Added task auto-assignment in `TaskWorkflowService.create_task()` with task-type-aware ranking and execution log entries.
-- Added execution-time auto-assignment fallback in `TaskExecutionCoordinator._resolve_agent()`.
-- Refactored runtime lifecycle control to return informational remote/no-Docker payloads instead of hard failures.
-- Added provider tier classification in `provider_router.py` for:
-  - local
-  - windows/remote self-hosted
-  - free cloud
-  - commercial
-- Added `CommercialFallbackRequiredError` and approval-aware provider fallback handling.
-- Updated chat backend flow to:
-  - build provider chains from configured providers only
-  - skip unconfigured providers
-  - return `approval_required` before commercial escalation when policy demands it
-  - keep chat failures controlled instead of crashing the endpoint
-- Updated `AgentRunner` to accept provider chains and approval-aware fallback behavior.
-- Added frontend approval modal for commercial fallback on Chat page.
-- Updated Runtimes page messaging so remote-management/no-Docker states are treated as informational, not hard UI errors.
-- Fixed auth wiring for task/runtime API verification after backend restart and shared-module reload.
-- Testing agent also updated frontend proxy target to `http://localhost:8001` in `frontend/package.json`.
-- Added real commercial fallback support via `EMERGENT_LLM_KEY` in ignored local file `/app/backend/.env`.
-- Seeded a real provider record `anthropic-universal` (`emergent-anthropic`) and verified it is used only after approval.
-- Set local runtime policy default to allow paid fallback with approval (`RUNTIME_NEVER_PAID=false`, `require_approval_before_paid_escalation=true`).
-
-## Verification Status
-- Targeted pytest from main agent: `18 passed`
-- Testing agent reports:
-  - `/app/test_reports/iteration_6.json` — backend `35/35 passed`, frontend verified
-  - `/app/test_reports/iteration_7.json` — backend `10/10 passed`, frontend `100% verified`
-- Manual curl verification by main agent:
-  - authenticated task creation stores real owner id
-  - task auto-assignment assigns an available agent
-  - runtime start returns non-blocking informational payload in no-Docker environment
-  - commercial approval path returns `409 approval_required`
-  - approved commercial retry returns `200` with a real live response
-
-## Current Functional Notes
-- Task auto-assignment: WORKING
-- Remote runtime informational handling: WORKING
-- Commercial approval gate: WORKING
-- Live commercial fallback now works in this preview via `anthropic-universal` after approval.
-- Baseline chat now returns an approval prompt instead of crashing when paid escalation is needed.
-- No APIs were MOCKED.
-
-## Known Environment Limitation
-- The live provider setup currently depends on the ignored local file `/app/backend/.env`. To reproduce this behavior in another environment, add `EMERGENT_LLM_KEY` there or configure your own provider keys.
-
-## Prioritized Backlog
-### P1
-- Expand frontend E2E coverage for the full approval-confirmation path after a real commercial provider is configured.
-- Add clearer provider-health indicators on the chat/setup surfaces.
-
-### P2
-- Add fallback health and task timeline dashboard enhancements.
-
-## Next Suggested Task
-- Add a provider-health panel so users can see which tier is currently available before sending a message.
+## Backlog / Nice-to-Have
+- Capture an animated GIF of the kanban → approval → run flow
+- Add a "Cost Saved" sparkline chart screenshot once that page renders data
+- Replace static placeholder Langfuse screenshots with live ones if the org enables Langfuse
