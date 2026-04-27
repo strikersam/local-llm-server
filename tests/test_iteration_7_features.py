@@ -26,9 +26,9 @@ class TestAuthAndTaskOwnership:
     """Test authentication and task creation with owner assignment"""
 
     @pytest.fixture
-    def auth_token(self, client):
+    def auth_token(self, wiki_client):
         """Get authentication token for admin user"""
-        response = client.post(
+        response = wiki_client.post(
             "/api/auth/login",
             json={"email": ADMIN_EMAIL, "password": ADMIN_PASSWORD}
         )
@@ -48,9 +48,9 @@ class TestAuthAndTaskOwnership:
         assert len(auth_token) > 10
         print(f"✓ Login successful, token length: {len(auth_token)}")
 
-    def test_task_creation_stores_authenticated_owner_id(self, client, auth_headers):
+    def test_task_creation_stores_authenticated_owner_id(self, wiki_client, auth_headers):
         """POST /api/tasks/ should store the authenticated user ID as owner_id"""
-        response = client.post(
+        response = wiki_client.post(
             "/api/tasks/",
             json={
                 "title": "TEST_iter7_owner_check",
@@ -73,16 +73,16 @@ class TestAuthAndTaskOwnership:
         # Clean up
         task_id = task.get("task_id")
         if task_id:
-            client.delete(f"/api/tasks/{task_id}", headers=auth_headers)
+            wiki_client.delete(f"/api/tasks/{task_id}", headers=auth_headers)
 
-    def test_task_auto_assigns_available_agent(self, client, auth_headers):
+    def test_task_auto_assigns_available_agent(self, wiki_client, auth_headers):
         """POST /api/tasks/ without agent_id should auto-assign an available agent"""
         # First check available agents
-        agents_response = client.get("/api/agents/", headers=auth_headers)
+        agents_response = wiki_client.get("/api/agents/", headers=auth_headers)
         assert agents_response.status_code == 200
         agents = agents_response.json().get("agents", [])
         
-        response = client.post(
+        response = wiki_client.post(
             "/api/tasks/",
             json={
                 "title": "TEST_iter7_auto_assign",
@@ -112,15 +112,15 @@ class TestAuthAndTaskOwnership:
         # Clean up
         task_id = task.get("task_id")
         if task_id:
-            client.delete(f"/api/tasks/{task_id}", headers=auth_headers)
+            wiki_client.delete(f"/api/tasks/{task_id}", headers=auth_headers)
 
 
 class TestRuntimeRemoteControl:
     """Test runtime start/stop endpoints return informational payloads in remote environments"""
 
     @pytest.fixture
-    def auth_token(self, client):
-        response = client.post(
+    def auth_token(self, wiki_client):
+        response = wiki_client.post(
             "/api/auth/login",
             json={"email": ADMIN_EMAIL, "password": ADMIN_PASSWORD}
         )
@@ -131,9 +131,9 @@ class TestRuntimeRemoteControl:
     def auth_headers(self, auth_token):
         return {"Authorization": f"Bearer {auth_token}"}
 
-    def test_runtime_start_returns_informational_payload(self, client, auth_headers):
+    def test_runtime_start_returns_informational_payload(self, wiki_client, auth_headers):
         """POST /runtimes/{id}/start should return 200 with informational payload (not 500)"""
-        response = client.post("/runtimes/hermes/start", headers=auth_headers)
+        response = wiki_client.post("/runtimes/hermes/start", headers=auth_headers)
         
         # Should NOT return 500 error - should return 200 with informational payload
         assert response.status_code == 200, f"Start runtime returned error: {response.status_code} - {response.text}"
@@ -144,9 +144,9 @@ class TestRuntimeRemoteControl:
         assert has_info, f"Response should have status info: {data}"
         print(f"✓ Runtime start returned informational payload: {list(data.keys())}")
 
-    def test_runtime_stop_all_returns_informational_payload(self, client, auth_headers):
+    def test_runtime_stop_all_returns_informational_payload(self, wiki_client, auth_headers):
         """POST /runtimes/stop-all should return 200 with informational payload"""
-        response = client.post("/runtimes/stop-all", headers=auth_headers)
+        response = wiki_client.post("/runtimes/stop-all", headers=auth_headers)
         
         assert response.status_code == 200, f"Stop all returned error: {response.status_code} - {response.text}"
         
@@ -159,8 +159,8 @@ class TestRoutingPolicyDefaults:
     """Test that routing policy defaults allow paid fallback only with approval"""
 
     @pytest.fixture
-    def auth_token(self, client):
-        response = client.post(
+    def auth_token(self, wiki_client):
+        response = wiki_client.post(
             "/api/auth/login",
             json={"email": ADMIN_EMAIL, "password": ADMIN_PASSWORD}
         )
@@ -171,9 +171,9 @@ class TestRoutingPolicyDefaults:
     def auth_headers(self, auth_token):
         return {"Authorization": f"Bearer {auth_token}"}
 
-    def test_routing_policy_allows_paid_with_approval(self, client, auth_headers):
+    def test_routing_policy_allows_paid_with_approval(self, wiki_client, auth_headers):
         """GET /runtimes/policy should show never_use_paid_providers=false and require_approval=true"""
-        response = client.get("/runtimes/policy", headers=auth_headers)
+        response = wiki_client.get("/runtimes/policy", headers=auth_headers)
         assert response.status_code == 200, f"Get policy failed: {response.text}"
         
         data = response.json()
@@ -195,8 +195,8 @@ class TestChatCommercialFallbackApproval:
     """Test chat fallback behavior with commercial provider approval flow"""
 
     @pytest.fixture
-    def auth_token(self, client):
-        response = client.post(
+    def auth_token(self, wiki_client):
+        response = wiki_client.post(
             "/api/auth/login",
             json={"email": ADMIN_EMAIL, "password": ADMIN_PASSWORD}
         )
@@ -207,9 +207,9 @@ class TestChatCommercialFallbackApproval:
     def auth_headers(self, auth_token):
         return {"Authorization": f"Bearer {auth_token}"}
 
-    def test_chat_without_approval_returns_409_with_candidates(self, client, auth_headers):
+    def test_chat_without_approval_returns_409_with_candidates(self, wiki_client, auth_headers):
         """POST /api/chat/send without approval should return 409 approval_required with commercial candidates"""
-        response = client.post(
+        response = wiki_client.post(
             "/api/chat/send",
             json={
                 "content": "Hello, this is a test message for approval flow",
@@ -241,9 +241,9 @@ class TestChatCommercialFallbackApproval:
         else:
             print(f"⚠ Chat returned {response.status_code}: {response.text[:200]}")
 
-    def test_chat_with_approval_returns_200_with_response(self, client, auth_headers):
+    def test_chat_with_approval_returns_200_with_response(self, wiki_client, auth_headers):
         """POST /api/chat/send with allow_commercial_fallback_once=true should return 200 with model response"""
-        response = client.post(
+        response = wiki_client.post(
             "/api/chat/send",
             json={
                 "content": "Say 'Hello from Claude' in exactly those words.",
@@ -275,8 +275,8 @@ class TestProviderConfiguration:
     """Test provider configuration including anthropic-universal"""
 
     @pytest.fixture
-    def auth_token(self, client):
-        response = client.post(
+    def auth_token(self, wiki_client):
+        response = wiki_client.post(
             "/api/auth/login",
             json={"email": ADMIN_EMAIL, "password": ADMIN_PASSWORD}
         )
@@ -287,9 +287,9 @@ class TestProviderConfiguration:
     def auth_headers(self, auth_token):
         return {"Authorization": f"Bearer {auth_token}"}
 
-    def test_anthropic_universal_provider_exists(self, client, auth_headers):
+    def test_anthropic_universal_provider_exists(self, wiki_client, auth_headers):
         """GET /api/providers should include anthropic-universal provider"""
-        response = client.get("/api/providers", headers=auth_headers)
+        response = wiki_client.get("/api/providers", headers=auth_headers)
         assert response.status_code == 200, f"List providers failed: {response.text}"
         
         data = response.json()
@@ -317,9 +317,9 @@ class TestProviderConfiguration:
 class TestHealthEndpoint:
     """Test health endpoint"""
 
-    def test_health_endpoint(self, client):
+    def test_health_endpoint(self, wiki_client):
         """GET /api/health should return ok status"""
-        response = client.get("/api/health")
+        response = wiki_client.get("/api/health")
         assert response.status_code == 200, f"Health check failed: {response.text}"
         
         data = response.json()

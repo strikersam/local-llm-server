@@ -31,7 +31,23 @@ def pytest_configure() -> None:
 
 @pytest.fixture(scope="session")
 def client():
-    """FastAPI test client for backend/server.py integration tests."""
+    """FastAPI test client for proxy.app — V3 API surface (default).
+
+    Most existing tests (v3_auth, features_api, etc.) target proxy.app, so
+    this remains the default `client` fixture.
+    """
+    import proxy
+    with TestClient(proxy.app) as c:
+        yield c
+
+
+@pytest.fixture(scope="session")
+def wiki_client():
+    """FastAPI test client for backend/server.py — LLM Relay wiki dashboard.
+
+    Iteration 6/7 integration tests target backend/server.py specifically
+    (it has /api/chat/send, the Mongo-backed admin login, etc.).
+    """
     from backend.server import app as backend_app
     with TestClient(backend_app) as c:
         yield c

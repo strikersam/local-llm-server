@@ -15,6 +15,17 @@ jobs:
     name: Test (Python ${{ matrix.python-version }})
     runs-on: ubuntu-latest
 
+    services:
+      mongodb:
+        image: mongo:7
+        ports:
+          - 27017:27017
+        options: >-
+          --health-cmd "mongosh --quiet --eval 'db.runCommand({ ping: 1 }).ok' | grep -q 1"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
+
     strategy:
       matrix:
         python-version: ["3.13"]
@@ -43,17 +54,33 @@ jobs:
             -exec python -m py_compile {} +
           echo "✓ Python syntax OK"
 
+      - name: Wait for MongoDB
+        run: |
+          for i in {1..30}; do
+            if nc -z localhost 27017; then
+              echo "✓ MongoDB is reachable on localhost:27017"
+              exit 0
+            fi
+            echo "Waiting for MongoDB... ($i/30)"
+            sleep 2
+          done
+          echo "::error::MongoDB did not become reachable within 60s"
+          exit 1
+
       - name: Run tests
         env:
           # Provide stub env vars so modules that read env at import time don't error
           API_KEYS: "ci-test-key"
-          ADMIN_PASSWORD: "ci-test-password"
+          ADMIN_EMAIL: "admin@llmrelay.local"
+          ADMIN_PASSWORD: "WikiAdmin2026!"
           SECRET_KEY: "ci-test-secret-do-not-use"
           OLLAMA_BASE: "http://localhost:11434"
           LANGFUSE_SECRET_KEY: ""
           LANGFUSE_PUBLIC_KEY: ""
           LANGFUSE_HOST: ""
           ROUTER_HEALTH_CHECK_ENABLED: "false"
+          MONGO_URL: "mongodb://localhost:27017"
+          DB_NAME: "llm_wiki_dashboard_ci"
         run: |
           pytest -x -v --tb=short
 

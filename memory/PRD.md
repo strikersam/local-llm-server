@@ -16,6 +16,13 @@
   - Runtimes: `/app/runtimes/api.py`, `/app/runtimes/control.py`
 
 ## Implemented in This Fork
+### 2026-04-27 — CI test pipeline fix
+- Fixed CI failures caused by tests requiring MongoDB and conflicting `/api/auth/login` endpoints between `proxy.app` and `backend/server.py`.
+- `.github/workflows/ci.yml`: added MongoDB 7 service container with health check, set `MONGO_URL`/`DB_NAME`/`ADMIN_EMAIL`/`ADMIN_PASSWORD` env vars for the pytest step.
+- `tests/conftest.py`: restored default `client` fixture to use `proxy.app` (V3 API) and added a separate `wiki_client` fixture for `backend/server.py`-specific tests.
+- `tests/test_iteration_7_features.py`: switched all `client` references to `wiki_client` so iteration 7 tests target the correct app surface.
+- Result: all 654 tests pass under `pytest -x` (same flag CI uses).
+
 ### 2026-04-26
 - Added task auto-assignment in `TaskWorkflowService.create_task()` with task-type-aware ranking and execution log entries.
 - Added execution-time auto-assignment fallback in `TaskExecutionCoordinator._resolve_agent()`.
