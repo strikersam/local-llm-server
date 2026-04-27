@@ -81,7 +81,8 @@ async def start_runtime(runtime_id: str) -> dict[str, Any]:
         }
     except subprocess.CalledProcessError as e:
         error_msg = e.stderr.decode() if e.stderr else str(e)
-        if "only available when running locally" in error_msg.lower():
+        error_lower = error_msg.lower()
+        if "only available when running locally" in error_lower or "docker daemon" in error_lower or "cannot connect" in error_lower:
             return await _remote_runtime_response(runtime_id, "start")
         log.error(f"Failed to start {runtime_id}: {error_msg}")
         return {
@@ -123,7 +124,8 @@ async def stop_runtime(runtime_id: str) -> dict[str, Any]:
         }
     except subprocess.CalledProcessError as e:
         error_msg = e.stderr.decode() if e.stderr else str(e)
-        if "only available when running locally" in error_msg.lower():
+        error_lower = error_msg.lower()
+        if "only available when running locally" in error_lower or "docker daemon" in error_lower or "cannot connect" in error_lower:
             return await _remote_runtime_response(runtime_id, "stop")
         log.error(f"Failed to stop {runtime_id}: {error_msg}")
         return {

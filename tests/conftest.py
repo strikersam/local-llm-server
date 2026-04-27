@@ -6,6 +6,10 @@ from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
+from dotenv import load_dotenv
+
+# Load .env so tests see the same environment as the app
+load_dotenv()
 
 
 def pytest_configure() -> None:
@@ -25,8 +29,9 @@ def pytest_configure() -> None:
     os.environ.setdefault("V3_ADMIN_NAME", "Administrator")
 
 
-@pytest.fixture
-def client() -> TestClient:
-    """FastAPI test client for integration tests."""
-    import proxy
-    return TestClient(proxy.app)
+@pytest.fixture(scope="session")
+def client():
+    """FastAPI test client for backend/server.py integration tests."""
+    from backend.server import app as backend_app
+    with TestClient(backend_app) as c:
+        yield c

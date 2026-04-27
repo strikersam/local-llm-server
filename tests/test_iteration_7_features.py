@@ -17,19 +17,19 @@ import time
 # Use the public backend URL for testing
 BASE_URL = os.environ.get("REACT_APP_BACKEND_URL", "http://localhost:8001")
 
-# Test credentials from test_credentials.md
-ADMIN_EMAIL = "admin@llmrelay.local"
-ADMIN_PASSWORD = "WikiAdmin2026!"
+# Test credentials - use environment variables if set (CI/Local) or fallbacks
+ADMIN_EMAIL = os.environ.get("ADMIN_EMAIL", "admin@llmrelay.local")
+ADMIN_PASSWORD = os.environ.get("ADMIN_PASSWORD", "WikiAdmin2026!")
 
 
 class TestAuthAndTaskOwnership:
     """Test authentication and task creation with owner assignment"""
 
-    @pytest.fixture(scope="class")
-    def auth_token(self):
+    @pytest.fixture
+    def auth_token(self, client):
         """Get authentication token for admin user"""
-        response = requests.post(
-            f"{BASE_URL}/api/auth/login",
+        response = client.post(
+            "/api/auth/login",
             json={"email": ADMIN_EMAIL, "password": ADMIN_PASSWORD}
         )
         assert response.status_code == 200, f"Login failed: {response.text}"
@@ -37,7 +37,7 @@ class TestAuthAndTaskOwnership:
         assert "access_token" in data, f"No access_token in response: {data}"
         return data["access_token"]
 
-    @pytest.fixture(scope="class")
+    @pytest.fixture
     def auth_headers(self, auth_token):
         """Return headers with Bearer token"""
         return {"Authorization": f"Bearer {auth_token}"}
@@ -48,10 +48,10 @@ class TestAuthAndTaskOwnership:
         assert len(auth_token) > 10
         print(f"✓ Login successful, token length: {len(auth_token)}")
 
-    def test_task_creation_stores_authenticated_owner_id(self, auth_headers):
+    def test_task_creation_stores_authenticated_owner_id(self, client, auth_headers):
         """POST /api/tasks/ should store the authenticated user ID as owner_id"""
-        response = requests.post(
-            f"{BASE_URL}/api/tasks/",
+        response = client.post(
+            "/api/tasks/",
             json={
                 "title": "TEST_iter7_owner_check",
                 "description": "Testing that owner_id is set to authenticated user",
@@ -73,17 +73,17 @@ class TestAuthAndTaskOwnership:
         # Clean up
         task_id = task.get("task_id")
         if task_id:
-            requests.delete(f"{BASE_URL}/api/tasks/{task_id}", headers=auth_headers)
+            client.delete(f"/api/tasks/{task_id}", headers=auth_headers)
 
-    def test_task_auto_assigns_available_agent(self, auth_headers):
+    def test_task_auto_assigns_available_agent(self, client, auth_headers):
         """POST /api/tasks/ without agent_id should auto-assign an available agent"""
         # First check available agents
-        agents_response = requests.get(f"{BASE_URL}/api/agents/", headers=auth_headers)
+        agents_response = client.get("/api/agents/", headers=auth_headers)
         assert agents_response.status_code == 200
         agents = agents_response.json().get("agents", [])
         
-        response = requests.post(
-            f"{BASE_URL}/api/tasks/",
+        response = client.post(
+            "/api/tasks/",
             json={
                 "title": "TEST_iter7_auto_assign",
                 "description": "Testing auto-assignment",
@@ -112,28 +112,28 @@ class TestAuthAndTaskOwnership:
         # Clean up
         task_id = task.get("task_id")
         if task_id:
-            requests.delete(f"{BASE_URL}/api/tasks/{task_id}", headers=auth_headers)
+            client.delete(f"/api/tasks/{task_id}", headers=auth_headers)
 
 
 class TestRuntimeRemoteControl:
     """Test runtime start/stop endpoints return informational payloads in remote environments"""
 
-    @pytest.fixture(scope="class")
-    def auth_token(self):
-        response = requests.post(
-            f"{BASE_URL}/api/auth/login",
+    @pytest.fixture
+    def auth_token(self, client):
+        response = client.post(
+            "/api/auth/login",
             json={"email": ADMIN_EMAIL, "password": ADMIN_PASSWORD}
         )
         assert response.status_code == 200, f"Login failed: {response.text}"
         return response.json()["access_token"]
 
-    @pytest.fixture(scope="class")
+    @pytest.fixture
     def auth_headers(self, auth_token):
         return {"Authorization": f"Bearer {auth_token}"}
 
-    def test_runtime_start_returns_informational_payload(self, auth_headers):
+    def test_runtime_start_returns_informational_payload(self, client, auth_headers):
         """POST /runtimes/{id}/start should return 200 with informational payload (not 500)"""
-        response = requests.post(f"{BASE_URL}/runtimes/hermes/start", headers=auth_headers)
+        response = client.post("/runtimes/hermes/start", headers=auth_headers)
         
         # Should NOT return 500 error - should return 200 with informational payload
         assert response.status_code == 200, f"Start runtime returned error: {response.status_code} - {response.text}"
@@ -144,9 +144,9 @@ class TestRuntimeRemoteControl:
         assert has_info, f"Response should have status info: {data}"
         print(f"✓ Runtime start returned informational payload: {list(data.keys())}")
 
-    def test_runtime_stop_all_returns_informational_payload(self, auth_headers):
+    def test_runtime_stop_all_returns_informational_payload(self, client, auth_headers):
         """POST /runtimes/stop-all should return 200 with informational payload"""
-        response = requests.post(f"{BASE_URL}/runtimes/stop-all", headers=auth_headers)
+        response = client.post("/runtimes/stop-all", headers=auth_headers)
         
         assert response.status_code == 200, f"Stop all returned error: {response.status_code} - {response.text}"
         
@@ -158,22 +158,22 @@ class TestRuntimeRemoteControl:
 class TestRoutingPolicyDefaults:
     """Test that routing policy defaults allow paid fallback only with approval"""
 
-    @pytest.fixture(scope="class")
-    def auth_token(self):
-        response = requests.post(
-            f"{BASE_URL}/api/auth/login",
+    @pytest.fixture
+    def auth_token(self, client):
+        response = client.post(
+            "/api/auth/login",
             json={"email": ADMIN_EMAIL, "password": ADMIN_PASSWORD}
         )
         assert response.status_code == 200
         return response.json()["access_token"]
 
-    @pytest.fixture(scope="class")
+    @pytest.fixture
     def auth_headers(self, auth_token):
         return {"Authorization": f"Bearer {auth_token}"}
 
-    def test_routing_policy_allows_paid_with_approval(self, auth_headers):
+    def test_routing_policy_allows_paid_with_approval(self, client, auth_headers):
         """GET /runtimes/policy should show never_use_paid_providers=false and require_approval=true"""
-        response = requests.get(f"{BASE_URL}/runtimes/policy", headers=auth_headers)
+        response = client.get("/runtimes/policy", headers=auth_headers)
         assert response.status_code == 200, f"Get policy failed: {response.text}"
         
         data = response.json()
@@ -194,29 +194,28 @@ class TestRoutingPolicyDefaults:
 class TestChatCommercialFallbackApproval:
     """Test chat fallback behavior with commercial provider approval flow"""
 
-    @pytest.fixture(scope="class")
-    def auth_token(self):
-        response = requests.post(
-            f"{BASE_URL}/api/auth/login",
+    @pytest.fixture
+    def auth_token(self, client):
+        response = client.post(
+            "/api/auth/login",
             json={"email": ADMIN_EMAIL, "password": ADMIN_PASSWORD}
         )
         assert response.status_code == 200, f"Login failed: {response.text}"
         return response.json()["access_token"]
 
-    @pytest.fixture(scope="class")
+    @pytest.fixture
     def auth_headers(self, auth_token):
         return {"Authorization": f"Bearer {auth_token}"}
 
-    def test_chat_without_approval_returns_409_with_candidates(self, auth_headers):
+    def test_chat_without_approval_returns_409_with_candidates(self, client, auth_headers):
         """POST /api/chat/send without approval should return 409 approval_required with commercial candidates"""
-        response = requests.post(
-            f"{BASE_URL}/api/chat/send",
+        response = client.post(
+            "/api/chat/send",
             json={
                 "content": "Hello, this is a test message for approval flow",
                 "allow_commercial_fallback_once": False
             },
-            headers=auth_headers,
-            timeout=60
+            headers=auth_headers
         )
         
         # May return 409 (approval required) or 200 (if local provider works) or 502/503 (if no provider)
@@ -242,16 +241,15 @@ class TestChatCommercialFallbackApproval:
         else:
             print(f"⚠ Chat returned {response.status_code}: {response.text[:200]}")
 
-    def test_chat_with_approval_returns_200_with_response(self, auth_headers):
+    def test_chat_with_approval_returns_200_with_response(self, client, auth_headers):
         """POST /api/chat/send with allow_commercial_fallback_once=true should return 200 with model response"""
-        response = requests.post(
-            f"{BASE_URL}/api/chat/send",
+        response = client.post(
+            "/api/chat/send",
             json={
                 "content": "Say 'Hello from Claude' in exactly those words.",
                 "allow_commercial_fallback_once": True
             },
-            headers=auth_headers,
-            timeout=120  # Longer timeout for LLM response
+            headers=auth_headers
         )
         
         print(f"Chat with approval response status: {response.status_code}")
@@ -276,22 +274,22 @@ class TestChatCommercialFallbackApproval:
 class TestProviderConfiguration:
     """Test provider configuration including anthropic-universal"""
 
-    @pytest.fixture(scope="class")
-    def auth_token(self):
-        response = requests.post(
-            f"{BASE_URL}/api/auth/login",
+    @pytest.fixture
+    def auth_token(self, client):
+        response = client.post(
+            "/api/auth/login",
             json={"email": ADMIN_EMAIL, "password": ADMIN_PASSWORD}
         )
         assert response.status_code == 200
         return response.json()["access_token"]
 
-    @pytest.fixture(scope="class")
+    @pytest.fixture
     def auth_headers(self, auth_token):
         return {"Authorization": f"Bearer {auth_token}"}
 
-    def test_anthropic_universal_provider_exists(self, auth_headers):
+    def test_anthropic_universal_provider_exists(self, client, auth_headers):
         """GET /api/providers should include anthropic-universal provider"""
-        response = requests.get(f"{BASE_URL}/api/providers", headers=auth_headers)
+        response = client.get("/api/providers", headers=auth_headers)
         assert response.status_code == 200, f"List providers failed: {response.text}"
         
         data = response.json()
@@ -319,9 +317,9 @@ class TestProviderConfiguration:
 class TestHealthEndpoint:
     """Test health endpoint"""
 
-    def test_health_endpoint(self):
+    def test_health_endpoint(self, client):
         """GET /api/health should return ok status"""
-        response = requests.get(f"{BASE_URL}/api/health")
+        response = client.get("/api/health")
         assert response.status_code == 200, f"Health check failed: {response.text}"
         
         data = response.json()
