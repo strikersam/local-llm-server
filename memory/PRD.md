@@ -16,6 +16,14 @@
   - Runtimes: `/app/runtimes/api.py`, `/app/runtimes/control.py`
 
 ## Implemented in This Fork
+### 2026-04-27 — Setup Wizard "Not Found" fix
+- Root cause: `backend/server.py` (the actual running FastAPI app) never mounted `setup_router` or `secrets_router`, so `PUT /api/setup/step/{n}` and `POST /api/secrets/` returned 404.
+- Fix in `backend/server.py`:
+  - Added imports: `from setup import setup_router`, `from secrets_store import secrets_router, get_secrets_store`.
+  - Registered both routers via `app.include_router(setup_router)` and `app.include_router(secrets_router)`.
+  - Initialised `get_secrets_store(db=db)` so secrets persist in MongoDB (instead of the in-memory fallback).
+- Verified with curl: `/api/setup/state`, all 5 `/api/setup/step/{n}`, `/api/setup/complete`, `/api/setup/secret`, and `/api/secrets/` all return 200.
+
 ### 2026-04-27 — CI test pipeline fix
 - Fixed CI failures caused by tests requiring MongoDB and conflicting `/api/auth/login` endpoints between `proxy.app` and `backend/server.py`.
 - `.github/workflows/ci.yml`: added MongoDB 7 service container with health check, set `MONGO_URL`/`DB_NAME`/`ADMIN_EMAIL`/`ADMIN_PASSWORD` env vars for the pytest step.

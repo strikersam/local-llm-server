@@ -53,6 +53,8 @@ from runtimes.api import runtime_router
 from runtimes.manager import get_runtime_manager
 from tasks.api import task_router
 from tasks.store import TaskStore, set_task_store
+from setup import setup_router
+from secrets_store import secrets_router, get_secrets_store
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 log = logging.getLogger("llm-wiki")
@@ -2500,6 +2502,12 @@ async def create_github_pr(
 app.include_router(agent_router)
 app.include_router(runtime_router)
 app.include_router(task_router)
+app.include_router(setup_router)
+app.include_router(secrets_router)
+
+# Initialise the secrets store with our MongoDB handle so it persists to the
+# same database as the rest of the app.
+get_secrets_store(db=db)
 
 # ─── Serve React Frontend (Replit compatibility) ────────────────────────────────
 # Mount the built React app and serve index.html for unknown routes (SPA routing)
