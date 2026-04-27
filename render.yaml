@@ -31,6 +31,28 @@ services:
       - key: OLLAMA_BASE
         sync: false
 
+      # ── Provider fallback chain ────────────────────────────────────────────────
+      - key: HF_TOKEN
+        sync: false # HuggingFace free inference token
+      - key: HF_BASE_URL
+        value: "https://router.huggingface.co"
+      - key: HF_MODEL_ID
+        value: "Qwen/Qwen2.5-Coder-7B-Instruct"
+      - key: DEEPSEEK_API_KEY
+        sync: false # DeepSeek API key (free tier available)
+      - key: DEEPSEEK_BASE_URL
+        value: "https://api.deepseek.com"
+      - key: ANTHROPIC_API_KEY
+        sync: false # Anthropic Claude — last resort commercial fallback
+      - key: ANTHROPIC_BASE_URL
+        value: "https://api.anthropic.com"
+      - key: ANTHROPIC_MODEL
+        value: "claude-3-5-sonnet-latest"
+      - key: OLLAMA_WINDOWS_SERVER
+        sync: false # Windows machine running Ollama (optional)
+      - key: PROVIDER_COOLDOWN_SECONDS
+        value: "60"
+
       # ── Frontend ──────────────────────────────────────────────────────────────
       - key: FRONTEND_URL
         value: https://strikersam.github.io
@@ -43,19 +65,21 @@ services:
 
       # ── Runtime base URLs ─────────────────────────────────────────────────────
       - key: HERMES_BASE_URL
-        sync: false        # e.g. https://hermes.onrender.com
+        sync: false # e.g. https://hermes.onrender.com
       - key: OPENCODE_BASE_URL
-        sync: false        # e.g. https://opencode.onrender.com
+        sync: false # e.g. https://opencode.onrender.com
       - key: GOOSE_BASE_URL
-        sync: false        # e.g. https://goose.onrender.com
+        sync: false # e.g. https://goose.onrender.com
       - key: AIDER_BASE_URL
-        sync: false        # e.g. https://aider.onrender.com
+        sync: false # e.g. https://aider.onrender.com
       - key: OPENHANDS_BASE_URL
-        sync: false        # e.g. https://openhands.onrender.com
+        sync: false # e.g. https://openhands.onrender.com
 
       # ── Runtime routing policy ────────────────────────────────────────────────
       - key: RUNTIME_NEVER_PAID
-        value: "true"
+        value: "false"
+      - key: RUNTIME_REQUIRE_APPROVAL
+        value: "false"
       - key: RUNTIME_MAX_PAID_ESCALATIONS
         value: "0"
       - key: RUNTIME_DEFAULT

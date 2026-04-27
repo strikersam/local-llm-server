@@ -7,21 +7,21 @@ and full streaming support. Exposes both:
   - OpenAI-compatible API (/v1/*)  ← works with Cursor, Continue, Aider, etc.
 """
 
-import hmac
-import os
-import sys
-import json
-import time
-import logging
 import asyncio
 import hashlib
+import hmac
+import json
+import logging
+import os
 import subprocess
+import sys
+import time
 from pathlib import Path
 from urllib.parse import urlsplit
 
-from langfuse_obs import emit_chat_observation
-
 from dotenv import load_dotenv
+
+from langfuse_obs import emit_chat_observation
 
 # Load .env before any config reads (uvicorn does not load .env by default).
 load_dotenv()
@@ -31,12 +31,11 @@ from dataclasses import dataclass
 from typing import AsyncIterator
 
 import httpx
+from fastapi import Depends, FastAPI, Header, HTTPException, Request
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import HTMLResponse, JSONResponse, Response, StreamingResponse
 from motor.motor_asyncio import AsyncIOMotorClient, AsyncIOMotorDatabase
 from pydantic import BaseModel, Field
-from fastapi import FastAPI, HTTPException, Request, Header, Depends
-from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import StreamingResponse, JSONResponse, HTMLResponse
-
 from starlette.middleware.sessions import SessionMiddleware
 
 from admin_auth import AdminAuthManager, AdminIdentity
@@ -45,7 +44,15 @@ from agent.background import BackgroundAgent, BackgroundTask
 from agent.browser import BrowserSession
 from agent.commit_tracker import CommitAttribution, CommitTracker
 from agent.context import ContextCompressor
-from agent.coordinator import AgentCoordinator, AgentSpec, MultiAgentSwarm, TaskSpec, WorkerSpec
+from agent.coordinate import router as coordinate_v2_router
+from agent.coordinator import (
+    AgentCoordinator,
+    AgentSpec,
+    MultiAgentSwarm,
+    TaskSpec,
+    WorkerSpec,
+)
+from agent.github_tools import github_router
 from agent.loop import AgentRunner
 from agent.memory import SessionMemory
 from agent.models import AgentRunRequest, AgentSessionCreateRequest
@@ -61,12 +68,30 @@ from agent.token_budget import BudgetExceededError, TokenBudget
 from agent.user_memory import UserMemoryStore
 from agent.voice import VoiceCommandInterface
 from agent.watchdog import ResourceWatchdog
+from agents.api import agent_router
+from agents.store import get_agent_store, set_agent_store
 from chat_handlers import handle_ollama_native_chat, handle_openai_chat_completions
+from cost_insights import observability_router
+from direct_chat import direct_chat_router
 from handlers.anthropic_compat import handle_anthropic_messages
 from handlers.v3_auth import router as v3_auth_router
 from handlers.v3_models import router as v3_models_router
+from hardware import hardware_router
 from key_store import issue_new_api_key, load_key_store
+from provider_router import ProviderRouter, get_cooldown_state
+
+# v3: Runtime layer and task system
+from runtimes import get_runtime_manager, runtime_router
+from secrets_store import secrets_router
 from service_manager import WindowsServiceManager
+from setup import setup_router
+from social_auth import auth_router
+from social_auth import verify_jwt as verify_social_jwt
+from sync import sync_router
+from tasks import task_router
+from tasks.automation import TaskAutomationService
+from tasks.dispatcher import TaskDispatcher
+from tasks.store import get_task_store, set_task_store
 from webui.config_store import JsonConfigStore
 from webui.providers import ProviderManager
 from webui.router import register_webui
@@ -75,32 +100,21 @@ from workflow import WorkflowEngine, workflow_router
 from workflow.engine import get_engine
 from workflow.ide_bridge import handle_workflow_ide_chat
 
-# v3: Runtime layer and task system
-from runtimes import runtime_router, get_runtime_manager
-from tasks import task_router
-from tasks.automation import TaskAutomationService
-from tasks.dispatcher import TaskDispatcher
-from tasks.store import get_task_store, set_task_store
-from agents.api import agent_router
-from agents.store import get_agent_store, set_agent_store
-from hardware import hardware_router
-from secrets_store import secrets_router
-from social_auth import auth_router, verify_jwt as verify_social_jwt
-from setup import setup_router
-from direct_chat import direct_chat_router
-from cost_insights import observability_router
-from agent.github_tools import github_router
-from sync import sync_router
-
 # ─── Config ────────────────────────────────────────────────────────────────────
 
-OLLAMA_BASE    = os.environ.get("OLLAMA_BASE") or os.environ.get("OLLAMA_BASE_URL") or "http://localhost:11434"
-PROXY_PORT     = int(os.environ.get("PROXY_PORT", "8000"))
-RAW_KEYS       = os.environ.get("API_KEYS", "")
+OLLAMA_BASE = (
+    os.environ.get("OLLAMA_BASE")
+    or os.environ.get("OLLAMA_BASE_URL")
+    or "http://localhost:11434"
+)
+PROXY_PORT = int(os.environ.get("PROXY_PORT", "8000"))
+RAW_KEYS = os.environ.get("API_KEYS", "")
 VALID_API_KEYS = set(k.strip() for k in RAW_KEYS.split(",") if k.strip())
-KEY_STORE      = load_key_store()
-RATE_LIMIT_RPM = int(os.environ.get("RATE_LIMIT_RPM", "60"))   # requests per minute per key
-LOG_LEVEL      = os.environ.get("LOG_LEVEL", "INFO")
+KEY_STORE = load_key_store()
+RATE_LIMIT_RPM = int(
+    os.environ.get("RATE_LIMIT_RPM", "60")
+)  # requests per minute per key
+LOG_LEVEL = os.environ.get("LOG_LEVEL", "INFO")
 
 
 def _strip_quoted_env(name: str) -> str:
@@ -112,25 +126,33 @@ def _strip_quoted_env(name: str) -> str:
 
 
 ADMIN_SECRET = _strip_quoted_env("ADMIN_SECRET")
-WEAK_ADMIN_SECRETS = frozenset({
-    "change-me",
-    "admin",
-    "password",
-    "secret",
-    "your-admin-secret",
-})
+WEAK_ADMIN_SECRETS = frozenset(
+    {
+        "change-me",
+        "admin",
+        "password",
+        "secret",
+        "your-admin-secret",
+    }
+)
 # Comma-separated origins. Safer default is local-only for browser clients.
-_default_cors = "http://localhost,http://127.0.0.1,http://localhost:3000,http://127.0.0.1:3000"
+_default_cors = (
+    "http://localhost,http://127.0.0.1,http://localhost:3000,http://127.0.0.1:3000"
+)
 _raw_cors = os.environ.get("CORS_ORIGINS", _default_cors).strip()
-CORS_ORIGINS = [o.strip() for o in _raw_cors.split(",") if o.strip()] or _default_cors.split(",")
+CORS_ORIGINS = [
+    o.strip() for o in _raw_cors.split(",") if o.strip()
+] or _default_cors.split(",")
 
 # Refuse example / default keys from .env templates (must not be used in production)
-WEAK_API_KEYS = frozenset({
-    "change-me",
-    "your-secret-key-here",
-    "YOUR_API_KEY",
-    "optional-second-key-for-another-device",
-})
+WEAK_API_KEYS = frozenset(
+    {
+        "change-me",
+        "your-secret-key-here",
+        "YOUR_API_KEY",
+        "optional-second-key-for-another-device",
+    }
+)
 
 logging.basicConfig(
     level=getattr(logging, LOG_LEVEL),
@@ -139,7 +161,9 @@ logging.basicConfig(
 log = logging.getLogger("qwen-proxy")
 
 _ollama_host = urlsplit(OLLAMA_BASE).hostname or ""
-if _ollama_host not in ("localhost", "127.0.0.1", "::1") and not _ollama_host.endswith(".local"):
+if _ollama_host not in ("localhost", "127.0.0.1", "::1") and not _ollama_host.endswith(
+    ".local"
+):
     log.warning(
         "OLLAMA_BASE=%r is not a local address — LLM calls will route over the network. "
         "If this is your public tunnel URL (ngrok/cloudflare), the proxy will call itself and fail when the tunnel is offline. "
@@ -183,6 +207,7 @@ SERVICE_MANAGER = WindowsServiceManager(Path(__file__).resolve().parent)
 
 # ─── Auth context ──────────────────────────────────────────────────────────────
 
+
 @dataclass(frozen=True)
 class AuthContext:
     key: str
@@ -191,16 +216,19 @@ class AuthContext:
     key_id: str | None
     source: str  # "store" | "legacy"
 
+
 # ─── Rate limiter (in-memory, per key) ─────────────────────────────────────────
 
 _rate_buckets: dict[str, list[float]] = defaultdict(list)
 _rate_last_sweep = 0.0
+
 
 def _sweep_rate_buckets(now: float, window: float) -> None:
     """Evict keys that have no entries in the current window. Prevents unbounded dict growth."""
     stale = [k for k, ts in _rate_buckets.items() if not ts or now - ts[-1] >= window]
     for k in stale:
         _rate_buckets.pop(k, None)
+
 
 def check_rate_limit(api_key: str) -> None:
     global _rate_last_sweep
@@ -216,15 +244,18 @@ def check_rate_limit(api_key: str) -> None:
     if len(_rate_buckets[api_key]) >= RATE_LIMIT_RPM:
         raise HTTPException(
             status_code=429,
-            detail=f"Rate limit exceeded: {RATE_LIMIT_RPM} req/min. Slow down."
+            detail=f"Rate limit exceeded: {RATE_LIMIT_RPM} req/min. Slow down.",
         )
     _rate_buckets[api_key].append(now)
 
-LOCALHOST_BYPASS_PATHS = frozenset({
-    "/v1/messages",
-    "/v1/chat/completions",
-    "/api/chat",
-})
+
+LOCALHOST_BYPASS_PATHS = frozenset(
+    {
+        "/v1/messages",
+        "/v1/chat/completions",
+        "/api/chat",
+    }
+)
 
 
 def _localhost_auth_bypass_allowed(request: Request) -> bool:
@@ -238,18 +269,19 @@ def _localhost_auth_bypass_allowed(request: Request) -> bool:
 
 # ─── Auth dependency ────────────────────────────────────────────────────────────
 
+
 def verify_api_key(
     request: Request,
     authorization: str | None = Header(default=None),
     x_api_key: str | None = Header(default=None, alias="x-api-key"),
 ) -> AuthContext:
     """Accept API key from: Bearer token, x-api-key header, or ?api_key= query param (for Claude SDK).
-    
+
     For localhost requests, auth is optional (Claude Code runs locally).
     For remote requests, auth is required.
     """
     key = ""
-    
+
     # Try from headers first
     if x_api_key:
         key = x_api_key.strip()
@@ -258,26 +290,33 @@ def verify_api_key(
             key = authorization[7:].strip()
         else:
             key = authorization.strip()
-    
+
     # Claude-code SDK doesn't send headers, check query param as fallback
     if not key:
         api_key_from_query = request.query_params.get("api_key", "").strip()
         if api_key_from_query:
             key = api_key_from_query
-    
+
     # Allow unauthenticated access from localhost (Claude Code runs locally)
     client_host = request.client.host if request.client else ""
     is_localhost = client_host in ("127.0.0.1", "localhost", "::1", "[::1]")
-    
+
     # DEBUG: Log what we received
     if LOG_LEVEL == "DEBUG":
         key_preview = (key[:20] + "...") if key else "EMPTY"
-        log.debug("Auth check: client=%r, is_localhost=%s, key=%r", client_host, is_localhost, key_preview)
+        log.debug(
+            "Auth check: client=%r, is_localhost=%s, key=%r",
+            client_host,
+            is_localhost,
+            key_preview,
+        )
 
     if not key:
         if is_localhost and _localhost_auth_bypass_allowed(request):
             if LOG_LEVEL == "DEBUG":
-                log.debug("Allowing localhost request without auth on approved local-only path")
+                log.debug(
+                    "Allowing localhost request without auth on approved local-only path"
+                )
             return AuthContext(
                 key="localhost-stub",
                 email="localhost",
@@ -345,7 +384,9 @@ def _require_admin(x_admin_secret: str | None, authorization: str | None) -> Non
     got = (x_admin_secret or "").strip()
     if not got and authorization and authorization.startswith("Bearer "):
         got = authorization[7:].strip()
-    if not got or not hmac.compare_digest(got.encode("utf-8"), ADMIN_SECRET.encode("utf-8")):
+    if not got or not hmac.compare_digest(
+        got.encode("utf-8"), ADMIN_SECRET.encode("utf-8")
+    ):
         raise HTTPException(status_code=401, detail="Unauthorized")
 
 
@@ -382,16 +423,21 @@ def _origin_tuple(url: str) -> tuple[str, str, int | None]:
     return scheme, host, port
 
 
-def _provider_headers_for_request(secret: object, request: Request, auth: AuthContext) -> dict[str, str] | None:
+def _provider_headers_for_request(
+    secret: object, request: Request, auth: AuthContext
+) -> dict[str, str] | None:
     api_key = str(getattr(secret, "api_key", "") or "").strip()
     if api_key:
         return {"Authorization": f"Bearer {api_key}"}
 
     secret_base_url = str(getattr(secret, "base_url", "") or "").strip()
-    if secret_base_url and _origin_tuple(secret_base_url) == _origin_tuple(str(request.base_url)):
+    if secret_base_url and _origin_tuple(secret_base_url) == _origin_tuple(
+        str(request.base_url)
+    ):
         return {"Authorization": f"Bearer {auth.key}"}
 
     return None
+
 
 # ─── App ────────────────────────────────────────────────────────────────────────
 
@@ -411,18 +457,26 @@ async def lifespan(app: FastAPI):
         _mongo_db = _mongo_client["local_llm_server"]
         from agents.store import AgentStore
         from tasks.store import TaskStore
+
         agent_store = AgentStore(db=_mongo_db)
         task_store = TaskStore(db=_mongo_db)
         set_agent_store(agent_store)
         set_task_store(task_store)
         log.info("MongoDB connected for agent store persistence")
     except Exception as e:
-        log.warning("MongoDB unavailable for agent store: %s. Using in-memory store.", e)
+        log.warning(
+            "MongoDB unavailable for agent store: %s. Using in-memory store.", e
+        )
 
-    should_register = os.environ.get("REGISTER_RUNTIMES", "").lower() in ("1", "true", "yes")
+    should_register = os.environ.get("REGISTER_RUNTIMES", "").lower() in (
+        "1",
+        "true",
+        "yes",
+    )
     if should_register:
         try:
             from agents.store import AgentDefinition
+
             runtimes = {
                 "hermes": {
                     "name": "Hermes (Executor)",
@@ -455,7 +509,12 @@ async def lifespan(app: FastAPI):
                 "internal_agent": {
                     "name": "Built-in Local Agent",
                     "description": "Uses the internal AgentRunner and Ollama directly",
-                    "task_types": ["code_generation", "refactoring", "debugging", "general"],
+                    "task_types": [
+                        "code_generation",
+                        "refactoring",
+                        "debugging",
+                        "general",
+                    ],
                     "model": os.environ.get("AGENT_PLANNER_MODEL", "gemma4:latest"),
                 },
             }
@@ -484,7 +543,9 @@ async def lifespan(app: FastAPI):
 
     mgr = get_runtime_manager()
     await mgr.start()
-    log.info("RuntimeManager started (%d runtimes registered)", len(mgr._registry.ids()))
+    log.info(
+        "RuntimeManager started (%d runtimes registered)", len(mgr._registry.ids())
+    )
 
     _task_dispatcher = TaskDispatcher(
         workspace_root=str(Path(__file__).resolve().parent),
@@ -525,9 +586,10 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
-# DEBUG: Log all incoming requests with headers  
+# DEBUG: Log all incoming requests with headers
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request as StarletteRequest
+
 
 class DebugHeadersMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: StarletteRequest, call_next):
@@ -536,9 +598,12 @@ class DebugHeadersMiddleware(BaseHTTPMiddleware):
             method = request.method
             auth_header = request.headers.get("authorization", "")
             x_api_key = request.headers.get("x-api-key", "")
-            log.debug(f"{method} {path} | Authorization: {auth_header[:30] if auth_header else 'NONE'}... | x-api-key: {x_api_key[:20] if x_api_key else 'NONE'}...")
+            log.debug(
+                f"{method} {path} | Authorization: {auth_header[:30] if auth_header else 'NONE'}... | x-api-key: {x_api_key[:20] if x_api_key else 'NONE'}..."
+            )
         response = await call_next(request)
         return response
+
 
 if LOG_LEVEL == "DEBUG":
     app.add_middleware(DebugHeadersMiddleware)
@@ -552,6 +617,7 @@ app.add_middleware(
 
 # JWT authentication middleware for v3 dashboard
 from tokens import verify_token
+
 
 class JWTAuthMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: StarletteRequest, call_next):
@@ -579,7 +645,7 @@ class JWTAuthMiddleware(BaseHTTPMiddleware):
                     return await call_next(request)
             except Exception as e:
                 log.debug("JWT Auth failed: %s", e)
-            
+
             # 2. Try Legacy API Keys
             if token in VALID_API_KEYS:
                 log.info("Legacy API Key Auth success")
@@ -590,16 +656,24 @@ class JWTAuthMiddleware(BaseHTTPMiddleware):
                     "role": "admin",
                 }
             else:
-                log.warning("Token not in VALID_API_KEYS. VALID_API_KEYS has %d keys", len(VALID_API_KEYS))
+                log.warning(
+                    "Token not in VALID_API_KEYS. VALID_API_KEYS has %d keys",
+                    len(VALID_API_KEYS),
+                )
 
         response = await call_next(request)
         return response
 
+
 app.add_middleware(JWTAuthMiddleware)
 
 if ADMIN_AUTH.enabled:
-    _session_seed = ADMIN_SECRET or os.environ.get("COMPUTERNAME") or str(Path(__file__).resolve())
-    _session_secret = hashlib.sha256(f"qwen-admin-session:{_session_seed}".encode()).hexdigest()
+    _session_seed = (
+        ADMIN_SECRET or os.environ.get("COMPUTERNAME") or str(Path(__file__).resolve())
+    )
+    _session_secret = hashlib.sha256(
+        f"qwen-admin-session:{_session_seed}".encode()
+    ).hexdigest()
     app.add_middleware(
         SessionMiddleware,
         secret_key=_session_secret,
@@ -609,33 +683,44 @@ if ADMIN_AUTH.enabled:
     )
 
 register_admin_gui(app, KEY_STORE, ADMIN_AUTH, SERVICE_MANAGER)
-AGENT_RUNNER = AgentRunner(ollama_base=OLLAMA_BASE, workspace_root=Path(__file__).resolve().parent)
+AGENT_RUNNER = AgentRunner(
+    ollama_base=OLLAMA_BASE, workspace_root=Path(__file__).resolve().parent
+)
 AGENT_SESSIONS = AgentSessionStore()
 USER_MEMORY = UserMemoryStore()
 
 # ─── Feature singletons ────────────────────────────────────────────────────────
-SESSION_MEMORY    = SessionMemory()
-CTX_COMPRESSOR    = ContextCompressor()
-PERMISSIONS       = AdaptivePermissions()
-TOKEN_BUDGET      = TokenBudget()
-PLAYBOOKS         = PlaybookLibrary()
-SCAFFOLDER        = ProjectScaffolder()
-SKILL_LIBRARY     = SkillLibrary()
-TERMINAL_PANEL    = TerminalPanel()
-COMMIT_TRACKER    = CommitTracker(repo_root=Path(__file__).resolve().parent)
-VOICE_INTERFACE   = VoiceCommandInterface()
-WATCHDOG          = ResourceWatchdog()
-SCHEDULER         = AgentScheduler()
-BACKGROUND_AGENT  = BackgroundAgent()
-COORDINATOR       = AgentCoordinator(ollama_base=OLLAMA_BASE, workspace_root=str(Path(__file__).resolve().parent))
-BROWSER_SESSION   = BrowserSession()
-QUICK_NOTE_QUEUE  = QuickNoteQueue()
+SESSION_MEMORY = SessionMemory()
+CTX_COMPRESSOR = ContextCompressor()
+PERMISSIONS = AdaptivePermissions()
+TOKEN_BUDGET = TokenBudget()
+PLAYBOOKS = PlaybookLibrary()
+SCAFFOLDER = ProjectScaffolder()
+SKILL_LIBRARY = SkillLibrary()
+TERMINAL_PANEL = TerminalPanel()
+COMMIT_TRACKER = CommitTracker(repo_root=Path(__file__).resolve().parent)
+VOICE_INTERFACE = VoiceCommandInterface()
+WATCHDOG = ResourceWatchdog()
+SCHEDULER = AgentScheduler()
+BACKGROUND_AGENT = BackgroundAgent()
+COORDINATOR = AgentCoordinator(
+    ollama_base=OLLAMA_BASE, workspace_root=str(Path(__file__).resolve().parent)
+)
+
+# ─── Provider Router singleton (local-first, free-first fallback chain) ────────
+# Module-level so cooldown state persists across requests in the same process.
+# Priority order: local Ollama → Windows Ollama → HuggingFace → DeepSeek → Anthropic
+PROVIDER_ROUTER = ProviderRouter.from_env()
+BROWSER_SESSION = BrowserSession()
+QUICK_NOTE_QUEUE = QuickNoteQueue()
 TASK_AUTOMATION: TaskAutomationService = TaskAutomationService(store=get_task_store())
 start_processor(QUICK_NOTE_QUEUE, repo_root=Path(__file__).resolve().parent)
 
 WEBUI_STORE = JsonConfigStore()
 WEBUI_PROVIDERS = ProviderManager(WEBUI_STORE)
-WEBUI_WORKSPACES = WorkspaceManager(WEBUI_STORE, default_local_root=Path(__file__).resolve().parent)
+WEBUI_WORKSPACES = WorkspaceManager(
+    WEBUI_STORE, default_local_root=Path(__file__).resolve().parent
+)
 WEBUI_PROVIDERS.ensure_defaults(local_base_url=OLLAMA_BASE)
 WEBUI_WORKSPACES.ensure_defaults()
 register_webui(
@@ -686,7 +771,9 @@ log.info("V3 JWT auth mounted at /api/auth/*")
 
 # ─── v3: Models & Providers (requires V3 JWT token) ────────────────────────────
 app.include_router(v3_models_router)
-log.info("V3 Models & Providers mounted at /api/models/*, /api/providers/*, /api/stats, /api/activity")
+log.info(
+    "V3 Models & Providers mounted at /api/models/*, /api/providers/*, /api/stats, /api/activity"
+)
 
 # ─── v3.1: Social auth (no API key required — OAuth public endpoints) ─────────
 app.include_router(auth_router)
@@ -718,9 +805,13 @@ app.include_router(
 )
 log.info("Workspace sync mounted at /api/sync/*")
 
+# ─── v2: Multi-agent coordinate ───────────────────────────────────────────────
+app.include_router(coordinate_v2_router)
+log.info("Multi-agent coordinate v2 mounted at /v2/agent/coordinate")
 
 
 # ─── Health (no auth) ──────────────────────────────────────────────────────────
+
 
 @app.post("/admin/keys")
 async def admin_create_key(
@@ -731,9 +822,18 @@ async def admin_create_key(
     """Issue a new user API key (requires ADMIN_SECRET). Plain key returned once in JSON."""
     _require_admin(x_admin_secret, authorization)
     if not KEY_STORE.is_configured():
-        raise HTTPException(status_code=503, detail="KEYS_FILE is not set on the server")
-    plain, rec = issue_new_api_key(KEY_STORE, body.email.strip(), body.department.strip())
-    log.info("Admin issued key_id=%s email=%s department=%s", rec.key_id, rec.email, rec.department)
+        raise HTTPException(
+            status_code=503, detail="KEYS_FILE is not set on the server"
+        )
+    plain, rec = issue_new_api_key(
+        KEY_STORE, body.email.strip(), body.department.strip()
+    )
+    log.info(
+        "Admin issued key_id=%s email=%s department=%s",
+        rec.key_id,
+        rec.email,
+        rec.department,
+    )
     return {
         "api_key": plain,
         "key_id": rec.key_id,
@@ -752,7 +852,7 @@ async def admin_login(body: AdminLoginBody):
             status_code=404,
             detail=(
                 "Admin login is not enabled. Set ADMIN_SECRET in your .env file "
-                "to any strong random string (e.g. `python -c \"import secrets; print(secrets.token_urlsafe(32))\"`), restart the proxy, then log in at "
+                'to any strong random string (e.g. `python -c "import secrets; print(secrets.token_urlsafe(32))"`), restart the proxy, then log in at '
                 "/admin/ui/login with any username and that secret as the password."
             ),
         )
@@ -789,7 +889,9 @@ async def admin_logout(
 
 
 @app.get("/admin/api/status")
-async def admin_status(admin: AdminIdentity = Depends(_get_admin_identity_from_request)):
+async def admin_status(
+    admin: AdminIdentity = Depends(_get_admin_identity_from_request),
+):
     status = SERVICE_MANAGER.get_status()
     status["admin"] = {"username": admin.username, "auth_source": admin.auth_source}
     return status
@@ -801,7 +903,9 @@ async def admin_control(
     admin: AdminIdentity = Depends(_get_admin_identity_from_request),
 ):
     try:
-        result = SERVICE_MANAGER.control(body.action, body.target, current_proxy_pid=os.getpid())
+        result = SERVICE_MANAGER.control(
+            body.action, body.target, current_proxy_pid=os.getpid()
+        )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     result["admin"] = {"username": admin.username}
@@ -809,9 +913,13 @@ async def admin_control(
 
 
 @app.get("/admin/api/users")
-async def admin_list_users(admin: AdminIdentity = Depends(_get_admin_identity_from_request)):
+async def admin_list_users(
+    admin: AdminIdentity = Depends(_get_admin_identity_from_request),
+):
     if not KEY_STORE.is_configured():
-        raise HTTPException(status_code=503, detail="KEYS_FILE is not set on the server")
+        raise HTTPException(
+            status_code=503, detail="KEYS_FILE is not set on the server"
+        )
     records = [
         {
             "key_id": rec.key_id,
@@ -821,7 +929,11 @@ async def admin_list_users(admin: AdminIdentity = Depends(_get_admin_identity_fr
         }
         for rec in KEY_STORE.list_records()
     ]
-    return {"records": records, "count": len(records), "admin": {"username": admin.username}}
+    return {
+        "records": records,
+        "count": len(records),
+        "admin": {"username": admin.username},
+    }
 
 
 @app.post("/admin/api/users")
@@ -830,8 +942,12 @@ async def admin_create_user(
     admin: AdminIdentity = Depends(_get_admin_identity_from_request),
 ):
     if not KEY_STORE.is_configured():
-        raise HTTPException(status_code=503, detail="KEYS_FILE is not set on the server")
-    plain, rec = issue_new_api_key(KEY_STORE, body.email.strip(), body.department.strip())
+        raise HTTPException(
+            status_code=503, detail="KEYS_FILE is not set on the server"
+        )
+    plain, rec = issue_new_api_key(
+        KEY_STORE, body.email.strip(), body.department.strip()
+    )
     return {
         "api_key": plain,
         "record": {
@@ -897,13 +1013,62 @@ async def admin_rotate_user(
 
 @app.get("/health")
 async def health():
+    """Multi-provider health snapshot — shows state of all configured LLM providers."""
+    provider_states = []
+    healthy_count = 0
+    cooldowns = get_cooldown_state()
+
+    for provider in sorted(PROVIDER_ROUTER.providers, key=lambda p: p.priority):
+        try:
+            is_healthy = await PROVIDER_ROUTER.health_check(provider)
+        except Exception:
+            is_healthy = False
+        on_cooldown = provider.provider_id in cooldowns
+        if is_healthy:
+            healthy_count += 1
+        provider_states.append(
+            {
+                "provider_id": provider.provider_id,
+                "type": provider.type,
+                "base_url": provider.normalized_base_url,
+                "priority": provider.priority,
+                "healthy": is_healthy,
+                "on_cooldown": on_cooldown,
+                "cooldown_expires_in_s": (
+                    round(
+                        cooldowns[provider.provider_id] - __import__("time").time(), 1
+                    )
+                    if on_cooldown
+                    else None
+                ),
+            }
+        )
+
+    # Also check raw Ollama reachability for backward compatibility
+    ollama_models: list[str] = []
+    ollama_ok = False
     try:
         async with httpx.AsyncClient(timeout=3) as client:
             r = await client.get(f"{OLLAMA_BASE}/api/tags")
-            models = [m["name"] for m in r.json().get("models", [])]
-    except Exception as e:
-        return JSONResponse({"status": "ollama_down", "error": str(e)}, status_code=503)
-    return {"status": "ok", "ollama": OLLAMA_BASE, "models": models}
+            ollama_models = [m["name"] for m in r.json().get("models", [])]
+            ollama_ok = True
+    except Exception:
+        pass
+
+    overall = "healthy" if healthy_count > 0 else "degraded"
+    status_code = 200 if overall == "healthy" else 503
+
+    return JSONResponse(
+        {
+            "status": overall,
+            "ollama": OLLAMA_BASE,
+            "ollama_reachable": ollama_ok,
+            "models": ollama_models,
+            "healthy_provider_count": healthy_count,
+            "providers": provider_states,
+        },
+        status_code=status_code,
+    )
 
 
 @app.get("/live")
@@ -929,6 +1094,113 @@ async def api_health():
     return JSONResponse({"status": "ok", "ollama": OLLAMA_BASE, "models": models})
 
 
+# ─── Agent Chat (provider-failover-aware) ────────────────────────────────────
+
+
+class AgentChatRequest(BaseModel):
+    instruction: str = Field(..., min_length=1, max_length=8000)
+    session_id: str | None = Field(default=None, max_length=128)
+    model: str | None = Field(default=None, max_length=200)
+    max_steps: int = Field(default=10, ge=1, le=50)
+    timeout: float = Field(default=300.0, ge=10.0, le=600.0)
+
+
+@app.post("/agent/chat")
+async def agent_chat(
+    body: AgentChatRequest,
+    auth: AuthContext = Depends(verify_api_key),
+):
+    """
+    Agent chat endpoint with automatic provider failover.
+
+    Routes through the priority chain:
+      1. Local Ollama
+      2. Windows server Ollama
+      3. HuggingFace Free
+      4. DeepSeek
+      5. Anthropic Claude
+
+    Failed providers are placed on cooldown and automatically skipped until recovery.
+    """
+    import uuid as _uuid
+
+    session_id = body.session_id or str(_uuid.uuid4())
+
+    if not PROVIDER_ROUTER.providers:
+        raise HTTPException(status_code=503, detail="No LLM providers configured")
+
+    providers = sorted(PROVIDER_ROUTER.providers, key=lambda p: p.priority)
+    last_error: Exception | None = None
+
+    for provider in providers:
+        # Skip providers on cooldown
+        from provider_router import is_provider_on_cooldown, mark_provider_failed
+
+        if is_provider_on_cooldown(provider.provider_id):
+            log.info(
+                "agent/chat: skipping provider %s (on cooldown)",
+                provider.provider_id,
+            )
+            continue
+
+        try:
+            runner = AgentRunner(
+                ollama_base=provider.normalized_base_url,
+                workspace_root=str(Path(__file__).resolve().parent),
+                provider_headers=provider.auth_headers() if provider.api_key else None,
+                email=auth.email,
+                department=auth.department,
+                key_id=auth.key_id,
+            )
+            log.info(
+                "agent/chat: routing to provider=%s session=%s",
+                provider.provider_id,
+                session_id,
+            )
+            result = await asyncio.wait_for(
+                runner.run(
+                    instruction=body.instruction,
+                    history=[],
+                    requested_model=body.model or provider.default_model,
+                    auto_commit=False,
+                    max_steps=body.max_steps,
+                    user_id=auth.email,
+                    department=auth.department,
+                    key_id=auth.key_id,
+                ),
+                timeout=body.timeout,
+            )
+            return {
+                "session_id": session_id,
+                "status": "success",
+                "provider_used": provider.provider_id,
+                "result": result,
+            }
+        except asyncio.TimeoutError:
+            mark_provider_failed(provider.provider_id)
+            log.warning(
+                "agent/chat: provider %s timed out after %.0fs",
+                provider.provider_id,
+                body.timeout,
+            )
+            last_error = asyncio.TimeoutError(
+                f"Provider {provider.provider_id} timed out"
+            )
+        except Exception as exc:
+            mark_provider_failed(provider.provider_id)
+            log.warning(
+                "agent/chat: provider %s failed: %s",
+                provider.provider_id,
+                exc,
+            )
+            last_error = exc
+
+    raise HTTPException(
+        status_code=503,
+        detail=f"All LLM providers failed or are on cooldown. Last error: {last_error}",
+    )
+
+
 @app.get("/runtimes-ui")
 async def runtimes_ui():
     """Serve the runtimes control panel (start/stop agents)."""
@@ -936,7 +1208,9 @@ async def runtimes_ui():
         with open(Path(__file__).parent / "webui" / "runtimes_page.html") as f:
             return HTMLResponse(content=f.read())
     except FileNotFoundError:
-        return HTMLResponse(content="<h1>Runtimes control panel not found</h1>", status_code=404)
+        return HTMLResponse(
+            content="<h1>Runtimes control panel not found</h1>", status_code=404
+        )
 
 
 @app.post("/agent/sessions")
@@ -945,11 +1219,15 @@ async def create_agent_session(
     auth: AuthContext = Depends(verify_api_key),
 ):
     title = body.title or f"Session for {auth.email}"
-    return AGENT_SESSIONS.create(title=title, provider_id=body.provider_id, workspace_id=body.workspace_id)
+    return AGENT_SESSIONS.create(
+        title=title, provider_id=body.provider_id, workspace_id=body.workspace_id
+    )
 
 
 @app.get("/agent/sessions/{session_id}")
-async def get_agent_session(session_id: str, auth: AuthContext = Depends(verify_api_key)):
+async def get_agent_session(
+    session_id: str, auth: AuthContext = Depends(verify_api_key)
+):
     session = AGENT_SESSIONS.get(session_id)
     if session is None:
         raise HTTPException(status_code=404, detail="Unknown session")
@@ -968,7 +1246,10 @@ async def run_agent_task(
         raise HTTPException(status_code=404, detail="Unknown session")
 
     AGENT_SESSIONS.append_message(session_id, "user", body.instruction)
-    history = [item.model_dump() for item in (AGENT_SESSIONS.get(session_id) or session).history]
+    history = [
+        item.model_dump()
+        for item in (AGENT_SESSIONS.get(session_id) or session).history
+    ]
     try:
         provider_id = body.provider_id or session.provider_id
         workspace_id = body.workspace_id or session.workspace_id
@@ -980,10 +1261,18 @@ async def run_agent_task(
             secret = WEBUI_PROVIDERS.get_secret(provider_id)
             ws = WEBUI_WORKSPACES.get(workspace_id)
             if not secret:
-                raise HTTPException(status_code=404, detail=f"Unknown provider: {provider_id}")
+                raise HTTPException(
+                    status_code=404, detail=f"Unknown provider: {provider_id}"
+                )
             if not ws:
-                raise HTTPException(status_code=404, detail=f"Unknown workspace: {workspace_id}")
-            if requested_model is None and provider_id != "prov_local" and secret.default_model:
+                raise HTTPException(
+                    status_code=404, detail=f"Unknown workspace: {workspace_id}"
+                )
+            if (
+                requested_model is None
+                and provider_id != "prov_local"
+                and secret.default_model
+            ):
                 requested_model = secret.default_model
             runner = AgentRunner(
                 ollama_base=secret.base_url,
@@ -1036,7 +1325,10 @@ async def run_agent_once(
         workspace_id=body.workspace_id,
     )
     AGENT_SESSIONS.append_message(temp.session_id, "user", body.instruction)
-    history = [item.model_dump() for item in (AGENT_SESSIONS.get(temp.session_id) or temp).history]
+    history = [
+        item.model_dump()
+        for item in (AGENT_SESSIONS.get(temp.session_id) or temp).history
+    ]
     try:
         provider_id = body.provider_id
         workspace_id = body.workspace_id
@@ -1048,10 +1340,18 @@ async def run_agent_once(
             secret = WEBUI_PROVIDERS.get_secret(provider_id)
             ws = WEBUI_WORKSPACES.get(workspace_id)
             if not secret:
-                raise HTTPException(status_code=404, detail=f"Unknown provider: {provider_id}")
+                raise HTTPException(
+                    status_code=404, detail=f"Unknown provider: {provider_id}"
+                )
             if not ws:
-                raise HTTPException(status_code=404, detail=f"Unknown workspace: {workspace_id}")
-            if requested_model is None and provider_id != "prov_local" and secret.default_model:
+                raise HTTPException(
+                    status_code=404, detail=f"Unknown workspace: {workspace_id}"
+                )
+            if (
+                requested_model is None
+                and provider_id != "prov_local"
+                and secret.default_model
+            ):
                 requested_model = secret.default_model
             runner = AgentRunner(
                 ollama_base=secret.base_url,
@@ -1093,14 +1393,18 @@ async def run_agent_once(
 
 
 @app.post("/agent/sessions/{session_id}/rollback-last-commit")
-async def rollback_agent_commit(session_id: str, auth: AuthContext = Depends(verify_api_key)):
+async def rollback_agent_commit(
+    session_id: str, auth: AuthContext = Depends(verify_api_key)
+):
     session = AGENT_SESSIONS.get(session_id)
     if session is None:
         raise HTTPException(status_code=404, detail="Unknown session")
     last_result = session.last_result or {}
     commits = last_result.get("commits") or []
     if not commits:
-        raise HTTPException(status_code=400, detail="No agent commit available to roll back")
+        raise HTTPException(
+            status_code=400, detail="No agent commit available to roll back"
+        )
     target = commits[-1]
     cwd = Path(__file__).resolve().parent
     if session.workspace_id:
@@ -1121,9 +1425,15 @@ async def rollback_agent_commit(session_id: str, auth: AuthContext = Depends(ver
             detail=(exc.stderr or exc.stdout or "git revert failed").strip(),
         ) from exc
     AGENT_SESSIONS.append_message(session_id, "system", f"Rolled back commit {target}")
-    return {"status": "ok", "reverted_commit": target, "git_output": proc.stdout.strip()}
+    return {
+        "status": "ok",
+        "reverted_commit": target,
+        "git_output": proc.stdout.strip(),
+    }
+
 
 # ─── Session Memory ───────────────────────────────────────────────────────────
+
 
 @app.post("/agent/memory/{session_id}/snapshot")
 async def memory_snapshot(session_id: str, auth: AuthContext = Depends(verify_api_key)):
@@ -1156,26 +1466,32 @@ async def memory_delete(session_id: str, auth: AuthContext = Depends(verify_api_
 
 # ─── Context Compression ──────────────────────────────────────────────────────
 
+
 class ContextCompressRequest(BaseModel):
     messages: list[dict] = Field(..., min_length=1)
     strategy: str = Field(default="reactive", pattern="^(reactive|micro|inspect)$")
 
 
 @app.post("/agent/context/compress")
-async def context_compress(body: ContextCompressRequest, auth: AuthContext = Depends(verify_api_key)):
+async def context_compress(
+    body: ContextCompressRequest, auth: AuthContext = Depends(verify_api_key)
+):
     compressed = CTX_COMPRESSOR.compress(body.messages, strategy=body.strategy)  # type: ignore[arg-type]
     stats = CTX_COMPRESSOR.inspect(compressed)
     return {"messages": compressed, "stats": stats.as_dict()}
 
 
 @app.post("/agent/context/inspect")
-async def context_inspect(body: ContextCompressRequest, auth: AuthContext = Depends(verify_api_key)):
+async def context_inspect(
+    body: ContextCompressRequest, auth: AuthContext = Depends(verify_api_key)
+):
     stats = CTX_COMPRESSOR.inspect(body.messages)
     needs = CTX_COMPRESSOR.needs_compression(body.messages)
     return {"stats": stats.as_dict(), "needs_compression": needs}
 
 
 # ─── Conversation Surgery ─────────────────────────────────────────────────────
+
 
 class HistorySnipRequest(BaseModel):
     indices: list[int] = Field(..., min_length=1)
@@ -1202,8 +1518,11 @@ async def history_snip(
 
 # ─── Adaptive Permissions ─────────────────────────────────────────────────────
 
+
 @app.get("/agent/sessions/{session_id}/permissions")
-async def session_permissions(session_id: str, auth: AuthContext = Depends(verify_api_key)):
+async def session_permissions(
+    session_id: str, auth: AuthContext = Depends(verify_api_key)
+):
     session = AGENT_SESSIONS.get(session_id)
     if session is None:
         raise HTTPException(status_code=404, detail="Unknown session")
@@ -1214,12 +1533,15 @@ async def session_permissions(session_id: str, auth: AuthContext = Depends(verif
 
 # ─── Token Budget ─────────────────────────────────────────────────────────────
 
+
 class BudgetSetRequest(BaseModel):
     cap: int = Field(..., ge=1)
 
 
 @app.put("/agent/budget/{session_id}")
-async def budget_set(session_id: str, body: BudgetSetRequest, auth: AuthContext = Depends(verify_api_key)):
+async def budget_set(
+    session_id: str, body: BudgetSetRequest, auth: AuthContext = Depends(verify_api_key)
+):
     usage = TOKEN_BUDGET.set_cap(session_id, body.cap)
     return usage.as_dict()
 
@@ -1239,6 +1561,7 @@ async def budget_list(auth: AuthContext = Depends(verify_api_key)):
 
 # ─── Multi-Agent Coordinator ──────────────────────────────────────────────────
 
+
 class CoordinateRequest(BaseModel):
     goal: str = Field(..., min_length=1, max_length=2000)
     workers: list[dict] = Field(default_factory=list, max_length=10)
@@ -1248,7 +1571,9 @@ class CoordinateRequest(BaseModel):
 
 
 @app.post("/agent/coordinate")
-async def coordinate(body: CoordinateRequest, auth: AuthContext = Depends(verify_api_key)):
+async def coordinate(
+    body: CoordinateRequest, auth: AuthContext = Depends(verify_api_key)
+):
     if body.tasks:
         agents = [
             AgentSpec(
@@ -1258,7 +1583,15 @@ async def coordinate(body: CoordinateRequest, auth: AuthContext = Depends(verify
                 model=a.get("model"),
                 max_parallel_tasks=int(a.get("max_parallel_tasks", 1)),
             )
-            for i, a in enumerate(body.agents or [{"agent_id": "default-worker", "capabilities": ["general", "code", "research", "writing"]}])
+            for i, a in enumerate(
+                body.agents
+                or [
+                    {
+                        "agent_id": "default-worker",
+                        "capabilities": ["general", "code", "research", "writing"],
+                    }
+                ]
+            )
         ]
         tasks = [
             TaskSpec(
@@ -1273,7 +1606,9 @@ async def coordinate(body: CoordinateRequest, auth: AuthContext = Depends(verify
             )
             for i, t in enumerate(body.tasks)
         ]
-        swarm = MultiAgentSwarm(ollama_base=OLLAMA_BASE, workspace_root=str(Path(__file__).resolve().parent))
+        swarm = MultiAgentSwarm(
+            ollama_base=OLLAMA_BASE, workspace_root=str(Path(__file__).resolve().parent)
+        )
         result = await swarm.run(
             goal=body.goal,
             agents=agents,
@@ -1286,7 +1621,9 @@ async def coordinate(body: CoordinateRequest, auth: AuthContext = Depends(verify
         return result.as_dict()
 
     if not body.workers:
-        raise HTTPException(status_code=400, detail="Provide either workers or dependency-aware tasks")
+        raise HTTPException(
+            status_code=400, detail="Provide either workers or dependency-aware tasks"
+        )
     specs = [
         WorkerSpec(
             worker_id=w.get("worker_id", f"w{i}"),
@@ -1297,13 +1634,18 @@ async def coordinate(body: CoordinateRequest, auth: AuthContext = Depends(verify
         for i, w in enumerate(body.workers)
     ]
     result = await COORDINATOR.run(
-        body.goal, specs, max_concurrent=body.max_concurrent,
-        email=auth.email, department=auth.department, key_id=auth.key_id
+        body.goal,
+        specs,
+        max_concurrent=body.max_concurrent,
+        email=auth.email,
+        department=auth.department,
+        key_id=auth.key_id,
     )
     return result.as_dict()
 
 
 # ─── Background Agent ─────────────────────────────────────────────────────────
+
 
 class BackgroundTaskRequest(BaseModel):
     kind: str = Field(default="manual", max_length=64)
@@ -1311,7 +1653,9 @@ class BackgroundTaskRequest(BaseModel):
 
 
 @app.post("/agent/background/tasks")
-async def background_submit(body: BackgroundTaskRequest, auth: AuthContext = Depends(verify_api_key)):
+async def background_submit(
+    body: BackgroundTaskRequest, auth: AuthContext = Depends(verify_api_key)
+):
     task = BACKGROUND_AGENT.create_and_submit(kind=body.kind, payload=body.payload)
     return task.as_dict()
 
@@ -1335,6 +1679,7 @@ async def background_get(task_id: str, auth: AuthContext = Depends(verify_api_ke
 
 # ─── Scheduled Jobs ───────────────────────────────────────────────────────────
 
+
 class ScheduleJobRequest(BaseModel):
     name: str = Field(..., min_length=1, max_length=200)
     cron: str = Field(..., min_length=9, max_length=100)
@@ -1348,7 +1693,9 @@ class ScheduleJobRequest(BaseModel):
 
 
 @app.post("/agent/scheduler/jobs")
-async def scheduler_create(body: ScheduleJobRequest, auth: AuthContext = Depends(verify_api_key)):
+async def scheduler_create(
+    body: ScheduleJobRequest, auth: AuthContext = Depends(verify_api_key)
+):
     job = SCHEDULER.create(
         name=body.name,
         cron=body.cron,
@@ -1393,6 +1740,7 @@ async def scheduler_delete(job_id: str, auth: AuthContext = Depends(verify_api_k
 
 # ─── Automation Playbooks ─────────────────────────────────────────────────────
 
+
 class PlaybookRegisterRequest(BaseModel):
     name: str = Field(..., min_length=1, max_length=200)
     description: str = Field(default="", max_length=1000)
@@ -1401,7 +1749,9 @@ class PlaybookRegisterRequest(BaseModel):
 
 
 @app.post("/agent/playbooks")
-async def playbook_register(body: PlaybookRegisterRequest, auth: AuthContext = Depends(verify_api_key)):
+async def playbook_register(
+    body: PlaybookRegisterRequest, auth: AuthContext = Depends(verify_api_key)
+):
     pb = PLAYBOOKS.register(
         name=body.name,
         description=body.description,
@@ -1412,7 +1762,9 @@ async def playbook_register(body: PlaybookRegisterRequest, auth: AuthContext = D
 
 
 @app.get("/agent/playbooks")
-async def playbook_list(tag: str | None = None, auth: AuthContext = Depends(verify_api_key)):
+async def playbook_list(
+    tag: str | None = None, auth: AuthContext = Depends(verify_api_key)
+):
     return {"playbooks": [p.as_dict() for p in PLAYBOOKS.list(tag=tag)]}
 
 
@@ -1425,7 +1777,9 @@ async def playbook_get(playbook_id: str, auth: AuthContext = Depends(verify_api_
 
 
 @app.delete("/agent/playbooks/{playbook_id}")
-async def playbook_delete(playbook_id: str, auth: AuthContext = Depends(verify_api_key)):
+async def playbook_delete(
+    playbook_id: str, auth: AuthContext = Depends(verify_api_key)
+):
     deleted = PLAYBOOKS.delete(playbook_id)
     return {"deleted": deleted}
 
@@ -1453,7 +1807,10 @@ async def playbook_run(playbook_id: str, auth: AuthContext = Depends(verify_api_
             created_task_ids.append(task.task_id)
         PLAYBOOKS.finish_run(
             run.run_id,
-            step_results=[{"step_id": step.step_id, "task_id": task_id} for step, task_id in zip(playbook.steps, created_task_ids)],
+            step_results=[
+                {"step_id": step.step_id, "task_id": task_id}
+                for step, task_id in zip(playbook.steps, created_task_ids)
+            ],
             created_task_ids=created_task_ids,
             status="running",
         )
@@ -1468,6 +1825,7 @@ async def playbook_runs(playbook_id: str, auth: AuthContext = Depends(verify_api
 
 # ─── Resource Watchdog ────────────────────────────────────────────────────────
 
+
 class WatchRequest(BaseModel):
     name: str = Field(..., min_length=1, max_length=200)
     kind: str = Field(..., pattern="^(url|file)$")
@@ -1477,7 +1835,9 @@ class WatchRequest(BaseModel):
 
 @app.post("/agent/watchdog/resources")
 async def watchdog_add(body: WatchRequest, auth: AuthContext = Depends(verify_api_key)):
-    resource = WATCHDOG.watch(name=body.name, kind=body.kind, target=body.target, action=body.action)
+    resource = WATCHDOG.watch(
+        name=body.name, kind=body.kind, target=body.target, action=body.action
+    )
     return resource.as_dict()
 
 
@@ -1487,7 +1847,9 @@ async def watchdog_list(auth: AuthContext = Depends(verify_api_key)):
 
 
 @app.delete("/agent/watchdog/resources/{resource_id}")
-async def watchdog_remove(resource_id: str, auth: AuthContext = Depends(verify_api_key)):
+async def watchdog_remove(
+    resource_id: str, auth: AuthContext = Depends(verify_api_key)
+):
     removed = WATCHDOG.unwatch(resource_id)
     return {"removed": removed}
 
@@ -1499,6 +1861,7 @@ async def watchdog_check(resource_id: str, auth: AuthContext = Depends(verify_ap
 
 
 # ─── Project Scaffolding ──────────────────────────────────────────────────────
+
 
 class ScaffoldRequest(BaseModel):
     template: str = Field(..., min_length=1, max_length=200)
@@ -1512,12 +1875,15 @@ async def scaffolding_list(auth: AuthContext = Depends(verify_api_key)):
 
 
 @app.post("/agent/scaffolding/apply")
-async def scaffolding_apply(body: ScaffoldRequest, auth: AuthContext = Depends(verify_api_key)):
+async def scaffolding_apply(
+    body: ScaffoldRequest, auth: AuthContext = Depends(verify_api_key)
+):
     result = SCAFFOLDER.apply(body.template, body.target_dir, overwrite=body.overwrite)
     return result.as_dict()
 
 
 # ─── Skill Library ────────────────────────────────────────────────────────────
+
 
 class MpcSkillRequest(BaseModel):
     name: str = Field(..., min_length=1, max_length=200)
@@ -1527,7 +1893,9 @@ class MpcSkillRequest(BaseModel):
 
 
 @app.get("/agent/skills")
-async def skills_list(source: str | None = None, auth: AuthContext = Depends(verify_api_key)):
+async def skills_list(
+    source: str | None = None, auth: AuthContext = Depends(verify_api_key)
+):
     return {"skills": [s.as_dict() for s in SKILL_LIBRARY.list(source=source)]}
 
 
@@ -1537,7 +1905,9 @@ async def skills_search(q: str, auth: AuthContext = Depends(verify_api_key)):
 
 
 @app.post("/agent/skills/mcp")
-async def skills_register_mcp(body: MpcSkillRequest, auth: AuthContext = Depends(verify_api_key)):
+async def skills_register_mcp(
+    body: MpcSkillRequest, auth: AuthContext = Depends(verify_api_key)
+):
     skill = SKILL_LIBRARY.register_mcp(
         name=body.name,
         description=body.description,
@@ -1549,6 +1919,7 @@ async def skills_register_mcp(body: MpcSkillRequest, auth: AuthContext = Depends
 
 # ─── AI Commit Tracking ───────────────────────────────────────────────────────
 
+
 @app.get("/agent/commits")
 async def commit_log(limit: int = 10, auth: AuthContext = Depends(verify_api_key)):
     entries = COMMIT_TRACKER.log(limit=min(limit, 100))
@@ -1556,6 +1927,7 @@ async def commit_log(limit: int = 10, auth: AuthContext = Depends(verify_api_key
 
 
 # ─── Terminal Panel ───────────────────────────────────────────────────────────
+
 
 @app.get("/agent/terminal/snapshot")
 async def terminal_snapshot(auth: AuthContext = Depends(verify_api_key)):
@@ -1569,14 +1941,19 @@ class TerminalRunRequest(BaseModel):
 
 
 @app.post("/agent/terminal/run")
-async def terminal_run(body: TerminalRunRequest, auth: AuthContext = Depends(verify_api_key)):
+async def terminal_run(
+    body: TerminalRunRequest, auth: AuthContext = Depends(verify_api_key)
+):
     return TERMINAL_PANEL.run_and_capture(body.command, timeout=body.timeout)
 
 
 # ─── Browser Automation ───────────────────────────────────────────────────────
 
+
 class BrowserActionRequest(BaseModel):
-    action: str = Field(..., pattern="^(navigate|click|fill|screenshot|evaluate|get_state)$")
+    action: str = Field(
+        ..., pattern="^(navigate|click|fill|screenshot|evaluate|get_state)$"
+    )
     url: str | None = None
     selector: str | None = None
     value: str | None = None
@@ -1585,9 +1962,14 @@ class BrowserActionRequest(BaseModel):
 
 
 @app.post("/agent/browser/action")
-async def browser_action(body: BrowserActionRequest, auth: AuthContext = Depends(verify_api_key)):
+async def browser_action(
+    body: BrowserActionRequest, auth: AuthContext = Depends(verify_api_key)
+):
     if not BROWSER_SESSION.available:
-        return {"available": False, "hint": "pip install playwright && playwright install chromium"}
+        return {
+            "available": False,
+            "hint": "pip install playwright && playwright install chromium",
+        }
     if body.action == "navigate" and body.url:
         result = await BROWSER_SESSION.navigate(body.url)
     elif body.action == "click" and body.selector:
@@ -1600,9 +1982,15 @@ async def browser_action(body: BrowserActionRequest, auth: AuthContext = Depends
         result = await BROWSER_SESSION.evaluate(body.expression)
     elif body.action == "get_state":
         state = await BROWSER_SESSION.get_state()
-        return state.as_dict() if state else {"url": None, "title": None, "content_preview": ""}
+        return (
+            state.as_dict()
+            if state
+            else {"url": None, "title": None, "content_preview": ""}
+        )
     else:
-        raise HTTPException(status_code=400, detail="Invalid action or missing required parameters")
+        raise HTTPException(
+            status_code=400, detail="Invalid action or missing required parameters"
+        )
     return result.as_dict()
 
 
@@ -1620,6 +2008,7 @@ async def browser_stop(auth: AuthContext = Depends(verify_api_key)):
 
 # ─── Voice Commands ───────────────────────────────────────────────────────────
 
+
 class VoiceTranscribeRequest(BaseModel):
     audio_b64: str = Field(..., description="Base64-encoded raw PCM audio bytes")
     duration_hint_s: float = Field(default=5.0, ge=0.1, le=60.0)
@@ -1634,8 +2023,11 @@ async def voice_status(auth: AuthContext = Depends(verify_api_key)):
 
 
 @app.post("/agent/voice/transcribe")
-async def voice_transcribe(body: VoiceTranscribeRequest, auth: AuthContext = Depends(verify_api_key)):
+async def voice_transcribe(
+    body: VoiceTranscribeRequest, auth: AuthContext = Depends(verify_api_key)
+):
     import base64
+
     try:
         audio_bytes = base64.b64decode(body.audio_b64)
     except Exception:
@@ -1646,7 +2038,10 @@ async def voice_transcribe(body: VoiceTranscribeRequest, auth: AuthContext = Dep
 
 # ─── Streaming proxy helper ─────────────────────────────────────────────────────
 
-async def stream_response(url: str, method: str, headers: dict, body: bytes) -> AsyncIterator[bytes]:
+
+async def stream_response(
+    url: str, method: str, headers: dict, body: bytes
+) -> AsyncIterator[bytes]:
     async with httpx.AsyncClient(timeout=httpx.Timeout(300.0, connect=10.0)) as client:
         async with client.stream(method, url, content=body, headers=headers) as resp:
             if resp.status_code >= 400:
@@ -1656,7 +2051,10 @@ async def stream_response(url: str, method: str, headers: dict, body: bytes) -> 
             async for chunk in resp.aiter_bytes(chunk_size=512):
                 yield chunk
 
-async def proxy_request(request: Request, target_path: str, auth: AuthContext | None = None):
+
+async def proxy_request(
+    request: Request, target_path: str, auth: AuthContext | None = None
+):
     body = await request.body()
     content_type = request.headers.get("content-type", "application/json")
 
@@ -1682,30 +2080,36 @@ async def proxy_request(request: Request, target_path: str, auth: AuthContext | 
             headers={"X-Accel-Buffering": "no", "Cache-Control": "no-cache"},
         )
     else:
-        async with httpx.AsyncClient(timeout=httpx.Timeout(300.0, connect=10.0)) as client:
+        async with httpx.AsyncClient(
+            timeout=httpx.Timeout(300.0, connect=10.0)
+        ) as client:
             resp = await client.request(
                 method=request.method,
                 url=target_url,
                 content=body,
                 headers=forward_headers,
             )
-        
+
         duration_ms = int((time.perf_counter() - start_time) * 1000)
         response_content_type = resp.headers.get("content-type", "")
         is_json_response = response_content_type.startswith("application/json")
         data = resp.json() if is_json_response else resp.content
 
         # Track legacy generation/completion usage
-        if auth and target_path in ("api/generate", "v1/completions") and request.method == "POST":
+        if (
+            auth
+            and target_path in ("api/generate", "v1/completions")
+            and request.method == "POST"
+        ):
             try:
                 payload = json.loads(body)
                 model = payload.get("model", "unknown")
                 prompt = payload.get("prompt", "")
-                
+
                 out_text = ""
                 pt = 0
                 ct = 0
-                
+
                 if target_path == "api/generate" and isinstance(data, dict):
                     out_text = data.get("response", "")
                     pt = int(data.get("prompt_eval_count") or 0)
@@ -1717,7 +2121,7 @@ async def proxy_request(request: Request, target_path: str, auth: AuthContext | 
                     usage = data.get("usage", {})
                     pt = int(usage.get("prompt_tokens") or 0)
                     ct = int(usage.get("completion_tokens") or 0)
-                
+
                 if out_text:
                     await asyncio.to_thread(
                         emit_chat_observation,
@@ -1725,7 +2129,9 @@ async def proxy_request(request: Request, target_path: str, auth: AuthContext | 
                         department=auth.department,
                         key_id=auth.key_id,
                         model=model,
-                        messages=[{"role": "user", "content": prompt}] if isinstance(prompt, str) else prompt,
+                        messages=[{"role": "user", "content": prompt}]
+                        if isinstance(prompt, str)
+                        else prompt,
                         output_text=out_text,
                         prompt_tokens=pt,
                         completion_tokens=ct,
@@ -1751,11 +2157,15 @@ async def proxy_request(request: Request, target_path: str, auth: AuthContext | 
             headers=passthrough_headers,
         )
 
+
 # ─── Anthropic Messages API (/v1/messages) ─────────────────────────────────────
 # Enables Claude Code CLI (set ANTHROPIC_BASE_URL=https://your-tunnel-url)
 
+
 @app.post("/v1/messages")
-async def anthropic_messages(request: Request, auth: AuthContext = Depends(verify_api_key)):
+async def anthropic_messages(
+    request: Request, auth: AuthContext = Depends(verify_api_key)
+):
     """Anthropic Messages API — translates to Ollama OpenAI-compat internally."""
     return await handle_anthropic_messages(
         request=request,
@@ -1770,6 +2180,7 @@ async def anthropic_messages(request: Request, auth: AuthContext = Depends(verif
 async def list_models_openai(auth: AuthContext = Depends(verify_api_key)):
     """List available models — union of live Ollama models and the router registry."""
     from router.registry import get_registry
+
     try:
         async with httpx.AsyncClient(timeout=5) as client:
             r = await client.get(f"{OLLAMA_BASE}/api/tags")
@@ -1782,8 +2193,7 @@ async def list_models_openai(auth: AuthContext = Depends(verify_api_key)):
 
     # Models known to Ollama
     local_entries = [
-        {"id": name, "object": "model", "owned_by": "ollama"}
-        for name in ollama_models
+        {"id": name, "object": "model", "owned_by": "ollama"} for name in ollama_models
     ]
     # Registry models not already reported by Ollama (e.g. not yet pulled)
     registry_only = [
@@ -1796,8 +2206,11 @@ async def list_models_openai(auth: AuthContext = Depends(verify_api_key)):
 
 # ─── Ollama native routes (/api/*) ─────────────────────────────────────────────
 
+
 @app.api_route("/api/{path:path}", methods=["GET", "POST", "PUT", "DELETE"])
-async def ollama_api(path: str, request: Request, auth: AuthContext = Depends(verify_api_key)):
+async def ollama_api(
+    path: str, request: Request, auth: AuthContext = Depends(verify_api_key)
+):
     if path == "chat" and request.method == "POST":
         return await handle_ollama_native_chat(
             request=request,
@@ -1808,8 +2221,10 @@ async def ollama_api(path: str, request: Request, auth: AuthContext = Depends(ve
         )
     return await proxy_request(request, f"api/{path}", auth=auth)
 
+
 # ─── OpenAI-compatible routes (/v1/*) ──────────────────────────────────────────
 # Ollama natively serves OpenAI-compatible endpoints at /v1/*
+
 
 @app.post("/v1/workflow/chat")
 async def workflow_ide_chat(
@@ -1840,7 +2255,9 @@ async def workflow_ide_chat(
 
 
 @app.api_route("/v1/{path:path}", methods=["GET", "POST", "PUT", "DELETE"])
-async def openai_compat(path: str, request: Request, auth: AuthContext = Depends(verify_api_key)):
+async def openai_compat(
+    path: str, request: Request, auth: AuthContext = Depends(verify_api_key)
+):
     # /v1/models: inject crispy-workflow into the model list so IDEs can see it.
     if path == "models" and request.method == "GET":
         try:
@@ -1852,16 +2269,19 @@ async def openai_compat(path: str, request: Request, auth: AuthContext = Depends
         # Inject the crispy-workflow pseudo-model
         existing_ids = {m.get("id", "") for m in data.get("data", [])}
         if "crispy-workflow" not in existing_ids:
-            data.setdefault("data", []).insert(0, {
-                "id": "crispy-workflow",
-                "object": "model",
-                "created": int(time.time()),
-                "owned_by": "crispy-engine",
-                "description": (
-                    "CRISPY deterministic workflow engine. "
-                    "Use @build, @workflow, or /crispy prefix to trigger a build workflow."
-                ),
-            })
+            data.setdefault("data", []).insert(
+                0,
+                {
+                    "id": "crispy-workflow",
+                    "object": "model",
+                    "created": int(time.time()),
+                    "owned_by": "crispy-engine",
+                    "description": (
+                        "CRISPY deterministic workflow engine. "
+                        "Use @build, @workflow, or /crispy prefix to trigger a build workflow."
+                    ),
+                },
+            )
         return JSONResponse(content=data)
     if path == "chat/completions" and request.method == "POST":
         body_bytes = await request.body()
@@ -1891,10 +2311,18 @@ async def openai_compat(path: str, request: Request, auth: AuthContext = Depends
         )
     return await proxy_request(request, f"v1/{path}", auth=auth)
 
+
 # ─── Entry point ────────────────────────────────────────────────────────────────
 
 if __name__ == "__main__":
     import uvicorn
+
     log.info("Starting LLM Relay Control Plane v3 on port %d", PROXY_PORT)
-    log.info("Loaded %d env API key(s), %d key-store key(s)", len(VALID_API_KEYS), len(KEY_STORE))
-    uvicorn.run("proxy:app", host="0.0.0.0", port=PROXY_PORT, log_level=LOG_LEVEL.lower())
+    log.info(
+        "Loaded %d env API key(s), %d key-store key(s)",
+        len(VALID_API_KEYS),
+        len(KEY_STORE),
+    )
+    uvicorn.run(
+        "proxy:app", host="0.0.0.0", port=PROXY_PORT, log_level=LOG_LEVEL.lower()
+    )

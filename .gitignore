@@ -18,6 +18,7 @@ venv/
 
 # Log files
 *.log
+/**/*.js
 frontend/frontend.log
 proxy.log
 

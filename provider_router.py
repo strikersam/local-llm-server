@@ -14,6 +14,45 @@ import httpx
 
 log = logging.getLogger("llm-provider-router")
 
+# ── Cross-request provider cooldowns ──────────────────────────────────────────
+# These are module-level so cooldown state persists across ProviderRouter
+# instances within the same process.
+_provider_cooldowns: dict[str, float] = {}
+_DEFAULT_COOLDOWN_SECONDS: int = int(os.environ.get("PROVIDER_COOLDOWN_SECONDS", "60"))
+
+
+def mark_provider_failed(provider_id: str, cooldown_seconds: int | None = None) -> None:
+    """Put provider_id on cooldown for *cooldown_seconds* (default: PROVIDER_COOLDOWN_SECONDS)."""
+    secs = (
+        cooldown_seconds if cooldown_seconds is not None else _DEFAULT_COOLDOWN_SECONDS
+    )
+    _provider_cooldowns[provider_id] = time.time() + secs
+    log.warning("Provider %s placed on cooldown for %ds", provider_id, secs)
+
+
+def is_provider_on_cooldown(provider_id: str) -> bool:
+    """Return True if provider_id is currently on cooldown."""
+    until = _provider_cooldowns.get(provider_id)
+    if until is None:
+        return False
+    if time.time() >= until:
+        _provider_cooldowns.pop(provider_id, None)
+        return False
+    return True
+
+
+def get_cooldown_state() -> dict[str, float]:
+    """Return a snapshot of active cooldowns {provider_id: expiry_unix_timestamp}."""
+    now = time.time()
+    return {
+        pid: until for pid, until in list(_provider_cooldowns.items()) if until > now
+    }
+
+
+def clear_cooldowns() -> None:
+    """Clear all cooldown entries (useful for testing)."""
+    _provider_cooldowns.clear()
+
 
 @dataclass(frozen=True)
 class ProviderConfig:
@@ -32,10 +71,16 @@ class ProviderConfig:
     def auth_headers(self) -> dict[str, str]:
         headers = {"Content-Type": "application/json", **self.headers}
         lower_header_names = {k.lower() for k in headers}
-        if self.api_key and "authorization" not in lower_header_names and "x-api-key" not in lower_header_names:
+        if (
+            self.api_key
+            and "authorization" not in lower_header_names
+            and "x-api-key" not in lower_header_names
+        ):
             if self.type == "anthropic":
                 headers["x-api-key"] = self.api_key
-                headers["anthropic-version"] = os.environ.get("ANTHROPIC_VERSION", "2023-06-01")
+                headers["anthropic-version"] = os.environ.get(
+                    "ANTHROPIC_VERSION", "2023-06-01"
+                )
             else:
                 headers["Authorization"] = f"Bearer {self.api_key}"
         return headers
@@ -70,9 +115,13 @@ class ProviderResult:
 class ProviderFallbackError(RuntimeError):
     def __init__(self, attempts: list[ProviderAttempt]) -> None:
         self.attempts = attempts
-        summary = "; ".join(
-            f"{a.provider_id}/{a.model}: {a.status_code or a.error}" for a in attempts[-5:]
-        ) or "no providers attempted"
+        summary = (
+            "; ".join(
+                f"{a.provider_id}/{a.model}: {a.status_code or a.error}"
+                for a in attempts[-5:]
+            )
+            or "no providers attempted"
+        )
         super().__init__(f"All configured LLM providers failed ({summary})")
 
 
@@ -142,30 +191,48 @@ _KNOWN_FREE_HOSTS = (
 )
 
 
-def _provider_field(provider: ProviderConfig | dict[str, Any], field_name: str, default: Any = "") -> Any:
+def _provider_field(
+    provider: ProviderConfig | dict[str, Any], field_name: str, default: Any = ""
+) -> Any:
     if isinstance(provider, dict):
         return provider.get(field_name, default)
     return getattr(provider, field_name, default)
 
 
 def provider_access_tier(provider: ProviderConfig | dict[str, Any]) -> str:
-    provider_id = str(_provider_field(provider, "provider_id", "") or "").strip().lower()
+    provider_id = (
+        str(_provider_field(provider, "provider_id", "") or "").strip().lower()
+    )
     provider_type = str(_provider_field(provider, "type", "") or "").strip().lower()
     base_url = str(_provider_field(provider, "base_url", "") or "").strip().lower()
     hostname = (urlparse(base_url).hostname or "").lower()
     name = str(_provider_field(provider, "name", "") or "").strip().lower()
 
-    if provider_id in _COMMERCIAL_PROVIDER_IDS or any(host in hostname for host in _KNOWN_COMMERCIAL_HOSTS):
+    if provider_id in _COMMERCIAL_PROVIDER_IDS or any(
+        host in hostname for host in _KNOWN_COMMERCIAL_HOSTS
+    ):
         return "commercial"
     if provider_type.startswith("emergent-"):
         return "commercial"
-    if provider_id in _FREE_CLOUD_PROVIDER_IDS or any(host in hostname for host in _KNOWN_FREE_HOSTS):
+    if provider_id in _FREE_CLOUD_PROVIDER_IDS or any(
+        host in hostname for host in _KNOWN_FREE_HOSTS
+    ):
         return "free_cloud"
     if provider_type == "anthropic":
         return "commercial"
-    if provider_type == "ollama" and hostname in {"localhost", "127.0.0.1", "ollama", "host.docker.internal", "::1"}:
+    if provider_type == "ollama" and hostname in {
+        "localhost",
+        "127.0.0.1",
+        "ollama",
+        "host.docker.internal",
+        "::1",
+    }:
         return "local"
-    if hostname.startswith("192.168.") or hostname.startswith("10.") or hostname.startswith("172."):
+    if (
+        hostname.startswith("192.168.")
+        or hostname.startswith("10.")
+        or hostname.startswith("172.")
+    ):
         return "windows_server"
     if any(token in hostname for token in ("ngrok", "cloudflare", "trycloudflare")):
         return "windows_server"
@@ -182,7 +249,9 @@ def is_commercial_provider(provider: ProviderConfig | dict[str, Any]) -> bool:
     return provider_access_tier(provider) == "commercial"
 
 
-def provider_sort_key(provider: ProviderConfig | dict[str, Any]) -> tuple[int, int, str]:
+def provider_sort_key(
+    provider: ProviderConfig | dict[str, Any],
+) -> tuple[int, int, str]:
     tier_order = {
         "local": 0,
         "windows_server": 1,
@@ -208,7 +277,9 @@ class ProviderRouter:
         self.providers = unique
 
     @classmethod
-    def from_env(cls, primary_provider: ProviderConfig | None = None) -> "ProviderRouter":
+    def from_env(
+        cls, primary_provider: ProviderConfig | None = None
+    ) -> "ProviderRouter":
         providers: list[ProviderConfig] = []
         if primary_provider:
             providers.append(primary_provider)
@@ -217,9 +288,31 @@ class ProviderRouter:
                 ProviderConfig(
                     provider_id="ollama-local",
                     type="ollama",
-                    base_url=os.environ.get("OLLAMA_BASE") or os.environ.get("OLLAMA_BASE_URL") or "http://localhost:11434",
-                    default_model=os.environ.get("OLLAMA_MODEL") or os.environ.get("AGENT_EXECUTOR_MODEL") or "qwen3-coder:30b",
+                    base_url=os.environ.get("OLLAMA_BASE")
+                    or os.environ.get("OLLAMA_BASE_URL")
+                    or "http://localhost:11434",
+                    default_model=os.environ.get("OLLAMA_MODEL")
+                    or os.environ.get("AGENT_EXECUTOR_MODEL")
+                    or "qwen3-coder:30b",
                     priority=0,
+                )
+            )
+
+        windows_base = (
+            (os.environ.get("OLLAMA_WINDOWS_SERVER") or "").strip().rstrip("/")
+        )
+        if windows_base:
+            providers.append(
+                ProviderConfig(
+                    provider_id="ollama-windows-server",
+                    type="ollama",
+                    base_url=windows_base,
+                    default_model=(
+                        os.environ.get("OLLAMA_WINDOWS_MODEL")
+                        or os.environ.get("OLLAMA_MODEL")
+                        or "llama3.2"
+                    ),
+                    priority=5,
                 )
             )
 
@@ -232,7 +325,8 @@ class ProviderRouter:
                     type="openai-compatible",
                     base_url=hf_base,
                     api_key=hf_key,
-                    default_model=os.environ.get("HF_MODEL_ID") or "Qwen/Qwen2.5-Coder-7B-Instruct",
+                    default_model=os.environ.get("HF_MODEL_ID")
+                    or "Qwen/Qwen2.5-Coder-7B-Instruct",
                     priority=20,
                 )
             )
@@ -246,7 +340,8 @@ class ProviderRouter:
                     type="openai-compatible",
                     base_url=openrouter_base,
                     api_key=openrouter_key,
-                    default_model=os.environ.get("OPENROUTER_MODEL") or "qwen/qwen3-235b-a22b",
+                    default_model=os.environ.get("OPENROUTER_MODEL")
+                    or "qwen/qwen3-235b-a22b",
                     priority=30,
                 )
             )
@@ -274,7 +369,8 @@ class ProviderRouter:
                     type="anthropic",
                     base_url=anthropic_base,
                     api_key=anthropic_key,
-                    default_model=os.environ.get("ANTHROPIC_MODEL") or "claude-sonnet-4-5",
+                    default_model=os.environ.get("ANTHROPIC_MODEL")
+                    or "claude-sonnet-4-5",
                     priority=50,
                 )
             )
@@ -287,7 +383,8 @@ class ProviderRouter:
                     type="emergent-anthropic",
                     base_url="emergent://anthropic",
                     api_key=emergent_key,
-                    default_model=os.environ.get("EMERGENT_ANTHROPIC_MODEL") or "claude-sonnet-4-5-20250929",
+                    default_model=os.environ.get("EMERGENT_ANTHROPIC_MODEL")
+                    or "claude-sonnet-4-5-20250929",
                     priority=60,
                 )
             )
@@ -333,7 +430,9 @@ class ProviderRouter:
 
     async def health_check(self, provider: ProviderConfig) -> bool:
         try:
-            async with httpx.AsyncClient(timeout=httpx.Timeout(10.0, connect=5.0)) as client:
+            async with httpx.AsyncClient(
+                timeout=httpx.Timeout(10.0, connect=5.0)
+            ) as client:
                 if provider.type.startswith("emergent-"):
                     return bool(provider.api_key)
                 if provider.type == "ollama":
@@ -344,10 +443,15 @@ class ProviderRouter:
                         headers=provider.auth_headers(),
                     )
                 else:
-                    resp = await client.get(_openai_url(provider.normalized_base_url, "/models"), headers=provider.auth_headers())
+                    resp = await client.get(
+                        _openai_url(provider.normalized_base_url, "/models"),
+                        headers=provider.auth_headers(),
+                    )
             return resp.status_code < 500 and resp.status_code not in (401, 403)
         except Exception as exc:
-            log.debug("Provider health check failed for %s: %s", provider.provider_id, exc)
+            log.debug(
+                "Provider health check failed for %s: %s", provider.provider_id, exc
+            )
             return False
 
     async def chat_completion(
@@ -365,10 +469,24 @@ class ProviderRouter:
 
         original_model = str(payload.get("model") or "").strip()
         for provider_index, provider in enumerate(self.providers):
-            if provider_index > 0 and is_commercial_provider(provider) and not allow_commercial_fallback:
+            # Skip providers that are currently on cooldown
+            if is_provider_on_cooldown(provider.provider_id):
+                log.info(
+                    "Skipping provider %s (on cooldown, expires %.0fs from now)",
+                    provider.provider_id,
+                    _provider_cooldowns.get(provider.provider_id, 0) - time.time(),
+                )
+                continue
+            if (
+                provider_index > 0
+                and is_commercial_provider(provider)
+                and not allow_commercial_fallback
+            ):
                 deferred_commercial.append(provider.provider_id)
                 continue
-            candidate_models = self._candidate_models(provider, original_model, model_fallbacks or [], provider_index == 0)
+            candidate_models = self._candidate_models(
+                provider, original_model, model_fallbacks or [], provider_index == 0
+            )
             for model in candidate_models:
                 provider_payload = dict(payload)
                 provider_payload["model"] = model
@@ -378,16 +496,38 @@ class ProviderRouter:
                     try:
                         response = await self._post_chat(provider, provider_payload)
                         latency_ms = int((time.perf_counter() - started) * 1000)
-                        attempts.append(ProviderAttempt(provider.provider_id, model, response.status_code, latency_ms=latency_ms))
+                        attempts.append(
+                            ProviderAttempt(
+                                provider.provider_id,
+                                model,
+                                response.status_code,
+                                latency_ms=latency_ms,
+                            )
+                        )
                         if self._is_success(response):
-                            return ProviderResult(response=response, provider=provider, model=model, attempts=attempts)
+                            return ProviderResult(
+                                response=response,
+                                provider=provider,
+                                model=model,
+                                attempts=attempts,
+                            )
                         if not self._should_retry_status(response.status_code):
                             break
                     except Exception as exc:
                         latency_ms = int((time.perf_counter() - started) * 1000)
-                        attempts.append(ProviderAttempt(provider.provider_id, model, None, error=str(exc), latency_ms=latency_ms))
+                        attempts.append(
+                            ProviderAttempt(
+                                provider.provider_id,
+                                model,
+                                None,
+                                error=str(exc),
+                                latency_ms=latency_ms,
+                            )
+                        )
                     if attempt_number < max_retries:
                         await asyncio.sleep(min(0.25 * (2**attempt_number), 2.0))
+            # All models for this provider exhausted — put it on cooldown
+            mark_provider_failed(provider.provider_id)
         if deferred_commercial and not attempts:
             raise CommercialFallbackRequiredError(deferred_commercial)
         if deferred_commercial:
@@ -415,11 +555,15 @@ class ProviderRouter:
                 deduped.append(value)
         return deduped
 
-    async def _post_chat(self, provider: ProviderConfig, payload: dict[str, Any]) -> httpx.Response:
+    async def _post_chat(
+        self, provider: ProviderConfig, payload: dict[str, Any]
+    ) -> httpx.Response:
         headers = provider.auth_headers()
         if provider.type.startswith("emergent-"):
             return await self._post_emergent_chat(provider, payload)
-        async with httpx.AsyncClient(timeout=httpx.Timeout(300.0, connect=10.0)) as client:
+        async with httpx.AsyncClient(
+            timeout=httpx.Timeout(300.0, connect=10.0)
+        ) as client:
             if provider.type == "anthropic":
                 response = await client.post(
                     f"{provider.normalized_base_url}/v1/messages",
@@ -428,7 +572,9 @@ class ProviderRouter:
                 )
                 if response.status_code >= 400:
                     return response
-                return self._anthropic_to_openai_response(response, str(payload.get("model") or ""))
+                return self._anthropic_to_openai_response(
+                    response, str(payload.get("model") or "")
+                )
             url = _openai_url(provider.normalized_base_url, "/chat/completions")
             response = await client.post(url, json=payload, headers=headers)
             if response.status_code == 404 and provider.type == "ollama":
@@ -443,10 +589,14 @@ class ProviderRouter:
                     headers={"Content-Type": "application/json"},
                 )
                 if native.status_code < 400:
-                    return self._ollama_native_to_openai_response(native, str(payload.get("model") or ""))
+                    return self._ollama_native_to_openai_response(
+                        native, str(payload.get("model") or "")
+                    )
             return response
 
-    async def _post_emergent_chat(self, provider: ProviderConfig, payload: dict[str, Any]) -> httpx.Response:
+    async def _post_emergent_chat(
+        self, provider: ProviderConfig, payload: dict[str, Any]
+    ) -> httpx.Response:
         from emergentintegrations.llm.chat import LlmChat, UserMessage
 
         provider_name = provider.type.replace("emergent-", "", 1)
@@ -457,7 +607,9 @@ class ProviderRouter:
             api_key=provider.api_key or "",
             session_id=session_id,
             system_message=system_message,
-        ).with_model(provider_name, str(payload.get("model") or provider.default_model or ""))
+        ).with_model(
+            provider_name, str(payload.get("model") or provider.default_model or "")
+        )
         response_text = await chat.send_message(UserMessage(text=user_text))
         return httpx.Response(
             200,
@@ -473,7 +625,11 @@ class ProviderRouter:
                         "finish_reason": "stop",
                     }
                 ],
-                "usage": {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0},
+                "usage": {
+                    "prompt_tokens": 0,
+                    "completion_tokens": 0,
+                    "total_tokens": 0,
+                },
             },
         )
 
@@ -539,10 +695,14 @@ class ProviderRouter:
         }
 
     @staticmethod
-    def _anthropic_to_openai_response(response: httpx.Response, model: str) -> httpx.Response:
+    def _anthropic_to_openai_response(
+        response: httpx.Response, model: str
+    ) -> httpx.Response:
         data = response.json()
         content = "".join(
-            block.get("text", "") for block in data.get("content", []) if isinstance(block, dict)
+            block.get("text", "")
+            for block in data.get("content", [])
+            if isinstance(block, dict)
         )
         usage = data.get("usage") if isinstance(data.get("usage"), dict) else {}
         body = {
@@ -550,33 +710,57 @@ class ProviderRouter:
             "object": "chat.completion",
             "created": int(time.time()),
             "model": model,
-            "choices": [{"index": 0, "message": {"role": "assistant", "content": content}, "finish_reason": "stop"}],
+            "choices": [
+                {
+                    "index": 0,
+                    "message": {"role": "assistant", "content": content},
+                    "finish_reason": "stop",
+                }
+            ],
             "usage": {
                 "prompt_tokens": int(usage.get("input_tokens") or 0),
                 "completion_tokens": int(usage.get("output_tokens") or 0),
-                "total_tokens": int(usage.get("input_tokens") or 0) + int(usage.get("output_tokens") or 0),
+                "total_tokens": int(usage.get("input_tokens") or 0)
+                + int(usage.get("output_tokens") or 0),
             },
         }
-        return httpx.Response(200, json=body, headers={"content-type": "application/json"})
+        return httpx.Response(
+            200, json=body, headers={"content-type": "application/json"}
+        )
 
     @staticmethod
-    def _ollama_native_to_openai_response(response: httpx.Response, model: str) -> httpx.Response:
+    def _ollama_native_to_openai_response(
+        response: httpx.Response, model: str
+    ) -> httpx.Response:
         data = response.json()
         msg = data.get("message") if isinstance(data, dict) else None
-        content = msg.get("content", "") if isinstance(msg, dict) else data.get("response", "")
+        content = (
+            msg.get("content", "")
+            if isinstance(msg, dict)
+            else data.get("response", "")
+        )
         body = {
             "id": "chatcmpl-ollama-native-fallback",
             "object": "chat.completion",
             "created": int(time.time()),
             "model": model,
-            "choices": [{"index": 0, "message": {"role": "assistant", "content": content}, "finish_reason": "stop"}],
+            "choices": [
+                {
+                    "index": 0,
+                    "message": {"role": "assistant", "content": content},
+                    "finish_reason": "stop",
+                }
+            ],
             "usage": {
                 "prompt_tokens": int(data.get("prompt_eval_count") or 0),
                 "completion_tokens": int(data.get("eval_count") or 0),
-                "total_tokens": int(data.get("prompt_eval_count") or 0) + int(data.get("eval_count") or 0),
+                "total_tokens": int(data.get("prompt_eval_count") or 0)
+                + int(data.get("eval_count") or 0),
             },
         }
-        return httpx.Response(200, json=body, headers={"content-type": "application/json"})
+        return httpx.Response(
+            200, json=body, headers={"content-type": "application/json"}
+        )
 
     @staticmethod
     def attempts_header(attempts: list[ProviderAttempt]) -> str:

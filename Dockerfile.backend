@@ -19,6 +19,9 @@ COPY hardware/ hardware/
 COPY rbac.py rbac.py
 COPY secrets_store.py secrets_store.py
 COPY provider_router.py provider_router.py
+COPY langfuse_obs.py langfuse_obs.py
+COPY tokens.py tokens.py
+COPY key_store.py key_store.py
 
 EXPOSE 8001
 

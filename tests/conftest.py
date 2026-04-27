@@ -1,12 +1,17 @@
 from __future__ import annotations
 
 import os
+
+# Pin test credentials before load_dotenv() so the real .env cannot override
+# these values during test runs. seed_admin will sync the DB to match.
+os.environ.setdefault("ADMIN_EMAIL", "admin@llmrelay.local")
+os.environ.setdefault("ADMIN_PASSWORD", "WikiAdmin2026!")
 import sys
 from pathlib import Path
 
 import pytest
-from fastapi.testclient import TestClient
 from dotenv import load_dotenv
+from fastapi.testclient import TestClient
 
 # Load .env so tests see the same environment as the app
 load_dotenv()
@@ -29,6 +34,20 @@ def pytest_configure() -> None:
     os.environ.setdefault("V3_ADMIN_NAME", "Administrator")
 
 
+@pytest.fixture(autouse=True)
+def reset_provider_cooldowns():
+    """Reset cross-request provider cooldown state before every test.
+
+    Without this, a test that triggers a provider failure (and thus a cooldown)
+    would pollute subsequent tests that use the same provider_id.
+    """
+    from provider_router import clear_cooldowns
+
+    clear_cooldowns()
+    yield
+    clear_cooldowns()
+
+
 @pytest.fixture(scope="session")
 def client():
     """FastAPI test client for proxy.app — V3 API surface (default).
@@ -49,5 +68,6 @@ def wiki_client():
     (it has /api/chat/send, the Mongo-backed admin login, etc.).
     """
     from backend.server import app as backend_app
+
     with TestClient(backend_app) as c:
         yield c

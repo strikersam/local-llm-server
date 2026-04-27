@@ -1,14 +1,12 @@
 from __future__ import annotations
 
 # Regression tests for docker-compose validation and /agent/coordinate API compatibility.
-
 from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
 
 import proxy
-
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -30,10 +28,21 @@ def test_docker_compose_yaml_is_valid_and_has_expected_healthchecks() -> None:
     assert "services" in compose
 
     services = compose["services"]
-    assert services["ollama"]["healthcheck"]["test"] == ["CMD", "ollama", "list"]
+    ollama_hc = services["ollama"]["healthcheck"]["test"]
+    # Accept both the legacy ["CMD", "ollama", "list"] format and the newer
+    # CMD-SHELL curl-based format introduced for better Docker portability.
+    if isinstance(ollama_hc, list):
+        joined_hc = " ".join(ollama_hc)
+    else:
+        joined_hc = str(ollama_hc)
+    assert "ollama" in joined_hc or "11434" in joined_hc, (
+        f"Unexpected ollama healthcheck: {ollama_hc!r}"
+    )
 
     proxy_health = services["proxy"]["healthcheck"]["test"]
-    joined = " ".join(proxy_health) if isinstance(proxy_health, list) else str(proxy_health)
+    joined = (
+        " ".join(proxy_health) if isinstance(proxy_health, list) else str(proxy_health)
+    )
     assert "/live" in joined
 
 
@@ -100,8 +109,17 @@ def test_coordinate_dependency_aware_tasks_succeed_with_dependencies(monkeypatch
                 {"agent_id": "coder", "capabilities": ["code"]},
             ],
             "tasks": [
-                {"task_id": "plan", "instruction": "plan first", "task_type": "planning"},
-                {"task_id": "code", "instruction": "code second", "task_type": "code", "dependencies": ["plan"]},
+                {
+                    "task_id": "plan",
+                    "instruction": "plan first",
+                    "task_type": "planning",
+                },
+                {
+                    "task_id": "code",
+                    "instruction": "code second",
+                    "task_type": "code",
+                    "dependencies": ["plan"],
+                },
             ],
         },
     )
@@ -122,7 +140,11 @@ def test_coordinate_dependency_aware_tasks_block_missing_dependencies():
             "goal": "ship feature",
             "agents": [{"agent_id": "worker", "capabilities": ["general"]}],
             "tasks": [
-                {"task_id": "blocked", "instruction": "cannot run", "dependencies": ["missing"]}
+                {
+                    "task_id": "blocked",
+                    "instruction": "cannot run",
+                    "dependencies": ["missing"],
+                }
             ],
         },
     )
@@ -146,7 +168,15 @@ def test_coordinate_legacy_workers_flow_remains_backward_compatible(monkeypatch)
             }
 
     class _Coordinator:
-        async def run(self, goal, specs, max_concurrent=3, email=None, department=None, key_id=None):
+        async def run(
+            self,
+            goal,
+            specs,
+            max_concurrent=3,
+            email=None,
+            department=None,
+            key_id=None,
+        ):
             assert goal == "legacy"
             assert len(specs) == 1
             assert specs[0].instruction == "do legacy work"
@@ -160,7 +190,9 @@ def test_coordinate_legacy_workers_flow_remains_backward_compatible(monkeypatch)
         "/agent/coordinate",
         json={
             "goal": "legacy",
-            "workers": [{"worker_id": "w1", "instruction": "do legacy work", "max_steps": 2}],
+            "workers": [
+                {"worker_id": "w1", "instruction": "do legacy work", "max_steps": 2}
+            ],
         },
     )
 
