@@ -11,7 +11,7 @@ fi
 export OLLAMA_BASE="${OLLAMA_BASE:-http://localhost:11434}"
 export PROXY_PORT="${PROXY_PORT:-8000}"
 export RATE_LIMIT_RPM="${RATE_LIMIT_RPM:-60}"
-export LOG_LEVEL="${LOG_LEVEL:-INFO}"
+export LOG_LEVEL="${LOG_LEVEL:-info}"
 export REGISTER_RUNTIMES="${REGISTER_RUNTIMES:-1}"
 # Configure runtime adapters (Docker container URLs)
 export HERMES_BASE_URL="${HERMES_BASE_URL:-http://localhost:8002}"

@@ -28,7 +28,7 @@ services:
     volumes:
       - ollama_data:/root/.ollama
     healthcheck:
-      test: ["CMD-SHELL", "curl -sf http://localhost:11434/api/tags || exit 1"]
+      test: ["CMD-SHELL", "ollama list || exit 1"]
       interval: 30s
       timeout: 10s
       retries: 5

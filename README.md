@@ -230,12 +230,15 @@ cd local-llm-server
 
 cp .env.example .env                       # edit ADMIN_PASSWORD, ADMIN_SECRET, etc.
 
-docker compose up -d                       # core services
-docker compose --profile public up -d      # + Cloudflare tunnel
-docker compose --profile full up -d        # + OpenAI proxy for IDE clients
+docker compose up -d                       # core services (proxy + ollama + mongo + 4 agent runtimes)
+docker compose --profile dashboard up -d   # + React control plane on http://localhost:3000
+docker compose --profile tunnel up -d      # + Cloudflare public tunnel
+docker compose --profile ngrok up -d       # + ngrok tunnel (requires NGROK_AUTHTOKEN)
 ```
 
 Then open **http://localhost:3000** — the control plane loads immediately and walks you through the Setup Wizard.
+
+> **Note:** `docker compose up -d` already starts **all** core services including the 4 agent runtimes (Hermes, OpenCode, Goose, Aider). The `--profile dashboard` flag adds the React frontend and backend API on port 3000/8001.
 
 ### Default credentials
 
@@ -363,10 +366,32 @@ Every feature degrades gracefully — missing dependencies never crash the serve
 |---|---|---|---|
 | Proxy | 8000 | ✅ | OpenAI/Anthropic endpoint + admin portal + agent + WebUI |
 | Ollama | 11434 | ✅ | Local LLM runtime |
-| Cloudflare Tunnel | — | optional | `--profile public` |
-| Frontend (React) | 3000 | Docker only | Full control plane |
-| Backend (FastAPI) | 8001 | Docker only | Wiki, Kanban, RBAC, sources, social login |
+| Hermes runtime | 8002 | ✅ | Code execution agent (OpenAI-compatible wrapper) |
+| OpenCode runtime | 8003 | ✅ | Code generation agent (OpenAI-compatible wrapper) |
+| Goose runtime | 8004 | ✅ | Multi-purpose agent (OpenAI-compatible wrapper) |
+| Aider runtime | 8005 | ✅ | Pair programmer agent (OpenAI-compatible wrapper) |
+| Cloudflare Tunnel | — | optional | `--profile tunnel` |
+| Frontend (React) | 3000 | Docker only | Full control plane (`--profile dashboard`) |
+| Backend (FastAPI) | 8001 | Docker only | Wiki, Kanban, RBAC, sources, social login (`--profile dashboard`) |
 | MongoDB | 27017 | Docker only | Document store for the dashboard |
+
+### Verify all services are healthy
+
+```bash
+# Check all containers
+docker compose ps
+
+# Check individual runtime agents
+curl http://localhost:8002/health   # Hermes
+curl http://localhost:8003/health   # OpenCode
+curl http://localhost:8004/health   # Goose
+curl http://localhost:8005/health   # Aider
+
+# Check proxy health
+curl http://localhost:8000/health
+```
+
+All runtimes should report `{"status":"ok","runtime":"..."}`. If any show `models:0`, ensure Ollama has models pulled (`ollama list` inside the ollama container).
 
 ---
 
@@ -489,6 +514,9 @@ FRONTEND_URL=https://strikersam.github.io
 
 | Symptom | Cause | Fix |
 |---|---|---|
+| `Invalid value for '--log-level': 'INFO' is not one of...` | `LOG_LEVEL=INFO` (uppercase) in `.env` — Uvicorn only accepts lowercase | Change to `LOG_LEVEL=info` in `.env` and restart |
+| Runtime agents (Hermes, Goose, Aider, OpenCode) not responding | Proxy container crashed due to LOG_LEVEL error | Fix LOG_LEVEL to lowercase, rebuild proxy: `docker compose build --no-cache proxy && docker compose up -d proxy` |
+| Ollama container stuck `unhealthy` | `ollama/ollama:latest` image lacks `curl` | Already fixed in `docker-compose.yml` — healthcheck now uses `ollama list`. Recreate container: `docker compose up -d --no-deps ollama` |
 | `ERR_NGROK_3200` | Tunnel not running | `./run_tunnel.sh` on the server |
 | `404` on `/v1/chat/completions` | `OLLAMA_BASE` set to a tunnel URL | Set `OLLAMA_BASE=http://localhost:11434` and restart |
 | `401 Unauthorized` | Invalid / missing API key | Check `API_KEYS` in `.env`; regenerate with `python generate_api_key.py` |

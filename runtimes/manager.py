@@ -145,6 +145,19 @@ class RuntimeManager:
     def health_summary(self) -> list[dict[str, Any]]:
         return self._health.all_health()
 
+    async def refresh_runtime_health(self, runtime_id: str) -> dict[str, Any] | None:
+        """Force an immediate health check for a runtime and reset its circuit breaker."""
+        adapter = self._registry.get(runtime_id)
+        if adapter is None:
+            return None
+        # Reset circuit breaker so it doesn't skip the check
+        circuit = self._health._circuits.get(runtime_id)
+        if circuit:
+            circuit.record_success()
+        await self._health._poll_one(runtime_id)
+        health = self._health.get_health(runtime_id)
+        return health.as_dict() if health else None
+
 
 # ── Singleton ─────────────────────────────────────────────────────────────────
 

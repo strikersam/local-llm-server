@@ -40,6 +40,7 @@ function RuntimeCard({ runtime, onRun, onRefresh }) {
   const [result, setResult] = useState(null);
   const [controlLoading, setControlLoading] = useState(false);
   const [controlErr, setControlErr] = useState('');
+  const [optimisticState, setOptimisticState] = useState(null); // 'starting' | 'stopping' | null
 
   const h = runtime.health || {};
   const available = h.available;
@@ -67,22 +68,30 @@ function RuntimeCard({ runtime, onRun, onRefresh }) {
     setControlLoading(true);
     setControlErr('');
     setDockerNote('');
+    setOptimisticState('starting');
     try {
       const res = await startRuntime(runtime.runtime_id);
       if (res?.data?.remote_managed) {
         setDockerNote('This runtime is already reachable remotely. No local Docker start is needed here.');
         setExpanded(true);
+        setOptimisticState(null);
       } else if (res?.data?.docker_unavailable) {
         setDockerNote('Docker lifecycle control is only available when running locally. The runtime may still respond if its HTTP endpoint is reachable.');
         setExpanded(true);
+        setOptimisticState(null);
+      } else if (res?.data?.mode === 'local_subprocess') {
+        setDockerNote(`Started ${runtime.display_name} locally on ${res.data.base_url}. Refreshing health...`);
+        setTimeout(() => onRefresh?.(), 1500);
+        setTimeout(() => setOptimisticState(null), 4000);
       } else {
-        // Provide immediate visual confirmation if not docker_unavailable
         setDockerNote('Success: Start signal sent to ' + runtime.display_name);
         setTimeout(() => onRefresh?.(), 2000);
+        setTimeout(() => setOptimisticState(null), 4000);
       }
     } catch (e) {
       setControlErr(fmtErr(e?.response?.data?.detail) || e.message || 'Failed to start runtime');
       setExpanded(true);
+      setOptimisticState(null);
     } finally {
       setControlLoading(false);
     }
@@ -92,21 +101,30 @@ function RuntimeCard({ runtime, onRun, onRefresh }) {
     setControlLoading(true);
     setControlErr('');
     setDockerNote('');
+    setOptimisticState('stopping');
     try {
       const res = await stopRuntime(runtime.runtime_id);
       if (res?.data?.remote_managed) {
         setDockerNote('This runtime is managed remotely from its own host. Use the host controls if you need to stop it.');
         setExpanded(true);
+        setOptimisticState(null);
       } else if (res?.data?.docker_unavailable) {
         setDockerNote('Docker lifecycle control is only available when running locally.');
         setExpanded(true);
+        setOptimisticState(null);
+      } else if (res?.data?.mode === 'local_subprocess') {
+        setDockerNote(`Stopped ${runtime.display_name} local process.`);
+        setTimeout(() => onRefresh?.(), 1500);
+        setTimeout(() => setOptimisticState(null), 4000);
       } else {
         setDockerNote('Success: Stop signal sent to ' + runtime.display_name);
         setTimeout(() => onRefresh?.(), 2000);
+        setTimeout(() => setOptimisticState(null), 4000);
       }
     } catch (e) {
       setControlErr(fmtErr(e?.response?.data?.detail) || e.message || 'Failed to stop runtime');
       setExpanded(true);
+      setOptimisticState(null);
     } finally {
       setControlLoading(false);
     }
@@ -145,7 +163,11 @@ function RuntimeCard({ runtime, onRun, onRefresh }) {
 
           <div className="flex items-center gap-2 flex-shrink-0">
             <div className="text-right mr-2">
-              {circuitOpen ? (
+              {optimisticState === 'starting' ? (
+                <div className="text-[10px] text-emerald-400 flex items-center gap-1"><Loader2 size={10} className="animate-spin" /> Starting...</div>
+              ) : optimisticState === 'stopping' ? (
+                <div className="text-[10px] text-amber-400 flex items-center gap-1"><Loader2 size={10} className="animate-spin" /> Stopping...</div>
+              ) : circuitOpen ? (
                 <div className="text-[10px] text-amber-400 flex items-center gap-1"><AlertCircle size={10} /> Circuit Open</div>
               ) : available ? (
                 <div className="text-[10px] text-emerald-400 flex items-center gap-1"><CheckCircle size={10} /> Online</div>
@@ -161,25 +183,25 @@ function RuntimeCard({ runtime, onRun, onRefresh }) {
                 <div className="text-[9px] text-[#444]">{Math.round(h.latency_ms)}ms</div>
               )}
             </div>
-            {(!available || circuitOpen) && (
-              <button 
-                onClick={(e) => { e.stopPropagation(); handleStart(); }} 
+            {(!(available && !circuitOpen) && optimisticState !== 'starting') && (
+              <button
+                onClick={(e) => { e.stopPropagation(); handleStart(); }}
                 disabled={controlLoading}
                 data-testid={`runtime-start-${runtime.runtime_id}`}
                 className="flex items-center gap-1 px-3 py-1.5 bg-emerald-500/20 border border-emerald-500/30 text-[10px] text-emerald-400 rounded hover:bg-emerald-500/30 transition-colors disabled:opacity-40 min-w-[70px] justify-center"
               >
-                {controlLoading ? <Loader2 size={12} className="animate-spin" /> : <Power size={12} />} 
+                {controlLoading && optimisticState === 'starting' ? <Loader2 size={12} className="animate-spin" /> : <Power size={12} />}
                 <span>Start</span>
               </button>
             )}
-            {available && !circuitOpen && (
-              <button 
-                onClick={(e) => { e.stopPropagation(); handleStop(); }} 
+            {((available && !circuitOpen) || optimisticState === 'starting') && (
+              <button
+                onClick={(e) => { e.stopPropagation(); handleStop(); }}
                 disabled={controlLoading}
                 data-testid={`runtime-stop-${runtime.runtime_id}`}
                 className="flex items-center gap-1 px-3 py-1.5 bg-red-500/20 border border-red-500/30 text-[10px] text-red-400 rounded hover:bg-red-500/30 transition-colors disabled:opacity-40 min-w-[70px] justify-center"
               >
-                {controlLoading ? <Loader2 size={12} className="animate-spin" /> : <PowerOff size={12} />} 
+                {controlLoading && optimisticState === 'stopping' ? <Loader2 size={12} className="animate-spin" /> : <PowerOff size={12} />}
                 <span>Stop</span>
               </button>
             )}
@@ -298,11 +320,12 @@ export default function RuntimesPage() {
     try {
       const res = await startAllRuntimes();
       const rts = Object.values(res?.data?.runtimes || {});
+      const anyLocal = rts.some(r => r.mode === 'local_subprocess');
       if (rts.some(r => r.remote_managed)) {
         setSuccess('Remote runtimes are already managed on their own host. Refresh health after starting them there.');
         setError('');
         load();
-      } else if (rts.some(r => r.docker_unavailable)) {
+      } else if (rts.some(r => r.docker_unavailable) && !anyLocal) {
         setSuccess('This environment cannot control Docker directly. Manage remote runtimes on their host, then refresh health here.');
         setError('');
         load();
@@ -311,7 +334,7 @@ export default function RuntimesPage() {
         setSuccess('');
         load();
       } else {
-        setSuccess('All eligible runtimes are starting.');
+        setSuccess(anyLocal ? 'Runtimes started locally via subprocess. Refreshing health...' : 'All eligible runtimes are starting.');
         setTimeout(() => { setSuccess(''); load(); }, 3000);
       }
     } catch (e) {
@@ -330,11 +353,12 @@ export default function RuntimesPage() {
     try {
       const res = await stopAllRuntimes();
       const rts = Object.values(res?.data?.runtimes || {});
+      const anyLocal = rts.some(r => r.mode === 'local_subprocess');
       if (rts.some(r => r.remote_managed)) {
         setSuccess('Remote runtimes are managed on their own host. Use the host controls if you need to stop them.');
         setError('');
         load();
-      } else if (rts.some(r => r.docker_unavailable)) {
+      } else if (rts.some(r => r.docker_unavailable) && !anyLocal) {
         setSuccess('This environment cannot control Docker directly. Use the remote host controls, then refresh health here.');
         setError('');
         load();
@@ -343,7 +367,7 @@ export default function RuntimesPage() {
         setSuccess('');
         load();
       } else {
-        setSuccess('All eligible runtimes are stopping.');
+        setSuccess(anyLocal ? 'Runtimes stopped locally. Refreshing health...' : 'All eligible runtimes are stopping.');
         setTimeout(() => { setSuccess(''); load(); }, 3000);
       }
     } catch (e) {
