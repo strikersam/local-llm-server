@@ -113,7 +113,7 @@ LANGFUSE_SK = os.environ.get("LANGFUSE_SECRET_KEY", "")
 LANGFUSE_BASE = os.environ.get("LANGFUSE_BASE_URL", "https://cloud.langfuse.com")
 ADMIN_SECRET = os.environ.get("ADMIN_SECRET", "")
 NGROK_DOMAIN = os.environ.get("NGROK_DOMAIN", "")
-NGROK_TOKEN = os.environ.get("NGROK_AUTHTOKEN", "")
+NGROK_TOKEN = os.environ.get("NGROK_AUTH_TOKEN", "") or os.environ.get("NGROK_AUTHTOKEN", "")
 
 OPENROUTER_API_KEY = os.environ.get("OPENROUTER_API_KEY", "")
 OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"

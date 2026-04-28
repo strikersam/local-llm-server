@@ -274,7 +274,7 @@ services:
       - "--log=stdout"
       - "proxy:8000"
     environment:
-      - NGROK_AUTHTOKEN=${NGROK_AUTHTOKEN}
+      - NGROK_AUTHTOKEN=${NGROK_AUTH_TOKEN}
     depends_on:
       - proxy
     profiles:
