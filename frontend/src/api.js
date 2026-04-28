@@ -1,7 +1,17 @@
 import axios from 'axios';
 
+function getDefaultBackendUrl() {
+  if (process.env.REACT_APP_BACKEND_URL) {
+    return process.env.REACT_APP_BACKEND_URL;
+  }
+  if (typeof window !== 'undefined' && window.location?.origin) {
+    return window.location.origin;
+  }
+  return '';
+}
+
 export function getBackendUrl() {
-  return localStorage.getItem('backend_url') || process.env.REACT_APP_BACKEND_URL || '';
+  return localStorage.getItem('backend_url') || getDefaultBackendUrl();
 }
 
 export function getPublicPath(path = '') {
@@ -80,7 +90,19 @@ export function fmtErr(detail) {
 }
 
 // Auth
-export const login = (email, password) => API.post('/api/auth/login', { email, password });
+export const login = async (email, password) => {
+  try {
+    return await API.post('/api/auth/login', { email, password });
+  } catch (error) {
+    // Self-heal when a stale backend_url points to a dead/invalid endpoint.
+    if (!error?.response && localStorage.getItem('backend_url')) {
+      localStorage.removeItem('backend_url');
+      API.defaults.baseURL = getDefaultBackendUrl();
+      return API.post('/api/auth/login', { email, password });
+    }
+    throw error;
+  }
+};
 export const logout = () => {
   localStorage.removeItem('access_token');
   localStorage.removeItem('refresh_token');

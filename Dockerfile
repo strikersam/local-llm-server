@@ -1,6 +1,6 @@
-FROM node:22-alpine AS webui
+FROM node:22-slim AS webui
 WORKDIR /src/webui/frontend
-COPY webui/frontend/package.json webui/frontend/package-lock.json* ./
+COPY webui/frontend/package.json ./
 RUN npm install
 COPY webui/frontend/ ./
 RUN npm run build
@@ -24,5 +24,5 @@ EXPOSE 8000
 HEALTHCHECK --interval=30s --timeout=10s --start-period=15s --retries=3 \
   CMD python -c "import urllib.request; urllib.request.urlopen('http://localhost:${PORT:-8000}/health', timeout=5)" || exit 1
 
-CMD ["sh", "-lc", "uvicorn proxy:app --host 0.0.0.0 --port ${PORT:-8000} --log-level ${LOG_LEVEL:-info}"]
+CMD ["sh", "-lc", "UVICORN_LOG_LEVEL=$(printf '%s' \"${LOG_LEVEL:-INFO}\" | tr '[:upper:]' '[:lower:]') && uvicorn proxy:app --host 0.0.0.0 --port ${PORT:-8000} --log-level \"$UVICORN_LOG_LEVEL\""]
 
