@@ -9,6 +9,7 @@ COPY backend/ backend/
 COPY agent/ agent/
 COPY router/ router/
 COPY agents/ agents/
+COPY docker/ docker/
 COPY runtimes/ runtimes/
 COPY tasks/ tasks/
 COPY handlers/ handlers/

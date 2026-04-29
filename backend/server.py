@@ -53,6 +53,7 @@ from provider_router import (
 from runtimes.api import runtime_router
 from runtimes.manager import get_runtime_manager
 from tasks.api import task_router
+from tasks.dispatcher import TaskDispatcher
 from tasks.store import TaskStore, set_task_store
 from setup import setup_router
 from secrets_store import secrets_router, get_secrets_store
@@ -66,8 +67,12 @@ MONGO_URL = os.environ.get("MONGO_URL", "mongodb://localhost:27017")
 DB_NAME = os.environ.get("DB_NAME", "llm_wiki_dashboard")
 JWT_SECRET = os.environ.get("JWT_SECRET", secrets.token_hex(32))
 JWT_ALGORITHM = "HS256"
-ADMIN_EMAIL = os.environ.get("ADMIN_EMAIL", "admin@llmrelay.local")
-ADMIN_PASSWORD = os.environ.get("ADMIN_PASSWORD", "WikiAdmin2026!")
+ADMIN_EMAIL = os.environ.get("V3_ADMIN_EMAIL") or os.environ.get(
+    "ADMIN_EMAIL", "admin@llmrelay.local"
+)
+ADMIN_PASSWORD = os.environ.get("V3_ADMIN_PASSWORD") or os.environ.get(
+    "ADMIN_PASSWORD", "WikiAdmin2026!"
+)
 OLLAMA_BASE = (
     os.environ.get("OLLAMA_BASE_URL")
     or os.environ.get("OLLAMA_BASE")
@@ -528,6 +533,9 @@ async def get_current_user(request: Request) -> dict:
 
 @asynccontextmanager
 async def lifespan(app_: "FastAPI"):
+    dispatcher: TaskDispatcher | None = None
+    dispatcher_task: asyncio.Task | None = None
+    runtime_manager = get_runtime_manager()
     try:
         await ensure_bootstrap()
         log.info("LLM Relay Platform started — provider=%s", LLM_PROVIDER)
@@ -536,7 +544,29 @@ async def lifespan(app_: "FastAPI"):
         log.info(
             "LLM Relay Platform started in limited mode — set MONGO_URL to enable full features"
         )
+    await runtime_manager.start()
+    log.info(
+        "RuntimeManager started (%d runtimes registered)",
+        len(runtime_manager._registry.ids()),
+    )
+    dispatcher = TaskDispatcher(
+        workspace_root=str(ROOT_DIR),
+        poll_interval_s=10.0,
+    )
+    dispatcher_task = asyncio.create_task(dispatcher.run_forever())
+    log.info("Task dispatcher started in background")
     yield
+    if dispatcher is not None:
+        dispatcher.stop()
+    if dispatcher_task is not None:
+        dispatcher_task.cancel()
+        try:
+            await dispatcher_task
+        except asyncio.CancelledError:
+            pass
+        log.info("Task dispatcher stopped")
+    await runtime_manager.stop()
+    log.info("RuntimeManager stopped")
 
 
 app = FastAPI(title="LLM Relay — Unified Platform", version="2.0.0", lifespan=lifespan)
@@ -1185,7 +1215,7 @@ async def seed_admin():
     elif ADMIN_PASSWORD and not verify_password(
         ADMIN_PASSWORD, existing["password_hash"]
     ):
-        # Sync DB password from ADMIN_PASSWORD env var on restart so the
+        # Sync DB password from the effective admin password env var on restart so the
         # configured credential always works. Operators change this via .env
         # or the Render dashboard — not by editing the DB directly.
         await db.users.update_one(
@@ -1193,7 +1223,8 @@ async def seed_admin():
             {"$set": {"password_hash": hash_password(ADMIN_PASSWORD)}},
         )
         log.info(
-            "Admin password synced from ADMIN_PASSWORD env var for %s", ADMIN_EMAIL
+            "Admin password synced from effective admin password env var for %s",
+            ADMIN_EMAIL,
         )
 
 
