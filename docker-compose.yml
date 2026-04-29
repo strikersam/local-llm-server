@@ -219,6 +219,10 @@ services:
       - MONGO_URL=mongodb://mongo:27017
       - FRONTEND_URL=http://localhost:3000
       - OLLAMA_BASE_URL=http://ollama:11434
+      - HERMES_BASE_URL=http://hermes:8080
+      - OPENCODE_BASE_URL=http://opencode:8080
+      - GOOSE_BASE_URL=http://goose:8080
+      - AIDER_BASE_URL=http://aider:8080
     depends_on:
       mongo:
         condition: service_started
