@@ -1835,6 +1835,31 @@ def _fallback_local_provider_record() -> dict[str, str | int]:
     }
 
 
+def _nvidia_nim_provider_record() -> dict | None:
+    """Return a provider record for Nvidia NIM if the API key is set in env."""
+    key = (
+        os.environ.get("NVIDIA_API_KEY") or os.environ.get("NVidiaApiKey") or ""
+    ).strip()
+    if not key:
+        return None
+    base = (
+        os.environ.get("NVIDIA_BASE_URL") or "https://integrate.api.nvidia.com/v1"
+    ).rstrip("/")
+    model = (
+        os.environ.get("NVIDIA_DEFAULT_MODEL") or "meta/llama-3.3-70b-instruct"
+    )
+    return {
+        "provider_id": "nvidia-nim",
+        "name": "Nvidia NIM (Free)",
+        "type": "openai-compatible",
+        "base_url": base,
+        "api_key": key,
+        "default_model": model,
+        "status": "configured",
+        "priority": -10,
+    }
+
+
 async def _list_configured_provider_records() -> list[dict]:
     try:
         records = await db.providers.find({}).to_list(length=200)
@@ -1850,6 +1875,10 @@ async def _list_configured_provider_records() -> list[dict]:
             continue
         if provider_type == "ollama" or status == "configured" or has_key:
             filtered.append(record)
+    # Always prepend Nvidia NIM from env when key is present — takes priority over DB records
+    nim = _nvidia_nim_provider_record()
+    if nim:
+        filtered = [nim] + [r for r in filtered if r.get("provider_id") != "nvidia-nim"]
     return filtered or [_fallback_local_provider_record()]
 
 

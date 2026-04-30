@@ -74,6 +74,11 @@ input, textarea, select {
   appearance: none;
 }
 
+input[type="checkbox"], input[type="radio"] {
+  -webkit-appearance: revert;
+  appearance: revert;
+}
+
 input::placeholder, textarea::placeholder {
   color: #9ca3af;
 }
