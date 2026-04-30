@@ -76,12 +76,17 @@ class RuntimeHealthService:
             log.info("RuntimeHealthService started (interval=%ds)", self._poll_interval)
 
     async def stop(self) -> None:
-        if self._task and not self._task.done():
-            self._task.cancel()
-            try:
-                await self._task
-            except asyncio.CancelledError:
-                pass
+        if self._task is None or self._task.done():
+            return
+        self._task.cancel()
+        try:
+            await self._task
+        except (asyncio.CancelledError, RuntimeError):
+            # RuntimeError is raised on Python 3.13+ when the task was created
+            # on a different event loop (e.g. during pytest-asyncio teardown).
+            pass
+        finally:
+            self._task = None
 
     # ── Public API ────────────────────────────────────────────────────────────
 
