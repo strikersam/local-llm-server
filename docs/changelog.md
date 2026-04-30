@@ -2,6 +2,14 @@
 
 ## [Unreleased]
 
+### Fixed
+- `agent/loop.py` — `_normalize_plan_response()` added: normalises LLM planner output before Pydantic validation; renames `slices` → `steps` (CRISPY-style responses), derives `goal` from the instruction when absent, and infers `type` from file presence (`edit` when files listed, `analyze` otherwise). Fixes the `ValidationError: AgentPlan goal Field required` crash that caused all tasks to fail with "Runtime '*' unavailable".
+- `proxy.py` — `REGISTER_RUNTIMES` env var now defaults to `"true"` so system runtime agents (Hermes, OpenCode, Goose, Aider, internal_agent) are always registered in `AgentStore` on startup without requiring an explicit env override.
+
+### Added
+- `agents/api.py` — `GET /api/agents/` response now includes a `runtime_health` field per agent (when the agent has a `runtime_id`), exposing `available`, `latency_ms`, and `error` from the live `RuntimeManager` health check — enables multica.ai-style online/offline status in the roster UI.
+- `agents/api.py` — new `GET /api/agents/runtimes` endpoint returns all registered runtime adapters merged with their `AgentStore` profiles and live health data, sorted by availability. Use this as the canonical data source for the agent roster UI.
+
 ### Added
 - `setup/api.py` — `GET /api/setup/detect/providers` endpoint; returns which providers are already configured server-side (e.g. Nvidia NIM key set on Render) without exposing key values.
 - `frontend/src/pages/SetupWizardPage.js` — Nvidia NIM card added as first/recommended option in Step 1 with "Free" + "Recommended" badges; wizard auto-detects server-configured Nvidia key on load and shows "already configured" indicator; toggling Nvidia NIM on auto-updates model defaults across Steps 2 and 4; added `free_only` cost policy option.

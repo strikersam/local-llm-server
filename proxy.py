@@ -470,7 +470,7 @@ async def lifespan(app: FastAPI):
             "MongoDB unavailable for agent store: %s. Using in-memory store.", e
         )
 
-    should_register = os.environ.get("REGISTER_RUNTIMES", "").lower() in (
+    should_register = os.environ.get("REGISTER_RUNTIMES", "true").lower() in (
         "1",
         "true",
         "yes",

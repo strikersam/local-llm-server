@@ -36,6 +36,7 @@ from agents.store import (
     AgentUpdateRequest,
     get_agent_store,
 )
+from runtimes.manager import get_runtime_manager
 
 log = logging.getLogger("qwen-proxy")
 agent_router = APIRouter(prefix="/api/agents", tags=["agents"])
@@ -52,11 +53,32 @@ def _user_id(user: Any) -> str:
     return str(getattr(user, "email", None) or getattr(user, "_id", "unknown"))
 
 
+# ── Helpers ───────────────────────────────────────────────────────────────────
+
+def _with_runtime_health(agent_dict: dict) -> dict:
+    """Annotate an agent dict with its runtime's current health status."""
+    rid = agent_dict.get("runtime_id")
+    if not rid:
+        return agent_dict
+    try:
+        info = get_runtime_manager().get_runtime(rid)
+        if info:
+            health = info.get("health") or {}
+            agent_dict["runtime_health"] = {
+                "available": health.get("available"),
+                "latency_ms": health.get("latency_ms"),
+                "error": health.get("error"),
+            }
+    except Exception:
+        pass
+    return agent_dict
+
+
 # ── List ──────────────────────────────────────────────────────────────────────
 
 @agent_router.get("/")
 async def list_agents(request: Request):
-    """List agents visible to the current user."""
+    """List agents visible to the current user, enriched with runtime health."""
     user = _get_user(request)
     uid  = _user_id(user)
     store = get_agent_store()
@@ -66,7 +88,68 @@ async def list_agents(request: Request):
     else:
         agents = await store.list_for_user(uid, include_public=True)
 
-    return {"agents": [a.as_dict() for a in agents], "total": len(agents)}
+    return {
+        "agents": [_with_runtime_health(a.as_dict()) for a in agents],
+        "total": len(agents),
+    }
+
+
+@agent_router.get("/runtimes")
+async def list_runtime_agents(request: Request):
+    """Return all system-registered runtime agents with live health status.
+
+    Combines the AgentStore entries (name, model, task_types, cost_policy)
+    with the RuntimeManager's live health data (available, latency_ms).
+    This is the canonical source of truth for the agent roster UI.
+    """
+    store = get_agent_store()
+    mgr   = get_runtime_manager()
+
+    # Pull every registered runtime adapter from the manager
+    runtime_infos = {r["runtime_id"]: r for r in mgr.list_runtimes()}
+
+    # Pull matching agent definitions (system agents tagged "runtime")
+    all_agents = await store.list_all()
+    system_agents = {
+        a.agent_id: a for a in all_agents
+        if "runtime" in (a.tags or [])
+    }
+
+    roster: list[dict] = []
+    for rid, rt_info in runtime_infos.items():
+        entry: dict = {
+            "runtime_id": rid,
+            "display_name": rt_info.get("display_name", rid),
+            "description": rt_info.get("description", ""),
+            "tier": rt_info.get("tier"),
+            "capabilities": rt_info.get("capabilities", []),
+            "integration_mode": rt_info.get("integration_mode"),
+            "health": rt_info.get("health") or {"available": None},
+            "circuit_open": rt_info.get("circuit_open", False),
+        }
+        # Merge in agent profile fields when available
+        agent = system_agents.get(rid)
+        if agent:
+            entry.update({
+                "agent_id": agent.agent_id,
+                "name": agent.name,
+                "model": agent.model,
+                "task_types": agent.task_types,
+                "cost_policy": agent.cost_policy,
+                "tags": agent.tags,
+            })
+        else:
+            entry["agent_id"] = None
+
+        roster.append(entry)
+
+    # Sort: available first, then by tier
+    roster.sort(key=lambda r: (
+        r["health"].get("available") is not True,
+        r.get("tier", "z"),
+    ))
+
+    return {"runtimes": roster, "total": len(roster)}
 
 
 # ── Create ────────────────────────────────────────────────────────────────────
