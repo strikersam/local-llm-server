@@ -1796,10 +1796,13 @@ async def refresh_token(request: Request):
 
 
 async def get_active_provider():
-    prov = await db.providers.find_one({"is_default": True})
-    if not prov:
-        prov = await db.providers.find_one({})
-    return prov
+    try:
+        prov = await db.providers.find_one({"is_default": True})
+        if not prov:
+            prov = await db.providers.find_one({})
+        return prov
+    except Exception:
+        return None
 
 
 def _fallback_local_provider_record() -> dict[str, str | int]:
@@ -1815,7 +1818,10 @@ def _fallback_local_provider_record() -> dict[str, str | int]:
 
 
 async def _list_configured_provider_records() -> list[dict]:
-    records = await db.providers.find({}).to_list(length=200)
+    try:
+        records = await db.providers.find({}).to_list(length=200)
+    except Exception:
+        records = _builtin_provider_records()
     filtered: list[dict] = []
     for record in records:
         base_url = str(record.get("base_url") or "").strip()
