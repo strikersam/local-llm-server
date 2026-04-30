@@ -9,6 +9,7 @@ import os
 import re
 import secrets
 import sys
+import uuid
 from contextlib import asynccontextmanager
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -1477,10 +1478,12 @@ async def seed_default_providers():
 
 
 def _builtin_provider_records() -> list[dict]:
-    """Return the static built-in provider list without touching MongoDB.
+    """Return a minimal set of built-in provider records without touching MongoDB.
 
-    Used by seed_default_providers and as a fallback for list_providers when
-    MongoDB is unavailable (limited mode).
+    This is an intentional SUBSET (3 of 13 providers) covering the entries that
+    are always present regardless of operator configuration.  It is used as a
+    limited-mode fallback when MongoDB is unreachable — not as the authoritative
+    full catalog.  Full provider list lives in seed_default_providers().
     """
     return [
         {
@@ -2000,7 +2003,6 @@ async def chat_send(body: ChatMessage, user: dict = Depends(get_current_user)):
             )
             sid = str(result.inserted_id)
         except Exception:
-            import uuid
             sid = str(uuid.uuid4())
             _db_limited = True
     try:
