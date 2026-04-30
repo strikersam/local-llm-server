@@ -82,9 +82,9 @@ jobs:
         with:
           python-version: "3.12"
 
-      - name: Install Anthropic SDK
+      - name: Install OpenAI SDK
         if: steps.pick.outputs.found == 'true'
-        run: pip install anthropic
+        run: pip install openai
 
       - name: Fetch URL content
         if: steps.pick.outputs.found == 'true'
@@ -107,6 +107,7 @@ jobs:
         run: |
           cat > /tmp/run_llm.py << 'PYEOF'
           import os, subprocess, sys, re
+          from openai import OpenAI
 
           url = sys.argv[1]
           issue_num = sys.argv[2]
@@ -142,41 +143,56 @@ jobs:
               "5. If nothing actionable, output only: NOTHING_TO_IMPLEMENT"
           )
 
-          # Smart model routing: complex tasks -> Claude Sonnet, simple -> Groq Llama
-          complex_keywords = [
-              "architect", "implement", "design", "system", "integrate", "refactor",
-              "feature", "cloud", "vercel", "deploy", "agent", "migration", "auth",
-              "security", "performance", "scalab", "multi", "async", "pipeline"
+          # Auto-select free NVIDIA NIM model by task complexity.
+          # Tiers mirror router/classifier.py categories so routing is consistent
+          # with the proxy's own model-selection logic.
+          REASONING_KEYWORDS = [
+              "architect", "design", "plan", "strategy", "system", "security", "auth",
+              "performance", "scalab", "tradeoff", "compare", "evaluate", "migration",
+              "pipeline", "multi", "integrate", "orchestrat", "infrastructure",
           ]
+          CODE_KEYWORDS = [
+              "implement", "build", "create", "add", "refactor", "endpoint",
+              "api", "handler", "module", "feature", "cloud", "vercel", "deploy",
+              "async", "agent", "function", "class", "route", "scaffold",
+          ]
+          ANALYSIS_KEYWORDS = [
+              "math", "calculat", "proof", "algorithm", "data analysis",
+              "machine learning", "deep learning", "neural", "dataset", "ml",
+          ]
+
           task_lower = (task + " " + url).lower()
-          is_complex = any(kw in task_lower for kw in complex_keywords) or len(task) > 80
 
-          anthropic_key = os.environ.get("ANTHROPIC_API_KEY", "")
-          groq_key = os.environ.get("GROQ_API_KEY", "")
-
-          if is_complex and anthropic_key:
-              import anthropic
-              print(f"Complex task detected — using Claude Sonnet (Anthropic API)")
-              client = anthropic.Anthropic(api_key=anthropic_key)
-              msg = client.messages.create(
-                  model="claude-sonnet-4-6",
-                  max_tokens=8192,
-                  messages=[{"role": "user", "content": prompt}]
-              )
-              response = msg.content[0].text
-          elif groq_key:
-              from openai import OpenAI
-              print(f"Simple task or no Anthropic key — using Groq (Llama 3.3 70B)")
-              client = OpenAI(base_url="https://api.groq.com/openai/v1", api_key=groq_key)
-              msg = client.chat.completions.create(
-                  model="llama-3.3-70b-versatile",
-                  max_tokens=8192,
-                  messages=[{"role": "user", "content": prompt}]
-              )
-              response = msg.choices[0].message.content
+          if any(kw in task_lower for kw in REASONING_KEYWORDS) or len(task) > 120:
+              model = "nvidia/llama-3.1-nemotron-ultra-253b-v1"
+              tier = "reasoning/planning (Nemotron Ultra 253B)"
+          elif any(kw in task_lower for kw in ANALYSIS_KEYWORDS):
+              model = "deepseek-ai/deepseek-r1"
+              tier = "data analysis/math (DeepSeek R1)"
+          elif any(kw in task_lower for kw in CODE_KEYWORDS) or len(task) > 40:
+              model = "qwen/qwen2.5-coder-32b-instruct"
+              tier = "code generation (Qwen2.5 Coder 32B)"
           else:
-              print("ERROR: No API key available (ANTHROPIC_API_KEY or GROQ_API_KEY required)")
+              model = "meta/llama-3.1-8b-instruct"
+              tier = "fast response (Llama 3.1 8B)"
+
+          nvidia_key = os.environ.get("NVIDIA_API_KEY", "")
+          if not nvidia_key:
+              print("ERROR: NVIDIA_API_KEY secret not set — cannot call NVIDIA NIM API")
               sys.exit(1)
+
+          print(f"Task tier: {tier}")
+          print(f"Selected model: {model}")
+          client = OpenAI(
+              base_url="https://integrate.api.nvidia.com/v1",
+              api_key=nvidia_key,
+          )
+          msg = client.chat.completions.create(
+              model=model,
+              max_tokens=8192,
+              messages=[{"role": "user", "content": prompt}],
+          )
+          response = msg.choices[0].message.content
 
           print(f"Response length: {len(response)} chars")
           print("--- LLM RESPONSE START ---")
@@ -208,14 +224,12 @@ jobs:
           print("Done applying changes.")
           PYEOF
 
-      - name: Run LLM (smart routing — Sonnet for complex, Groq for simple)
+      - name: Run LLM (auto-select free NVIDIA NIM model by complexity)
         id: llm
         if: steps.pick.outputs.found == 'true'
         env:
-          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
-          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+          NVIDIA_API_KEY: ${{ secrets.NVIDIA_API_KEY }}
         run: |
-          pip install openai anthropic -q
           python3 /tmp/run_llm.py "${{ steps.issue.outputs.url }}" "${{ steps.issue.outputs.number }}" "${{ steps.issue.outputs.task }}" 2>&1 | tee /tmp/llm_output.txt
 
       - name: Commit and push
