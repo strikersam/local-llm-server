@@ -198,15 +198,23 @@ def _build_default_manager() -> RuntimeManager:
         max_paid_escalations_per_day=int(
             os.environ.get("RUNTIME_MAX_PAID_ESCALATIONS", "0")
         ),
-        preferred_runtime_id=os.environ.get(
-            "RUNTIME_DEFAULT",
-            "internal_agent" if os.environ.get("RENDER") else "hermes",
-        ),
+        # Always prefer internal_agent — it's always healthy (no external deps).
+        # Hermes/OpenCode/Goose require separate sidecar processes that may not
+        # be running; they can still be used when explicitly requested via
+        # RUNTIME_DEFAULT env override.
+        preferred_runtime_id=os.environ.get("RUNTIME_DEFAULT", "internal_agent"),
+        # Always fall back to internal_agent so tasks never hard-fail due to
+        # missing sidecar runtimes.
+        fallback_runtime_ids=["internal_agent"],
         task_type_runtime_overrides={
-            "code_generation": os.environ.get("RUNTIME_CODE_GENERATION"),
-            "code_review": os.environ.get("RUNTIME_CODE_REVIEW"),
-            "repo_editing": os.environ.get("RUNTIME_REPO_EDITING"),
-            "git_operations": os.environ.get("RUNTIME_GIT_OPS"),
+            k: v
+            for k, v in {
+                "code_generation": os.environ.get("RUNTIME_CODE_GENERATION"),
+                "code_review": os.environ.get("RUNTIME_CODE_REVIEW"),
+                "repo_editing": os.environ.get("RUNTIME_REPO_EDITING"),
+                "git_operations": os.environ.get("RUNTIME_GIT_OPS"),
+            }.items()
+            if v  # skip None entries so internal_agent fallback still applies
         },
     )
     mgr = RuntimeManager(policy=policy)

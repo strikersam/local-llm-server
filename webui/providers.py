@@ -141,7 +141,40 @@ class ProviderManager:
             return
 
         now = _now()
-        seeded: list[dict[str, Any]] = [
+        seeded: list[dict[str, Any]] = []
+
+        # ── Nvidia NIM — first priority (free, no local infra needed) ─────────
+        nvidia_key = (
+            os.environ.get("NVIDIA_API_KEY")
+            or os.environ.get("NVidiaApiKey")
+            or ""
+        ).strip()
+        if nvidia_key:
+            nvidia_base = (
+                os.environ.get("NVIDIA_BASE_URL")
+                or "https://integrate.api.nvidia.com/v1"
+            ).rstrip("/")
+            seeded.append(
+                {
+                    "provider_id": "prov_nvidia_nim",
+                    "name": "Nvidia NIM (Free)",
+                    "base_url": nvidia_base,
+                    "api_key": nvidia_key,
+                    "kind": "openai_compat",
+                    "default_model": (
+                        os.environ.get("NVIDIA_DEFAULT_MODEL")
+                        or "meta/llama-3.3-70b-instruct"
+                    ),
+                    "default_temperature": float(
+                        os.environ.get("DEFAULT_TEMPERATURE") or 0.2
+                    ),
+                    "created_at": now,
+                    "updated_at": now,
+                }
+            )
+
+        # ── Local Ollama — fallback when available ────────────────────────────
+        seeded.append(
             {
                 "provider_id": "prov_local",
                 "name": "Local (Ollama via proxy)",
@@ -153,8 +186,9 @@ class ProviderManager:
                 "created_at": now,
                 "updated_at": now,
             }
-        ]
+        )
 
+        # ── Any extra OPENAI_COMPAT_* provider from env ───────────────────────
         env_base = os.environ.get("OPENAI_COMPAT_BASE_URL") or os.environ.get("OPENAI_BASE_URL")
         env_key = os.environ.get("OPENAI_COMPAT_API_KEY") or os.environ.get("OPENAI_API_KEY")
         if env_base:

@@ -173,6 +173,8 @@ _FREE_CLOUD_PROVIDER_IDS = {
     "huggingface",
     "deepseek",
 }
+# Nvidia NIM is free-tier — treated as highest-priority free cloud provider
+_NVIDIA_PROVIDER_IDS = {"nvidia-nim", "nvidia"}
 _KNOWN_COMMERCIAL_HOSTS = (
     "anthropic.com",
     "openai.com",
@@ -189,6 +191,7 @@ _KNOWN_FREE_HOSTS = (
     "hf.space",
     "deepseek.com",
 )
+_KNOWN_NVIDIA_HOSTS = ("integrate.api.nvidia.com",)
 
 
 def _provider_field(
@@ -208,6 +211,10 @@ def provider_access_tier(provider: ProviderConfig | dict[str, Any]) -> str:
     hostname = (urlparse(base_url).hostname or "").lower()
     name = str(_provider_field(provider, "name", "") or "").strip().lower()
 
+    if provider_id in _NVIDIA_PROVIDER_IDS or any(
+        host in hostname for host in _KNOWN_NVIDIA_HOSTS
+    ):
+        return "nvidia_nim"
     if provider_id in _COMMERCIAL_PROVIDER_IDS or any(
         host in hostname for host in _KNOWN_COMMERCIAL_HOSTS
     ):
@@ -253,10 +260,13 @@ def provider_sort_key(
     provider: ProviderConfig | dict[str, Any],
 ) -> tuple[int, int, str]:
     tier_order = {
-        "local": 0,
-        "windows_server": 1,
-        "free_cloud": 2,
-        "commercial": 3,
+        # Nvidia NIM comes first — free, no local infra needed
+        "nvidia_nim": 0,
+        # Local Ollama is second preference when available
+        "local": 1,
+        "windows_server": 2,
+        "free_cloud": 3,
+        "commercial": 4,
     }
     priority = int(_provider_field(provider, "priority", 100) or 100)
     provider_id = str(_provider_field(provider, "provider_id", "") or "")
@@ -281,6 +291,31 @@ class ProviderRouter:
         cls, primary_provider: ProviderConfig | None = None
     ) -> "ProviderRouter":
         providers: list[ProviderConfig] = []
+
+        # ── Nvidia NIM — highest priority, always added when key is present ──
+        nvidia_key = (
+            os.environ.get("NVIDIA_API_KEY")
+            or os.environ.get("NVidiaApiKey")
+            or ""
+        ).strip()
+        if nvidia_key:
+            nvidia_base = (
+                os.environ.get("NVIDIA_BASE_URL") or "https://integrate.api.nvidia.com/v1"
+            ).rstrip("/")
+            providers.append(
+                ProviderConfig(
+                    provider_id="nvidia-nim",
+                    type="openai-compatible",
+                    base_url=nvidia_base,
+                    api_key=nvidia_key,
+                    default_model=(
+                        os.environ.get("NVIDIA_DEFAULT_MODEL")
+                        or "meta/llama-3.3-70b-instruct"
+                    ),
+                    priority=-10,  # before everything else
+                )
+            )
+
         if primary_provider:
             providers.append(primary_provider)
         else:
@@ -294,7 +329,7 @@ class ProviderRouter:
                     default_model=os.environ.get("OLLAMA_MODEL")
                     or os.environ.get("AGENT_EXECUTOR_MODEL")
                     or "qwen3-coder:30b",
-                    priority=0,
+                    priority=10,
                 )
             )
 

@@ -38,7 +38,10 @@ class TaskWorkflowService:
             auto_assigned_agent = await self._select_agent(task)
             if auto_assigned_agent is not None:
                 task.agent_id = auto_assigned_agent.agent_id
-        if task.agent_id and task.status in {TaskStatus.TODO, TaskStatus.IN_PROGRESS}:
+        # Always queue for execution when the task is runnable — even when no
+        # specific agent is assigned.  The coordinator will use the internal_agent
+        # runtime (which routes through Nvidia NIM) as the universal fallback.
+        if task.status in {TaskStatus.TODO, TaskStatus.IN_PROGRESS}:
             task.pending_agent_run = True
         task.add_log(
             f"Task created by {actor}",
@@ -224,7 +227,7 @@ class TaskWorkflowService:
                 TaskStatus.IN_PROGRESS,
                 actor=actor,
                 message=f"Review retry requested by {actor}",
-                pending_agent_run=bool(task.agent_id),
+                pending_agent_run=True,
             )
         else:
             self.transition(
@@ -232,7 +235,7 @@ class TaskWorkflowService:
                 TaskStatus.TODO if task.status is TaskStatus.FAILED else TaskStatus.IN_PROGRESS,
                 actor=actor,
                 message=f"Task reset for retry by {actor}",
-                pending_agent_run=bool(task.agent_id),
+                pending_agent_run=True,
             )
         task.error_message = None
         return task
@@ -424,9 +427,10 @@ class TaskExecutionCoordinator:
 
     def _build_spec(self, task: Task, agent: AgentDefinition | None) -> TaskSpec:
         task_type = task.task_type or (agent.task_types[0] if agent and agent.task_types else "general")
-        runtime_preference = task.runtime_id or (agent.runtime_id if agent else None)
+        runtime_preference = task.runtime_id or (agent.runtime_id if agent else None) or "internal_agent"
         model_preference = task.model_preference or (agent.model if agent else None)
-        allow_paid_escalation = bool(agent and agent.cost_policy != "local_only")
+        # Always allow paid-free escalation to Nvidia NIM (it's free)
+        allow_paid_escalation = True
 
         return TaskSpec(
             task_id=task.task_id,

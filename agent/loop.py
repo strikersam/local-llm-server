@@ -30,9 +30,26 @@ from router import get_router
 
 log = logging.getLogger("qwen-agent")
 
-DEFAULT_PLANNER_MODEL = os.environ.get("AGENT_PLANNER_MODEL", "deepseek-r1:32b")
-DEFAULT_EXECUTOR_MODEL = os.environ.get("AGENT_EXECUTOR_MODEL", "qwen3-coder:30b")
-DEFAULT_VERIFIER_MODEL = os.environ.get("AGENT_VERIFIER_MODEL", "deepseek-r1:32b")
+# Default to Nvidia NIM free models — no local infra required.
+# These are overridden by env vars when local Ollama models are preferred.
+DEFAULT_PLANNER_MODEL = os.environ.get(
+    "AGENT_PLANNER_MODEL",
+    "nvidia/llama-3.1-nemotron-ultra-253b-v1"
+    if (os.environ.get("NVIDIA_API_KEY") or os.environ.get("NVidiaApiKey"))
+    else "deepseek-r1:32b",
+)
+DEFAULT_EXECUTOR_MODEL = os.environ.get(
+    "AGENT_EXECUTOR_MODEL",
+    "qwen/qwen2.5-coder-32b-instruct"
+    if (os.environ.get("NVIDIA_API_KEY") or os.environ.get("NVidiaApiKey"))
+    else "qwen3-coder:30b",
+)
+DEFAULT_VERIFIER_MODEL = os.environ.get(
+    "AGENT_VERIFIER_MODEL",
+    "deepseek-ai/deepseek-r1"
+    if (os.environ.get("NVIDIA_API_KEY") or os.environ.get("NVidiaApiKey"))
+    else "deepseek-r1:32b",
+)
 
 
 class AgentRunner:
@@ -509,10 +526,23 @@ class AgentRunner:
         if self.provider_temperature is not None:
             payload["temperature"] = self.provider_temperature
         start = time.perf_counter()
+        # Detect provider type from URL — Nvidia NIM and other cloud APIs are
+        # openai-compatible; local Ollama uses the ollama protocol.
+        _is_ollama = (
+            "11434" in self.ollama_base
+            or "ollama" in self.ollama_base
+            or "localhost" in self.ollama_base
+            or "127.0.0.1" in self.ollama_base
+        )
         primary = ProviderConfig(
             provider_id="agent-primary",
-            type="ollama" if "11434" in self.ollama_base or "ollama" in self.ollama_base else "openai-compatible",
+            type="ollama" if _is_ollama else "openai-compatible",
             base_url=self.ollama_base,
+            api_key=(
+                os.environ.get("NVIDIA_API_KEY")
+                or os.environ.get("NVidiaApiKey")
+                or None
+            ) if not _is_ollama else None,
             headers=dict(self.provider_headers),
             default_model=model,
             priority=0,
