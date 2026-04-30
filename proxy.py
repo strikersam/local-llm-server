@@ -82,6 +82,8 @@ from provider_router import ProviderRouter, get_cooldown_state
 
 # v3: Runtime layer and task system
 from runtimes import get_runtime_manager, runtime_router
+from routing import routing_router
+from schedules import schedules_router
 from secrets_store import secrets_router
 from service_manager import WindowsServiceManager
 from setup import setup_router
@@ -702,6 +704,8 @@ COMMIT_TRACKER = CommitTracker(repo_root=Path(__file__).resolve().parent)
 VOICE_INTERFACE = VoiceCommandInterface()
 WATCHDOG = ResourceWatchdog()
 SCHEDULER = AgentScheduler()
+from agent.scheduler import set_scheduler as _set_scheduler
+_set_scheduler(SCHEDULER)
 BACKGROUND_AGENT = BackgroundAgent()
 COORDINATOR = AgentCoordinator(
     ollama_base=OLLAMA_BASE, workspace_root=str(Path(__file__).resolve().parent)
@@ -808,6 +812,14 @@ log.info("Workspace sync mounted at /api/sync/*")
 # ─── v2: Multi-agent coordinate ───────────────────────────────────────────────
 app.include_router(coordinate_v2_router)
 log.info("Multi-agent coordinate v2 mounted at /v2/agent/coordinate")
+
+# ─── Control Plane: Schedules ─────────────────────────────────────────────────
+app.include_router(schedules_router)
+log.info("Schedules API mounted at /api/schedules/*")
+
+# ─── Control Plane: Routing policy ───────────────────────────────────────────
+app.include_router(routing_router)
+log.info("Routing policy API mounted at /api/routing/*")
 
 
 # ─── Health (no auth) ──────────────────────────────────────────────────────────
