@@ -2,16 +2,13 @@
 
 ## [Unreleased]
 
-### Changed
-- `.github/workflows/process-quick-note.yml` — replaced Anthropic/Groq API routing with free NVIDIA NIM auto-selection; model is now chosen by task complexity mirroring `router/classifier.py` tiers: reasoning/planning → Nemotron Ultra 253B, data analysis/math → DeepSeek R1, code generation → Qwen2.5 Coder 32B, fast/simple → Llama 3.1 8B. Requires `NVIDIA_API_KEY` secret; no paid API keys needed.
-
 ### Fixed
-- `agent/loop.py` — `_normalize_plan_response()` added: normalises LLM planner output before Pydantic validation; renames `slices` → `steps` (CRISPY-style responses), derives `goal` from the instruction when absent, and infers `type` from file presence (`edit` when files listed, `analyze` otherwise). Fixes the `ValidationError: AgentPlan goal Field required` crash that caused all tasks to fail with "Runtime '*' unavailable".
-- `proxy.py` — `REGISTER_RUNTIMES` env var now defaults to `"true"` so system runtime agents (Hermes, OpenCode, Goose, Aider, internal_agent) are always registered in `AgentStore` on startup without requiring an explicit env override.
-
-### Added
-- `agents/api.py` — `GET /api/agents/` response now includes a `runtime_health` field per agent (when the agent has a `runtime_id`), exposing `available`, `latency_ms`, and `error` from the live `RuntimeManager` health check — enables multica.ai-style online/offline status in the roster UI.
-- `agents/api.py` — new `GET /api/agents/runtimes` endpoint returns all registered runtime adapters merged with their `AgentStore` profiles and live health data, sorted by availability. Use this as the canonical data source for the agent roster UI.
+- `backend/server.py` — replaced hardcoded `use_agent = True` with `use_agent = body.agent_mode or _classify_complexity(body.content) == "complex"`, so simple conversational messages (e.g. "Hello") use the fast direct-LLM path instead of the full Plan→Execute→Verify pipeline that was causing "Agent error: All configured LLM providers failed" for every message.
+- `backend/server.py` — `_run_agent_loop` now re-raises `ProviderFallbackError` instead of catching it as a generic exception; the outer `chat_send` handler converts it to a clean HTTP 503, so provider failures surface as real errors instead of being swallowed into an "Agent error: …" assistant message.
+- `backend/server.py` — reduced agent `max_steps` from 20 to 8 and `_AGENT_TIMEOUT_SEC` from 900 s to 120 s, preventing excessively long hangs for complex tasks.
+- `frontend/src/pages/ChatPage.js` — removed hardcoded `agentMode: true` from `chatSend()`; agent mode is now controlled by the UI toggle and defaults to OFF (direct chat).
+- `frontend/src/pages/ChatPage.js` — "Agent ON" static badge replaced with a real toggle button; state is persisted to localStorage; chat experience now defaults to fast direct LLM and only invokes the agent pipeline when the user explicitly enables it or the backend classifies the task as complex.
+- `frontend/src/pages/ChatPage.js` — empty state updated: heading, description, placeholder, and quick-prompt suggestions now reflect the actual mode (direct chat vs. agent) instead of always showing wiki-specific prompts.
 
 ### Added
 - `setup/api.py` — `GET /api/setup/detect/providers` endpoint; returns which providers are already configured server-side (e.g. Nvidia NIM key set on Render) without exposing key values.

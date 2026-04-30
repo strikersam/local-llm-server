@@ -1681,10 +1681,22 @@ async def _run_agent_loop(
         github_token=github_token,
     )
 
-    # Add a hidden system prefix to help the agent understand it's part of a wiki platform.
+    github_status = (
+        "GitHub token connected — you can list repos, read files, create branches, "
+        "commit changes, and open pull requests via the github_* tools."
+        if github_token
+        else "GitHub not connected — if the user asks for GitHub operations, tell them to add a token at Settings → GitHub."
+    )
+
     agent_instruction = (
-        f"CONTEXT: You are working inside the LLM Relay Platform. \n"
-        f"WIKI INDEX:\n{wiki_index}\n\n"
+        "CONTEXT: You are a powerful AI coding agent with multi-step reasoning and full tool access.\n\n"
+        "CAPABILITIES:\n"
+        "- Read, search, and edit files in the local workspace\n"
+        "- Read files from GitHub repositories, create branches, commit changes, open PRs\n"
+        "- Save and recall user preferences across sessions\n"
+        "- Access the wiki knowledge base and create/edit wiki pages\n\n"
+        f"GITHUB STATUS: {github_status}\n\n"
+        f"WIKI INDEX (current pages):\n{wiki_index}\n\n"
         f"TASK: {instruction}"
     )
 
@@ -1694,11 +1706,13 @@ async def _run_agent_loop(
             history=session_messages,
             requested_model=requested_model,
             auto_commit=True,
-            max_steps=20,
+            max_steps=8,
             memory_store=UserMemoryStore(),
         )
         return result["summary"]
     except CommercialFallbackRequiredError:
+        raise
+    except ProviderFallbackError:
         raise
     except Exception as exc:
         log.error("AgentRunner failed: %s", exc)
@@ -2062,11 +2076,13 @@ async def chat_send(body: ChatMessage, user: dict = Depends(get_current_user)):
     )
 
     # Determine whether to use multi-agent orchestration.
-    use_agent = True  # Always use agent mode
+    # Use agent only when the task warrants it — simple greetings/questions use
+    # the fast direct-LLM path; complex code/GitHub tasks use Plan→Execute→Verify.
+    use_agent = body.agent_mode or _classify_complexity(body.content) == "complex"
 
     # Hard timeouts so a stuck/thinking model never silently hangs the request.
-    _AGENT_TIMEOUT_SEC = 900  # 15 minutes for multi-agent loop
-    _LLM_TIMEOUT_SEC = 300  # 5 minutes for simple LLM calls
+    _AGENT_TIMEOUT_SEC = 120  # 2 minutes for agent loop
+    _LLM_TIMEOUT_SEC = 120  # 2 minutes for simple LLM calls
 
     if use_agent:
         try:
@@ -2109,6 +2125,9 @@ async def chat_send(body: ChatMessage, user: dict = Depends(get_current_user)):
                     "session_id": sid,
                 },
             ) from exc
+        except ProviderFallbackError as exc:
+            log.error("All LLM providers failed during agent run: %s", exc)
+            raise HTTPException(status_code=503, detail=str(exc)) from exc
         except asyncio.TimeoutError:
             log.warning(
                 "Agent loop timed out after %ds — returning timeout message",
@@ -2116,14 +2135,10 @@ async def chat_send(body: ChatMessage, user: dict = Depends(get_current_user)):
             )
             response_text = (
                 f"⚠️ The agent took too long to respond (exceeded {_AGENT_TIMEOUT_SEC} seconds). "
-                "This usually happens when the model is reasoning through a complex problem. "
                 "Try a simpler query or switch to a faster model."
             )
             use_agent = True  # mark handled — skip simple LLM fallback
         except Exception as exc:
-            # Bug 5: Previously we silently fell back to a plain LLM call,
-            # which then told the user "I can't do GitHub". Instead, surface the
-            # real failure so the user knows why the tool call didn't happen.
             log.error("Agent loop failed: %s", exc, exc_info=True)
             response_text = (
                 "⚠️ The agent run failed before it could use any tools.\n\n"
