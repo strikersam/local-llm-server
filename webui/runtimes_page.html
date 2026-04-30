@@ -209,7 +209,15 @@
         const response = await fetch(`${API_BASE}/${runtimeId}/start`, { method: 'POST' });
         const data = await response.json();
         if (response.ok) {
-          showMessage(runtimeId, `Started ${runtimeId}`, 'success');
+          if (data.mode === 'local_subprocess') {
+            showMessage(runtimeId, `Started ${runtimeId} locally on ${data.base_url}`, 'success');
+          } else if (data.remote_managed) {
+            showMessage(runtimeId, `Runtime reachable remotely — no local start needed`, 'success');
+          } else if (data.docker_unavailable) {
+            showMessage(runtimeId, `Docker unavailable — started local fallback`, 'success');
+          } else {
+            showMessage(runtimeId, `Started ${runtimeId}`, 'success');
+          }
           setTimeout(refreshStatus, 2000);
         } else {
           showMessage(runtimeId, `Error: ${data.error || 'Unknown error'}`, 'error');
@@ -229,7 +237,13 @@
         const response = await fetch(`${API_BASE}/${runtimeId}/stop`, { method: 'POST' });
         const data = await response.json();
         if (response.ok) {
-          showMessage(runtimeId, `Stopped ${runtimeId}`, 'success');
+          if (data.mode === 'local_subprocess') {
+            showMessage(runtimeId, `Stopped ${runtimeId} local process`, 'success');
+          } else if (data.remote_managed) {
+            showMessage(runtimeId, `Runtime managed remotely`, 'success');
+          } else {
+            showMessage(runtimeId, `Stopped ${runtimeId}`, 'success');
+          }
           setTimeout(refreshStatus, 2000);
         } else {
           showMessage(runtimeId, `Error: ${data.error || 'Unknown error'}`, 'error');

@@ -25,13 +25,31 @@ from agent.prompts import (
 from agent.state import AgentSessionStore
 from agent.tools import WorkspaceTools
 from agent.user_memory import UserMemoryStore
+from provider_router import CommercialFallbackRequiredError, ProviderConfig, ProviderRouter
 from router import get_router
 
 log = logging.getLogger("qwen-agent")
 
-DEFAULT_PLANNER_MODEL = os.environ.get("AGENT_PLANNER_MODEL", "deepseek-r1:32b")
-DEFAULT_EXECUTOR_MODEL = os.environ.get("AGENT_EXECUTOR_MODEL", "qwen3-coder:30b")
-DEFAULT_VERIFIER_MODEL = os.environ.get("AGENT_VERIFIER_MODEL", "deepseek-r1:32b")
+# Default to Nvidia NIM free models — no local infra required.
+# These are overridden by env vars when local Ollama models are preferred.
+DEFAULT_PLANNER_MODEL = os.environ.get(
+    "AGENT_PLANNER_MODEL",
+    "nvidia/llama-3.1-nemotron-ultra-253b-v1"
+    if (os.environ.get("NVIDIA_API_KEY") or os.environ.get("NVidiaApiKey"))
+    else "deepseek-r1:32b",
+)
+DEFAULT_EXECUTOR_MODEL = os.environ.get(
+    "AGENT_EXECUTOR_MODEL",
+    "qwen/qwen2.5-coder-32b-instruct"
+    if (os.environ.get("NVIDIA_API_KEY") or os.environ.get("NVidiaApiKey"))
+    else "qwen3-coder:30b",
+)
+DEFAULT_VERIFIER_MODEL = os.environ.get(
+    "AGENT_VERIFIER_MODEL",
+    "deepseek-ai/deepseek-r1"
+    if (os.environ.get("NVIDIA_API_KEY") or os.environ.get("NVidiaApiKey"))
+    else "deepseek-r1:32b",
+)
 
 
 class AgentRunner:
@@ -41,6 +59,8 @@ class AgentRunner:
         ollama_base: str,
         workspace_root: str | Path | None = None,
         provider_headers: dict[str, str] | None = None,
+        provider_chain: list[ProviderConfig] | None = None,
+        allow_commercial_fallback: bool = True,
         provider_temperature: float | None = None,
         session_store: AgentSessionStore | None = None,
         github_token: str | None = None,
@@ -52,6 +72,8 @@ class AgentRunner:
         # OpenAI-compatible base URL with /v1/chat/completions.
         self.ollama_base = ollama_base.rstrip("/")
         self.provider_headers = dict(provider_headers or {})
+        self.provider_chain = list(provider_chain or [])
+        self.allow_commercial_fallback = allow_commercial_fallback
         self.provider_temperature = provider_temperature
         self.tools = WorkspaceTools(workspace_root)
         from agent.github_tools import GitHubTools
@@ -214,6 +236,8 @@ class AgentRunner:
                     build_tool_prompt(goal=goal, step=step, observations=masked_obs, remaining_calls=remaining),
                 )
                 call = ToolCall.model_validate(tool_call)
+            except CommercialFallbackRequiredError:
+                raise
             except Exception as exc:
                 observations.append({"tool": "error", "result": f"tool selection failed: {exc}"})
                 continue
@@ -377,6 +401,8 @@ class AgentRunner:
     ) -> Any:
         try:
             return await self._dispatch_tool(tool, args, user_id=user_id, memory_store=memory_store)
+        except CommercialFallbackRequiredError:
+            raise
         except Exception as exc:
             # The harness catches tool failures as tool-call errors and feeds
             # them back to the model — it never surfaces raw exceptions.
@@ -489,6 +515,8 @@ class AgentRunner:
                 {"original_length": len(history), "summary_length": len(summary_text)},
             )
             return self.ctx.compact_history(history, compaction_summary=summary_text)
+        except CommercialFallbackRequiredError:
+            raise
         except Exception as exc:
             log.warning("context compaction failed (continuing uncompacted): %s", exc)
             return history
@@ -497,13 +525,35 @@ class AgentRunner:
         payload: dict[str, Any] = {"model": model, "messages": messages, "stream": False}
         if self.provider_temperature is not None:
             payload["temperature"] = self.provider_temperature
-        headers = {"Content-Type": "application/json", **self.provider_headers}
         start = time.perf_counter()
-        async with httpx.AsyncClient(timeout=httpx.Timeout(300.0, connect=10.0)) as client:
-            resp = await client.post(f"{self.ollama_base}/v1/chat/completions", json=payload, headers=headers)
+        # Detect provider type from URL — Nvidia NIM and other cloud APIs are
+        # openai-compatible; local Ollama uses the ollama protocol.
+        _is_ollama = (
+            "11434" in self.ollama_base
+            or "ollama" in self.ollama_base
+            or "localhost" in self.ollama_base
+            or "127.0.0.1" in self.ollama_base
+        )
+        primary = ProviderConfig(
+            provider_id="agent-primary",
+            type="ollama" if _is_ollama else "openai-compatible",
+            base_url=self.ollama_base,
+            api_key=(
+                os.environ.get("NVIDIA_API_KEY")
+                or os.environ.get("NVidiaApiKey")
+                or None
+            ) if not _is_ollama else None,
+            headers=dict(self.provider_headers),
+            default_model=model,
+            priority=0,
+        )
+        router = ProviderRouter([primary, *self.provider_chain]) if self.provider_chain else ProviderRouter.from_env(primary_provider=primary)
+        result = await router.chat_completion(
+            payload,
+            allow_commercial_fallback=self.allow_commercial_fallback,
+        )
         duration_ms = int((time.perf_counter() - start) * 1000)
-        resp.raise_for_status()
-        data = resp.json()
+        data = result.response.json()
         out_text = data["choices"][0]["message"]["content"]
         
         # Emit Langfuse observation
@@ -527,6 +577,8 @@ class AgentRunner:
                     latency_ms=duration_ms,
                     task_name="agent-task",
                 )
+            except CommercialFallbackRequiredError:
+                raise
             except Exception as exc:
                 log.debug("Agent Langfuse emit failed: %s", exc)
 
@@ -540,6 +592,8 @@ class AgentRunner:
                 if not isinstance(parsed, dict):
                     raise ValueError("Model did not return a JSON object")
                 return parsed
+            except CommercialFallbackRequiredError:
+                raise
             except Exception:
                 raw = await self._chat_text(
                     model,

@@ -1,5 +1,3 @@
-version: '3.8'
-
 # ─────────────────────────────────────────────────────────────────────────────
 # local-llm-server — Docker Compose
 #
@@ -20,7 +18,6 @@ version: '3.8'
 # ─────────────────────────────────────────────────────────────────────────────
 
 services:
-
   # ── Ollama LLM runtime ─────────────────────────────────────────────────────
   ollama:
     image: ollama/ollama:latest
@@ -31,10 +28,11 @@ services:
     volumes:
       - ollama_data:/root/.ollama
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:11434/api/tags"]
-      interval: 15s
+      test: ["CMD-SHELL", "ollama list || exit 1"]
+      interval: 30s
       timeout: 10s
       retries: 5
+      start_period: 60s
     # Uncomment for NVIDIA GPU support:
     # deploy:
     #   resources:
@@ -67,7 +65,7 @@ services:
       retries: 3
     depends_on:
       ollama:
-        condition: service_healthy
+        condition: service_started
 
   opencode:
     build:
@@ -91,7 +89,7 @@ services:
       retries: 3
     depends_on:
       ollama:
-        condition: service_healthy
+        condition: service_started
 
   goose:
     build:
@@ -115,7 +113,7 @@ services:
       retries: 3
     depends_on:
       ollama:
-        condition: service_healthy
+        condition: service_started
 
   aider:
     build:
@@ -139,7 +137,7 @@ services:
       retries: 3
     depends_on:
       ollama:
-        condition: service_healthy
+        condition: service_started
 
   # ── MongoDB (agent store & task persistence) ───────────────────────────────
   mongo:
@@ -176,19 +174,35 @@ services:
       - OPENCODE_BASE_URL=http://opencode:8080
       - GOOSE_BASE_URL=http://goose:8080
       - AIDER_BASE_URL=http://aider:8080
+      - OLLAMA_WINDOWS_SERVER=${OLLAMA_WINDOWS_SERVER:-}
+      - OLLAMA_WINDOWS_MODEL=${OLLAMA_WINDOWS_MODEL:-llama3.2}
+      - HF_TOKEN=${HF_TOKEN:-}
+      - HF_BASE_URL=${HF_BASE_URL:-https://router.huggingface.co}
+      - HF_MODEL_ID=${HF_MODEL_ID:-Qwen/Qwen2.5-Coder-7B-Instruct}
+      - DEEPSEEK_API_KEY=${DEEPSEEK_API_KEY:-}
+      - DEEPSEEK_BASE_URL=${DEEPSEEK_BASE_URL:-https://api.deepseek.com}
+      - DEEPSEEK_MODEL=${DEEPSEEK_MODEL:-deepseek-chat}
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
+      - ANTHROPIC_BASE_URL=${ANTHROPIC_BASE_URL:-https://api.anthropic.com}
+      - ANTHROPIC_MODEL=${ANTHROPIC_MODEL:-claude-3-5-sonnet-latest}
+      - ENABLE_MULTI_AGENT_SWARM=${ENABLE_MULTI_AGENT_SWARM:-true}
+      - USE_PROVIDER_ROUTER=${USE_PROVIDER_ROUTER:-true}
+      - PROVIDER_COOLDOWN_SECONDS=${PROVIDER_COOLDOWN_SECONDS:-60}
     depends_on:
       ollama:
-        condition: service_healthy
+        condition: service_started
       mongo:
         condition: service_healthy
-      hermes:
-        condition: service_healthy
-      opencode:
-        condition: service_healthy
-      goose:
-        condition: service_healthy
-      aider:
-        condition: service_healthy
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          'python -c "import urllib.request; urllib.request.urlopen(''http://localhost:8000/live'', timeout=5)"',
+        ]
+      interval: 15s
+      timeout: 10s
+      retries: 5
+      start_period: 20s
 
   # ── LLM Relay Dashboard (optional, profile: dashboard) ─────────────────────
   dashboard-backend:
@@ -205,11 +219,15 @@ services:
       - MONGO_URL=mongodb://mongo:27017
       - FRONTEND_URL=http://localhost:3000
       - OLLAMA_BASE_URL=http://ollama:11434
+      - HERMES_BASE_URL=http://hermes:8080
+      - OPENCODE_BASE_URL=http://opencode:8080
+      - GOOSE_BASE_URL=http://goose:8080
+      - AIDER_BASE_URL=http://aider:8080
     depends_on:
       mongo:
         condition: service_started
       ollama:
-        condition: service_healthy
+        condition: service_started
     profiles:
       - dashboard
 
@@ -218,7 +236,7 @@ services:
       context: .
       dockerfile: Dockerfile.dashboard.frontend
       args:
-        REACT_APP_BACKEND_URL: http://localhost:8001
+        REACT_APP_BACKEND_URL: http://localhost:8000
     container_name: llm-relay-frontend
     restart: unless-stopped
     ports:
@@ -258,7 +276,7 @@ services:
       - "--log=stdout"
       - "proxy:8000"
     environment:
-      - NGROK_AUTHTOKEN=${NGROK_AUTHTOKEN}
+      - NGROK_AUTHTOKEN=${NGROK_AUTH_TOKEN}
     depends_on:
       - proxy
     profiles:

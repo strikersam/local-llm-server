@@ -30,7 +30,7 @@ log = logging.getLogger("qwen-proxy")
 
 _cache_ts: float = 0.0
 _cache_models: set[str] = set()
-_SENTINEL = object()          # marks "never fetched" vs "fetched empty"
+_SENTINEL = object()  # marks "never fetched" vs "fetched empty"
 _ever_fetched: bool = False
 
 
@@ -43,7 +43,9 @@ def _ttl() -> float:
 
 def _enabled() -> bool:
     return os.environ.get("ROUTER_HEALTH_CHECK_ENABLED", "true").strip().lower() in (
-        "1", "true", "yes",
+        "1",
+        "true",
+        "yes",
     )
 
 
@@ -76,7 +78,9 @@ def get_available_models() -> set[str]:
     except ValueError:
         connect_timeout = 10.0
     try:
-        with httpx.Client(timeout=httpx.Timeout(connect_timeout + 5.0, connect=connect_timeout)) as client:
+        with httpx.Client(
+            timeout=httpx.Timeout(connect_timeout + 5.0, connect=connect_timeout)
+        ) as client:
             resp = client.get(f"{base}/api/tags")
             resp.raise_for_status()
             data = resp.json()
@@ -87,12 +91,29 @@ def get_available_models() -> set[str]:
                 name = m.get("name") or ""
                 if name:
                     names.add(name)
-                    # Also add the short name without digest tag, e.g. "qwen3-coder:30b"
-                    # Ollama sometimes returns "qwen3-coder:30b-q4_K_M"; keep base tag too
+                    # Add the base name WITHOUT a quantization suffix only.
+                    # e.g. "qwen3-coder:30b-q4_K_M" → add "qwen3-coder:30b"
+                    # Do NOT strip version tags like ":latest" or ":27b" — that causes
+                    # false positives in is_model_available() (e.g. "gemma4:latest"
+                    # would add "gemma4" which then matches "gemma4:27b" incorrectly).
                     tag_colon = name.rfind(":")
                     if tag_colon != -1:
-                        base_tag = name[:tag_colon]
-                        names.add(base_tag)
+                        version_part = name[tag_colon + 1 :]
+                        # Only strip if the version looks like a quant suffix:
+                        # contains "-" or "_" (e.g. "30b-q4_K_M", "7b_q8_0")
+                        if "-" in version_part or "_" in version_part:
+                            # Add the base tag (e.g. "qwen3-coder:30b")
+                            base_tag = name[:tag_colon]
+                            # Find the quant separator
+                            sep = min(
+                                (
+                                    i
+                                    for i, c in enumerate(version_part)
+                                    if c in ("-", "_")
+                                ),
+                                default=len(version_part),
+                            )
+                            names.add(f"{base_tag}:{version_part[:sep]}")
 
         _cache_models = names
         _cache_ts = now
@@ -101,7 +122,9 @@ def get_available_models() -> set[str]:
         return names
 
     except Exception as exc:
-        log.debug("Ollama health check skipped (%s) — availability filtering disabled", exc)
+        log.debug(
+            "Ollama health check skipped (%s) — availability filtering disabled", exc
+        )
         # Don't overwrite a good cached value with a failure
         if _ever_fetched:
             return _cache_models
@@ -135,7 +158,7 @@ def is_model_available(model: str) -> bool:
     if not model:
         return False
     available = get_available_models()
-    if not available:          # empty = no filtering
+    if not available:  # empty = no filtering
         return True
     if model in available:
         return True
@@ -147,8 +170,12 @@ def is_model_available(model: str) -> bool:
         if not model_has_tag and a.startswith(model + ":"):
             return True
         # Case 3: quantization suffix — only honour "-"/"_" after a tag colon.
-        if model_has_tag and len(a) > len(model) and a.startswith(model) \
-                and a[len(model)] in ("-", "_"):
+        if (
+            model_has_tag
+            and len(a) > len(model)
+            and a.startswith(model)
+            and a[len(model)] in ("-", "_")
+        ):
             return True
         # Case 4: reverse — available is untagged, model carries a tag.
         if ":" not in a and model.startswith(a + ":"):

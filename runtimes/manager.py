@@ -17,10 +17,10 @@ import logging
 import os
 from typing import Any
 
-from runtimes.base import RuntimeAdapter, TaskResult, TaskSpec, RuntimeUnavailableError
-from runtimes.registry import RuntimeCapabilityRegistry
+from runtimes.base import RuntimeAdapter, RuntimeUnavailableError, TaskResult, TaskSpec
 from runtimes.health import RuntimeHealthService
-from runtimes.routing import RuntimeRoutingPolicyEngine, RoutingDecision, RoutingPolicy
+from runtimes.registry import RuntimeCapabilityRegistry
+from runtimes.routing import RoutingDecision, RoutingPolicy, RuntimeRoutingPolicyEngine
 
 log = logging.getLogger("qwen-proxy")
 
@@ -87,6 +87,7 @@ class RuntimeManager:
         if self._started:
             # Trigger an immediate health check so the new runtime is usable
             import asyncio
+
             asyncio.create_task(self._health._poll_one(adapter.RUNTIME_ID))
 
     def unregister(self, runtime_id: str) -> None:
@@ -110,7 +111,11 @@ class RuntimeManager:
         for adapter in self._registry.all():
             info = adapter.as_dict()
             health = self._health.get_health(adapter.RUNTIME_ID)
-            info["health"] = health.as_dict() if health else {"runtime_id": adapter.RUNTIME_ID, "available": None}
+            info["health"] = (
+                health.as_dict()
+                if health
+                else {"runtime_id": adapter.RUNTIME_ID, "available": None}
+            )
             info["circuit_open"] = not self._health.is_available(adapter.RUNTIME_ID)
             result.append(info)
         return result
@@ -121,7 +126,11 @@ class RuntimeManager:
             return None
         info = adapter.as_dict()
         health = self._health.get_health(runtime_id)
-        info["health"] = health.as_dict() if health else {"runtime_id": runtime_id, "available": None}
+        info["health"] = (
+            health.as_dict()
+            if health
+            else {"runtime_id": runtime_id, "available": None}
+        )
         return info
 
     def get_policy(self) -> dict[str, Any]:
@@ -135,6 +144,19 @@ class RuntimeManager:
 
     def health_summary(self) -> list[dict[str, Any]]:
         return self._health.all_health()
+
+    async def refresh_runtime_health(self, runtime_id: str) -> dict[str, Any] | None:
+        """Force an immediate health check for a runtime and reset its circuit breaker."""
+        adapter = self._registry.get(runtime_id)
+        if adapter is None:
+            return None
+        # Reset circuit breaker so it doesn't skip the check
+        circuit = self._health._circuits.get(runtime_id)
+        if circuit:
+            circuit.record_success()
+        await self._health._poll_one(runtime_id)
+        health = self._health.get_health(runtime_id)
+        return health.as_dict() if health else None
 
 
 # ── Singleton ─────────────────────────────────────────────────────────────────
@@ -159,23 +181,40 @@ def _build_default_manager() -> RuntimeManager:
     Individual adapters are skipped if their binary/URL is not configured
     (they'll just be unhealthy until set up).
     """
-    from runtimes.adapters.hermes import HermesAdapter
-    from runtimes.adapters.opencode import OpenCodeAdapter
-    from runtimes.adapters.goose import GooseAdapter
-    from runtimes.adapters.openhands import OpenHandsAdapter
     from runtimes.adapters.aider import AiderAdapter
+    from runtimes.adapters.goose import GooseAdapter
+    from runtimes.adapters.hermes import HermesAdapter
     from runtimes.adapters.internal_agent import InternalAgentAdapter
+    from runtimes.adapters.opencode import OpenCodeAdapter
+    from runtimes.adapters.openhands import OpenHandsAdapter
 
     policy = RoutingPolicy(
-        never_use_paid_providers=os.environ.get("RUNTIME_NEVER_PAID", "true").lower() == "true",
-        require_approval_before_paid_escalation=True,
-        max_paid_escalations_per_day=int(os.environ.get("RUNTIME_MAX_PAID_ESCALATIONS", "0")),
-        preferred_runtime_id=os.environ.get("RUNTIME_DEFAULT", "hermes"),
+        never_use_paid_providers=os.environ.get("RUNTIME_NEVER_PAID", "false").lower()
+        == "true",
+        require_approval_before_paid_escalation=os.environ.get(
+            "RUNTIME_REQUIRE_APPROVAL", "false"
+        ).lower()
+        == "true",
+        max_paid_escalations_per_day=int(
+            os.environ.get("RUNTIME_MAX_PAID_ESCALATIONS", "0")
+        ),
+        # Always prefer internal_agent — it's always healthy (no external deps).
+        # Hermes/OpenCode/Goose require separate sidecar processes that may not
+        # be running; they can still be used when explicitly requested via
+        # RUNTIME_DEFAULT env override.
+        preferred_runtime_id=os.environ.get("RUNTIME_DEFAULT", "internal_agent"),
+        # Always fall back to internal_agent so tasks never hard-fail due to
+        # missing sidecar runtimes.
+        fallback_runtime_ids=["internal_agent"],
         task_type_runtime_overrides={
-            "code_generation": os.environ.get("RUNTIME_CODE_GENERATION", "opencode"),
-            "code_review": os.environ.get("RUNTIME_CODE_REVIEW", "opencode"),
-            "repo_editing": os.environ.get("RUNTIME_REPO_EDITING", "opencode"),
-            "git_operations": os.environ.get("RUNTIME_GIT_OPS", "aider"),
+            k: v
+            for k, v in {
+                "code_generation": os.environ.get("RUNTIME_CODE_GENERATION"),
+                "code_review": os.environ.get("RUNTIME_CODE_REVIEW"),
+                "repo_editing": os.environ.get("RUNTIME_REPO_EDITING"),
+                "git_operations": os.environ.get("RUNTIME_GIT_OPS"),
+            }.items()
+            if v  # skip None entries so internal_agent fallback still applies
         },
     )
     mgr = RuntimeManager(policy=policy)

@@ -41,6 +41,7 @@ log = logging.getLogger("qwen-proxy")
 
 # ── Data types ────────────────────────────────────────────────────────────────
 
+
 @dataclass
 class RoutingDecision:
     """Full record of a routing decision — both what was chosen and why.
@@ -63,7 +64,7 @@ class RoutingDecision:
 
     resolved_model: str
     requested_model: str | None
-    mode: str                       # "auto" | "manual"
+    mode: str  # "auto" | "manual"
     routing_reason: str
     task_category: str
     selection_source: str
@@ -86,39 +87,75 @@ class RoutingDecision:
 
 # ── Model map (Anthropic alias → local) ──────────────────────────────────────
 
-_BUILTIN_MODEL_MAP: dict[str, str] = {
-    # Claude 4.7 family (latest, April 2026)
-    "claude-opus-4-7":            "deepseek-r1:671b",
-    # Claude 4.6 family
-    "claude-opus-4-6":            "deepseek-r1:32b",
-    "claude-sonnet-4-6":          "qwen3-coder:30b",
-    "claude-haiku-4-5-20251001":  "qwen3-coder:7b",
-    # Claude 4.5 family
-    "claude-opus-4-5":            "deepseek-r1:32b",
-    "claude-opus-4":              "deepseek-r1:32b",
-    "claude-sonnet-4-5":          "qwen3-coder:30b",
-    "claude-sonnet-4":            "qwen3-coder:30b",
-    # Claude 3.5 family
-    "claude-3-5-sonnet-20241022": "qwen3-coder:30b",
-    "claude-3-5-haiku-20241022":  "qwen3-coder:7b",
-    # Claude 3 family
-    "claude-3-opus-20240229":     "deepseek-r1:32b",
-    "claude-3-sonnet-20240229":   "qwen3-coder:30b",
-    "claude-3-haiku-20240307":    "qwen3-coder:7b",
-    # Gemma 4 short-name aliases (Ollama pull names without size suffix)
-    "gemma4":                     "gemma4:27b",
-    "gemma4-9b":                  "gemma4:9b",
-    "gemma4-2b":                  "gemma4:2b",
-    # Llama 4 short-name aliases (Meta, April 2025)
-    "llama4":                     "llama4-maverick:17b",
-    "llama4-scout":               "llama4-scout:17b",
-    "llama4-maverick":            "llama4-maverick:17b",
-    # DeepSeek V3 short-name aliases
-    "deepseek-v3":                "deepseek-v3:685b",
-    # Qwen3 short-name aliases
-    "qwen3-coder":                "qwen3-coder:30b",
-    "qwen3-coder-235b":           "qwen3-coder:235b",
-}
+def _nvidia_key_present() -> bool:
+    return bool(
+        os.environ.get("NVIDIA_API_KEY") or os.environ.get("NVidiaApiKey")
+    )
+
+
+def _build_builtin_model_map() -> dict[str, str]:
+    """Build the built-in alias table — Nvidia NIM models when key is set,
+    local Ollama models otherwise."""
+    nvidia = _nvidia_key_present()
+
+    # Reasoning/planning model: nemotron-ultra (Nvidia) or deepseek-r1 (local)
+    _heavy = "nvidia/llama-3.1-nemotron-ultra-253b-v1" if nvidia else "deepseek-r1:32b"
+    # Largest local-only model (only applies when Nvidia not configured)
+    _largest = "nvidia/llama-3.1-nemotron-ultra-253b-v1" if nvidia else "deepseek-r1:671b"
+    # Coding/execution model: qwen2.5-coder (Nvidia) or qwen3-coder (local)
+    _coder = "qwen/qwen2.5-coder-32b-instruct" if nvidia else "qwen3-coder:30b"
+    # Fast/small model
+    _fast  = "meta/llama-3.1-8b-instruct" if nvidia else "qwen3-coder:7b"
+    # Default general model
+    _gen   = "meta/llama-3.3-70b-instruct" if nvidia else "qwen3-coder:30b"
+    # Deepseek reasoning (available on Nvidia NIM too)
+    _reason = "deepseek-ai/deepseek-r1" if nvidia else "deepseek-r1:32b"
+
+    return {
+        # Claude 4.7 family (largest → heaviest reasoning)
+        "claude-opus-4-7": _largest,
+        # Claude 4.6 family
+        "claude-opus-4-6": _heavy,
+        "claude-sonnet-4-6": _coder,
+        "claude-haiku-4-5-20251001": _fast,
+        # Claude 4.5 family
+        "claude-opus-4-5": _heavy,
+        "claude-opus-4": _heavy,
+        "claude-sonnet-4-5": _coder,
+        "claude-sonnet-4": _coder,
+        # Claude 3.5 family
+        "claude-3-5-sonnet-20241022": _coder,
+        "claude-3-5-haiku-20241022": _fast,
+        # Claude 3 family
+        "claude-3-opus-20240229": _heavy,
+        "claude-3-sonnet-20240229": _coder,
+        "claude-3-haiku-20240307": _fast,
+        # Nvidia NIM short-name aliases (passthrough when key is set)
+        "llama-3.3-70b": "meta/llama-3.3-70b-instruct",
+        "llama-3.1-405b": "meta/llama-3.1-405b-instruct",
+        "nemotron-ultra": "nvidia/llama-3.1-nemotron-ultra-253b-v1",
+        "qwen2.5-coder-32b": "qwen/qwen2.5-coder-32b-instruct",
+        "deepseek-r1-nim": "deepseek-ai/deepseek-r1",
+        # Gemma 4 short-name aliases (local Ollama pull names)
+        "gemma4": "gemma4:27b",
+        "gemma4-9b": "gemma4:9b",
+        "gemma4-2b": "gemma4:2b",
+        "gemma4:latest": "gemma4:latest",
+        # Llama 4 short-name aliases
+        "llama4": "llama4-maverick:17b",
+        "llama4-scout": "llama4-scout:17b",
+        "llama4-maverick": "llama4-maverick:17b",
+        # DeepSeek V3 short-name aliases
+        "deepseek-v3": "deepseek-v3:685b",
+        # Qwen3 short-name aliases (local)
+        "qwen3-coder": "qwen3-coder:30b",
+        "qwen3-coder-235b": "qwen3-coder:235b",
+    }
+
+
+# Evaluated once at import time; reset_router() clears _resolved_model_map so
+# this is effectively re-evaluated on the next call to _get_model_map().
+_BUILTIN_MODEL_MAP: dict[str, str] = _build_builtin_model_map()
 
 _resolved_model_map: dict[str, str] | None = None
 _LOCAL_SHORT_ALIASES = {
@@ -140,7 +177,9 @@ def _get_model_map() -> dict[str, str]:
     if _resolved_model_map is not None:
         return _resolved_model_map
 
-    merged = dict(_BUILTIN_MODEL_MAP)
+    # Rebuild from env so Nvidia NIM is used when NVIDIA_API_KEY is set at
+    # runtime (the module-level constant is evaluated at import time).
+    merged = dict(_build_builtin_model_map())
     raw = os.environ.get("MODEL_MAP", "").strip()
     if raw:
         for pair in raw.split(","):
@@ -160,14 +199,29 @@ def _get_model_map() -> dict[str, str]:
 
 
 def _default_model() -> str:
-    return os.environ.get("AGENT_EXECUTOR_MODEL", "qwen3-coder:30b")
+    explicit = os.environ.get("AGENT_EXECUTOR_MODEL", "").strip()
+    if explicit:
+        return explicit
+    return (
+        "qwen/qwen2.5-coder-32b-instruct"
+        if _nvidia_key_present()
+        else "qwen3-coder:30b"
+    )
 
 
 def _default_reasoning_model() -> str:
-    return os.environ.get("AGENT_PLANNER_MODEL", "deepseek-r1:32b")
+    explicit = os.environ.get("AGENT_PLANNER_MODEL", "").strip()
+    if explicit:
+        return explicit
+    return (
+        "nvidia/llama-3.1-nemotron-ultra-253b-v1"
+        if _nvidia_key_present()
+        else "deepseek-r1:32b"
+    )
 
 
 # ── Router ────────────────────────────────────────────────────────────────────
+
 
 class ModelRouter:
     """Central model router.  Create one instance (use ``get_router()``).
@@ -242,8 +296,7 @@ class ModelRouter:
                 requested_model=requested_model,
                 mode="auto",
                 routing_reason=(
-                    f"MODEL_MAP: {requested_model} → {resolved} "
-                    f"(task: {category})"
+                    f"MODEL_MAP: {requested_model} → {resolved} (task: {category})"
                 ),
                 task_category=category,
                 selection_source="model_map",
@@ -286,7 +339,11 @@ class ModelRouter:
                 mode="auto",
                 routing_reason=(
                     f"Heuristic: task={category} → {best}"
-                    + (f" (client requested {requested_model!r})" if requested_model else "")
+                    + (
+                        f" (client requested {requested_model!r})"
+                        if requested_model
+                        else ""
+                    )
                 ),
                 task_category=category,
                 selection_source="heuristic",
@@ -327,7 +384,9 @@ class ModelRouter:
         log.warning(
             "ModelRouter: preferred model %r not available in Ollama "
             "(task=%s, requested=%r) — trying fallback chain",
-            model, category, requested_model,
+            model,
+            category,
+            requested_model,
         )
         for fb in self._fallback_chain(model, category):
             if is_model_available(fb):
@@ -354,6 +413,12 @@ class ModelRouter:
         default = _default_model()
         if default not in alternatives and default != primary:
             alternatives.append(default)
+
+        # Sort: actually-available models first so they aren't excluded by the
+        # cap below.  e.g. "gemma4:latest" (installed) should rank above
+        # "qwen3-coder:30b" (not installed) when building the chain for a
+        # request that mapped to "gemma4:27b".
+        alternatives.sort(key=lambda m: 0 if is_model_available(m) else 1)
 
         return alternatives[:3]  # Keep the chain short
 

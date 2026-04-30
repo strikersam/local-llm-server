@@ -1,51 +1,79 @@
 from dotenv import load_dotenv
+
 load_dotenv()
 
+import asyncio
+import json
+import logging
 import os
 import re
-import json
 import secrets
-import asyncio
+import sys
+import uuid
 from contextlib import asynccontextmanager
-import bcrypt
-import jwt
-import httpx
-import logging
-from datetime import datetime, timezone, timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
-from fastapi import FastAPI, HTTPException, Request, Depends, UploadFile, File, Form
-from fastapi.responses import JSONResponse, HTMLResponse, RedirectResponse
-from fastapi.middleware.cors import CORSMiddleware
-from fastapi.staticfiles import StaticFiles
-from pydantic import BaseModel, Field
-from motor.motor_asyncio import AsyncIOMotorClient
-from bson import ObjectId
-from starlette.middleware.sessions import SessionMiddleware
+import bcrypt
+import httpx
+import jwt
 
-from backend.llm_providers import (
+ROOT_DIR = Path(__file__).resolve().parent.parent
+BACKEND_DIR = Path(__file__).resolve().parent
+if str(ROOT_DIR) not in sys.path:
+    sys.path.append(str(ROOT_DIR))
+if str(BACKEND_DIR) not in sys.path:
+    sys.path.append(str(BACKEND_DIR))
+
+from bson import ObjectId
+from fastapi import Depends, FastAPI, File, Form, HTTPException, Request, UploadFile
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
+from fastapi.staticfiles import StaticFiles
+from llm_providers import (
     LlmProviderConfig,
     chat_completion_text,
     list_openai_models,
     normalize_base_url,
 )
+from motor.motor_asyncio import AsyncIOMotorClient
+from pydantic import BaseModel, Field
+from starlette.middleware.base import BaseHTTPMiddleware
+from starlette.middleware.sessions import SessionMiddleware
 
 # Feature routers — agents, runtimes, tasks
 from agents.api import agent_router
 from agents.store import AgentStore, set_agent_store
+from provider_router import (
+    CommercialFallbackRequiredError,
+    ProviderConfig,
+    ProviderFallbackError,
+    ProviderRouter,
+    extract_openai_text,
+)
 from runtimes.api import runtime_router
+from runtimes.manager import get_runtime_manager
 from tasks.api import task_router
+from tasks.dispatcher import TaskDispatcher
 from tasks.store import TaskStore, set_task_store
+from setup import setup_router
+from secrets_store import secrets_router, get_secrets_store
 
-logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
+logging.basicConfig(
+    level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s"
+)
 log = logging.getLogger("llm-wiki")
 
 MONGO_URL = os.environ.get("MONGO_URL", "mongodb://localhost:27017")
 DB_NAME = os.environ.get("DB_NAME", "llm_wiki_dashboard")
 JWT_SECRET = os.environ.get("JWT_SECRET", secrets.token_hex(32))
 JWT_ALGORITHM = "HS256"
-ADMIN_EMAIL = os.environ.get("ADMIN_EMAIL", "admin@llmrelay.local")
-ADMIN_PASSWORD = os.environ.get("ADMIN_PASSWORD", "WikiAdmin2026!")
+ADMIN_EMAIL = os.environ.get("V3_ADMIN_EMAIL") or os.environ.get(
+    "ADMIN_EMAIL", "admin@llmrelay.local"
+)
+ADMIN_PASSWORD = os.environ.get("V3_ADMIN_PASSWORD") or os.environ.get(
+    "ADMIN_PASSWORD", "WikiAdmin2026!"
+)
 OLLAMA_BASE = (
     os.environ.get("OLLAMA_BASE_URL")
     or os.environ.get("OLLAMA_BASE")
@@ -64,7 +92,9 @@ def _resolve_ollama_url(url: str | None) -> str:
     if not url:
         return url or "http://localhost:11434"
     # Detect Docker: presence of /.dockerenv is the canonical signal.
-    in_docker = Path("/.dockerenv").exists() or os.environ.get("IN_DOCKER", "").lower() in ("1", "true", "yes")
+    in_docker = Path("/.dockerenv").exists() or os.environ.get(
+        "IN_DOCKER", ""
+    ).lower() in ("1", "true", "yes")
     if not in_docker:
         return url
     host_alias = os.environ.get("OLLAMA_HOST_IN_DOCKER", "ollama").strip() or "ollama"
@@ -74,9 +104,14 @@ def _resolve_ollama_url(url: str | None) -> str:
             return url.replace(needle, f"://{host_alias}:", 1)
     return url
 
+
 HF_TOKEN = os.environ.get("HF_TOKEN") or os.environ.get("HUGGINGFACE_API_TOKEN", "")
 HF_BASE_URL = os.environ.get("HF_BASE_URL", "https://router.huggingface.co")
 HF_MODEL_ID = os.environ.get("HF_MODEL_ID", "Qwen/Qwen2.5-Coder-7B-Instruct")
+EMERGENT_LLM_KEY = os.environ.get("EMERGENT_LLM_KEY", "")
+EMERGENT_ANTHROPIC_MODEL = os.environ.get(
+    "EMERGENT_ANTHROPIC_MODEL", "claude-sonnet-4-5-20250929"
+)
 
 LLM_PROVIDER = os.environ.get("LLM_PROVIDER", "deepseek")
 LANGFUSE_PK = os.environ.get("LANGFUSE_PUBLIC_KEY", "")
@@ -84,7 +119,7 @@ LANGFUSE_SK = os.environ.get("LANGFUSE_SECRET_KEY", "")
 LANGFUSE_BASE = os.environ.get("LANGFUSE_BASE_URL", "https://cloud.langfuse.com")
 ADMIN_SECRET = os.environ.get("ADMIN_SECRET", "")
 NGROK_DOMAIN = os.environ.get("NGROK_DOMAIN", "")
-NGROK_TOKEN = os.environ.get("NGROK_AUTHTOKEN", "")
+NGROK_TOKEN = os.environ.get("NGROK_AUTH_TOKEN", "") or os.environ.get("NGROK_AUTHTOKEN", "")
 
 OPENROUTER_API_KEY = os.environ.get("OPENROUTER_API_KEY", "")
 OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"
@@ -105,6 +140,13 @@ GOOGLE_BASE_URL = "https://generativelanguage.googleapis.com/v1beta/openai"
 MOONSHOT_API_KEY = os.environ.get("MOONSHOT_API_KEY", "")
 MOONSHOT_BASE_URL = "https://api.moonshot.cn/v1"
 
+ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY", "")
+ANTHROPIC_BASE_URL = os.environ.get("ANTHROPIC_BASE_URL", "https://api.anthropic.com")
+ANTHROPIC_MODEL = os.environ.get("ANTHROPIC_MODEL", "claude-3-5-sonnet-latest")
+
+OLLAMA_WINDOWS_SERVER = os.environ.get("OLLAMA_WINDOWS_SERVER", "").strip().rstrip("/")
+OLLAMA_WINDOWS_MODEL = os.environ.get("OLLAMA_WINDOWS_MODEL", OLLAMA_MODEL)
+
 # GitHub OAuth App credentials (optional — enables the one-click "Connect with GitHub"
 # flow; without these the fallback PAT input is shown instead).
 # Register an OAuth App at https://github.com/settings/developers
@@ -120,59 +162,234 @@ GITHUB_CALLBACK_URL = os.environ.get("GITHUB_CALLBACK_URL", "")
 
 PREDEFINED_MODELS: dict[str, list[dict]] = {
     "openrouter": [
-        {"id": "deepseek/deepseek-r1", "name": "DeepSeek R1", "role": ["planner", "verifier"], "tier": "flagship"},
-        {"id": "qwen/qwen3-235b-a22b", "name": "Qwen3 235B A22B", "role": ["executor"], "tier": "flagship"},
-        {"id": "google/gemini-2.5-pro-preview", "name": "Gemini 2.5 Pro", "role": ["planner", "executor"], "tier": "flagship"},
-        {"id": "anthropic/claude-opus-4", "name": "Claude Opus 4", "role": ["planner", "verifier"], "tier": "flagship"},
-        {"id": "meta-llama/llama-4-maverick", "name": "Llama 4 Maverick", "role": ["executor"], "tier": "fast"},
-        {"id": "qwen/qwen3-30b-a3b", "name": "Qwen3 30B A3B", "role": ["executor"], "tier": "fast"},
-        {"id": "deepseek/deepseek-r1-distill-qwen-32b", "name": "DeepSeek R1 Distill 32B", "role": ["planner"], "tier": "balanced"},
-        {"id": "mistralai/mistral-small-3.2-24b-instruct", "name": "Mistral Small 3.2 24B", "role": ["executor"], "tier": "fast"},
+        {
+            "id": "deepseek/deepseek-r1",
+            "name": "DeepSeek R1",
+            "role": ["planner", "verifier"],
+            "tier": "flagship",
+        },
+        {
+            "id": "qwen/qwen3-235b-a22b",
+            "name": "Qwen3 235B A22B",
+            "role": ["executor"],
+            "tier": "flagship",
+        },
+        {
+            "id": "google/gemini-2.5-pro-preview",
+            "name": "Gemini 2.5 Pro",
+            "role": ["planner", "executor"],
+            "tier": "flagship",
+        },
+        {
+            "id": "anthropic/claude-opus-4",
+            "name": "Claude Opus 4",
+            "role": ["planner", "verifier"],
+            "tier": "flagship",
+        },
+        {
+            "id": "meta-llama/llama-4-maverick",
+            "name": "Llama 4 Maverick",
+            "role": ["executor"],
+            "tier": "fast",
+        },
+        {
+            "id": "qwen/qwen3-30b-a3b",
+            "name": "Qwen3 30B A3B",
+            "role": ["executor"],
+            "tier": "fast",
+        },
+        {
+            "id": "deepseek/deepseek-r1-distill-qwen-32b",
+            "name": "DeepSeek R1 Distill 32B",
+            "role": ["planner"],
+            "tier": "balanced",
+        },
+        {
+            "id": "mistralai/mistral-small-3.2-24b-instruct",
+            "name": "Mistral Small 3.2 24B",
+            "role": ["executor"],
+            "tier": "fast",
+        },
     ],
     "huggingface": [
-        {"id": "Qwen/QwQ-32B", "name": "QwQ 32B", "role": ["planner", "verifier"], "tier": "flagship"},
-        {"id": "deepseek-ai/DeepSeek-R1", "name": "DeepSeek R1", "role": ["planner", "verifier"], "tier": "flagship"},
-        {"id": "Qwen/Qwen2.5-72B-Instruct", "name": "Qwen2.5 72B Instruct", "role": ["executor"], "tier": "flagship"},
-        {"id": "Qwen/Qwen2.5-Coder-32B-Instruct", "name": "Qwen2.5-Coder 32B", "role": ["executor"], "tier": "balanced"},
-        {"id": "meta-llama/Llama-3.3-70B-Instruct", "name": "Llama 3.3 70B", "role": ["executor"], "tier": "balanced"},
-        {"id": "mistralai/Mistral-7B-Instruct-v0.3", "name": "Mistral 7B v0.3", "role": ["executor"], "tier": "fast"},
+        {
+            "id": "Qwen/QwQ-32B",
+            "name": "QwQ 32B",
+            "role": ["planner", "verifier"],
+            "tier": "flagship",
+        },
+        {
+            "id": "deepseek-ai/DeepSeek-R1",
+            "name": "DeepSeek R1",
+            "role": ["planner", "verifier"],
+            "tier": "flagship",
+        },
+        {
+            "id": "Qwen/Qwen2.5-72B-Instruct",
+            "name": "Qwen2.5 72B Instruct",
+            "role": ["executor"],
+            "tier": "flagship",
+        },
+        {
+            "id": "Qwen/Qwen2.5-Coder-32B-Instruct",
+            "name": "Qwen2.5-Coder 32B",
+            "role": ["executor"],
+            "tier": "balanced",
+        },
+        {
+            "id": "meta-llama/Llama-3.3-70B-Instruct",
+            "name": "Llama 3.3 70B",
+            "role": ["executor"],
+            "tier": "balanced",
+        },
+        {
+            "id": "mistralai/Mistral-7B-Instruct-v0.3",
+            "name": "Mistral 7B v0.3",
+            "role": ["executor"],
+            "tier": "fast",
+        },
     ],
     "ollama": [
-        {"id": "deepseek-r1:671b", "name": "DeepSeek R1 671B", "role": ["planner", "verifier"], "tier": "flagship"},
-        {"id": "deepseek-r1:32b", "name": "DeepSeek R1 32B", "role": ["planner", "verifier"], "tier": "flagship"},
-        {"id": "qwen3-coder:30b", "name": "Qwen3-Coder 30B", "role": ["executor"], "tier": "flagship"},
-        {"id": "qwen3:14b", "name": "Qwen3 14B", "role": ["executor"], "tier": "balanced"},
-        {"id": "llama3.3:70b", "name": "Llama 3.3 70B", "role": ["executor"], "tier": "flagship"},
-        {"id": "deepseek-r1:14b", "name": "DeepSeek R1 14B", "role": ["planner"], "tier": "balanced"},
-        {"id": "qwen2.5-coder:14b", "name": "Qwen2.5-Coder 14B", "role": ["executor"], "tier": "balanced"},
-        {"id": "llama3.2:3b", "name": "Llama 3.2 3B", "role": ["executor"], "tier": "fast"},
+        {
+            "id": "deepseek-r1:671b",
+            "name": "DeepSeek R1 671B",
+            "role": ["planner", "verifier"],
+            "tier": "flagship",
+        },
+        {
+            "id": "deepseek-r1:32b",
+            "name": "DeepSeek R1 32B",
+            "role": ["planner", "verifier"],
+            "tier": "flagship",
+        },
+        {
+            "id": "qwen3-coder:30b",
+            "name": "Qwen3-Coder 30B",
+            "role": ["executor"],
+            "tier": "flagship",
+        },
+        {
+            "id": "qwen3:14b",
+            "name": "Qwen3 14B",
+            "role": ["executor"],
+            "tier": "balanced",
+        },
+        {
+            "id": "llama3.3:70b",
+            "name": "Llama 3.3 70B",
+            "role": ["executor"],
+            "tier": "flagship",
+        },
+        {
+            "id": "deepseek-r1:14b",
+            "name": "DeepSeek R1 14B",
+            "role": ["planner"],
+            "tier": "balanced",
+        },
+        {
+            "id": "qwen2.5-coder:14b",
+            "name": "Qwen2.5-Coder 14B",
+            "role": ["executor"],
+            "tier": "balanced",
+        },
+        {
+            "id": "llama3.2:3b",
+            "name": "Llama 3.2 3B",
+            "role": ["executor"],
+            "tier": "fast",
+        },
     ],
     "together": [
-        {"id": "deepseek-ai/DeepSeek-R1", "name": "DeepSeek R1", "role": ["planner", "verifier"], "tier": "flagship"},
-        {"id": "Qwen/Qwen3-235B-A22B", "name": "Qwen3 235B A22B", "role": ["executor"], "tier": "flagship"},
-        {"id": "meta-llama/Llama-4-Maverick-17B-128E-Instruct-FP8", "name": "Llama 4 Maverick", "role": ["executor"], "tier": "fast"},
-        {"id": "Qwen/Qwen2.5-72B-Instruct-Turbo", "name": "Qwen2.5 72B Turbo", "role": ["executor"], "tier": "balanced"},
-        {"id": "deepseek-ai/DeepSeek-R1-Distill-Qwen-32B", "name": "DeepSeek R1 Distill 32B", "role": ["planner"], "tier": "balanced"},
+        {
+            "id": "deepseek-ai/DeepSeek-R1",
+            "name": "DeepSeek R1",
+            "role": ["planner", "verifier"],
+            "tier": "flagship",
+        },
+        {
+            "id": "Qwen/Qwen3-235B-A22B",
+            "name": "Qwen3 235B A22B",
+            "role": ["executor"],
+            "tier": "flagship",
+        },
+        {
+            "id": "meta-llama/Llama-4-Maverick-17B-128E-Instruct-FP8",
+            "name": "Llama 4 Maverick",
+            "role": ["executor"],
+            "tier": "fast",
+        },
+        {
+            "id": "Qwen/Qwen2.5-72B-Instruct-Turbo",
+            "name": "Qwen2.5 72B Turbo",
+            "role": ["executor"],
+            "tier": "balanced",
+        },
+        {
+            "id": "deepseek-ai/DeepSeek-R1-Distill-Qwen-32B",
+            "name": "DeepSeek R1 Distill 32B",
+            "role": ["planner"],
+            "tier": "balanced",
+        },
     ],
     "deepseek": [
-        {"id": "deepseek-chat", "name": "DeepSeek-V3", "role": ["executor"], "tier": "flagship"},
-        {"id": "deepseek-reasoner", "name": "DeepSeek-R1", "role": ["planner", "verifier"], "tier": "flagship"},
+        {
+            "id": "deepseek-chat",
+            "name": "DeepSeek-V3",
+            "role": ["executor"],
+            "tier": "flagship",
+        },
+        {
+            "id": "deepseek-reasoner",
+            "name": "DeepSeek-R1",
+            "role": ["planner", "verifier"],
+            "tier": "flagship",
+        },
     ],
     "zhipu": [
-        {"id": "glm-4.5-air", "name": "GLM-4.5 Air", "role": ["planner", "executor", "verifier"], "tier": "balanced"},
+        {
+            "id": "glm-4.5-air",
+            "name": "GLM-4.5 Air",
+            "role": ["planner", "executor", "verifier"],
+            "tier": "balanced",
+        },
     ],
     "dashscope": [
-        {"id": "qwen3-coder-30b-a3b", "name": "Qwen3-Coder-30B-A3B", "role": ["planner", "executor", "verifier"], "tier": "balanced"},
-        {"id": "qwen3.5-397b-a17b", "name": "Qwen3.5 397B A17B", "role": ["executor"], "tier": "flagship"},
+        {
+            "id": "qwen3-coder-30b-a3b",
+            "name": "Qwen3-Coder-30B-A3B",
+            "role": ["planner", "executor", "verifier"],
+            "tier": "balanced",
+        },
+        {
+            "id": "qwen3.5-397b-a17b",
+            "name": "Qwen3.5 397B A17B",
+            "role": ["executor"],
+            "tier": "flagship",
+        },
     ],
     "minimax": [
-        {"id": "mimo-v2-flash", "name": "MiMo-V2-Flash", "role": ["planner", "executor", "verifier"], "tier": "balanced"},
+        {
+            "id": "mimo-v2-flash",
+            "name": "MiMo-V2-Flash",
+            "role": ["planner", "executor", "verifier"],
+            "tier": "balanced",
+        },
     ],
     "google": [
-        {"id": "gemma-4", "name": "Gemma 4", "role": ["planner", "executor", "verifier"], "tier": "balanced"},
+        {
+            "id": "gemma-4",
+            "name": "Gemma 4",
+            "role": ["planner", "executor", "verifier"],
+            "tier": "balanced",
+        },
     ],
     "moonshot": [
-        {"id": "kimi-k2.5", "name": "Kimi-K2.5", "role": ["planner", "executor", "verifier"], "tier": "flagship"},
+        {
+            "id": "kimi-k2.5",
+            "name": "Kimi-K2.5",
+            "role": ["planner", "executor", "verifier"],
+            "tier": "flagship",
+        },
     ],
 }
 
@@ -240,23 +457,39 @@ SESSION_SECRET = os.environ.get("SESSION_SECRET", JWT_SECRET)
 
 # ─── Auth Helpers ───────────────────────────────────────────────────────────────
 
+
 def hash_password(password: str) -> str:
     return bcrypt.hashpw(password.encode("utf-8"), bcrypt.gensalt()).decode("utf-8")
+
 
 def verify_password(plain: str, hashed: str) -> bool:
     return bcrypt.checkpw(plain.encode("utf-8"), hashed.encode("utf-8"))
 
+
 def create_access_token(user_id: str, email: str) -> str:
     return jwt.encode(
-        {"sub": user_id, "email": email, "exp": datetime.now(timezone.utc) + timedelta(hours=24), "type": "access"},
-        JWT_SECRET, algorithm=JWT_ALGORITHM,
+        {
+            "sub": user_id,
+            "email": email,
+            "exp": datetime.now(timezone.utc) + timedelta(hours=24),
+            "type": "access",
+        },
+        JWT_SECRET,
+        algorithm=JWT_ALGORITHM,
     )
+
 
 def create_refresh_token(user_id: str) -> str:
     return jwt.encode(
-        {"sub": user_id, "exp": datetime.now(timezone.utc) + timedelta(days=7), "type": "refresh"},
-        JWT_SECRET, algorithm=JWT_ALGORITHM,
+        {
+            "sub": user_id,
+            "exp": datetime.now(timezone.utc) + timedelta(days=7),
+            "type": "refresh",
+        },
+        JWT_SECRET,
+        algorithm=JWT_ALGORITHM,
     )
+
 
 async def get_current_user(request: Request) -> dict:
     token = None
@@ -274,35 +507,84 @@ async def get_current_user(request: Request) -> dict:
         payload = jwt.decode(token, JWT_SECRET, algorithms=[JWT_ALGORITHM])
         if payload.get("type") != "access":
             raise HTTPException(status_code=401, detail="Invalid token type")
-        user = await db.users.find_one({"_id": ObjectId(payload["sub"])})
+        try:
+            user = await db.users.find_one({"_id": ObjectId(payload["sub"])})
+        except Exception:
+            # DB fallback for CI/limited mode
+            if payload.get("email") == ADMIN_EMAIL:
+                user = {
+                    "_id": payload["sub"],
+                    "email": ADMIN_EMAIL,
+                    "name": "Admin",
+                    "role": "admin",
+                }
+            else:
+                user = None
+
         if not user:
             raise HTTPException(status_code=401, detail="User not found")
         user["_id"] = str(user["_id"])
         user.pop("password_hash", None)
         return user
+    except HTTPException:
+        raise
     except jwt.ExpiredSignatureError:
         raise HTTPException(status_code=401, detail="Token expired")
-    except (jwt.InvalidTokenError, Exception):
+    except jwt.InvalidTokenError:
+        raise HTTPException(status_code=401, detail="Invalid token")
+    except Exception:
         raise HTTPException(status_code=401, detail="Invalid token")
 
 
 @asynccontextmanager
 async def lifespan(app_: "FastAPI"):
+    dispatcher: TaskDispatcher | None = None
+    dispatcher_task: asyncio.Task | None = None
+    runtime_manager = get_runtime_manager()
     try:
         await ensure_bootstrap()
         log.info("LLM Relay Platform started — provider=%s", LLM_PROVIDER)
     except Exception as exc:
         log.warning("MongoDB bootstrap deferred (no DB connection): %s", exc)
-        log.info("LLM Relay Platform started in limited mode — set MONGO_URL to enable full features")
+        log.info(
+            "LLM Relay Platform started in limited mode — set MONGO_URL to enable full features"
+        )
+    await runtime_manager.start()
+    log.info(
+        "RuntimeManager started (%d runtimes registered)",
+        len(runtime_manager._registry.ids()),
+    )
+    dispatcher = TaskDispatcher(
+        workspace_root=str(ROOT_DIR),
+        poll_interval_s=10.0,
+    )
+    dispatcher_task = asyncio.create_task(dispatcher.run_forever())
+    log.info("Task dispatcher started in background")
     yield
+    if dispatcher is not None:
+        dispatcher.stop()
+    if dispatcher_task is not None:
+        dispatcher_task.cancel()
+        try:
+            await dispatcher_task
+        except asyncio.CancelledError:
+            pass
+        log.info("Task dispatcher stopped")
+    await runtime_manager.stop()
+    log.info("RuntimeManager stopped")
 
 
 app = FastAPI(title="LLM Relay — Unified Platform", version="2.0.0", lifespan=lifespan)
 
 
 frontend_url = os.environ.get("FRONTEND_URL", "http://localhost:3000").rstrip("/")
+_raw_cors_origins = os.environ.get("CORS_ORIGINS", "*").strip()
+CORS_ORIGINS = [
+    origin.strip() for origin in _raw_cors_origins.split(",") if origin.strip()
+] or ["*"]
 
 # ─── Social Login (GitHub & Google) ───────────────────────────────────────────
+
 
 @app.get("/api/auth/github/login")
 async def github_login(request: Request):
@@ -332,16 +614,26 @@ async def github_callback(request: Request, code: str = None, state: str = None)
                 r = await c.post(
                     "https://github.com/login/oauth/access_token",
                     headers={"Accept": "application/json"},
-                    json={"client_id": GITHUB_CLIENT_ID, "client_secret": GITHUB_CLIENT_SECRET, "code": code},
+                    json={
+                        "client_id": GITHUB_CLIENT_ID,
+                        "client_secret": GITHUB_CLIENT_SECRET,
+                        "code": code,
+                    },
                 )
             r.raise_for_status()
             token_data = r.json()
         except Exception as exc:
             log.error("GitHub repo token exchange failed: %s", exc)
-            return _oauth_popup_html(False, error_msg="Token exchange with GitHub failed.")
+            return _oauth_popup_html(
+                False, error_msg="Token exchange with GitHub failed."
+            )
         access_token = token_data.get("access_token")
         if not access_token:
-            err = token_data.get("error_description") or token_data.get("error") or "No token returned"
+            err = (
+                token_data.get("error_description")
+                or token_data.get("error")
+                or "No token returned"
+            )
             return _oauth_popup_html(False, error_msg=err)
         try:
             async with httpx.AsyncClient(timeout=10) as c:
@@ -350,26 +642,43 @@ async def github_callback(request: Request, code: str = None, state: str = None)
             gh_user = r.json()
         except Exception as exc:
             log.error("GitHub /user fetch failed after repo token exchange: %s", exc)
-            return _oauth_popup_html(False, error_msg="Could not fetch GitHub user info.")
+            return _oauth_popup_html(
+                False, error_msg="Could not fetch GitHub user info."
+            )
         login: str = gh_user.get("login", "")
         if not login:
-            return _oauth_popup_html(False, error_msg="GitHub did not return a username. Please try again.")
+            return _oauth_popup_html(
+                False, error_msg="GitHub did not return a username. Please try again."
+            )
         # State consumed — delete now that everything succeeded
         await db.oauth_states.delete_one({"state": state})
         now_iso = datetime.now(timezone.utc).isoformat()
         await db.github_settings.update_one(
             {"user_id": user_id},
-            {"$set": {"user_id": user_id, "token": access_token, "github_login": login,
-                      "updated_at": now_iso}},
+            {
+                "$set": {
+                    "user_id": user_id,
+                    "token": access_token,
+                    "github_login": login,
+                    "updated_at": now_iso,
+                }
+            },
             upsert=True,
         )
         # Also sync to the user document so the agent runner can read it directly
         await db.users.update_one(
             {"_id": ObjectId(user_id)},
-            {"$set": {"github_repo_token": access_token, "github_login": login,
-                      "github_updated_at": now_iso}},
+            {
+                "$set": {
+                    "github_repo_token": access_token,
+                    "github_login": login,
+                    "github_updated_at": now_iso,
+                }
+            },
         )
-        await log_activity("github", f"GitHub OAuth connected — @{login}", user_id=user_id)
+        await log_activity(
+            "github", f"GitHub OAuth connected — @{login}", user_id=user_id
+        )
         return _oauth_popup_html(True, login=login)
 
     # Login flow: state was stored in the session by /api/auth/github/login
@@ -411,11 +720,19 @@ async def github_callback(request: Request, code: str = None, state: str = None)
             email_resp.raise_for_status()
             emails = email_resp.json()
             # Find primary verified email
-            primary = next((e for e in emails if e.get("primary") and e.get("verified")), None)
-            email = primary.get("email") if primary else (emails[0].get("email") if emails else None)
+            primary = next(
+                (e for e in emails if e.get("primary") and e.get("verified")), None
+            )
+            email = (
+                primary.get("email")
+                if primary
+                else (emails[0].get("email") if emails else None)
+            )
 
         if not email:
-            raise HTTPException(status_code=400, detail="Could not retrieve email from GitHub")
+            raise HTTPException(
+                status_code=400, detail="Could not retrieve email from GitHub"
+            )
 
         # 4. Find or create user
         user = await db.users.find_one({"email": email.lower()})
@@ -436,7 +753,9 @@ async def github_callback(request: Request, code: str = None, state: str = None)
             }
             result = await db.users.insert_one(new_user)
             user_id = str(result.inserted_id)
-            await log_activity("auth", f"New user {email} registered via GitHub", user_id=user_id)
+            await log_activity(
+                "auth", f"New user {email} registered via GitHub", user_id=user_id
+            )
         else:
             # Update existing user with social info if missing or just update last_login
             user_id = str(user["_id"])
@@ -447,16 +766,21 @@ async def github_callback(request: Request, code: str = None, state: str = None)
                         "last_login": now,
                         "provider": user.get("provider", "github"),
                         "provider_user_id": user.get("provider_user_id", uid_str),
-                        "avatar_url": user.get("avatar_url") or gh_user.get("avatar_url"),
+                        "avatar_url": user.get("avatar_url")
+                        or gh_user.get("avatar_url"),
                     }
                 },
             )
-            await log_activity("auth", f"User {email} logged in via GitHub", user_id=user_id)
+            await log_activity(
+                "auth", f"User {email} logged in via GitHub", user_id=user_id
+            )
 
         # 5. Generate tokens and redirect to frontend
         access = create_access_token(user_id, email)
         refresh = create_refresh_token(user_id)
-        return RedirectResponse(f"{frontend_url}/auth/callback?access_token={access}&refresh_token={refresh}")
+        return RedirectResponse(
+            f"{frontend_url}/auth/callback?access_token={access}&refresh_token={refresh}"
+        )
 
 
 @app.get("/api/auth/github/repo-access")
@@ -505,7 +829,7 @@ async def github_repo_callback(request: Request, code: str = None, state: str = 
         )
         user_resp.raise_for_status()
         gh_user = user_resp.json()
-        
+
         # 3. Get email
         email = gh_user.get("email")
         if not email:
@@ -515,11 +839,19 @@ async def github_repo_callback(request: Request, code: str = None, state: str = 
             )
             email_resp.raise_for_status()
             emails = email_resp.json()
-            primary = next((e for e in emails if e.get("primary") and e.get("verified")), None)
-            email = primary.get("email") if primary else (emails[0].get("email") if emails else None)
+            primary = next(
+                (e for e in emails if e.get("primary") and e.get("verified")), None
+            )
+            email = (
+                primary.get("email")
+                if primary
+                else (emails[0].get("email") if emails else None)
+            )
 
         if not email:
-             raise HTTPException(status_code=400, detail="Could not retrieve email from GitHub")
+            raise HTTPException(
+                status_code=400, detail="Could not retrieve email from GitHub"
+            )
 
         # 4. Update the user with the new token
         # Note: We associate the token with the authenticated user.
@@ -531,11 +863,15 @@ async def github_repo_callback(request: Request, code: str = None, state: str = 
                 "$set": {
                     "github_repo_token": access_token,
                     "github_login": gh_user.get("login"),
-                    "github_updated_at": datetime.now(timezone.utc).isoformat()
+                    "github_updated_at": datetime.now(timezone.utc).isoformat(),
                 }
-            }
+            },
         )
-        await log_activity("auth", f"User {email} granted GitHub repo access", meta={"github_login": gh_user.get("login")})
+        await log_activity(
+            "auth",
+            f"User {email} granted GitHub repo access",
+            meta={"github_login": gh_user.get("login")},
+        )
 
         return RedirectResponse(f"{frontend_url}/settings?github_authorized=true")
 
@@ -545,7 +881,7 @@ async def github_list_repos(user: dict = Depends(get_current_user)):
     token = user.get("github_repo_token")
     if not token:
         return {"repos": [], "authorized": False}
-    
+
     async with httpx.AsyncClient() as client:
         try:
             resp = await client.get(
@@ -553,7 +889,11 @@ async def github_list_repos(user: dict = Depends(get_current_user)):
                 headers={"Authorization": f"token {token}"},
             )
             if resp.status_code == 401:
-                return {"repos": [], "authorized": False, "error": "Token revoked or expired"}
+                return {
+                    "repos": [],
+                    "authorized": False,
+                    "error": "Token revoked or expired",
+                }
             resp.raise_for_status()
             repos = resp.json()
             return {
@@ -564,10 +904,11 @@ async def github_list_repos(user: dict = Depends(get_current_user)):
                         "name": r["name"],
                         "private": r["private"],
                         "url": r["html_url"],
-                        "description": r["description"]
-                    } for r in repos
+                        "description": r["description"],
+                    }
+                    for r in repos
                 ],
-                "authorized": True
+                "authorized": True,
             }
         except Exception as e:
             return {"repos": [], "authorized": True, "error": str(e)}
@@ -576,13 +917,17 @@ async def github_list_repos(user: dict = Depends(get_current_user)):
 class AuthorizeReposBody(BaseModel):
     repo_names: list[str]
 
+
 @app.post("/api/github/authorize-repos")
-async def github_authorize_repos(body: AuthorizeReposBody, user: dict = Depends(get_current_user)):
+async def github_authorize_repos(
+    body: AuthorizeReposBody, user: dict = Depends(get_current_user)
+):
     await db.users.update_one(
-        {"_id": ObjectId(user["_id"])},
-        {"$set": {"authorized_repos": body.repo_names}}
+        {"_id": ObjectId(user["_id"])}, {"$set": {"authorized_repos": body.repo_names}}
     )
-    await log_activity("auth", f"User updated authorized repos: {len(body.repo_names)} repos")
+    await log_activity(
+        "auth", f"User updated authorized repos: {len(body.repo_names)} repos"
+    )
     return {"ok": True}
 
 
@@ -601,8 +946,8 @@ async def github_status(user: dict = Depends(get_current_user)):
     return {
         "connected": bool(token),
         "oauth_enabled": oauth_enabled,
-        "login": gh_login,          # used by main GitHub Integration section
-        "github_login": gh_login,   # used by GitHubAccessSection
+        "login": gh_login,  # used by main GitHub Integration section
+        "github_login": gh_login,  # used by GitHubAccessSection
         "authorized_repos": user.get("authorized_repos", []),
     }
 
@@ -661,7 +1006,9 @@ async def google_callback(request: Request, code: str = None, state: str = None)
 
         email = g_user.get("email")
         if not email:
-            raise HTTPException(status_code=400, detail="Could not retrieve email from Google")
+            raise HTTPException(
+                status_code=400, detail="Could not retrieve email from Google"
+            )
 
         # 3. Find or create user
         user = await db.users.find_one({"email": email.lower()})
@@ -682,7 +1029,9 @@ async def google_callback(request: Request, code: str = None, state: str = None)
             result = await db.users.insert_one(new_user)
             user_id = str(result.inserted_id)
             try:
-                await log_activity("auth", f"New user {email} registered via Google", user_id=user_id)
+                await log_activity(
+                    "auth", f"New user {email} registered via Google", user_id=user_id
+                )
             except NameError:
                 pass
         else:
@@ -699,18 +1048,23 @@ async def google_callback(request: Request, code: str = None, state: str = None)
                 },
             )
             try:
-                await log_activity("auth", f"User {email} logged in via Google", user_id=user_id)
+                await log_activity(
+                    "auth", f"User {email} logged in via Google", user_id=user_id
+                )
             except NameError:
                 pass
 
         # 4. Generate tokens and redirect to frontend
         access = create_access_token(user_id, email)
         refresh = create_refresh_token(user_id)
-        return RedirectResponse(f"{frontend_url}/auth/callback?access_token={access}&refresh_token={refresh}")
+        return RedirectResponse(
+            f"{frontend_url}/auth/callback?access_token={access}&refresh_token={refresh}"
+        )
+
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=CORS_ORIGINS if "CORS_ORIGINS" in globals() else ["*"],
+    allow_origins=CORS_ORIGINS,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -726,6 +1080,44 @@ app.add_middleware(
 client = AsyncIOMotorClient(MONGO_URL)
 db = client[DB_NAME]
 
+
+class JWTUserStateMiddleware(BaseHTTPMiddleware):
+    """Populate request.state.user from a valid Bearer JWT.
+
+    Task and agent routers read request.state.user directly (rather than
+    using Depends(get_current_user)), so this middleware bridges the gap.
+    """
+
+    async def dispatch(self, request: Request, call_next):
+        auth = request.headers.get("Authorization", "")
+        if auth.startswith("Bearer "):
+            token = auth[7:].strip()
+            try:
+                payload = jwt.decode(token, JWT_SECRET, algorithms=[JWT_ALGORITHM])
+                if payload.get("type") == "access":
+                    user = None
+                    try:
+                        user = await db.users.find_one({"_id": ObjectId(payload["sub"])})
+                    except Exception:
+                        pass
+                    if not user and payload.get("email") == ADMIN_EMAIL:
+                        user = {
+                            "_id": payload["sub"],
+                            "email": ADMIN_EMAIL,
+                            "name": "Admin",
+                            "role": "admin",
+                        }
+                    if user:
+                        user["_id"] = str(user["_id"])
+                        user.pop("password_hash", None)
+                        request.state.user = user
+            except Exception:
+                pass
+        return await call_next(request)
+
+
+app.add_middleware(JWTUserStateMiddleware)
+
 _BOOTSTRAP_DONE = False
 _BOOTSTRAP_LOCK = asyncio.Lock()
 
@@ -739,49 +1131,117 @@ async def ensure_bootstrap() -> None:
     global _BOOTSTRAP_DONE
     if _BOOTSTRAP_DONE:
         return
-    async with _BOOTSTRAP_LOCK:
-        if _BOOTSTRAP_DONE:
-            return
-        await db.users.create_index("email", unique=True)
-        await db.wiki_pages.create_index("slug", unique=True)
-        await db.wiki_pages.create_index([("title", "text"), ("content", "text")])
-        await db.sources.create_index("created_at")
-        await db.activity_log.create_index("created_at")
-        await db.chat_sessions.create_index("user_id")
-        await db.providers.create_index("provider_id", unique=True)
-        await db.api_keys.create_index("key_id", unique=True)
-        await db.github_settings.create_index("user_id", unique=True)
-        # oauth_states has a 10-minute TTL — MongoDB drops stale records automatically
-        await db.oauth_states.create_index("created_at", expireAfterSeconds=600)
-        # Indexes for feature routers
-        await db.agent_definitions.create_index("agent_id", unique=True)
-        await db.agent_definitions.create_index("owner_id")
-        await db.tasks.create_index("task_id", unique=True)
-        await db.tasks.create_index("owner_id")
-        await db.tasks.create_index("status")
-        # Wire feature stores to the shared MongoDB connection
-        set_agent_store(AgentStore(db=db))
-        set_task_store(TaskStore(db=db))
-        await seed_admin()
-        await seed_default_agents()
-        await seed_default_providers()
-        _BOOTSTRAP_DONE = True
+    try:
+        async with _BOOTSTRAP_LOCK:
+            if _BOOTSTRAP_DONE:
+                return
+            await db.users.create_index("email", unique=True)
+            await db.wiki_pages.create_index("slug", unique=True)
+            await db.wiki_pages.create_index([("title", "text"), ("content", "text")])
+            await db.sources.create_index("created_at")
+            await db.activity_log.create_index("created_at")
+            await db.chat_sessions.create_index("user_id")
+            await db.providers.create_index("provider_id", unique=True)
+            await db.api_keys.create_index("key_id", unique=True)
+            await db.github_settings.create_index("user_id", unique=True)
+            # oauth_states has a 10-minute TTL — MongoDB drops stale records automatically
+            await db.oauth_states.create_index("created_at", expireAfterSeconds=600)
+            # Indexes for feature routers
+            await db.agent_definitions.create_index("agent_id", unique=True)
+            await db.agent_definitions.create_index("owner_id")
+            await db.tasks.create_index("task_id", unique=True)
+            await db.tasks.create_index("owner_id")
+            await db.tasks.create_index("status")
+            # Wire feature stores to the shared MongoDB connection
+            set_agent_store(AgentStore(db=db))
+            set_task_store(TaskStore(db=db))
+            await seed_admin()
+            await seed_default_agents()
+            await seed_default_providers()
+            await _sync_ollama_model()
+            _BOOTSTRAP_DONE = True
+    except Exception as exc:
+        log.warning("MongoDB bootstrap failed (running in limited mode): %s", exc)
+        _BOOTSTRAP_DONE = True  # Mark as "attempted" to prevent repeated timeouts
+        raise
 
 
 # Startup is handled by the lifespan context manager defined above.
 
 
+async def _sync_ollama_model() -> None:
+    """Auto-detect the best available Ollama model and update ollama-local in the DB.
+
+    Runs after seed_default_providers so the provider always points at an
+    actually-installed model.  If the configured model IS installed we leave it
+    alone; if not, we pick the first (largest) installed model instead.
+    Prefers larger / more capable model names (gemma4, qwen3, llama3, deepseek)
+    over tiny fallbacks like tinyllama.
+    """
+    try:
+        async with httpx.AsyncClient(timeout=httpx.Timeout(5.0, connect=3.0)) as client:
+            r = await client.get(f"{OLLAMA_BASE}/api/tags")
+            if r.status_code != 200:
+                return
+            installed = [m["name"] for m in r.json().get("models", [])]
+    except Exception as exc:
+        log.debug("_sync_ollama_model: Ollama unreachable — %s", exc)
+        return
+
+    if not installed:
+        return
+
+    prov = await db.providers.find_one({"provider_id": "ollama-local"})
+    current = (prov or {}).get("default_model", "")
+
+    # If the currently configured model is already installed, nothing to do.
+    if current in installed:
+        return
+
+    # Prefer larger / more capable models by keyword heuristic.
+    _PREFER = ("qwen3", "gemma4", "gemma-4", "llama3", "deepseek", "mistral", "mixtral")
+    preferred = [m for m in installed for kw in _PREFER if kw in m.lower()]
+    best = preferred[0] if preferred else installed[0]
+
+    await db.providers.update_one(
+        {"provider_id": "ollama-local"},
+        {"$set": {"default_model": best}},
+    )
+    log.info(
+        "Auto-selected Ollama model: %s (configured model %r not installed; available: %s)",
+        best,
+        current,
+        installed,
+    )
+
+
 async def seed_admin():
     existing = await db.users.find_one({"email": ADMIN_EMAIL})
     if existing is None:
-        await db.users.insert_one({
-            "email": ADMIN_EMAIL, "password_hash": hash_password(ADMIN_PASSWORD),
-            "name": "Admin", "role": "admin",
-            "created_at": datetime.now(timezone.utc).isoformat(),
-        })
+        await db.users.insert_one(
+            {
+                "email": ADMIN_EMAIL,
+                "password_hash": hash_password(ADMIN_PASSWORD),
+                "name": "Admin",
+                "role": "admin",
+                "created_at": datetime.now(timezone.utc).isoformat(),
+            }
+        )
         log.info("Admin user seeded: %s", ADMIN_EMAIL)
-    elif not verify_password(ADMIN_PASSWORD, existing["password_hash"]):
-        await db.users.update_one({"email": ADMIN_EMAIL}, {"$set": {"password_hash": hash_password(ADMIN_PASSWORD)}})
+    elif ADMIN_PASSWORD and not verify_password(
+        ADMIN_PASSWORD, existing["password_hash"]
+    ):
+        # Sync DB password from the effective admin password env var on restart so the
+        # configured credential always works. Operators change this via .env
+        # or the Render dashboard — not by editing the DB directly.
+        await db.users.update_one(
+            {"email": ADMIN_EMAIL},
+            {"$set": {"password_hash": hash_password(ADMIN_PASSWORD)}},
+        )
+        log.info(
+            "Admin password synced from effective admin password env var for %s",
+            ADMIN_EMAIL,
+        )
 
 
 async def seed_default_agents() -> None:
@@ -794,18 +1254,18 @@ async def seed_default_agents() -> None:
     from agents.store import AgentDefinition, get_agent_store
 
     _TASK_TYPES: dict[str, list[str]] = {
-        "scout":     ["research", "code_review", "general"],
+        "scout": ["research", "code_review", "general"],
         "architect": ["planning", "design", "general"],
-        "coder":     ["code_generation", "repo_editing", "tool_use"],
-        "reviewer":  ["code_review", "general"],
-        "verifier":  ["shell_exec", "tool_use"],
+        "coder": ["code_generation", "repo_editing", "tool_use"],
+        "reviewer": ["code_review", "general"],
+        "verifier": ["shell_exec", "tool_use"],
     }
     _COST_POLICY: dict[str, str] = {
-        "scout":     "local_only",
+        "scout": "local_only",
         "architect": "local_only",
-        "coder":     "local_only",
-        "reviewer":  "local_only",
-        "verifier":  "local_only",
+        "coder": "local_only",
+        "reviewer": "local_only",
+        "verifier": "local_only",
     }
 
     store = get_agent_store()
@@ -832,6 +1292,7 @@ async def seed_default_agents() -> None:
         log.info("Seeded CRISPY agent: %s (%s)", profile.name, profile.model)
 
 
+async def seed_default_providers():
     defaults = [
         {
             "provider_id": "ollama-local",
@@ -841,6 +1302,7 @@ async def seed_default_agents() -> None:
             "api_key": "",
             "default_model": OLLAMA_MODEL,
             "is_default": LLM_PROVIDER == "ollama",
+            "priority": 0,
             "status": "configured",
         },
         {
@@ -851,6 +1313,7 @@ async def seed_default_agents() -> None:
             "api_key": HF_TOKEN,
             "default_model": HF_MODEL_ID,
             "is_default": LLM_PROVIDER == "huggingface",
+            "priority": 10,
             "status": "configured",
         },
         {
@@ -861,6 +1324,7 @@ async def seed_default_agents() -> None:
             "api_key": OPENROUTER_API_KEY,
             "default_model": "qwen/qwen3-235b-a22b",
             "is_default": LLM_PROVIDER == "openrouter",
+            "priority": 30,
             "status": "configured" if OPENROUTER_API_KEY else "unconfigured",
         },
         {
@@ -871,6 +1335,7 @@ async def seed_default_agents() -> None:
             "api_key": TOGETHER_API_KEY,
             "default_model": "Qwen/Qwen3-235B-A22B",
             "is_default": LLM_PROVIDER == "together",
+            "priority": 35,
             "status": "configured" if TOGETHER_API_KEY else "unconfigured",
         },
         {
@@ -881,6 +1346,7 @@ async def seed_default_agents() -> None:
             "api_key": DEEPSEEK_API_KEY,
             "default_model": "deepseek-reasoner",
             "is_default": LLM_PROVIDER == "deepseek",
+            "priority": 20,
             "status": "configured" if DEEPSEEK_API_KEY else "unconfigured",
         },
         {
@@ -891,6 +1357,7 @@ async def seed_default_agents() -> None:
             "api_key": ZHIPU_API_KEY,
             "default_model": "glm-4.5-air",
             "is_default": LLM_PROVIDER == "zhipu",
+            "priority": 60,
             "status": "configured" if ZHIPU_API_KEY else "unconfigured",
         },
         {
@@ -901,6 +1368,7 @@ async def seed_default_agents() -> None:
             "api_key": DASHSCOPE_API_KEY,
             "default_model": "qwen3.5-397b-a17b",
             "is_default": LLM_PROVIDER == "dashscope",
+            "priority": 65,
             "status": "configured" if DASHSCOPE_API_KEY else "unconfigured",
         },
         {
@@ -911,6 +1379,7 @@ async def seed_default_agents() -> None:
             "api_key": MINIMAX_API_KEY,
             "default_model": "mimo-v2-flash",
             "is_default": LLM_PROVIDER == "minimax",
+            "priority": 70,
             "status": "configured" if MINIMAX_API_KEY else "unconfigured",
         },
         {
@@ -921,6 +1390,7 @@ async def seed_default_agents() -> None:
             "api_key": GOOGLE_API_KEY,
             "default_model": "gemma-4",
             "is_default": LLM_PROVIDER == "google",
+            "priority": 75,
             "status": "configured" if GOOGLE_API_KEY else "unconfigured",
         },
         {
@@ -931,7 +1401,41 @@ async def seed_default_agents() -> None:
             "api_key": MOONSHOT_API_KEY,
             "default_model": "kimi-k2.5",
             "is_default": LLM_PROVIDER == "moonshot",
+            "priority": 80,
             "status": "configured" if MOONSHOT_API_KEY else "unconfigured",
+        },
+        {
+            "provider_id": "anthropic-universal",
+            "name": "Anthropic (Universal Key)",
+            "type": "emergent-anthropic",
+            "base_url": "emergent://anthropic",
+            "api_key": EMERGENT_LLM_KEY,
+            "default_model": EMERGENT_ANTHROPIC_MODEL,
+            "is_default": False,
+            "priority": 55,
+            "status": "configured" if EMERGENT_LLM_KEY else "unconfigured",
+        },
+        {
+            "provider_id": "anthropic",
+            "name": "Anthropic Claude (Direct API)",
+            "type": "anthropic",
+            "base_url": ANTHROPIC_BASE_URL,
+            "api_key": ANTHROPIC_API_KEY,
+            "default_model": ANTHROPIC_MODEL,
+            "is_default": False,
+            "priority": 50,
+            "status": "configured" if ANTHROPIC_API_KEY else "unconfigured",
+        },
+        {
+            "provider_id": "ollama-windows-server",
+            "name": "Ollama (Windows Server)",
+            "type": "ollama",
+            "base_url": OLLAMA_WINDOWS_SERVER,  # empty string → excluded by filter
+            "api_key": "",
+            "default_model": OLLAMA_WINDOWS_MODEL,
+            "is_default": False,
+            "priority": 5,
+            "status": "configured" if OLLAMA_WINDOWS_SERVER else "unconfigured",
         },
     ]
     for p in defaults:
@@ -940,16 +1444,82 @@ async def seed_default_agents() -> None:
             p["created_at"] = datetime.now(timezone.utc).isoformat()
             await db.providers.insert_one(p)
         else:
-            # Always sync env-var-backed fields so Render env var changes take effect
-            # without requiring a manual DB update.
+            # Always sync env-var-backed fields so .env changes take effect
+            # without requiring a manual DB wipe.
             update: dict = {}
             if p.get("api_key") and existing.get("api_key") != p["api_key"]:
                 update["api_key"] = p["api_key"]
             if p.get("base_url") and existing.get("base_url") != p["base_url"]:
                 update["base_url"] = p["base_url"]
+            # Sync default_model so changing OLLAMA_MODEL / DEEPSEEK_MODEL etc in .env
+            # is immediately reflected without a DB wipe.
+            if (
+                p.get("default_model")
+                and existing.get("default_model") != p["default_model"]
+            ):
+                update["default_model"] = p["default_model"]
+            # Re-sync status when an api_key is now present but status was "unconfigured"
+            new_status = p.get("status", "")
+            if new_status and new_status != existing.get("status", ""):
+                update["status"] = new_status
+            # Sync priority so the fallback ordering is always correct
+            new_priority = p.get("priority")
+            if new_priority is not None and existing.get("priority") != new_priority:
+                update["priority"] = new_priority
             if update:
-                await db.providers.update_one({"provider_id": p["provider_id"]}, {"$set": update})
-                log.info("Synced env-var fields for provider %s: %s", p["provider_id"], list(update.keys()))
+                await db.providers.update_one(
+                    {"provider_id": p["provider_id"]}, {"$set": update}
+                )
+                log.info(
+                    "Synced env-var fields for provider %s: %s",
+                    p["provider_id"],
+                    list(update.keys()),
+                )
+
+
+def _builtin_provider_records() -> list[dict]:
+    """Return a minimal set of built-in provider records without touching MongoDB.
+
+    This is an intentional SUBSET (3 of 13 providers) covering the entries that
+    are always present regardless of operator configuration.  It is used as a
+    limited-mode fallback when MongoDB is unreachable — not as the authoritative
+    full catalog.  Full provider list lives in seed_default_providers().
+    """
+    return [
+        {
+            "provider_id": "ollama-local",
+            "name": "Ollama (Local)",
+            "type": "ollama",
+            "base_url": _resolve_ollama_url(OLLAMA_BASE),
+            "api_key": "",
+            "default_model": OLLAMA_MODEL,
+            "is_default": LLM_PROVIDER == "ollama",
+            "priority": 0,
+            "status": "configured",
+        },
+        {
+            "provider_id": "anthropic-universal",
+            "name": "Anthropic (Universal Key)",
+            "type": "emergent-anthropic",
+            "base_url": "emergent://anthropic",
+            "api_key": EMERGENT_LLM_KEY,
+            "default_model": EMERGENT_ANTHROPIC_MODEL,
+            "is_default": False,
+            "priority": 55,
+            "status": "configured" if EMERGENT_LLM_KEY else "unconfigured",
+        },
+        {
+            "provider_id": "anthropic",
+            "name": "Anthropic Claude (Direct API)",
+            "type": "anthropic",
+            "base_url": ANTHROPIC_BASE_URL,
+            "api_key": ANTHROPIC_API_KEY,
+            "default_model": ANTHROPIC_MODEL,
+            "is_default": False,
+            "priority": 50,
+            "status": "configured" if ANTHROPIC_API_KEY else "unconfigured",
+        },
+    ]
 
 
 # ─── Multi-Agent Orchestration ────────────────────────────────────────────────
@@ -960,13 +1530,40 @@ async def seed_default_agents() -> None:
 #   • Condensed sub-agent summaries: each role returns a ≤500-char synthesis
 
 _COMPLEX_KEYWORDS = {
-    "write", "create", "build", "generate", "analyze", "implement", "refactor",
-    "design", "plan", "research", "compare", "summarize", "explain in detail",
-    "step by step", "walk me through", "how would you", "what are all",
+    "write",
+    "create",
+    "build",
+    "generate",
+    "analyze",
+    "implement",
+    "refactor",
+    "design",
+    "plan",
+    "research",
+    "compare",
+    "summarize",
+    "explain in detail",
+    "step by step",
+    "walk me through",
+    "how would you",
+    "what are all",
     # GitHub / repo operations — always need the agent tools
-    "github", "repository", "repo", "commit", "push", "pull request", "branch",
-    "add changes", "make changes", "edit code", "edit file", "connect to my",
-    "open pr", "open a pr", "merge", "clone",
+    "github",
+    "repository",
+    "repo",
+    "commit",
+    "push",
+    "pull request",
+    "branch",
+    "add changes",
+    "make changes",
+    "edit code",
+    "edit file",
+    "connect to my",
+    "open pr",
+    "open a pr",
+    "merge",
+    "clone",
 }
 _COMPLEX_WORD_THRESHOLD = 25
 _COMPACT_THRESHOLD = 16
@@ -977,7 +1574,11 @@ def _classify_complexity(content: str) -> str:
     lower = content.lower()
     word_count = len(content.split())
     has_keyword = any(kw in lower for kw in _COMPLEX_KEYWORDS)
-    return "complex" if (word_count >= _COMPLEX_WORD_THRESHOLD or has_keyword) else "simple"
+    return (
+        "complex"
+        if (word_count >= _COMPLEX_WORD_THRESHOLD or has_keyword)
+        else "simple"
+    )
 
 
 def _mask_observations(messages: list[dict], max_chars: int = 300) -> list[dict]:
@@ -1022,11 +1623,17 @@ async def _compact_context(
         },
     ]
     try:
-        summary = await chat_completion_text(provider_cfg, messages=summary_prompt, model=model, temperature=0.1)
-        compacted = [{"role": "system", "content": f"[Conversation summary]\n{summary}"}]
+        summary = await chat_completion_text(
+            provider_cfg, messages=summary_prompt, model=model, temperature=0.1
+        )
+        compacted = [
+            {"role": "system", "content": f"[Conversation summary]\n{summary}"}
+        ]
     except Exception:
         # If compaction fails, just drop old messages rather than crashing.
-        compacted = [{"role": "system", "content": "[Earlier context omitted for brevity]"}]
+        compacted = [
+            {"role": "system", "content": "[Earlier context omitted for brevity]"}
+        ]
 
     return compacted + recent
 
@@ -1038,6 +1645,8 @@ async def _run_agent_loop(
     provider: dict,
     requested_model: str | None = None,
     github_token: str | None = None,
+    provider_chain: list[ProviderConfig] | None = None,
+    allow_commercial_fallback: bool = True,
 ) -> str:
     try:
         from agent.loop import AgentRunner
@@ -1057,12 +1666,18 @@ async def _run_agent_loop(
     # Use a workspace root defined by either environment or a default.
     workspace_root = Path(__file__).resolve().parent
 
-    headers = {"Authorization": f"Bearer {provider.get('api_key')}"} if provider.get("api_key") else None
+    headers = (
+        {"Authorization": f"Bearer {provider.get('api_key')}"}
+        if provider.get("api_key")
+        else None
+    )
     runner = AgentRunner(
         ollama_base=_resolve_ollama_url(provider.get("base_url") or OLLAMA_BASE),
         workspace_root=workspace_root,
         provider_headers=headers,
-        provider_temperature=0.3, # default for agent
+        provider_chain=provider_chain,
+        allow_commercial_fallback=allow_commercial_fallback,
+        provider_temperature=0.3,  # default for agent
         github_token=github_token,
     )
 
@@ -1083,6 +1698,8 @@ async def _run_agent_loop(
             memory_store=UserMemoryStore(),
         )
         return result["summary"]
+    except CommercialFallbackRequiredError:
+        raise
     except Exception as exc:
         log.error("AgentRunner failed: %s", exc)
         return f"Agent error: {exc}"
@@ -1090,34 +1707,75 @@ async def _run_agent_loop(
 
 # ─── Activity Logging ──────────────────────────────────────────────────────────
 
-async def log_activity(category: str, message: str, user_id: str = None, meta: dict = None):
-    await db.activity_log.insert_one({
-        "category": category, "message": message, "user_id": user_id, "meta": meta or {},
-        "created_at": datetime.now(timezone.utc).isoformat(),
-    })
+
+async def log_activity(
+    category: str, message: str, user_id: str = None, meta: dict = None
+):
+    try:
+        await db.activity_log.insert_one(
+            {
+                "category": category,
+                "message": message,
+                "user_id": user_id,
+                "meta": meta or {},
+                "created_at": datetime.now(timezone.utc).isoformat(),
+            }
+        )
+    except Exception as exc:
+        log.debug("Activity log skipped (DB unavailable): %s", exc)
 
 
 # ─── Auth Endpoints ─────────────────────────────────────────────────────────────
+
 
 class LoginBody(BaseModel):
     email: str
     password: str
 
+
 @app.post("/api/auth/login")
 async def login(body: LoginBody):
-    await ensure_bootstrap()
-    email = body.email.strip().lower()
-    user = await db.users.find_one({"email": email})
+    try:
+        await ensure_bootstrap()
+        email = body.email.strip().lower()
+        user = await db.users.find_one({"email": email})
+    except Exception as exc:
+        log.warning("DB query failed during login (limited mode): %s", exc)
+        # Fallback to env-based admin
+        if body.email.strip().lower() == ADMIN_EMAIL.lower() and verify_password(
+            body.password, hash_password(ADMIN_PASSWORD)
+        ):
+            uid = "admin_user_001"
+            access = create_access_token(uid, ADMIN_EMAIL)
+            refresh = create_refresh_token(uid)
+            return {
+                "_id": uid,
+                "email": ADMIN_EMAIL,
+                "name": "Admin",
+                "role": "admin",
+                "access_token": access,
+                "refresh_token": refresh,
+            }
+        raise HTTPException(status_code=401, detail="Invalid credentials")
+
     if not user or not verify_password(body.password, user["password_hash"]):
         raise HTTPException(status_code=401, detail="Invalid credentials")
     uid = str(user["_id"])
     access = create_access_token(uid, email)
     refresh = create_refresh_token(uid)
-    await log_activity("auth", f"User {email} logged in", user_id=uid)
+    try:
+        await log_activity("auth", f"User {email} logged in", user_id=uid)
+    except Exception:
+        pass  # Ignore activity log failures in limited mode
     return {
-        "_id": uid, "email": user["email"], "name": user.get("name", ""), "role": user.get("role", "user"),
-        "access_token": access, "refresh_token": refresh,
+        "_id": uid,
+        "email": user["email"],
+        "name": user.get("name", ""),
+        "role": user.get("role", "user"),
+        "access_token": access,
+        "refresh_token": refresh,
     }
+
 
 @app.post("/api/auth/logout")
 async def logout():
@@ -1126,9 +1784,11 @@ async def logout():
     response.delete_cookie("refresh_token", path="/")
     return response
 
+
 @app.get("/api/auth/me")
 async def me(user: dict = Depends(get_current_user)):
     return user
+
 
 @app.post("/api/auth/refresh")
 async def refresh_token(request: Request):
@@ -1152,11 +1812,89 @@ async def refresh_token(request: Request):
 
 # ─── LLM Engine ─────────────────────────────────────────────────────────────────
 
+
 async def get_active_provider():
-    prov = await db.providers.find_one({"is_default": True})
-    if not prov:
-        prov = await db.providers.find_one({})
-    return prov
+    try:
+        prov = await db.providers.find_one({"is_default": True})
+        if not prov:
+            prov = await db.providers.find_one({})
+        return prov
+    except Exception:
+        return None
+
+
+def _fallback_local_provider_record() -> dict[str, str | int]:
+    return {
+        "provider_id": "ollama-local",
+        "name": "Ollama (Local)",
+        "type": "ollama",
+        "base_url": _resolve_ollama_url(OLLAMA_BASE),
+        "api_key": "",
+        "default_model": OLLAMA_MODEL,
+        "priority": 0,
+    }
+
+
+async def _list_configured_provider_records() -> list[dict]:
+    try:
+        records = await db.providers.find({}).to_list(length=200)
+    except Exception:
+        records = _builtin_provider_records()
+    filtered: list[dict] = []
+    for record in records:
+        base_url = str(record.get("base_url") or "").strip()
+        status = str(record.get("status") or "").strip().lower()
+        provider_type = str(record.get("type") or "").strip().lower()
+        has_key = bool(str(record.get("api_key") or "").strip())
+        if not base_url:
+            continue
+        if provider_type == "ollama" or status == "configured" or has_key:
+            filtered.append(record)
+    return filtered or [_fallback_local_provider_record()]
+
+
+def _chat_provider_policy(
+    *, allow_commercial_fallback_once: bool = False
+) -> dict[str, bool]:
+    policy = get_runtime_manager().get_policy()
+    never_paid = bool(policy.get("never_use_paid_providers", True))
+    require_approval = bool(policy.get("require_approval_before_paid_escalation", True))
+    return {
+        "never_use_paid_providers": never_paid,
+        "require_approval_before_paid_escalation": require_approval,
+        "allow_commercial_fallback": (not never_paid)
+        and (allow_commercial_fallback_once or not require_approval),
+    }
+
+
+async def _build_provider_router(
+    *,
+    primary_provider_id: str | None,
+    allow_commercial_fallback_once: bool = False,
+) -> tuple[ProviderRouter, dict[str, bool], dict]:
+    records = await _list_configured_provider_records()
+    policy = _chat_provider_policy(
+        allow_commercial_fallback_once=allow_commercial_fallback_once
+    )
+    router = ProviderRouter.from_provider_records(
+        records,
+        primary_provider_id=primary_provider_id,
+        include_commercial=not policy["never_use_paid_providers"],
+    )
+    primary = (
+        next(
+            (
+                record
+                for record in records
+                if record.get("provider_id") == router.providers[0].provider_id
+            ),
+            _fallback_local_provider_record(),
+        )
+        if router.providers
+        else _fallback_local_provider_record()
+    )
+    return router, policy, primary
+
 
 async def call_llm(
     messages: list[dict],
@@ -1164,34 +1902,56 @@ async def call_llm(
     model: str | None = None,
     temperature: float = 0.3,
     provider_id: str | None = None,
+    allow_commercial_fallback_once: bool = False,
 ) -> str:
-    provider = await db.providers.find_one({"provider_id": provider_id}) if provider_id else await get_active_provider()
-    if not provider:
-        provider = {
-            "provider_id": "ollama-local",
-            "type": "ollama",
-            "base_url": OLLAMA_BASE,
-            "api_key": "",
-            "default_model": OLLAMA_MODEL,
-        }
-    cfg = LlmProviderConfig(
-        type=str(provider.get("type") or "openai-compatible"),
-        base_url=normalize_base_url(str(provider.get("base_url") or OLLAMA_BASE)),
-        api_key=(str(provider.get("api_key") or "").strip() or None),
-        default_model=(str(provider.get("default_model") or "").strip() or None),
+    provider = (
+        await db.providers.find_one({"provider_id": provider_id})
+        if provider_id
+        else await get_active_provider()
     )
+    if not provider:
+        provider = _fallback_local_provider_record()
+    provider_type = str(provider.get("type") or "openai-compatible")
     try:
-        return await chat_completion_text(
-            cfg,
-            messages=messages,
-            model=model,
-            temperature=temperature,
+        router, policy, primary_provider = await _build_provider_router(
+            primary_provider_id=str(provider.get("provider_id") or "") or None,
+            allow_commercial_fallback_once=allow_commercial_fallback_once,
         )
+        result = await router.chat_completion(
+            {
+                "model": model
+                or primary_provider.get("default_model")
+                or provider.get("default_model")
+                or OLLAMA_MODEL,
+                "messages": messages,
+                "temperature": temperature,
+                "stream": False,
+            },
+            allow_commercial_fallback=policy["allow_commercial_fallback"],
+        )
+        return extract_openai_text(result.response.json())
+    except CommercialFallbackRequiredError as exc:
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "message": str(exc),
+                "approval_required": True,
+                "commercial_candidates": exc.candidates,
+            },
+        ) from exc
+    except ProviderFallbackError as exc:
+        log.error("LLM provider fallback exhausted: %s", exc)
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
     except httpx.HTTPStatusError as exc:
         # Surface helpful provider-specific guidance.
         status = exc.response.status_code
-        detail = f"LLM call failed ({cfg.type}, HTTP {status}): {exc.response.text}"
-        if status in (401, 403) and cfg.type in ("huggingface", "openai-compatible"):
+        detail = (
+            f"LLM call failed ({provider_type}, HTTP {status}): {exc.response.text}"
+        )
+        if status in (401, 403) and provider_type in (
+            "huggingface",
+            "openai-compatible",
+        ):
             detail = (
                 f"{detail}\n\n"
                 "This provider requires an API token. Set it in Providers → API Key "
@@ -1205,70 +1965,126 @@ async def call_llm(
 
 # ─── Chat Sessions ──────────────────────────────────────────────────────────────
 
+
 class ChatMessage(BaseModel):
     content: str
     session_id: str | None = None
     model: str | None = None
     provider_id: str | None = None
     temperature: float | None = Field(default=None, ge=0.0, le=2.0)
-    agent_mode: bool = False  # When True, forces multi-agent orchestration regardless of complexity
+    agent_mode: bool = (
+        False  # When True, forces multi-agent orchestration regardless of complexity
+    )
+    allow_commercial_fallback_once: bool = False
+
 
 @app.post("/api/chat/send")
 async def chat_send(body: ChatMessage, user: dict = Depends(get_current_user)):
     uid = user["_id"]
     sid = body.session_id
+    _db_limited = False
     if not sid:
-        active = await get_active_provider()
-        default_pid = active.get("provider_id") if active else "ollama-local"
-        result = await db.chat_sessions.insert_one({
-            "user_id": uid,
-            "title": body.content[:60],
-            "provider_id": body.provider_id or default_pid,
-            "model": body.model or None,
-            "temperature": body.temperature if body.temperature is not None else None,
-            "messages": [],
-            "created_at": datetime.now(timezone.utc).isoformat(), "updated_at": datetime.now(timezone.utc).isoformat(),
-        })
-        sid = str(result.inserted_id)
-    session = await db.chat_sessions.find_one({"_id": ObjectId(sid)})
-    if not session:
+        try:
+            active = await get_active_provider()
+            default_pid = active.get("provider_id") if active else "ollama-local"
+            result = await db.chat_sessions.insert_one(
+                {
+                    "user_id": uid,
+                    "title": body.content[:60],
+                    "provider_id": body.provider_id or default_pid,
+                    "model": body.model or None,
+                    "temperature": body.temperature
+                    if body.temperature is not None
+                    else None,
+                    "messages": [],
+                    "created_at": datetime.now(timezone.utc).isoformat(),
+                    "updated_at": datetime.now(timezone.utc).isoformat(),
+                }
+            )
+            sid = str(result.inserted_id)
+        except Exception:
+            sid = str(uuid.uuid4())
+            _db_limited = True
+    try:
+        session = await db.chat_sessions.find_one({"_id": ObjectId(sid)}) if not _db_limited else None
+    except Exception:
+        session = None
+        _db_limited = True
+    if not session and not _db_limited:
         raise HTTPException(status_code=404, detail="Session not found")
+    session = session or {}
     messages = session.get("messages", [])
     messages.append({"role": "user", "content": body.content})
 
     wiki_pages = []
-    async for page in db.wiki_pages.find({}, {"_id": 0, "slug": 1, "title": 1}).limit(50):
-        wiki_pages.append(f"- {page['title']} ({page['slug']})")
+    try:
+        async for page in db.wiki_pages.find({}, {"_id": 0, "slug": 1, "title": 1}).limit(50):
+            wiki_pages.append(f"- {page['title']} ({page['slug']})")
+    except Exception:
+        pass
     wiki_index = "\n".join(wiki_pages) if wiki_pages else "(empty wiki)"
 
     provider_id = body.provider_id or session.get("provider_id")
-    temperature = body.temperature if body.temperature is not None else (session.get("temperature") or 0.3)
+    provider_hint_id = body.provider_id or None
+    temperature = (
+        body.temperature
+        if body.temperature is not None
+        else (session.get("temperature") or 0.3)
+    )
 
     # Determine whether to use multi-agent orchestration.
-    use_agent = True # Always use agent mode
+    use_agent = True  # Always use agent mode
 
     # Hard timeouts so a stuck/thinking model never silently hangs the request.
-    _AGENT_TIMEOUT_SEC = 900   # 15 minutes for multi-agent loop
-    _LLM_TIMEOUT_SEC   = 300   # 5 minutes for simple LLM calls
+    _AGENT_TIMEOUT_SEC = 900  # 15 minutes for multi-agent loop
+    _LLM_TIMEOUT_SEC = 300  # 5 minutes for simple LLM calls
 
     if use_agent:
-        provider = await db.providers.find_one({"provider_id": provider_id}) if provider_id else await get_active_provider()
-        if not provider:
-            provider = {"provider_id": "ollama-local", "type": "ollama", "base_url": OLLAMA_BASE, "api_key": "", "default_model": OLLAMA_MODEL}
         try:
+            provider = (
+                await db.providers.find_one({"provider_id": provider_hint_id})
+                if provider_hint_id
+                else await get_active_provider()
+            )
+        except Exception:
+            provider = None
+        if not provider:
+            provider = _fallback_local_provider_record()
+        try:
+            router, policy, primary_provider = await _build_provider_router(
+                primary_provider_id=provider_hint_id,
+                allow_commercial_fallback_once=body.allow_commercial_fallback_once,
+            )
             response_text = await asyncio.wait_for(
                 _run_agent_loop(
                     instruction=body.content,
-                    session_messages=messages[:-1],  # exclude the just-appended user msg
+                    session_messages=messages[
+                        :-1
+                    ],  # exclude the just-appended user msg
                     wiki_index=wiki_index,
-                    provider=provider,
+                    provider=primary_provider,
                     requested_model=body.model or session.get("model"),
                     github_token=user.get("github_repo_token"),
+                    provider_chain=router.providers[1:],
+                    allow_commercial_fallback=policy["allow_commercial_fallback"],
                 ),
                 timeout=_AGENT_TIMEOUT_SEC,
             )
+        except CommercialFallbackRequiredError as exc:
+            raise HTTPException(
+                status_code=409,
+                detail={
+                    "message": str(exc),
+                    "approval_required": True,
+                    "commercial_candidates": exc.candidates,
+                    "session_id": sid,
+                },
+            ) from exc
         except asyncio.TimeoutError:
-            log.warning("Agent loop timed out after %ds — returning timeout message", _AGENT_TIMEOUT_SEC)
+            log.warning(
+                "Agent loop timed out after %ds — returning timeout message",
+                _AGENT_TIMEOUT_SEC,
+            )
             response_text = (
                 f"⚠️ The agent took too long to respond (exceeded {_AGENT_TIMEOUT_SEC} seconds). "
                 "This usually happens when the model is reasoning through a complex problem. "
@@ -1295,8 +2111,8 @@ async def chat_send(body: ChatMessage, user: dict = Depends(get_current_user)):
         github_hint = (
             " You also have GitHub repository access via the connected token — "
             "to perform repo operations (read files, commit, open PRs), the user must enable Agent Mode (the ⚡ toggle)."
-            if github_connected else
-            " GitHub repo access is not connected. If the user wants you to interact with a repository, "
+            if github_connected
+            else " GitHub repo access is not connected. If the user wants you to interact with a repository, "
             "ask them to go to Settings → GitHub and connect their account, then enable Agent Mode."
         )
         system_msg = {
@@ -1312,15 +2128,25 @@ async def chat_send(body: ChatMessage, user: dict = Depends(get_current_user)):
         # Compact context if history is long.
         history_for_llm = messages[-20:]
         if len(messages) > _COMPACT_THRESHOLD:
-            provider = await db.providers.find_one({"provider_id": provider_id}) if provider_id else await get_active_provider()
+            provider = (
+                await db.providers.find_one({"provider_id": provider_id})
+                if provider_id
+                else await get_active_provider()
+            )
             if provider:
                 cfg = LlmProviderConfig(
                     type=str(provider.get("type") or "openai-compatible"),
-                    base_url=normalize_base_url(str(provider.get("base_url") or OLLAMA_BASE)),
+                    base_url=normalize_base_url(
+                        str(provider.get("base_url") or OLLAMA_BASE)
+                    ),
                     api_key=(str(provider.get("api_key") or "").strip() or None),
-                    default_model=(str(provider.get("default_model") or "").strip() or None),
+                    default_model=(
+                        str(provider.get("default_model") or "").strip() or None
+                    ),
                 )
-                history_for_llm = await _compact_context(messages, cfg, body.model or session.get("model"))
+                history_for_llm = await _compact_context(
+                    messages, cfg, body.model or session.get("model")
+                )
         llm_messages = [system_msg] + history_for_llm
         try:
             response_text = await asyncio.wait_for(
@@ -1328,10 +2154,21 @@ async def chat_send(body: ChatMessage, user: dict = Depends(get_current_user)):
                     llm_messages,
                     model=body.model or session.get("model"),
                     temperature=float(temperature),
-                    provider_id=provider_id,
+                    provider_id=provider_hint_id,
+                    allow_commercial_fallback_once=body.allow_commercial_fallback_once,
                 ),
                 timeout=_LLM_TIMEOUT_SEC,
             )
+        except HTTPException as exc:
+            if (
+                exc.status_code == 409
+                and isinstance(exc.detail, dict)
+                and exc.detail.get("approval_required")
+            ):
+                detail = dict(exc.detail)
+                detail.setdefault("session_id", sid)
+                raise HTTPException(status_code=409, detail=detail) from exc
+            raise
         except asyncio.TimeoutError:
             log.warning("LLM call timed out after %ds", _LLM_TIMEOUT_SEC)
             response_text = (
@@ -1340,28 +2177,43 @@ async def chat_send(body: ChatMessage, user: dict = Depends(get_current_user)):
             )
 
     messages.append({"role": "assistant", "content": response_text})
-    await db.chat_sessions.update_one(
-        {"_id": ObjectId(sid)},
-        {
-            "$set": {
-                "messages": messages,
-                "provider_id": provider_id,
-                "model": body.model or session.get("model"),
-                "temperature": temperature,
-                "updated_at": datetime.now(timezone.utc).isoformat(),
-            }
-        },
-    )
-    await log_activity("chat", f"Chat in session {sid[:8]}...", user_id=uid, meta={"session_id": sid})
-    return {"session_id": sid, "response": response_text, "message_count": len(messages)}
+    try:
+        await db.chat_sessions.update_one(
+            {"_id": ObjectId(sid)},
+            {
+                "$set": {
+                    "messages": messages,
+                    "provider_id": provider_id,
+                    "model": body.model or session.get("model"),
+                    "temperature": temperature,
+                    "updated_at": datetime.now(timezone.utc).isoformat(),
+                }
+            },
+        )
+        await log_activity(
+            "chat", f"Chat in session {sid[:8]}...", user_id=uid, meta={"session_id": sid}
+        )
+    except Exception:
+        pass  # limited mode: session persistence is best-effort
+    return {
+        "session_id": sid,
+        "response": response_text,
+        "message_count": len(messages),
+    }
+
 
 @app.get("/api/chat/sessions")
 async def list_sessions(user: dict = Depends(get_current_user)):
     sessions = []
-    async for s in db.chat_sessions.find({"user_id": user["_id"]}, {"messages": 0}).sort("updated_at", -1).limit(50):
+    async for s in (
+        db.chat_sessions.find({"user_id": user["_id"]}, {"messages": 0})
+        .sort("updated_at", -1)
+        .limit(50)
+    ):
         s["_id"] = str(s["_id"])
         sessions.append(s)
     return {"sessions": sessions}
+
 
 @app.get("/api/chat/sessions/{session_id}")
 async def get_session(session_id: str, user: dict = Depends(get_current_user)):
@@ -1371,6 +2223,7 @@ async def get_session(session_id: str, user: dict = Depends(get_current_user)):
     session["_id"] = str(session["_id"])
     return session
 
+
 @app.delete("/api/chat/sessions/{session_id}")
 async def delete_session(session_id: str, user: dict = Depends(get_current_user)):
     await db.chat_sessions.delete_one({"_id": ObjectId(session_id)})
@@ -1379,30 +2232,37 @@ async def delete_session(session_id: str, user: dict = Depends(get_current_user)
 
 # ─── Wiki Pages ─────────────────────────────────────────────────────────────────
 
+
 class WikiPageCreate(BaseModel):
     title: str
     content: str = ""
     tags: list[str] = []
+
 
 class WikiPageUpdate(BaseModel):
     title: str = None
     content: str = None
     tags: list[str] = None
 
+
 def slugify(title: str) -> str:
     slug = title.lower().strip()
-    slug = re.sub(r'[^\w\s-]', '', slug)
-    slug = re.sub(r'[\s_]+', '-', slug)
-    return slug.strip('-')
+    slug = re.sub(r"[^\w\s-]", "", slug)
+    slug = re.sub(r"[\s_]+", "-", slug)
+    return slug.strip("-")
+
 
 @app.get("/api/wiki/pages")
 async def list_wiki_pages(q: str = None, user: dict = Depends(get_current_user)):
     query = {"$text": {"$search": q}} if q else {}
     pages = []
-    async for p in db.wiki_pages.find(query, {"content": 0}).sort("updated_at", -1).limit(200):
+    async for p in (
+        db.wiki_pages.find(query, {"content": 0}).sort("updated_at", -1).limit(200)
+    ):
         p["_id"] = str(p["_id"])
         pages.append(p)
     return {"pages": pages}
+
 
 @app.get("/api/wiki/pages/{slug}")
 async def get_wiki_page(slug: str, user: dict = Depends(get_current_user)):
@@ -1412,20 +2272,37 @@ async def get_wiki_page(slug: str, user: dict = Depends(get_current_user)):
     page["_id"] = str(page["_id"])
     return page
 
+
 @app.post("/api/wiki/pages")
-async def create_wiki_page(body: WikiPageCreate, user: dict = Depends(get_current_user)):
+async def create_wiki_page(
+    body: WikiPageCreate, user: dict = Depends(get_current_user)
+):
     slug = slugify(body.title)
     if await db.wiki_pages.find_one({"slug": slug}):
-        raise HTTPException(status_code=409, detail="Page with this title already exists")
+        raise HTTPException(
+            status_code=409, detail="Page with this title already exists"
+        )
     now = datetime.now(timezone.utc).isoformat()
-    doc = {"title": body.title, "slug": slug, "content": body.content, "tags": body.tags, "source_count": 0, "created_at": now, "updated_at": now, "created_by": user["_id"]}
+    doc = {
+        "title": body.title,
+        "slug": slug,
+        "content": body.content,
+        "tags": body.tags,
+        "source_count": 0,
+        "created_at": now,
+        "updated_at": now,
+        "created_by": user["_id"],
+    }
     result = await db.wiki_pages.insert_one(doc)
     doc["_id"] = str(result.inserted_id)
     await log_activity("wiki", f"Created page: {body.title}", user_id=user["_id"])
     return doc
 
+
 @app.put("/api/wiki/pages/{slug}")
-async def update_wiki_page(slug: str, body: WikiPageUpdate, user: dict = Depends(get_current_user)):
+async def update_wiki_page(
+    slug: str, body: WikiPageUpdate, user: dict = Depends(get_current_user)
+):
     updates = {"updated_at": datetime.now(timezone.utc).isoformat()}
     if body.title is not None:
         updates["title"] = body.title
@@ -1441,6 +2318,7 @@ async def update_wiki_page(slug: str, body: WikiPageUpdate, user: dict = Depends
     await log_activity("wiki", f"Updated page: {slug}", user_id=user["_id"])
     return page
 
+
 @app.delete("/api/wiki/pages/{slug}")
 async def delete_wiki_page(slug: str, user: dict = Depends(get_current_user)):
     result = await db.wiki_pages.delete_one({"slug": slug})
@@ -1449,20 +2327,33 @@ async def delete_wiki_page(slug: str, user: dict = Depends(get_current_user)):
     await log_activity("wiki", f"Deleted page: {slug}", user_id=user["_id"])
     return {"ok": True}
 
+
 @app.post("/api/wiki/lint")
 async def lint_wiki(user: dict = Depends(get_current_user)):
     pages = []
-    async for p in db.wiki_pages.find({}, {"_id": 0, "title": 1, "slug": 1, "content": 1, "tags": 1}):
+    async for p in db.wiki_pages.find(
+        {}, {"_id": 0, "title": 1, "slug": 1, "content": 1, "tags": 1}
+    ):
         pages.append(p)
     if not pages:
         return {"issues": [], "summary": "Wiki is empty. Add some pages first."}
-    page_list = "\n".join([f"- {p['title']} (/{p['slug']}): {len(p.get('content',''))} chars, tags: {p.get('tags', [])}" for p in pages])
-    result = await call_llm([
-        {"role": "system", "content": "Analyze wiki structure. Return JSON with 'issues' (array of {type, severity, page, description}) and 'summary' (string)."},
-        {"role": "user", "content": f"Wiki pages:\n{page_list}"},
-    ])
+    page_list = "\n".join(
+        [
+            f"- {p['title']} (/{p['slug']}): {len(p.get('content', ''))} chars, tags: {p.get('tags', [])}"
+            for p in pages
+        ]
+    )
+    result = await call_llm(
+        [
+            {
+                "role": "system",
+                "content": "Analyze wiki structure. Return JSON with 'issues' (array of {type, severity, page, description}) and 'summary' (string).",
+            },
+            {"role": "user", "content": f"Wiki pages:\n{page_list}"},
+        ]
+    )
     try:
-        json_match = re.search(r'\{.*\}', result, re.DOTALL)
+        json_match = re.search(r"\{.*\}", result, re.DOTALL)
         if json_match:
             parsed = json.loads(json_match.group())
             return parsed
@@ -1473,10 +2364,19 @@ async def lint_wiki(user: dict = Depends(get_current_user)):
 
 # ─── Source Ingestion ───────────────────────────────────────────────────────────
 
+
 @app.post("/api/sources/ingest")
-async def ingest_source(user: dict = Depends(get_current_user), file: UploadFile = File(None), url: str = Form(None), title: str = Form(None), content_text: str = Form(None)):
+async def ingest_source(
+    user: dict = Depends(get_current_user),
+    file: UploadFile = File(None),
+    url: str = Form(None),
+    title: str = Form(None),
+    content_text: str = Form(None),
+):
     if not file and not url and not content_text:
-        raise HTTPException(status_code=400, detail="Provide a file, URL, or text content")
+        raise HTTPException(
+            status_code=400, detail="Provide a file, URL, or text content"
+        )
     raw_content, source_type, source_name = "", "text", title or "Untitled Source"
     if file:
         raw_content = (await file.read()).decode("utf-8", errors="replace")
@@ -1494,28 +2394,57 @@ async def ingest_source(user: dict = Depends(get_current_user), file: UploadFile
     elif content_text:
         raw_content = content_text
     now = datetime.now(timezone.utc).isoformat()
-    doc = {"title": source_name, "type": source_type, "url": url, "raw_content": raw_content[:100000], "status": "pending", "summary": None, "created_at": now, "created_by": user["_id"]}
+    doc = {
+        "title": source_name,
+        "type": source_type,
+        "url": url,
+        "raw_content": raw_content[:100000],
+        "status": "pending",
+        "summary": None,
+        "created_at": now,
+        "created_by": user["_id"],
+    }
     result = await db.sources.insert_one(doc)
     source_id = str(result.inserted_id)
     try:
-        summary = await call_llm([
-            {"role": "system", "content": "Summarize this source in 2-3 paragraphs. Extract key concepts. Format as markdown."},
-            {"role": "user", "content": raw_content[:8000]},
-        ])
-        await db.sources.update_one({"_id": ObjectId(source_id)}, {"$set": {"status": "processed", "summary": summary}})
-        await log_activity("ingest", f"Ingested: {source_name}", user_id=user["_id"], meta={"source_id": source_id})
+        summary = await call_llm(
+            [
+                {
+                    "role": "system",
+                    "content": "Summarize this source in 2-3 paragraphs. Extract key concepts. Format as markdown.",
+                },
+                {"role": "user", "content": raw_content[:8000]},
+            ]
+        )
+        await db.sources.update_one(
+            {"_id": ObjectId(source_id)},
+            {"$set": {"status": "processed", "summary": summary}},
+        )
+        await log_activity(
+            "ingest",
+            f"Ingested: {source_name}",
+            user_id=user["_id"],
+            meta={"source_id": source_id},
+        )
     except Exception as e:
-        await db.sources.update_one({"_id": ObjectId(source_id)}, {"$set": {"status": "failed", "summary": f"Processing failed: {e}"}})
+        await db.sources.update_one(
+            {"_id": ObjectId(source_id)},
+            {"$set": {"status": "failed", "summary": f"Processing failed: {e}"}},
+        )
     doc["_id"] = source_id
     return doc
+
 
 @app.get("/api/sources")
 async def list_sources(user: dict = Depends(get_current_user)):
     sources = []
-    async for s in db.sources.find({}, {"raw_content": 0}).sort("created_at", -1).limit(100):
+    async for s in (
+        db.sources.find({}, {"raw_content": 0}).sort("created_at", -1).limit(100)
+    ):
         s["_id"] = str(s["_id"])
         sources.append(s)
     return {"sources": sources}
+
 
 @app.get("/api/sources/{source_id}")
 async def get_source(source_id: str, user: dict = Depends(get_current_user)):
@@ -1525,6 +2454,7 @@ async def get_source(source_id: str, user: dict = Depends(get_current_user)):
     source["_id"] = str(source["_id"])
     return source
 
+
 @app.delete("/api/sources/{source_id}")
 async def delete_source(source_id: str, user: dict = Depends(get_current_user)):
     await db.sources.delete_one({"_id": ObjectId(source_id)})
@@ -1533,6 +2463,7 @@ async def delete_source(source_id: str, user: dict = Depends(get_current_user)):
 
 # ─── Activity & Stats ──────────────────────────────────────────────────────────
 
+
 @app.get("/api/activity")
 async def get_activity(limit: int = 50, user: dict = Depends(get_current_user)):
     logs = []
@@ -1540,6 +2471,7 @@ async def get_activity(limit: int = 50, user: dict = Depends(get_current_user)):
         entry["_id"] = str(entry["_id"])
         logs.append(entry)
     return {"logs": logs}
+
 
 @app.get("/api/stats")
 async def get_stats(user: dict = Depends(get_current_user)):
@@ -1550,20 +2482,31 @@ async def get_stats(user: dict = Depends(get_current_user)):
     provider_count = await db.providers.count_documents({})
     key_count = await db.api_keys.count_documents({})
     recent_pages = []
-    async for p in db.wiki_pages.find({}, {"_id": 0, "title": 1, "slug": 1, "updated_at": 1}).sort("updated_at", -1).limit(5):
+    async for p in (
+        db.wiki_pages.find({}, {"_id": 0, "title": 1, "slug": 1, "updated_at": 1})
+        .sort("updated_at", -1)
+        .limit(5)
+    ):
         recent_pages.append(p)
     active_provider = await get_active_provider()
     return {
-        "wiki_pages": wiki_count, "sources": source_count, "chat_sessions": session_count,
-        "activity_entries": log_count, "providers": provider_count, "api_keys": key_count,
+        "wiki_pages": wiki_count,
+        "sources": source_count,
+        "chat_sessions": session_count,
+        "activity_entries": log_count,
+        "providers": provider_count,
+        "api_keys": key_count,
         "recent_pages": recent_pages,
-        "llm_provider": active_provider.get("name", "None") if active_provider else "None",
+        "llm_provider": active_provider.get("name", "None")
+        if active_provider
+        else "None",
         "ngrok_domain": NGROK_DOMAIN,
         "langfuse_configured": bool(LANGFUSE_PK and LANGFUSE_SK),
     }
 
 
 # ─── Providers CRUD ─────────────────────────────────────────────────────────────
+
 
 class ProviderCreate(BaseModel):
     provider_id: str
@@ -1574,6 +2517,7 @@ class ProviderCreate(BaseModel):
     default_model: str = ""
     is_default: bool = False
 
+
 class ProviderUpdate(BaseModel):
     name: str = None
     base_url: str = None
@@ -1581,18 +2525,32 @@ class ProviderUpdate(BaseModel):
     default_model: str = None
     is_default: bool = None
 
+
 @app.get("/api/providers")
 async def list_providers(user: dict = Depends(get_current_user)):
     providers = []
-    async for p in db.providers.find({}).sort("created_at", 1):
-        p["_id"] = str(p["_id"])
-        if p.get("api_key"):
-            p["api_key_masked"] = p["api_key"][:8] + "..." + p["api_key"][-4:] if len(p["api_key"]) > 12 else "***"
-        else:
+    try:
+        async for p in db.providers.find({}).sort("created_at", 1):
+            p["_id"] = str(p["_id"])
+            if p.get("api_key"):
+                p["api_key_masked"] = (
+                    p["api_key"][:8] + "..." + p["api_key"][-4:]
+                    if len(p["api_key"]) > 12
+                    else "***"
+                )
+            else:
+                p["api_key_masked"] = ""
+            p.pop("api_key", None)
+            providers.append(p)
+    except Exception:
+        # Limited mode: MongoDB unavailable — return built-in defaults
+        for p in _builtin_provider_records():
+            p = dict(p)
+            p.pop("api_key", None)
             p["api_key_masked"] = ""
-        p.pop("api_key", None)
-        providers.append(p)
+            providers.append(p)
     return {"providers": providers}
+
 
 @app.post("/api/providers")
 async def create_provider(body: ProviderCreate, user: dict = Depends(get_current_user)):
@@ -1607,27 +2565,40 @@ async def create_provider(body: ProviderCreate, user: dict = Depends(get_current
     await log_activity("provider", f"Added provider: {body.name}", user_id=user["_id"])
     return {"ok": True, "provider_id": body.provider_id}
 
+
 @app.put("/api/providers/{provider_id}")
-async def update_provider(provider_id: str, body: ProviderUpdate, user: dict = Depends(get_current_user)):
+async def update_provider(
+    provider_id: str, body: ProviderUpdate, user: dict = Depends(get_current_user)
+):
     updates = {}
     for k, v in body.dict(exclude_none=True).items():
         updates[k] = v
     if body.is_default:
-        await db.providers.update_many({"provider_id": {"$ne": provider_id}}, {"$set": {"is_default": False}})
+        await db.providers.update_many(
+            {"provider_id": {"$ne": provider_id}}, {"$set": {"is_default": False}}
+        )
     if updates:
-        result = await db.providers.update_one({"provider_id": provider_id}, {"$set": updates})
+        result = await db.providers.update_one(
+            {"provider_id": provider_id}, {"$set": updates}
+        )
         if result.matched_count == 0:
             raise HTTPException(status_code=404, detail="Provider not found")
-    await log_activity("provider", f"Updated provider: {provider_id}", user_id=user["_id"])
+    await log_activity(
+        "provider", f"Updated provider: {provider_id}", user_id=user["_id"]
+    )
     return {"ok": True}
+
 
 @app.delete("/api/providers/{provider_id}")
 async def delete_provider(provider_id: str, user: dict = Depends(get_current_user)):
     result = await db.providers.delete_one({"provider_id": provider_id})
     if result.deleted_count == 0:
         raise HTTPException(status_code=404, detail="Provider not found")
-    await log_activity("provider", f"Deleted provider: {provider_id}", user_id=user["_id"])
+    await log_activity(
+        "provider", f"Deleted provider: {provider_id}", user_id=user["_id"]
+    )
     return {"ok": True}
+
 
 @app.post("/api/providers/{provider_id}/test")
 async def test_provider(provider_id: str, user: dict = Depends(get_current_user)):
@@ -1636,11 +2607,15 @@ async def test_provider(provider_id: str, user: dict = Depends(get_current_user)
         raise HTTPException(status_code=404, detail="Provider not found")
     try:
         if prov["type"] == "ollama":
-            resolved_base = _resolve_ollama_url(prov.get("base_url") or OLLAMA_BASE).rstrip("/")
+            resolved_base = _resolve_ollama_url(
+                prov.get("base_url") or OLLAMA_BASE
+            ).rstrip("/")
             async with httpx.AsyncClient(timeout=15) as c:
                 r = await c.get(f"{resolved_base}/api/tags")
                 models = [m["name"] for m in r.json().get("models", [])]
-            await db.providers.update_one({"provider_id": provider_id}, {"$set": {"status": "online"}})
+            await db.providers.update_one(
+                {"provider_id": provider_id}, {"$set": {"status": "online"}}
+            )
             return {"ok": True, "models": models}
         else:
             cfg = LlmProviderConfig(
@@ -1650,10 +2625,14 @@ async def test_provider(provider_id: str, user: dict = Depends(get_current_user)
                 default_model=(str(prov.get("default_model") or "").strip() or None),
             )
             models = await list_openai_models(cfg)
-            await db.providers.update_one({"provider_id": provider_id}, {"$set": {"status": "online"}})
+            await db.providers.update_one(
+                {"provider_id": provider_id}, {"$set": {"status": "online"}}
+            )
             return {"ok": True, "models": models}
     except Exception as e:
-        await db.providers.update_one({"provider_id": provider_id}, {"$set": {"status": "error"}})
+        await db.providers.update_one(
+            {"provider_id": provider_id}, {"$set": {"status": "error"}}
+        )
         return {"ok": False, "error": str(e)}
 
 
@@ -1666,11 +2645,15 @@ async def provider_models(provider_id: str, user: dict = Depends(get_current_use
     # Determine provider type key for catalog lookup.
     ptype = str(prov.get("type") or "openai-compatible")
     # Map provider_id to catalog key (e.g. "openrouter" → "openrouter", "together-ai" → "together")
-    catalog_key = provider_id if provider_id in PREDEFINED_MODELS else {
-        "ollama-local": "ollama",
-        "huggingface-serverless": "huggingface",
-        "together-ai": "together",
-    }.get(provider_id, ptype)
+    catalog_key = (
+        provider_id
+        if provider_id in PREDEFINED_MODELS
+        else {
+            "ollama-local": "ollama",
+            "huggingface-serverless": "huggingface",
+            "together-ai": "together",
+        }.get(provider_id, ptype)
+    )
     predefined = [m["id"] for m in PREDEFINED_MODELS.get(catalog_key, [])]
 
     if ptype == "ollama":
@@ -1707,10 +2690,12 @@ async def provider_models(provider_id: str, user: dict = Depends(get_current_use
 
 # ─── Models Hub ─────────────────────────────────────────────────────────────────
 
+
 @app.get("/api/models/catalog")
 async def models_catalog(user: dict = Depends(get_current_user)):
     """Return the full predefined model catalog with role/tier metadata."""
     return {"catalog": PREDEFINED_MODELS, "agent_role_models": AGENT_ROLE_MODELS}
+
 
 @app.get("/api/models")
 async def list_models(user: dict = Depends(get_current_user)):
@@ -1721,40 +2706,49 @@ async def list_models(user: dict = Depends(get_current_user)):
             r = await c.get(f"{OLLAMA_BASE}/api/tags")
             if r.status_code == 200:
                 for m in r.json().get("models", []):
-                    models.append({
-                        "name": m["name"],
-                        "size": m.get("size", 0),
-                        "modified_at": m.get("modified_at", ""),
-                        "source": "ollama-local",
-                        "details": m.get("details", {}),
-                    })
+                    models.append(
+                        {
+                            "name": m["name"],
+                            "size": m.get("size", 0),
+                            "modified_at": m.get("modified_at", ""),
+                            "source": "ollama-local",
+                            "details": m.get("details", {}),
+                        }
+                    )
     except Exception:
         pass
     # Add cloud model references from providers
     async for prov in db.providers.find({"type": {"$ne": "ollama"}}):
         if prov.get("default_model"):
-            models.append({
-                "name": prov["default_model"],
-                "size": 0,
-                "modified_at": "",
-                "source": prov["provider_id"],
-                "details": {"provider": prov["name"]},
-            })
+            models.append(
+                {
+                    "name": prov["default_model"],
+                    "size": 0,
+                    "modified_at": "",
+                    "source": prov["provider_id"],
+                    "details": {"provider": prov["name"]},
+                }
+            )
     return {"models": models}
+
 
 class ModelPullRequest(BaseModel):
     name: str
+
 
 @app.post("/api/models/pull")
 async def pull_model(body: ModelPullRequest, user: dict = Depends(get_current_user)):
     try:
         async with httpx.AsyncClient(timeout=600) as c:
-            r = await c.post(f"{OLLAMA_BASE}/api/pull", json={"name": body.name, "stream": False})
+            r = await c.post(
+                f"{OLLAMA_BASE}/api/pull", json={"name": body.name, "stream": False}
+            )
             r.raise_for_status()
         await log_activity("models", f"Pulled model: {body.name}", user_id=user["_id"])
         return {"ok": True, "model": body.name}
     except Exception as e:
         raise HTTPException(status_code=502, detail=f"Pull failed: {e}")
+
 
 @app.delete("/api/models/{model_name}")
 async def delete_model(model_name: str, user: dict = Depends(get_current_user)):
@@ -1762,7 +2756,9 @@ async def delete_model(model_name: str, user: dict = Depends(get_current_user)):
         async with httpx.AsyncClient(timeout=30) as c:
             r = await c.delete(f"{OLLAMA_BASE}/api/delete", json={"name": model_name})
             r.raise_for_status()
-        await log_activity("models", f"Deleted model: {model_name}", user_id=user["_id"])
+        await log_activity(
+            "models", f"Deleted model: {model_name}", user_id=user["_id"]
+        )
         return {"ok": True}
     except Exception as e:
         raise HTTPException(status_code=502, detail=f"Delete failed: {e}")
@@ -1770,10 +2766,12 @@ async def delete_model(model_name: str, user: dict = Depends(get_current_user)):
 
 # ─── API Keys Management ───────────────────────────────────────────────────────
 
+
 class ApiKeyCreate(BaseModel):
     email: str
     department: str = "general"
     label: str = ""
+
 
 @app.get("/api/keys")
 async def list_api_keys(user: dict = Depends(get_current_user)):
@@ -1783,19 +2781,26 @@ async def list_api_keys(user: dict = Depends(get_current_user)):
         keys.append(k)
     return {"keys": keys}
 
+
 @app.post("/api/keys")
 async def create_api_key(body: ApiKeyCreate, user: dict = Depends(get_current_user)):
     plain = "sk-wiki-" + secrets.token_urlsafe(32)
     key_id = "key_" + secrets.token_hex(4)
     hashed = bcrypt.hashpw(plain.encode(), bcrypt.gensalt()).decode()
     doc = {
-        "key_id": key_id, "email": body.email, "department": body.department,
-        "label": body.label, "secret_hash": hashed, "prefix": plain[:12] + "...",
-        "created_at": datetime.now(timezone.utc).isoformat(), "created_by": user["_id"],
+        "key_id": key_id,
+        "email": body.email,
+        "department": body.department,
+        "label": body.label,
+        "secret_hash": hashed,
+        "prefix": plain[:12] + "...",
+        "created_at": datetime.now(timezone.utc).isoformat(),
+        "created_by": user["_id"],
     }
     await db.api_keys.insert_one(doc)
     await log_activity("keys", f"Created API key for {body.email}", user_id=user["_id"])
     return {"key_id": key_id, "api_key": plain, "email": body.email}
+
 
 @app.delete("/api/keys/{key_id}")
 async def delete_api_key(key_id: str, user: dict = Depends(get_current_user)):
@@ -1808,14 +2813,22 @@ async def delete_api_key(key_id: str, user: dict = Depends(get_current_user)):
 
 # ─── Observability (Langfuse) ───────────────────────────────────────────────────
 
+
 @app.get("/api/observability/status")
 async def observability_status(user: dict = Depends(get_current_user)):
     configured = bool(LANGFUSE_PK and LANGFUSE_SK)
-    status = {"configured": configured, "base_url": LANGFUSE_BASE, "public_key_prefix": LANGFUSE_PK[:12] + "..." if LANGFUSE_PK else ""}
+    status = {
+        "configured": configured,
+        "base_url": LANGFUSE_BASE,
+        "public_key_prefix": LANGFUSE_PK[:12] + "..." if LANGFUSE_PK else "",
+    }
     if configured:
         try:
             async with httpx.AsyncClient(timeout=10) as c:
-                r = await c.get(f"{LANGFUSE_BASE}/api/public/health", auth=(LANGFUSE_PK, LANGFUSE_SK))
+                r = await c.get(
+                    f"{LANGFUSE_BASE}/api/public/health",
+                    auth=(LANGFUSE_PK, LANGFUSE_SK),
+                )
                 if r.status_code == 200:
                     status["connected"] = True
                     status["message"] = "Langfuse connected"
@@ -1827,48 +2840,58 @@ async def observability_status(user: dict = Depends(get_current_user)):
             status["message"] = str(e)
     else:
         status["connected"] = False
-        status["message"] = "Not configured — set LANGFUSE_PUBLIC_KEY and LANGFUSE_SECRET_KEY"
+        status["message"] = (
+            "Not configured — set LANGFUSE_PUBLIC_KEY and LANGFUSE_SECRET_KEY"
+        )
     return status
+
 
 @app.get("/api/observability/dashboard-url")
 async def observability_dashboard(user: dict = Depends(get_current_user)):
     return {"url": LANGFUSE_BASE, "configured": bool(LANGFUSE_PK)}
+
 
 @app.get("/api/observability/metrics")
 async def observability_metrics(user: dict = Depends(get_current_user)):
     """Fetch basic usage metrics from the local_metrics collection."""
     now = datetime.now(timezone.utc)
     day_ago = now - timedelta(days=1)
-    
+
     # 24h Aggregation
     pipeline = [
         {"$match": {"timestamp": {"$gte": day_ago}}},
-        {"$group": {
-            "_id": None,
-            "total_requests": {"$sum": 1},
-            "total_tokens": {"$sum": {"$add": ["$prompt_tokens", "$completion_tokens"]}},
-            "total_savings_usd": {"$sum": "$cost_usd"},
-        }}
+        {
+            "$group": {
+                "_id": None,
+                "total_requests": {"$sum": 1},
+                "total_tokens": {
+                    "$sum": {"$add": ["$prompt_tokens", "$completion_tokens"]}
+                },
+                "total_savings_usd": {"$sum": "$cost_usd"},
+            }
+        },
     ]
     cursor = db.local_metrics.aggregate(pipeline)
     agg = await cursor.to_list(length=1)
-    summary = agg[0] if agg else {"total_requests": 0, "total_tokens": 0, "total_savings_usd": 0}
+    summary = (
+        agg[0]
+        if agg
+        else {"total_requests": 0, "total_tokens": 0, "total_savings_usd": 0}
+    )
     summary.pop("_id", None)
-    
+
     # Recent activity
     recent = []
     async for m in db.local_metrics.find({}).sort("timestamp", -1).limit(10):
         m["_id"] = str(m["_id"])
         m["timestamp"] = m["timestamp"].isoformat()
         recent.append(m)
-        
-    return {
-        "summary_24h": summary,
-        "recent_traces": recent
-    }
+
+    return {"summary_24h": summary, "recent_traces": recent}
 
 
 # ─── System / Platform Info ─────────────────────────────────────────────────────
+
 
 @app.get("/api/platform")
 async def platform_info(user: dict = Depends(get_current_user)):
@@ -1883,6 +2906,7 @@ async def platform_info(user: dict = Depends(get_current_user)):
         "github_repo": "https://github.com/strikersam/local-llm-server",
     }
 
+
 @app.get("/api/health")
 async def health():
     try:
@@ -1894,7 +2918,11 @@ async def health():
     active = await get_active_provider()
     active_type = str((active or {}).get("type", "ollama")).lower()
     active_base = str((active or {}).get("base_url", OLLAMA_BASE))
-    ollama_relevant = active_type in ("ollama", "") or "localhost:11434" in active_base or "11434" in active_base
+    ollama_relevant = (
+        active_type in ("ollama", "")
+        or "localhost:11434" in active_base
+        or "11434" in active_base
+    )
 
     ollama_ok: bool | None = None
     if ollama_relevant:
@@ -1941,8 +2969,11 @@ class GitHubTokenBody(BaseModel):
 
 # ── OAuth flow ─────────────────────────────────────────────────────────────────
 
+
 @app.post("/api/github/oauth/start")
-async def github_oauth_start(user: dict = Depends(get_current_user), redirect: bool = False):
+async def github_oauth_start(
+    user: dict = Depends(get_current_user), redirect: bool = False
+):
     """Create a time-limited OAuth state and return the GitHub authorization URL.
 
     When redirect=true the callback will issue a full-page redirect back to the
@@ -1955,26 +2986,32 @@ async def github_oauth_start(user: dict = Depends(get_current_user), redirect: b
             detail="GitHub OAuth not configured on this server. Set GITHUB_CLIENT_ID and GITHUB_CLIENT_SECRET, then restart.",
         )
     state = secrets.token_urlsafe(32)
-    await db.oauth_states.insert_one({
-        "state": state,
-        "user_id": user["_id"],
-        "flow_type": "repo",
-        "redirect": redirect,
-        "created_at": datetime.now(timezone.utc),
-    })
+    await db.oauth_states.insert_one(
+        {
+            "state": state,
+            "user_id": user["_id"],
+            "flow_type": "repo",
+            "redirect": redirect,
+            "created_at": datetime.now(timezone.utc),
+        }
+    )
     # No redirect_uri — GitHub will use the single registered callback URL
     # (/api/auth/github/callback), which handles both login and repo-connect flows.
     qs = f"client_id={GITHUB_CLIENT_ID}&scope=repo&state={state}"
     return {"url": f"https://github.com/login/oauth/authorize?{qs}"}
 
 
-def _oauth_popup_html(success: bool, login: str = "", error_msg: str = "") -> HTMLResponse:
+def _oauth_popup_html(
+    success: bool, login: str = "", error_msg: str = ""
+) -> HTMLResponse:
     """Tiny HTML page that fires postMessage to the opener then self-closes."""
     if success:
         payload = json.dumps({"type": "github_oauth", "success": True, "login": login})
         body = "<p style='font-family:monospace;padding:2rem'>GitHub connected! Closing…</p>"
     else:
-        payload = json.dumps({"type": "github_oauth", "success": False, "error": error_msg})
+        payload = json.dumps(
+            {"type": "github_oauth", "success": False, "error": error_msg}
+        )
         body = f"<p style='font-family:monospace;padding:2rem;color:red'>Error: {error_msg}</p>"
     # Use the known frontend origin so the browser only delivers the message there,
     # not to arbitrary openers (prevents cross-origin message interception).
@@ -1993,11 +3030,15 @@ async def github_oauth_callback(
     error_description: str | None = None,
 ):
     """GitHub redirects here after the user authorises (or denies) the OAuth App."""
+
     # Helper that respects redirect mode for error responses.
     async def _error(msg: str, redirect_mode: bool = False) -> HTMLResponse:
         if redirect_mode:
             from urllib.parse import quote
-            return RedirectResponse(f"{frontend_url}/settings?github_error={quote(msg)}")
+
+            return RedirectResponse(
+                f"{frontend_url}/settings?github_error={quote(msg)}"
+            )
         return _oauth_popup_html(False, error_msg=msg)
 
     if error or not code or not state:
@@ -2027,11 +3068,17 @@ async def github_oauth_callback(
         token_data = r.json()
     except Exception as exc:
         log.error("GitHub token exchange failed: %s", exc)
-        return await _error("Token exchange with GitHub failed. Check server logs.", is_redirect)
+        return await _error(
+            "Token exchange with GitHub failed. Check server logs.", is_redirect
+        )
 
     access_token = token_data.get("access_token")
     if not access_token:
-        err = token_data.get("error_description") or token_data.get("error") or "No token returned"
+        err = (
+            token_data.get("error_description")
+            or token_data.get("error")
+            or "No token returned"
+        )
         return await _error(err, is_redirect)
 
     # Fetch the GitHub user to confirm the token works.
@@ -2042,18 +3089,22 @@ async def github_oauth_callback(
         gh_user = r.json()
     except Exception as exc:
         log.error("GitHub /user fetch failed after token exchange: %s", exc)
-        return await _error("Could not fetch GitHub user info after authorisation.", is_redirect)
+        return await _error(
+            "Could not fetch GitHub user info after authorisation.", is_redirect
+        )
 
     login: str = gh_user.get("login", "")
 
     await db.github_settings.update_one(
         {"user_id": user_id},
-        {"$set": {
-            "user_id": user_id,
-            "token": access_token,
-            "github_login": login,
-            "updated_at": datetime.now(timezone.utc).isoformat(),
-        }},
+        {
+            "$set": {
+                "user_id": user_id,
+                "token": access_token,
+                "github_login": login,
+                "updated_at": datetime.now(timezone.utc).isoformat(),
+            }
+        },
         upsert=True,
     )
     await log_activity("github", f"GitHub OAuth connected — @{login}", user_id=user_id)
@@ -2063,27 +3114,47 @@ async def github_oauth_callback(
 
 
 @app.put("/api/github/token")
-async def set_github_token(body: GitHubTokenBody, user: dict = Depends(get_current_user)):
+async def set_github_token(
+    body: GitHubTokenBody, user: dict = Depends(get_current_user)
+):
     uid = user["_id"]
     try:
         async with httpx.AsyncClient(timeout=10) as c:
             r = await c.get(f"{GITHUB_API}/user", headers=_gh_headers(body.token))
         if r.status_code != 200:
-            raise HTTPException(status_code=400, detail=f"GitHub token rejected (HTTP {r.status_code}). Check the token has repo scope.")
+            raise HTTPException(
+                status_code=400,
+                detail=f"GitHub token rejected (HTTP {r.status_code}). Check the token has repo scope.",
+            )
         gh_user = r.json()
     except httpx.HTTPError as exc:
-        raise HTTPException(status_code=400, detail=f"GitHub token validation failed: {exc}") from exc
+        raise HTTPException(
+            status_code=400, detail=f"GitHub token validation failed: {exc}"
+        ) from exc
     now_iso = datetime.now(timezone.utc).isoformat()
     gh_login = gh_user.get("login", "")
     await db.github_settings.update_one(
         {"user_id": uid},
-        {"$set": {"user_id": uid, "token": body.token, "github_login": gh_login, "updated_at": now_iso}},
+        {
+            "$set": {
+                "user_id": uid,
+                "token": body.token,
+                "github_login": gh_login,
+                "updated_at": now_iso,
+            }
+        },
         upsert=True,
     )
     # Sync to user document so the agent runner can read it directly
     await db.users.update_one(
         {"_id": ObjectId(uid)},
-        {"$set": {"github_repo_token": body.token, "github_login": gh_login, "github_updated_at": now_iso}},
+        {
+            "$set": {
+                "github_repo_token": body.token,
+                "github_login": gh_login,
+                "github_updated_at": now_iso,
+            }
+        },
     )
     await log_activity("github", f"GitHub token connected for @{gh_login}", user_id=uid)
     return {"ok": True, "login": gh_login}
@@ -2095,7 +3166,13 @@ async def delete_github_token(user: dict = Depends(get_current_user)):
     # Clear from user document too
     await db.users.update_one(
         {"_id": ObjectId(user["_id"])},
-        {"$unset": {"github_repo_token": "", "github_login": "", "github_updated_at": ""}},
+        {
+            "$unset": {
+                "github_repo_token": "",
+                "github_login": "",
+                "github_updated_at": "",
+            }
+        },
     )
     return {"ok": True}
 
@@ -2108,7 +3185,10 @@ async def list_github_repos(
 ):
     token = await _get_github_token(user["_id"])
     if not token:
-        raise HTTPException(status_code=400, detail="GitHub not connected. Add a token in Settings → GitHub.")
+        raise HTTPException(
+            status_code=400,
+            detail="GitHub not connected. Add a token in Settings → GitHub.",
+        )
     try:
         async with httpx.AsyncClient(timeout=20) as c:
             if q:
@@ -2123,7 +3203,12 @@ async def list_github_repos(
                 r = await c.get(
                     f"{GITHUB_API}/user/repos",
                     headers=_gh_headers(token),
-                    params={"per_page": 30, "page": page, "sort": "updated", "affiliation": "owner,collaborator"},
+                    params={
+                        "per_page": 30,
+                        "page": page,
+                        "sort": "updated",
+                        "affiliation": "owner,collaborator",
+                    },
                 )
         r.raise_for_status()
         raw = r.json().get("items", r.json()) if q else r.json()
@@ -2143,23 +3228,37 @@ async def list_github_repos(
         ]
         return {"repos": repos}
     except httpx.HTTPStatusError as exc:
-        log.error("GitHub API %s error: %s", exc.response.status_code, exc.response.text)
-        raise HTTPException(status_code=exc.response.status_code, detail="GitHub API error") from exc
+        log.error(
+            "GitHub API %s error: %s", exc.response.status_code, exc.response.text
+        )
+        raise HTTPException(
+            status_code=exc.response.status_code, detail="GitHub API error"
+        ) from exc
 
 
 @app.get("/api/github/repos/{owner}/{repo}/branches")
-async def list_github_branches(owner: str, repo: str, user: dict = Depends(get_current_user)):
+async def list_github_branches(
+    owner: str, repo: str, user: dict = Depends(get_current_user)
+):
     token = await _get_github_token(user["_id"])
     if not token:
         raise HTTPException(status_code=400, detail="GitHub not connected")
     try:
         async with httpx.AsyncClient(timeout=15) as c:
-            r = await c.get(f"{GITHUB_API}/repos/{owner}/{repo}/branches", headers=_gh_headers(token), params={"per_page": 50})
+            r = await c.get(
+                f"{GITHUB_API}/repos/{owner}/{repo}/branches",
+                headers=_gh_headers(token),
+                params={"per_page": 50},
+            )
         r.raise_for_status()
         return {"branches": [b["name"] for b in r.json()]}
     except httpx.HTTPStatusError as exc:
-        log.error("GitHub API %s error: %s", exc.response.status_code, exc.response.text)
-        raise HTTPException(status_code=exc.response.status_code, detail="GitHub API error") from exc
+        log.error(
+            "GitHub API %s error: %s", exc.response.status_code, exc.response.text
+        )
+        raise HTTPException(
+            status_code=exc.response.status_code, detail="GitHub API error"
+        ) from exc
 
 
 @app.get("/api/github/repos/{owner}/{repo}/tree")
@@ -2186,13 +3285,23 @@ async def get_github_tree(
         return {
             "path": path,
             "items": [
-                {"name": i["name"], "path": i["path"], "type": i["type"], "size": i.get("size", 0), "sha": i.get("sha", "")}
+                {
+                    "name": i["name"],
+                    "path": i["path"],
+                    "type": i["type"],
+                    "size": i.get("size", 0),
+                    "sha": i.get("sha", ""),
+                }
                 for i in items
             ],
         }
     except httpx.HTTPStatusError as exc:
-        log.error("GitHub API %s error: %s", exc.response.status_code, exc.response.text)
-        raise HTTPException(status_code=exc.response.status_code, detail="GitHub API error") from exc
+        log.error(
+            "GitHub API %s error: %s", exc.response.status_code, exc.response.text
+        )
+        raise HTTPException(
+            status_code=exc.response.status_code, detail="GitHub API error"
+        ) from exc
 
 
 @app.get("/api/github/repos/{owner}/{repo}/file")
@@ -2207,6 +3316,7 @@ async def read_github_file(
     if not token:
         raise HTTPException(status_code=400, detail="GitHub not connected")
     import base64 as _b64
+
     try:
         async with httpx.AsyncClient(timeout=20) as c:
             r = await c.get(
@@ -2216,11 +3326,22 @@ async def read_github_file(
             )
         r.raise_for_status()
         data = r.json()
-        content = _b64.b64decode(data.get("content", "").replace("\n", "")).decode("utf-8", errors="replace")
-        return {"path": path, "content": content, "sha": data.get("sha", ""), "size": data.get("size", 0)}
+        content = _b64.b64decode(data.get("content", "").replace("\n", "")).decode(
+            "utf-8", errors="replace"
+        )
+        return {
+            "path": path,
+            "content": content,
+            "sha": data.get("sha", ""),
+            "size": data.get("size", 0),
+        }
     except httpx.HTTPStatusError as exc:
-        log.error("GitHub API %s error: %s", exc.response.status_code, exc.response.text)
-        raise HTTPException(status_code=exc.response.status_code, detail="GitHub API error") from exc
+        log.error(
+            "GitHub API %s error: %s", exc.response.status_code, exc.response.text
+        )
+        raise HTTPException(
+            status_code=exc.response.status_code, detail="GitHub API error"
+        ) from exc
 
 
 class GitHubFileWrite(BaseModel):
@@ -2242,9 +3363,14 @@ async def write_github_file(
     if not token:
         raise HTTPException(status_code=400, detail="GitHub not connected")
     import base64 as _b64
+
     try:
         content_b64 = _b64.b64encode(body.content.encode("utf-8")).decode("ascii")
-        payload: dict = {"message": body.message, "content": content_b64, "branch": body.branch}
+        payload: dict = {
+            "message": body.message,
+            "content": content_b64,
+            "branch": body.branch,
+        }
         if body.sha:
             payload["sha"] = body.sha
         async with httpx.AsyncClient(timeout=30) as c:
@@ -2261,12 +3387,20 @@ async def write_github_file(
             "github",
             f"Committed {body.path} to {owner}/{repo}@{body.branch}",
             user_id=user["_id"],
-            meta={"repo": f"{owner}/{repo}", "path": body.path, "commit_sha": commit_sha},
+            meta={
+                "repo": f"{owner}/{repo}",
+                "path": body.path,
+                "commit_sha": commit_sha,
+            },
         )
         return {"ok": True, "commit_sha": commit_sha, "file_sha": file_sha}
     except httpx.HTTPStatusError as exc:
-        log.error("GitHub API %s error: %s", exc.response.status_code, exc.response.text)
-        raise HTTPException(status_code=exc.response.status_code, detail="GitHub API error") from exc
+        log.error(
+            "GitHub API %s error: %s", exc.response.status_code, exc.response.text
+        )
+        raise HTTPException(
+            status_code=exc.response.status_code, detail="GitHub API error"
+        ) from exc
 
 
 @app.get("/api/github/repos/{owner}/{repo}/pulls")
@@ -2302,8 +3436,12 @@ async def list_github_pulls(
         ]
         return {"pulls": pulls}
     except httpx.HTTPStatusError as exc:
-        log.error("GitHub API %s error: %s", exc.response.status_code, exc.response.text)
-        raise HTTPException(status_code=exc.response.status_code, detail="GitHub API error") from exc
+        log.error(
+            "GitHub API %s error: %s", exc.response.status_code, exc.response.text
+        )
+        raise HTTPException(
+            status_code=exc.response.status_code, detail="GitHub API error"
+        ) from exc
 
 
 class GitHubPRCreate(BaseModel):
@@ -2328,21 +3466,45 @@ async def create_github_pr(
             r = await c.post(
                 f"{GITHUB_API}/repos/{owner}/{repo}/pulls",
                 headers=_gh_headers(token),
-                json={"title": body.title, "body": body.body, "head": body.head, "base": body.base},
+                json={
+                    "title": body.title,
+                    "body": body.body,
+                    "head": body.head,
+                    "base": body.base,
+                },
             )
         r.raise_for_status()
         pr = r.json()
-        await log_activity("github", f"Created PR #{pr['number']} in {owner}/{repo}", user_id=user["_id"])
-        return {"ok": True, "number": pr["number"], "html_url": pr["html_url"], "title": pr["title"]}
+        await log_activity(
+            "github",
+            f"Created PR #{pr['number']} in {owner}/{repo}",
+            user_id=user["_id"],
+        )
+        return {
+            "ok": True,
+            "number": pr["number"],
+            "html_url": pr["html_url"],
+            "title": pr["title"],
+        }
     except httpx.HTTPStatusError as exc:
-        log.error("GitHub API %s error: %s", exc.response.status_code, exc.response.text)
-        raise HTTPException(status_code=exc.response.status_code, detail="GitHub API error") from exc
+        log.error(
+            "GitHub API %s error: %s", exc.response.status_code, exc.response.text
+        )
+        raise HTTPException(
+            status_code=exc.response.status_code, detail="GitHub API error"
+        ) from exc
 
 
 # ─── Feature Routers ────────────────────────────────────────────────────────────
 app.include_router(agent_router)
 app.include_router(runtime_router)
 app.include_router(task_router)
+app.include_router(setup_router)
+app.include_router(secrets_router)
+
+# Initialise the secrets store with our MongoDB handle so it persists to the
+# same database as the rest of the app.
+get_secrets_store(db=db)
 
 # ─── Serve React Frontend (Replit compatibility) ────────────────────────────────
 # Mount the built React app and serve index.html for unknown routes (SPA routing)
@@ -2350,7 +3512,9 @@ app.include_router(task_router)
 _FRONTEND_BUILD = Path(__file__).resolve().parent.parent / "frontend" / "build"
 
 if _FRONTEND_BUILD.exists():
-    app.mount("/static", StaticFiles(directory=str(_FRONTEND_BUILD / "static")), name="static")
+    app.mount(
+        "/static", StaticFiles(directory=str(_FRONTEND_BUILD / "static")), name="static"
+    )
 
     @app.get("/{full_path:path}", include_in_schema=False)
     async def serve_spa(full_path: str):

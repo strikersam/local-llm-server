@@ -9,7 +9,11 @@ import {
   Cpu, CheckCircle, XCircle, AlertCircle, RefreshCw,
   Loader2, Zap, ChevronDown, PlayCircle, Shield, Power, PowerOff,
 } from 'lucide-react';
-import { listRuntimes, runTaskOnRuntime, getRoutingPolicy, startRuntime, stopRuntime, startAllRuntimes, stopAllRuntimes, fmtErr } from '../api';
+import { 
+  listRuntimes, runTaskOnRuntime, getRoutingPolicy, 
+  startRuntime, stopRuntime, startAllRuntimes, 
+  stopAllRuntimes, refreshRuntimeHealth, fmtErr 
+} from '../api';
 
 function cls(...p) { return p.filter(Boolean).join(' '); }
 
@@ -36,6 +40,7 @@ function RuntimeCard({ runtime, onRun, onRefresh }) {
   const [result, setResult] = useState(null);
   const [controlLoading, setControlLoading] = useState(false);
   const [controlErr, setControlErr] = useState('');
+  const [optimisticState, setOptimisticState] = useState(null); // 'starting' | 'stopping' | null
 
   const h = runtime.health || {};
   const available = h.available;
@@ -63,15 +68,30 @@ function RuntimeCard({ runtime, onRun, onRefresh }) {
     setControlLoading(true);
     setControlErr('');
     setDockerNote('');
+    setOptimisticState('starting');
     try {
       const res = await startRuntime(runtime.runtime_id);
-      if (res?.data?.docker_unavailable) {
+      if (res?.data?.remote_managed) {
+        setDockerNote('This runtime is already reachable remotely. No local Docker start is needed here.');
+        setExpanded(true);
+        setOptimisticState(null);
+      } else if (res?.data?.docker_unavailable) {
         setDockerNote('Docker lifecycle control is only available when running locally. The runtime may still respond if its HTTP endpoint is reachable.');
+        setExpanded(true);
+        setOptimisticState(null);
+      } else if (res?.data?.mode === 'local_subprocess') {
+        setDockerNote(`Started ${runtime.display_name} locally on ${res.data.base_url}. Refreshing health...`);
+        setTimeout(() => onRefresh?.(), 1500);
+        setTimeout(() => setOptimisticState(null), 4000);
       } else {
+        setDockerNote('Success: Start signal sent to ' + runtime.display_name);
         setTimeout(() => onRefresh?.(), 2000);
+        setTimeout(() => setOptimisticState(null), 4000);
       }
     } catch (e) {
       setControlErr(fmtErr(e?.response?.data?.detail) || e.message || 'Failed to start runtime');
+      setExpanded(true);
+      setOptimisticState(null);
     } finally {
       setControlLoading(false);
     }
@@ -81,19 +101,32 @@ function RuntimeCard({ runtime, onRun, onRefresh }) {
     setControlLoading(true);
     setControlErr('');
     setDockerNote('');
+    setOptimisticState('stopping');
     try {
       const res = await stopRuntime(runtime.runtime_id);
-      if (res?.data?.docker_unavailable) {
+      if (res?.data?.remote_managed) {
+        setDockerNote('This runtime is managed remotely from its own host. Use the host controls if you need to stop it.');
+        setExpanded(true);
+        setOptimisticState(null);
+      } else if (res?.data?.docker_unavailable) {
         setDockerNote('Docker lifecycle control is only available when running locally.');
+        setExpanded(true);
+        setOptimisticState(null);
+      } else if (res?.data?.mode === 'local_subprocess') {
+        setDockerNote(`Stopped ${runtime.display_name} local process.`);
+        setTimeout(() => onRefresh?.(), 1500);
+        setTimeout(() => setOptimisticState(null), 4000);
       } else {
+        setDockerNote('Success: Stop signal sent to ' + runtime.display_name);
         setTimeout(() => onRefresh?.(), 2000);
+        setTimeout(() => setOptimisticState(null), 4000);
       }
     } catch (e) {
       setControlErr(fmtErr(e?.response?.data?.detail) || e.message || 'Failed to stop runtime');
+      setExpanded(true);
+      setOptimisticState(null);
     } finally {
       setControlLoading(false);
-    }
-  };
     }
   };
 
@@ -104,31 +137,45 @@ function RuntimeCard({ runtime, onRun, onRefresh }) {
       available ? 'border-white/8 hover:border-white/14' :
       available === false ? 'border-red-500/10 opacity-70' : 'border-white/8',
     )}>
-      <button className="w-full p-4 text-left" onClick={() => setExpanded(e => !e)}>
+      <div className="w-full p-4">
         <div className="flex items-start gap-3">
-          <div className="flex items-center justify-center w-8 h-8 rounded-lg bg-white/5 border border-white/8 text-lg flex-shrink-0">
-            {INTEGRATION_ICON[runtime.integration_mode] || '🤖'}
-          </div>
-          <div className="flex-1 min-w-0">
-            <div className="flex items-center gap-2 flex-wrap mb-1">
-              <span className="text-[13px] font-semibold text-white">{runtime.display_name}</span>
-              <span className={cls('text-[9px] px-2 py-0.5 rounded-full border font-mono', tierStyle)}>
-                {runtime.tier?.replace('_', ' ')}
-              </span>
-              <span className="text-[9px] font-mono text-[#444] border border-white/5 px-1.5 py-0.5 rounded">
-                {runtime.integration_mode?.replace('_', ' ')}
-              </span>
+          <button 
+            className="flex-1 text-left flex items-start gap-3 min-w-0" 
+            onClick={() => setExpanded(e => !e)}
+            aria-expanded={expanded}
+          >
+            <div className="flex items-center justify-center w-8 h-8 rounded-lg bg-white/5 border border-white/8 text-lg flex-shrink-0">
+              {INTEGRATION_ICON[runtime.integration_mode] || '🤖'}
             </div>
-            <p className="text-[10px] text-[#555] line-clamp-1">{runtime.description}</p>
-          </div>
+            <div className="flex-1 min-w-0">
+              <div className="flex items-center gap-2 flex-wrap mb-1">
+                <span className="text-[13px] font-semibold text-white">{runtime.display_name}</span>
+                <span className={cls('text-[9px] px-2 py-0.5 rounded-full border font-mono', tierStyle)}>
+                  {runtime.tier?.replace('_', ' ')}
+                </span>
+                <span className="text-[9px] font-mono text-[#444] border border-white/5 px-1.5 py-0.5 rounded">
+                  {runtime.integration_mode?.replace('_', ' ')}
+                </span>
+              </div>
+              <p className="text-[10px] text-[#555] line-clamp-1">{runtime.description}</p>
+            </div>
+          </button>
+
           <div className="flex items-center gap-2 flex-shrink-0">
-            <div className="text-right">
-              {circuitOpen ? (
+            <div className="text-right mr-2">
+              {optimisticState === 'starting' ? (
+                <div className="text-[10px] text-emerald-400 flex items-center gap-1"><Loader2 size={10} className="animate-spin" /> Starting...</div>
+              ) : optimisticState === 'stopping' ? (
+                <div className="text-[10px] text-amber-400 flex items-center gap-1"><Loader2 size={10} className="animate-spin" /> Stopping...</div>
+              ) : circuitOpen ? (
                 <div className="text-[10px] text-amber-400 flex items-center gap-1"><AlertCircle size={10} /> Circuit Open</div>
               ) : available ? (
                 <div className="text-[10px] text-emerald-400 flex items-center gap-1"><CheckCircle size={10} /> Online</div>
               ) : available === false ? (
-                <div className="text-[10px] text-red-400 flex items-center gap-1"><XCircle size={10} /> Offline</div>
+                <div className="text-[10px] text-red-400 flex flex-col items-end">
+                   <div className="flex items-center gap-1"><XCircle size={10} /> Offline</div>
+                   {h.error && <div className="text-[8px] text-red-500/60 max-w-[120px] truncate" title={h.error}>{h.error}</div>}
+                </div>
               ) : (
                 <div className="text-[10px] text-[#555]">Checking...</div>
               )}
@@ -136,29 +183,45 @@ function RuntimeCard({ runtime, onRun, onRefresh }) {
                 <div className="text-[9px] text-[#444]">{Math.round(h.latency_ms)}ms</div>
               )}
             </div>
-            {(!available || circuitOpen) && (
-              <button onClick={handleStart} disabled={controlLoading}
-                className="flex items-center gap-1 px-2 py-1 bg-emerald-500/20 border border-emerald-500/30 text-[10px] text-emerald-400 rounded hover:bg-emerald-500/30 transition-colors disabled:opacity-40">
-                {controlLoading ? <Loader2 size={10} className="animate-spin" /> : <Power size={10} />} Start
+            {(!(available && !circuitOpen) && optimisticState !== 'starting') && (
+              <button
+                onClick={(e) => { e.stopPropagation(); handleStart(); }}
+                disabled={controlLoading}
+                data-testid={`runtime-start-${runtime.runtime_id}`}
+                className="flex items-center gap-1 px-3 py-1.5 bg-emerald-500/20 border border-emerald-500/30 text-[10px] text-emerald-400 rounded hover:bg-emerald-500/30 transition-colors disabled:opacity-40 min-w-[70px] justify-center"
+              >
+                {controlLoading && optimisticState === 'starting' ? <Loader2 size={12} className="animate-spin" /> : <Power size={12} />}
+                <span>Start</span>
               </button>
             )}
-            {available && !circuitOpen && (
-              <button onClick={handleStop} disabled={controlLoading}
-                className="flex items-center gap-1 px-2 py-1 bg-red-500/20 border border-red-500/30 text-[10px] text-red-400 rounded hover:bg-red-500/30 transition-colors disabled:opacity-40">
-                {controlLoading ? <Loader2 size={10} className="animate-spin" /> : <PowerOff size={10} />} Stop
+            {((available && !circuitOpen) || optimisticState === 'starting') && (
+              <button
+                onClick={(e) => { e.stopPropagation(); handleStop(); }}
+                disabled={controlLoading}
+                data-testid={`runtime-stop-${runtime.runtime_id}`}
+                className="flex items-center gap-1 px-3 py-1.5 bg-red-500/20 border border-red-500/30 text-[10px] text-red-400 rounded hover:bg-red-500/30 transition-colors disabled:opacity-40 min-w-[70px] justify-center"
+              >
+                {controlLoading && optimisticState === 'stopping' ? <Loader2 size={12} className="animate-spin" /> : <PowerOff size={12} />}
+                <span>Stop</span>
               </button>
             )}
-            <ChevronDown size={13} className={cls('text-[#444] transition-transform', expanded ? 'rotate-180' : '')} />
+            <button 
+              onClick={() => setExpanded(e => !e)}
+              data-testid={`runtime-expand-${runtime.runtime_id}`}
+              className="p-1 hover:bg-white/5 rounded transition-colors text-[#444] hover:text-white"
+            >
+              <ChevronDown size={14} className={cls('transition-transform', expanded ? 'rotate-180' : '')} />
+            </button>
           </div>
         </div>
-      </button>
+      </div>
 
       {expanded && (
         <div className="px-4 pb-4 border-t border-white/5 pt-3 space-y-4">
           {/* Control error */}
-          {controlErr && <div className="text-[10px] text-red-400">{controlErr}</div>}
+          {controlErr && <div className="text-[10px] text-red-400" data-testid={`runtime-control-error-${runtime.runtime_id}`}>{controlErr}</div>}
           {dockerNote && (
-            <div className="text-[10px] text-[#4477FF] bg-[#002FA7]/8 border border-[#002FA7]/20 rounded px-3 py-2">
+            <div className="text-[10px] text-[#4477FF] bg-[#002FA7]/8 border border-[#002FA7]/20 rounded px-3 py-2" data-testid={`runtime-remote-note-${runtime.runtime_id}`}>
               ℹ️ {dockerNote}
             </div>
           )}
@@ -232,10 +295,13 @@ export default function RuntimesPage() {
   const [controlLoading, setControlLoading] = useState(false);
   const [success, setSuccess] = useState('');
 
-  const load = useCallback(async () => {
+  const load = useCallback(async (forceVerify = false) => {
     setLoading(true);
     setError('');
     try {
+      if (forceVerify) {
+        await refreshRuntimeHealth();
+      }
       const [rr, pr] = await Promise.allSettled([
         listRuntimes().then(r => setRuntimes(r.data.runtimes || [])),
         getRoutingPolicy().then(r => setPolicy(r.data.policy)),
@@ -246,31 +312,67 @@ export default function RuntimesPage() {
     }
   }, []);
 
-  const handleStartAll = async () => {
+  const handleStartAll = async (e) => {
+    e?.stopPropagation();
     setControlLoading(true);
     setError('');
-    setSuccess('');
+    setSuccess('Signal sent: Starting all runtimes...');
     try {
-      await startAllRuntimes();
-      setSuccess('Starting all runtimes...');
-      setTimeout(() => { setSuccess(''); load(); }, 3000);
+      const res = await startAllRuntimes();
+      const rts = Object.values(res?.data?.runtimes || {});
+      const anyLocal = rts.some(r => r.mode === 'local_subprocess');
+      if (rts.some(r => r.remote_managed)) {
+        setSuccess('Remote runtimes are already managed on their own host. Refresh health after starting them there.');
+        setError('');
+        load();
+      } else if (rts.some(r => r.docker_unavailable) && !anyLocal) {
+        setSuccess('This environment cannot control Docker directly. Manage remote runtimes on their host, then refresh health here.');
+        setError('');
+        load();
+      } else if (res?.data?.partial) {
+        setError('Some runtimes failed to start. Expand individual cards for details.');
+        setSuccess('');
+        load();
+      } else {
+        setSuccess(anyLocal ? 'Runtimes started locally via subprocess. Refreshing health...' : 'All eligible runtimes are starting.');
+        setTimeout(() => { setSuccess(''); load(); }, 3000);
+      }
     } catch (e) {
       setError(fmtErr(e?.response?.data?.detail) || e.message || 'Failed to start all runtimes');
+      setSuccess('');
     } finally {
       setControlLoading(false);
     }
   };
 
-  const handleStopAll = async () => {
+  const handleStopAll = async (e) => {
+    e?.stopPropagation();
     setControlLoading(true);
     setError('');
-    setSuccess('');
+    setSuccess('Signal sent: Stopping all runtimes...');
     try {
-      await stopAllRuntimes();
-      setSuccess('Stopping all runtimes...');
-      setTimeout(() => { setSuccess(''); load(); }, 3000);
+      const res = await stopAllRuntimes();
+      const rts = Object.values(res?.data?.runtimes || {});
+      const anyLocal = rts.some(r => r.mode === 'local_subprocess');
+      if (rts.some(r => r.remote_managed)) {
+        setSuccess('Remote runtimes are managed on their own host. Use the host controls if you need to stop them.');
+        setError('');
+        load();
+      } else if (rts.some(r => r.docker_unavailable) && !anyLocal) {
+        setSuccess('This environment cannot control Docker directly. Use the remote host controls, then refresh health here.');
+        setError('');
+        load();
+      } else if (res?.data?.partial) {
+        setError('Some runtimes failed to stop. Expand individual cards for details.');
+        setSuccess('');
+        load();
+      } else {
+        setSuccess(anyLocal ? 'Runtimes stopped locally. Refreshing health...' : 'All eligible runtimes are stopping.');
+        setTimeout(() => { setSuccess(''); load(); }, 3000);
+      }
     } catch (e) {
       setError(fmtErr(e?.response?.data?.detail) || e.message || 'Failed to stop all runtimes');
+      setSuccess('');
     } finally {
       setControlLoading(false);
     }
@@ -278,8 +380,8 @@ export default function RuntimesPage() {
 
   useEffect(() => { load(); }, [load]);
 
-  const online = runtimes.filter(r => r.health?.available && !r.circuit_open).length;
-  const offline = runtimes.filter(r => r.health?.available === false || r.circuit_open).length;
+  const online = runtimes.filter(r => r.health?.available === true && !r.circuit_open).length;
+  const offline = runtimes.length - online;
 
   return (
     <div className="p-5 sm:p-6 lg:p-8 max-w-5xl mx-auto">
@@ -296,32 +398,41 @@ export default function RuntimesPage() {
             {offline > 0 && <span className="text-[11px] text-red-400">{offline} offline</span>}
             {offline > 0 && (
               <button onClick={handleStartAll} disabled={controlLoading}
+                data-testid="runtimes-start-all-button"
                 className="flex items-center gap-1 px-3 py-2 bg-emerald-500/20 border border-emerald-500/30 text-[11px] text-emerald-400 rounded-md hover:bg-emerald-500/30 transition-colors disabled:opacity-40">
                 {controlLoading ? <Loader2 size={11} className="animate-spin" /> : <Power size={11} />} Start All
               </button>
             )}
             {online > 0 && (
               <button onClick={handleStopAll} disabled={controlLoading}
+                data-testid="runtimes-stop-all-button"
                 className="flex items-center gap-1 px-3 py-2 bg-red-500/20 border border-red-500/30 text-[11px] text-red-400 rounded-md hover:bg-red-500/30 transition-colors disabled:opacity-40">
                 {controlLoading ? <Loader2 size={11} className="animate-spin" /> : <PowerOff size={11} />} Stop All
               </button>
             )}
-            <button onClick={load} disabled={loading || controlLoading} className="text-[#444] hover:text-[#888] transition-colors">
+            <button onClick={() => load(true)} disabled={loading || controlLoading} 
+              data-testid="runtimes-refresh-button"
+              className="text-[#444] hover:text-[#888] transition-colors flex items-center gap-1.5 px-2 py-1 h-8"
+              title="Force health check refresh"
+            >
               <RefreshCw size={12} className={loading || controlLoading ? 'animate-spin' : ''} />
+              <span className="text-[10px] uppercase tracking-wider font-semibold opacity-60">Refresh</span>
             </button>
           </div>
         </div>
       </div>
 
       {error && (
-        <div className="mb-4 px-4 py-3 bg-red-500/8 border border-red-500/20 rounded-lg text-[12px] text-red-400">
-          {error}
+        <div className="mb-6 px-4 py-3 bg-red-500/10 border border-red-500/30 rounded-xl text-[12px] text-red-400 flex items-center gap-3 animate-in fade-in slide-in-from-top-2 duration-300" data-testid="runtimes-error-banner">
+          <AlertCircle size={14} className="flex-shrink-0" />
+          <span>{error}</span>
         </div>
       )}
 
       {success && (
-        <div className="mb-4 px-4 py-3 bg-emerald-500/8 border border-emerald-500/20 rounded-lg text-[12px] text-emerald-400">
-          {success}
+        <div className="mb-6 px-4 py-3 bg-emerald-500/10 border border-emerald-500/30 rounded-xl text-[12px] text-emerald-400 flex items-center gap-3 animate-in fade-in slide-in-from-top-2 duration-300" data-testid="runtimes-success-banner">
+          <CheckCircle size={14} className="flex-shrink-0" />
+          <span>{success}</span>
         </div>
       )}
 

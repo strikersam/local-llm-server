@@ -156,6 +156,23 @@ class AgentScheduler:
         if self._aps and self._aps.running:
             self._aps.shutdown(wait=False)
 
+    def toggle(self, job_id: str, *, enabled: bool) -> ScheduledJob:
+        """Enable or disable a job without deleting it."""
+        job = self._jobs.get(job_id)
+        if not job:
+            raise KeyError(f"Job {job_id!r} not found")
+        job.enabled = enabled
+        if self._aps:
+            try:
+                if enabled:
+                    self._aps.resume_job(job_id)
+                else:
+                    self._aps.pause_job(job_id)
+            except Exception:
+                pass
+        log.info("Job %s %s", job_id, "enabled" if enabled else "paused")
+        return job
+
     def set_on_fire(self, on_fire: Callable[[ScheduledJob], Any] | None) -> None:
         self._on_fire = on_fire
 
@@ -210,3 +227,21 @@ class AgentScheduler:
 
 def _now() -> str:
     return time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+
+
+# ── Singleton accessor ────────────────────────────────────────────────────────
+# proxy.py owns the authoritative SCHEDULER instance and calls set_scheduler()
+# during startup so other modules can retrieve it without a circular import.
+
+_scheduler_instance: "AgentScheduler | None" = None
+
+
+def set_scheduler(instance: "AgentScheduler") -> None:
+    global _scheduler_instance
+    _scheduler_instance = instance
+
+
+def get_scheduler() -> "AgentScheduler":
+    if _scheduler_instance is None:
+        raise RuntimeError("Scheduler not initialised — call set_scheduler() at startup")
+    return _scheduler_instance

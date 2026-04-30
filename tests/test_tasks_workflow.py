@@ -101,6 +101,46 @@ async def test_comment_on_review_task_requeues_execution(workflow: TaskWorkflowS
 
 
 @pytest.mark.asyncio
+async def test_create_task_auto_assigns_best_available_agent(
+    workflow: TaskWorkflowService,
+    agent_store: AgentStore,
+):
+    await agent_store.create(
+        AgentDefinition(
+            owner_id="owner@example.com",
+            agent_id="agent_general",
+            name="General Agent",
+            model="qwen3-coder:30b",
+            task_types=["general"],
+            is_public=True,
+        )
+    )
+    await agent_store.create(
+        AgentDefinition(
+            owner_id="owner@example.com",
+            agent_id="agent_codegen",
+            name="Code Agent",
+            model="qwen3-coder:30b",
+            task_types=["code_generation"],
+            is_public=True,
+        )
+    )
+
+    task = Task(
+        owner_id="owner@example.com",
+        title="Generate endpoint",
+        description="Create the missing endpoint.",
+        task_type="code_generation",
+    )
+
+    await workflow.create_task(task, actor="owner@example.com")
+
+    assert task.agent_id == "agent_codegen"
+    assert task.pending_agent_run is True
+    assert any(entry.event_type == "agent_auto_assigned" for entry in task.execution_log)
+
+
+@pytest.mark.asyncio
 async def test_rejecting_checkpoint_requeues_task(workflow: TaskWorkflowService):
     task = Task(
         owner_id="owner@example.com",

@@ -19,6 +19,7 @@ from __future__ import annotations
 import secrets
 import logging
 from typing import Any
+from collections.abc import Mapping
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
@@ -55,10 +56,16 @@ class RunTaskBody(BaseModel):
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
-def _require_admin(request: Request) -> None:
+async def _require_admin(request: Request) -> None:
     """Dependency: reject non-admin callers."""
-    user = getattr(request.state, "user", None)
-    if user is None or getattr(user, "role", "user") != "admin":
+    try:
+        from server import get_current_user
+    except ModuleNotFoundError:
+        from backend.server import get_current_user
+
+    user = await get_current_user(request)
+    role = user.get("role", "user") if isinstance(user, Mapping) else getattr(user, "role", "user")
+    if user is None or role != "admin":
         raise HTTPException(status_code=403, detail="Admin access required")
 
 
@@ -78,6 +85,14 @@ async def runtime_health_summary() -> dict:
     return {"health": mgr.health_summary()}
 
 
+@runtime_router.post("/health/refresh")
+async def refresh_runtime_health() -> dict:
+    """Force an immediate health check for all runtimes."""
+    mgr = get_runtime_manager()
+    health = await mgr._health.verify_all()
+    return {"health": health, "message": "Health refresh complete"}
+
+
 @runtime_router.get("/policy")
 async def get_policy() -> dict:
     return {"policy": get_runtime_manager().get_policy()}
@@ -87,9 +102,9 @@ async def get_policy() -> dict:
 async def update_policy(
     body: PolicyUpdateBody,
     request: Request,
+    _: Any = Depends(_require_admin),
 ) -> dict:
     """Update the routing policy.  Admin only."""
-    _require_admin(request)
     mgr = get_runtime_manager()
     updates = body.model_dump(exclude_none=True)
     mgr.update_policy(**updates)
@@ -173,19 +188,41 @@ async def stop_runtime_container(runtime_id: str) -> dict:
 
 @runtime_router.post("/start-all")
 async def start_all() -> dict:
-    """Start all runtime containers."""
+    """Start all runtime containers.
+
+    Returns partial results — individual runtime failures are included
+    in the response body rather than raising a 500, so the frontend can
+    show per-runtime status even when some runtimes (e.g. Docker-based
+    ones) are unavailable on the current host.
+    """
     result = await start_all_runtimes()
-    for rt_id, rt_result in result.get("runtimes", {}).items():
-        if rt_result.get("status") == "error" and not rt_result.get("docker_unavailable"):
-            raise HTTPException(status_code=500, detail=f"{rt_id}: {rt_result.get('error', 'Unknown error')}")
+    errors = {
+        rt_id: rt_res.get("error", "Unknown error")
+        for rt_id, rt_res in result.get("runtimes", {}).items()
+        if rt_res.get("status") == "error"
+    }
+    if errors:
+        result["errors"] = errors
+        result["partial"] = True
+        log.warning("start-all: %d runtime(s) failed: %s", len(errors), errors)
     return result
 
 
 @runtime_router.post("/stop-all")
 async def stop_all() -> dict:
-    """Stop all runtime containers."""
+    """Stop all runtime containers.
+
+    Returns partial results — individual runtime failures are included
+    in the response body rather than raising a 500.
+    """
     result = await stop_all_runtimes()
-    for rt_id, rt_result in result.get("runtimes", {}).items():
-        if rt_result.get("status") == "error" and not rt_result.get("docker_unavailable"):
-            raise HTTPException(status_code=500, detail=f"{rt_id}: {rt_result.get('error', 'Unknown error')}")
+    errors = {
+        rt_id: rt_res.get("error", "Unknown error")
+        for rt_id, rt_res in result.get("runtimes", {}).items()
+        if rt_res.get("status") == "error"
+    }
+    if errors:
+        result["errors"] = errors
+        result["partial"] = True
+        log.warning("stop-all: %d runtime(s) failed: %s", len(errors), errors)
     return result

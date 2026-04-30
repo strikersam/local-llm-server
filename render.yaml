@@ -6,32 +6,130 @@ services:
     plan: free
     healthCheckPath: /api/health
     envVars:
-      # MongoDB Atlas connection string — required
-      # Create a free M0 cluster at https://cloud.mongodb.com and paste the URI here
+      # MongoDB Atlas
       - key: MONGO_URL
         sync: false
-
       - key: DB_NAME
         value: llm_wiki_dashboard
 
-      # Auto-generated JWT secret for session tokens
+      # JWT / Auth
       - key: JWT_SECRET
         generateValue: true
-
-      # Admin login credentials for the dashboard
       - key: ADMIN_EMAIL
         value: admin@llmrelay.local
       - key: ADMIN_PASSWORD
         sync: false
 
-      # LLM provider: "ollama" or "openai-compatible"
-      - key: LLM_PROVIDER
-        value: ollama
+      # ================================================================
+      # NVIDIA NIM - Free models, first priority (no local infra needed)
+      # Set NVIDIA_API_KEY in the Render dashboard to your nvapi-... key
+      # ================================================================
+      - key: NVIDIA_API_KEY
+        sync: false
+      - key: NVIDIA_BASE_URL
+        value: "https://integrate.api.nvidia.com/v1"
+      - key: NVIDIA_DEFAULT_MODEL
+        value: "meta/llama-3.3-70b-instruct"
 
-      # URL of your Ollama instance (leave blank if not using local LLMs)
+      # Agent model defaults (Nvidia NIM free models)
+      - key: AGENT_PLANNER_MODEL
+        value: "nvidia/llama-3.1-nemotron-ultra-253b-v1"
+      - key: AGENT_EXECUTOR_MODEL
+        value: "qwen/qwen2.5-coder-32b-instruct"
+      - key: AGENT_VERIFIER_MODEL
+        value: "deepseek-ai/deepseek-r1"
+
+      # LLM Provider
+      - key: LLM_PROVIDER
+        value: nvidia_nim
+      # Ollama - secondary fallback (leave blank when not running local Ollama)
       - key: OLLAMA_BASE_URL
         sync: false
+      - key: OLLAMA_BASE
+        sync: false
 
-      # Allow requests from the GitHub Pages frontend
+      # Provider fallback chain (after Nvidia NIM)
+      - key: HF_TOKEN
+        sync: false
+      - key: HF_BASE_URL
+        value: "https://router.huggingface.co"
+      - key: HF_MODEL_ID
+        value: "Qwen/Qwen2.5-Coder-7B-Instruct"
+      - key: DEEPSEEK_API_KEY
+        sync: false
+      - key: DEEPSEEK_BASE_URL
+        value: "https://api.deepseek.com"
+      - key: ANTHROPIC_API_KEY
+        sync: false
+      - key: ANTHROPIC_BASE_URL
+        value: "https://api.anthropic.com"
+      - key: ANTHROPIC_MODEL
+        value: "claude-3-5-sonnet-latest"
+      - key: OLLAMA_WINDOWS_SERVER
+        sync: false
+      - key: PROVIDER_COOLDOWN_SECONDS
+        value: "60"
+
+      # Frontend
       - key: FRONTEND_URL
         value: https://strikersam.github.io
+
+      # ================================================================
+      # AGENT RUNTIME CONFIGURATIONS
+      # internal_agent is always available (uses Nvidia NIM).
+      # Set *_BASE_URL keys to enable optional sidecar runtimes.
+      # ================================================================
+
+      # Runtime base URLs (optional sidecar runtimes)
+      - key: HERMES_BASE_URL
+        sync: false
+      - key: OPENCODE_BASE_URL
+        sync: false
+      - key: GOOSE_BASE_URL
+        sync: false
+      - key: AIDER_BASE_URL
+        sync: false
+      - key: OPENHANDS_BASE_URL
+        sync: false
+
+      # Runtime routing policy
+      - key: RUNTIME_NEVER_PAID
+        value: "false"
+      - key: RUNTIME_REQUIRE_APPROVAL
+        value: "false"
+      - key: RUNTIME_MAX_PAID_ESCALATIONS
+        value: "0"
+      # Always use internal_agent (routes through Nvidia NIM, always available)
+      - key: RUNTIME_DEFAULT
+        value: "internal_agent"
+      # Task-type overrides: uncomment and set URL when sidecar runtimes are running
+      # - key: RUNTIME_CODE_GENERATION
+      #   value: "opencode"
+      # - key: RUNTIME_CODE_REVIEW
+      #   value: "opencode"
+      # - key: RUNTIME_REPO_EDITING
+      #   value: "opencode"
+      # - key: RUNTIME_GIT_OPS
+      #   value: "aider"
+      - key: RUNTIME_HEALTH_POLL_SEC
+        value: "30"
+
+      # OpenHands (experimental - requires Docker; disabled by default)
+      - key: OPENHANDS_ENABLED
+        value: "false"
+
+      # Adapter-specific settings (used when sidecar runtimes are enabled)
+      - key: HERMES_API_KEY
+        sync: false
+      - key: HERMES_TIMEOUT_SEC
+        value: "300"
+      - key: OPENCODE_MODEL
+        value: "qwen/qwen2.5-coder-32b-instruct"
+      - key: GOOSE_MODEL
+        value: "meta/llama-3.3-70b-instruct"
+      - key: GOOSE_PROFILE
+        value: "default"
+      - key: AIDER_MODEL
+        value: "nvidia/llama-3.1-nemotron-ultra-253b-v1"
+      - key: AIDER_NO_AUTO_COMMIT
+        value: "false"
