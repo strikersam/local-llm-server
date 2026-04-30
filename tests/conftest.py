@@ -30,6 +30,7 @@ def pytest_configure() -> None:
     os.environ.setdefault("ADMIN_SECRET", "ci-admin-secret-123")
     # V3 API JWT secret for tests
     os.environ.setdefault("V3_JWT_SECRET", "ci-jwt-secret-key-12345678901234567890")
+    os.environ.setdefault("JWT_SECRET", "ci-jwt-secret-key-12345678901234567890")
     os.environ.setdefault("V3_ADMIN_EMAIL", "admin@llmrelay.local")
     os.environ.setdefault("V3_ADMIN_NAME", "Administrator")
 

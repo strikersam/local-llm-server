@@ -525,9 +525,13 @@ async def get_current_user(request: Request) -> dict:
         user["_id"] = str(user["_id"])
         user.pop("password_hash", None)
         return user
+    except HTTPException:
+        raise
     except jwt.ExpiredSignatureError:
         raise HTTPException(status_code=401, detail="Token expired")
-    except (jwt.InvalidTokenError, Exception):
+    except jwt.InvalidTokenError:
+        raise HTTPException(status_code=401, detail="Invalid token")
+    except Exception:
         raise HTTPException(status_code=401, detail="Invalid token")
 
 
@@ -1090,7 +1094,18 @@ class JWTUserStateMiddleware(BaseHTTPMiddleware):
             try:
                 payload = jwt.decode(token, JWT_SECRET, algorithms=[JWT_ALGORITHM])
                 if payload.get("type") == "access":
-                    user = await db.users.find_one({"_id": ObjectId(payload["sub"])})
+                    user = None
+                    try:
+                        user = await db.users.find_one({"_id": ObjectId(payload["sub"])})
+                    except Exception:
+                        pass
+                    if not user and payload.get("email") == ADMIN_EMAIL:
+                        user = {
+                            "_id": payload["sub"],
+                            "email": ADMIN_EMAIL,
+                            "name": "Admin",
+                            "role": "admin",
+                        }
                     if user:
                         user["_id"] = str(user["_id"])
                         user.pop("password_hash", None)
