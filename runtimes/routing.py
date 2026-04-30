@@ -194,20 +194,24 @@ class RuntimeRoutingPolicyEngine:
         decision: RoutingDecision,
     ) -> TaskResult:
         """Try primary runtime; fall back to alternatives on failure."""
+        last_exec_error: str = ""
         try:
             result = await primary_runtime.execute(spec)
             decision.model_used = result.model_used
             decision.provider_used = result.provider_used
             return result
         except (RuntimeUnavailableError, RuntimeExecutionError) as exc:
+            last_exec_error = str(exc)
             log.warning("Primary runtime %s failed: %s — attempting fallback",
                         primary_runtime.RUNTIME_ID, exc)
 
         # Step 6: Try fallback runtimes
+        # Note: allow fallback to the same runtime when the failure was a transient
+        # execution error (e.g. LLM validation), not a health/availability failure.
         fallback_ids = self._policy.fallback_runtime_ids or []
         for fid in fallback_ids:
             fb_runtime = self._registry.get(fid)
-            if fb_runtime and self._health.is_available(fid) and fid != primary_runtime.RUNTIME_ID:
+            if fb_runtime and self._health.is_available(fid):
                 try:
                     result = await fb_runtime.execute(spec)
                     decision.fallback_attempted = True
@@ -217,6 +221,7 @@ class RuntimeRoutingPolicyEngine:
                     decision.provider_used = result.provider_used
                     return result
                 except Exception as fb_exc:
+                    last_exec_error = str(fb_exc)
                     log.warning("Fallback runtime %s also failed: %s", fid, fb_exc)
 
         # Step 7: Paid escalation — routed through ProviderManager
@@ -248,7 +253,8 @@ class RuntimeRoutingPolicyEngine:
 
         raise RuntimeUnavailableError(
             "*",
-            "All runtimes failed and policy prevents paid escalation.",
+            f"All runtimes failed and policy prevents paid escalation."
+            + (f" Last error: {last_exec_error}" if last_exec_error else ""),
         )
 
     async def _escalate_via_provider_manager(

@@ -60,7 +60,7 @@ class AgentStep(BaseModel):
 
 class AgentPlan(BaseModel):
     goal: str = Field(..., min_length=1)
-    steps: list[AgentStep] = Field(default_factory=list, max_length=5)
+    steps: list[AgentStep] = Field(default_factory=list)  # truncated by max_steps in loop.py
 
 
 class ToolCall(BaseModel):
@@ -96,7 +96,7 @@ class AgentRunRequest(BaseModel):
     provider_id: str | None = Field(default=None, max_length=64)
     workspace_id: str | None = Field(default=None, max_length=64)
     auto_commit: bool = False
-    max_steps: int = Field(default=5, ge=1, le=5)
+    max_steps: int = Field(default=10, ge=1, le=20)
 
 
 class AgentSessionCreateRequest(BaseModel):
