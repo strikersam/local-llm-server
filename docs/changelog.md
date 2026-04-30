@@ -2,6 +2,9 @@
 
 ## [Unreleased]
 
+### Changed
+- `.github/workflows/process-quick-note.yml` — replaced Anthropic/Groq API routing with free NVIDIA NIM auto-selection; model is now chosen by task complexity mirroring `router/classifier.py` tiers: reasoning/planning → Nemotron Ultra 253B, data analysis/math → DeepSeek R1, code generation → Qwen2.5 Coder 32B, fast/simple → Llama 3.1 8B. Requires `NVIDIA_API_KEY` secret; no paid API keys needed.
+
 ### Fixed
 - `agent/loop.py` — `_normalize_plan_response()` added: normalises LLM planner output before Pydantic validation; renames `slices` → `steps` (CRISPY-style responses), derives `goal` from the instruction when absent, and infers `type` from file presence (`edit` when files listed, `analyze` otherwise). Fixes the `ValidationError: AgentPlan goal Field required` crash that caused all tasks to fail with "Runtime '*' unavailable".
 - `proxy.py` — `REGISTER_RUNTIMES` env var now defaults to `"true"` so system runtime agents (Hermes, OpenCode, Goose, Aider, internal_agent) are always registered in `AgentStore` on startup without requiring an explicit env override.
