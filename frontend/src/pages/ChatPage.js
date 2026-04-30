@@ -242,6 +242,7 @@ export default function ChatPage() {
 
   // Auto / Manual mode
   const [mode,       setMode]       = useState(localStorage.getItem(LS_MODE) || 'auto');
+  const [agentMode,  setAgentMode]  = useState(localStorage.getItem('llmrelay_agent_mode') === 'true');
   const [showPicker, setShowPicker] = useState(false);
   const [approvalPrompt, setApprovalPrompt] = useState(null);
 
@@ -254,6 +255,7 @@ export default function ChatPage() {
   useEffect(() => { localStorage.setItem(LS_MODEL, model); }, [model]);
   useEffect(() => { localStorage.setItem(LS_TEMPERATURE, String(temperature)); }, [temperature]);
   useEffect(() => { localStorage.setItem(LS_MODE, mode); }, [mode]);
+  useEffect(() => { localStorage.setItem('llmrelay_agent_mode', String(agentMode)); }, [agentMode]);
 
   useEffect(() => { loadSessions(); loadProviders(); }, []); // eslint-disable-line
   useEffect(() => { if (paramSid) loadSession(paramSid); }, [paramSid]); // eslint-disable-line
@@ -305,7 +307,8 @@ export default function ChatPage() {
     }
 
     // Auto mode: pass null model+provider → backend router classifies & picks best model.
-    // Agent mode is always ON — full Plan→Execute→Verify loop for every message.
+    // Agent mode is controlled by the toggle; when off the backend uses _classify_complexity
+    // to decide whether to invoke the agent pipeline (complex tasks) or direct LLM (chat).
     const sendModel      = mode === 'auto' ? null : (model || null);
     const sendProviderId = mode === 'auto' ? null : (providerId || null);
 
@@ -316,7 +319,7 @@ export default function ChatPage() {
         sendModel,
         sendProviderId,
         temperature,
-        true,
+        agentMode,
         allowCommercialFallbackOnce,
       );
       setSessionId(data.session_id);
@@ -508,14 +511,21 @@ export default function ChatPage() {
             </span>
           )}
 
-          {/* Agent always-on badge */}
+          {/* Agent mode toggle */}
           <div className="ml-auto flex items-center gap-2 shrink-0">
-            <div className="flex items-center gap-1.5 px-2.5 py-1 border border-[#002FA7]/40 bg-[#002FA7]/10 text-[10px] font-mono text-white">
-              <Zap size={10} className="text-white" />
-              Agent ON
-            </div>
-            <div className="w-1.5 h-1.5 bg-green-500 rounded-full" />
-            <span className="text-[10px] text-[#737373] font-mono hidden md:inline">ACTIVE</span>
+            <button
+              onClick={() => setAgentMode(m => !m)}
+              title={agentMode ? 'Agent mode ON — complex tasks use Plan→Execute→Verify. Click to disable.' : 'Agent mode OFF — direct LLM chat. Click to enable for code/GitHub tasks.'}
+              className={`flex items-center gap-1.5 px-2.5 py-1 border text-[10px] font-mono transition-colors ${
+                agentMode
+                  ? 'border-[#002FA7]/60 bg-[#002FA7]/20 text-white'
+                  : 'border-white/15 bg-white/5 text-[#737373] hover:border-white/25 hover:text-[#A0A0A0]'
+              }`}
+            >
+              <Zap size={10} className={agentMode ? 'text-white' : 'text-[#737373]'} />
+              Agent {agentMode ? 'ON' : 'OFF'}
+            </button>
+            <div className={`w-1.5 h-1.5 rounded-full ${agentMode ? 'bg-green-500' : 'bg-[#737373]'}`} />
           </div>
         </div>
 
@@ -525,17 +535,22 @@ export default function ChatPage() {
             <div className="h-full flex flex-col items-center justify-center text-center animate-fade-in px-4">
               <Bot size={40} className="text-[#002FA7] mb-4" />
               <h3 className="text-lg font-bold tracking-tight mb-2" style={{ fontFamily: 'Outfit, sans-serif' }}>
-                Wiki Agent Ready
+                {agentMode ? 'Agent Mode Ready' : 'Direct Chat Ready'}
               </h3>
               <p className="text-xs text-[#737373] max-w-sm leading-relaxed mb-1">
-                {mode === 'auto'
-                  ? 'Auto mode — the router picks the best model for each message. Agent capabilities always on.'
-                  : model
-                    ? `Using ${short(model, 24)} · ${short(providerName, 20)}`
-                    : 'Manual mode — tap "Select model" in the header to choose a provider and model.'}
+                {agentMode
+                  ? 'Agent mode — uses Plan→Execute→Verify for code edits, GitHub ops, and complex tasks.'
+                  : mode === 'auto'
+                    ? 'Direct chat — the router picks the best available model. Toggle Agent ON for code editing or GitHub tasks.'
+                    : model
+                      ? `Using ${short(model, 24)} · ${short(providerName, 20)}`
+                      : 'Manual mode — tap "Select model" in the header to choose a provider and model.'}
               </p>
               <div className="mt-5 grid grid-cols-2 gap-2 w-full max-w-sm">
-                {["What's in my wiki?", 'Create a new page about…', 'Analyze this source…', 'Run wiki lint'].map((p, i) => (
+                {(agentMode
+                  ? ['Edit a file in my repo', 'Commit changes to GitHub', 'Open a pull request', 'Analyze this codebase']
+                  : ['Explain this code', 'Help me debug…', 'Write a function that…', 'What is the difference between…']
+                ).map((p, i) => (
                   <button
                     key={i}
                     onClick={() => { setInput(p); inputRef.current?.focus(); }}
@@ -587,7 +602,7 @@ export default function ChatPage() {
           <div className="flex items-center gap-2 mb-2 md:hidden">
             {mode === 'auto' ? (
               <span className="text-[9px] font-mono text-[#737373] flex items-center gap-1">
-                <Zap size={9} className="text-[#002FA7]" /> Auto routing active
+                <Zap size={9} className="text-[#002FA7]" /> {agentMode ? 'Agent mode active' : 'Auto routing active'}
               </span>
             ) : (
               <button
@@ -607,11 +622,13 @@ export default function ChatPage() {
               onChange={(e) => setInput(e.target.value)}
               onKeyDown={handleKeyDown}
               placeholder={
-                mode === 'auto'
-                  ? 'Message the agent — router picks the best model…'
-                  : model
-                    ? `Message the agent using ${short(model, 20)}…`
-                    : 'Select a model first, then message the agent…'
+                agentMode
+                  ? 'Describe a task — agent will plan, execute, and verify…'
+                  : mode === 'auto'
+                    ? 'Message the AI — router picks the best model…'
+                    : model
+                      ? `Chat with ${short(model, 20)}…`
+                      : 'Select a model first…'
               }
               rows={1}
               style={{ fontSize: '16px' }} /* prevent iOS zoom */
