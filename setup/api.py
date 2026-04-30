@@ -64,7 +64,8 @@ class WizardState(BaseModel):
 
 class Step1Request(BaseModel):
     """Provider setup: which providers to use and their API keys."""
-    use_ollama:       bool = True
+    use_nvidia_nim:   bool = True   # default ON — free cloud, no local infra needed
+    use_ollama:       bool = False  # default OFF — only needed for local inference
     ollama_base_url:  str  = "http://localhost:11434"
     repo_path:        str | None = None   # local-llm-server repo folder
     models_path:      str | None = None   # Ollama models folder
@@ -85,9 +86,9 @@ class Step1Request(BaseModel):
 
 class Step2Request(BaseModel):
     """Local model detection results and default model selection."""
-    default_model:      str  = "qwen3-coder:30b"
-    coder_model:        str  = "qwen3-coder:30b"
-    reviewer_model:     str  = "deepseek-r1:32b"
+    default_model:      str  = "qwen/qwen2.5-coder-32b-instruct"
+    coder_model:        str  = "qwen/qwen2.5-coder-32b-instruct"
+    reviewer_model:     str  = "deepseek-ai/deepseek-r1"
     embedding_model:    str  = "nomic-embed-text"
     accepted_degraded:  bool = False   # user acknowledges degraded compatibility
     repo_path:          str | None = None  # path to local-llm-server repo
@@ -107,9 +108,9 @@ class Step3Request(BaseModel):
 class Step4Request(BaseModel):
     """Default agent configuration."""
     agent_name:        str  = "My Agent"
-    agent_model:       str  = "qwen3-coder:30b"
+    agent_model:       str  = "qwen/qwen2.5-coder-32b-instruct"
     runtime_id:        str | None = None
-    cost_policy:       str  = "local_only"
+    cost_policy:       str  = "free_only"
     system_prompt:     str  = ""
 
 
@@ -207,6 +208,33 @@ async def get_setup_state(request: Request):
     uid   = _uid(request)
     state = get_wizard_state(uid)
     return state.as_dict()
+
+
+@setup_router.get("/detect/providers")
+async def detect_configured_providers():
+    """Return which providers are already configured server-side via env vars.
+
+    Called by the setup wizard on load so it can show 'already configured'
+    indicators (e.g. Nvidia NIM key already set on Render) without exposing
+    the actual key values to the browser.
+    """
+    nvidia_key = (
+        os.environ.get("NVIDIA_API_KEY") or os.environ.get("NVidiaApiKey") or ""
+    ).strip()
+    openai_key = (
+        os.environ.get("OPENAI_API_KEY") or os.environ.get("OPENAI_COMPAT_API_KEY") or ""
+    ).strip()
+    anthropic_key = (os.environ.get("ANTHROPIC_API_KEY") or "").strip()
+
+    return {
+        "nvidia_nim": {
+            "configured": bool(nvidia_key),
+            "base_url": os.environ.get("NVIDIA_BASE_URL") or "https://integrate.api.nvidia.com/v1",
+            "default_model": os.environ.get("NVIDIA_DEFAULT_MODEL") or "meta/llama-3.3-70b-instruct",
+        },
+        "openai": {"configured": bool(openai_key)},
+        "anthropic": {"configured": bool(anthropic_key)},
+    }
 
 
 @setup_router.get("/detect/hardware")

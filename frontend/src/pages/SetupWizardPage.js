@@ -49,11 +49,25 @@ function loadDraft() {
 
 const STEPS = [
   { num: 1, title: 'Provider Setup',     icon: '🔌' },
-  { num: 2, title: 'Local Models',       icon: '🖥️' },
+  { num: 2, title: 'Model Selection',    icon: '🧠' },
   { num: 3, title: 'Runtime Config',     icon: '⚙️' },
   { num: 4, title: 'Default Agent',      icon: '🤖' },
   { num: 5, title: 'Policy & Privacy',   icon: '🛡️' },
 ];
+
+// Nvidia NIM free models
+const NVIDIA_MODELS = {
+  executor: 'qwen/qwen2.5-coder-32b-instruct',
+  planner:  'nvidia/llama-3.1-nemotron-ultra-253b-v1',
+  verifier: 'deepseek-ai/deepseek-r1',
+  default:  'meta/llama-3.3-70b-instruct',
+};
+const LOCAL_MODELS = {
+  executor: 'qwen3-coder:30b',
+  planner:  'deepseek-r1:32b',
+  verifier: 'deepseek-r1:32b',
+  default:  'qwen3-coder:30b',
+};
 
 const pill = (label, color = 'green') =>
   `inline-block px-2 py-0.5 rounded text-xs font-semibold bg-${color}-100 text-${color}-800`;
@@ -77,7 +91,9 @@ export default function SetupWizardPage({ onComplete }) {
   const [connectError, setConnectError] = useState('');
 
   // Step 1 — Providers
-  const [useOllama, setUseOllama] = useState(true);
+  const [useNvidiaNim, setUseNvidiaNim] = useState(true); // default ON — free, no infra needed
+  const [nvidiaKeyConfigured, setNvidiaKeyConfigured] = useState(false); // key already set server-side
+  const [useOllama, setUseOllama] = useState(false);
   const [ollamaUrl, setOllamaUrl] = useState('http://localhost:11434');
   const [useOpenAI, setUseOpenAI] = useState(false);
   const [openaiKey, setOpenaiKey] = useState('');
@@ -95,9 +111,9 @@ export default function SetupWizardPage({ onComplete }) {
   const [copilotKey, setCopilotKey] = useState('');
   const [copilotSecretId, setCopilotSecretId] = useState(null);
 
-  // Step 2 — Models
-  const [defaultModel, setDefaultModel] = useState('qwen3-coder:30b');
-  const [reviewerModel, setReviewerModel] = useState('deepseek-r1:32b');
+  // Step 2 — Models (defaults set to Nvidia NIM; adjusted when state loads)
+  const [defaultModel, setDefaultModel] = useState(NVIDIA_MODELS.executor);
+  const [reviewerModel, setReviewerModel] = useState(NVIDIA_MODELS.verifier);
   const [repoPath, setRepoPath] = useState('');
   const [modelsPath, setModelsPath] = useState('');
   const [daemonConnected, setDaemonConnected] = useState(false);
@@ -112,8 +128,8 @@ export default function SetupWizardPage({ onComplete }) {
 
   // Step 4 — Agent
   const [agentName, setAgentName] = useState('My Agent');
-  const [agentModel, setAgentModel] = useState('qwen3-coder:30b');
-  const [costPolicy, setCostPolicy] = useState('local_only');
+  const [agentModel, setAgentModel] = useState(NVIDIA_MODELS.executor);
+  const [costPolicy, setCostPolicy] = useState('free_only');
 
   // Step 5 — Policy
   const [neverPaid, setNeverPaid] = useState(true);
@@ -131,7 +147,10 @@ export default function SetupWizardPage({ onComplete }) {
     const pol = state.step5_policy    || {};
 
     if (Object.keys(p).length) {
-      setUseOllama(p.use_ollama ?? true);
+      const nvidia = p.use_nvidia_nim ?? true;
+      setUseNvidiaNim(nvidia);
+      setNvidiaKeyConfigured(p.nvidia_key_configured ?? false);
+      setUseOllama(p.use_ollama ?? false);
       setOllamaUrl(p.ollama_base_url || 'http://localhost:11434');
       setRepoPath(p.repo_path || '');
       setModelsPath(p.models_path || '');
@@ -147,8 +166,10 @@ export default function SetupWizardPage({ onComplete }) {
       setCopilotSecretId(p.copilot_secret_id || null);
     }
     if (Object.keys(m).length) {
-      setDefaultModel(m.default_model || 'qwen3-coder:30b');
-      setReviewerModel(m.reviewer_model || 'deepseek-r1:32b');
+      const nvidia = p.use_nvidia_nim ?? true;
+      const models = nvidia ? NVIDIA_MODELS : LOCAL_MODELS;
+      setDefaultModel(m.default_model || models.executor);
+      setReviewerModel(m.reviewer_model || models.verifier);
     }
     if (Object.keys(rt).length) {
       setEnableHermes(rt.enable_hermes ?? true);
@@ -157,8 +178,8 @@ export default function SetupWizardPage({ onComplete }) {
     }
     if (Object.keys(a).length) {
       setAgentName(a.agent_name || 'My Agent');
-      setAgentModel(a.agent_model || 'qwen3-coder:30b');
-      setCostPolicy(a.cost_policy || 'local_only');
+      setAgentModel(a.agent_model || NVIDIA_MODELS.executor);
+      setCostPolicy(a.cost_policy || 'free_only');
     }
     if (Object.keys(pol).length) {
       setNeverPaid(pol.never_use_paid_providers ?? true);
@@ -176,6 +197,7 @@ export default function SetupWizardPage({ onComplete }) {
     const a   = draft.step4 || {};
     const pol = draft.step5 || {};
 
+    if (p.useNvidiaNim !== undefined)   setUseNvidiaNim(p.useNvidiaNim);
     if (p.useOllama !== undefined)     setUseOllama(p.useOllama);
     if (p.ollamaUrl)                   setOllamaUrl(p.ollamaUrl);
     if (p.repoPath !== undefined)      setRepoPath(p.repoPath || '');
@@ -267,14 +289,23 @@ export default function SetupWizardPage({ onComplete }) {
   // ─── Initial load ───────────────────────────────────────────────────────────
 
   useEffect(() => {
-    // If no backend URL is configured, default to the current page's origin.
-    // This covers the post-login dashboard case where the user hasn't explicitly
-    // set the backend URL but the wizard and API are served from the same host.
     const url = getBackendUrl() || window.location.origin;
-    testBackendConnection(url).then(connected => {
-      if (connected) loadSavedState();
-      else {
-        // Fall back to localStorage draft
+    testBackendConnection(url).then(async connected => {
+      if (connected) {
+        // Auto-detect server-configured providers (Nvidia key set on Render, etc.)
+        try {
+          const base = (getBackendUrl() || '').replace(/\/$/, '');
+          const r = await fetch(`${base}/api/setup/detect/providers`);
+          if (r.ok) {
+            const data = await r.json();
+            if (data.nvidia_nim?.configured) {
+              setNvidiaKeyConfigured(true);
+              setUseNvidiaNim(true);
+            }
+          }
+        } catch {}
+        loadSavedState();
+      } else {
         const draft = loadDraft();
         if (draft) {
           applyDraftState(draft);
@@ -433,13 +464,13 @@ export default function SetupWizardPage({ onComplete }) {
   const persistDraft = useCallback((currentStep) => {
     saveDraft({
       currentStep,
-      step1: { useOllama, ollamaUrl, repoPath, modelsPath, useOpenAI, openaiSecretId, useAnthropic, anthropicSecretId, useGoogle, googleSecretId, useAzure, azureSecretId, useCopilot, copilotSecretId },
+      step1: { useNvidiaNim, useOllama, ollamaUrl, repoPath, modelsPath, useOpenAI, openaiSecretId, useAnthropic, anthropicSecretId, useGoogle, googleSecretId, useAzure, azureSecretId, useCopilot, copilotSecretId },
       step2: { defaultModel, reviewerModel },
       step3: { enableHermes, enableOpenCode, enableAider },
       step4: { agentName, agentModel, costPolicy },
       step5: { neverPaid, requireApproval, enableLangfuse, langfuseHost },
     });
-  }, [useOllama, ollamaUrl, repoPath, modelsPath, useOpenAI, openaiSecretId, useAnthropic, anthropicSecretId, useGoogle, googleSecretId, useAzure, azureSecretId, useCopilot, copilotSecretId, defaultModel, reviewerModel, enableHermes, enableOpenCode, enableAider, agentName, agentModel, costPolicy, neverPaid, requireApproval, enableLangfuse, langfuseHost]);
+  }, [useNvidiaNim, useOllama, ollamaUrl, repoPath, modelsPath, useOpenAI, openaiSecretId, useAnthropic, anthropicSecretId, useGoogle, googleSecretId, useAzure, azureSecretId, useCopilot, copilotSecretId, defaultModel, reviewerModel, enableHermes, enableOpenCode, enableAider, agentName, agentModel, costPolicy, neverPaid, requireApproval, enableLangfuse, langfuseHost]);
 
   // ─── Save step ──────────────────────────────────────────────────────────────
 
@@ -474,7 +505,7 @@ export default function SetupWizardPage({ onComplete }) {
       }
 
       const payloads = {
-        1: { use_ollama: useOllama, ollama_base_url: ollamaUrl, repo_path: repoPath, models_path: modelsPath, use_openai: useOpenAI, use_anthropic: useAnthropic, use_google: useGoogle, use_azure: useAzure, openai_secret_id: newOpenaiSecretId, anthropic_secret_id: newAnthropicSecretId, google_secret_id: newGoogleSecretId, azure_secret_id: newAzureSecretId, copilot_secret_id: newCopilotSecretId },
+        1: { use_nvidia_nim: useNvidiaNim, use_ollama: useOllama, ollama_base_url: ollamaUrl, repo_path: repoPath, models_path: modelsPath, use_openai: useOpenAI, use_anthropic: useAnthropic, use_google: useGoogle, use_azure: useAzure, openai_secret_id: newOpenaiSecretId, anthropic_secret_id: newAnthropicSecretId, google_secret_id: newGoogleSecretId, azure_secret_id: newAzureSecretId, copilot_secret_id: newCopilotSecretId },
         2: { default_model: defaultModel, coder_model: defaultModel, reviewer_model: reviewerModel },
         3: { enable_hermes: enableHermes, enable_opencode: enableOpenCode, enable_aider: enableAider },
         4: { agent_name: agentName, agent_model: agentModel, cost_policy: costPolicy },
@@ -654,17 +685,41 @@ export default function SetupWizardPage({ onComplete }) {
             {step === 1 && (
               <div>
                 <h2 className="text-xl font-bold text-gray-800 mb-1">Provider Setup</h2>
-                <p className="text-gray-500 text-sm mb-6">Choose which AI providers you want to use. Local-first is the default.</p>
+                <p className="text-gray-500 text-sm mb-6">Choose which AI providers you want to use. Nvidia NIM is the default — free cloud inference, no local GPU needed.</p>
                 <div className="space-y-4">
+
+                  {/* Nvidia NIM — first priority */}
+                  <label className={`flex items-center gap-3 p-4 border-2 rounded-xl cursor-pointer transition-colors ${useNvidiaNim ? 'border-green-400 bg-green-50' : 'border-gray-200 hover:border-green-300'}`}>
+                    <input type="checkbox" checked={useNvidiaNim} onChange={e => {
+                      setUseNvidiaNim(e.target.checked);
+                      if (e.target.checked) {
+                        setDefaultModel(NVIDIA_MODELS.executor);
+                        setReviewerModel(NVIDIA_MODELS.verifier);
+                        setAgentModel(NVIDIA_MODELS.executor);
+                        setCostPolicy('free_only');
+                      }
+                    }} className="w-4 h-4" />
+                    <div className="flex-1">
+                      <div className="font-medium flex items-center gap-2">
+                        🟢 Nvidia NIM
+                        <span className="inline-block px-2 py-0.5 rounded text-xs font-semibold bg-green-100 text-green-800">Free</span>
+                        <span className="inline-block px-2 py-0.5 rounded text-xs font-semibold bg-indigo-100 text-indigo-800">Recommended</span>
+                      </div>
+                      <div className="text-sm text-gray-500">Free cloud inference via Nvidia NIM — no local GPU or Ollama required</div>
+                      {nvidiaKeyConfigured
+                        ? <div className="text-xs text-green-600 mt-1">✓ API key already configured on server — ready to use</div>
+                        : <div className="text-xs text-amber-600 mt-1">Set NVIDIA_API_KEY on your Render/server environment to activate</div>
+                      }
+                    </div>
+                  </label>
 
                   {/* Ollama */}
                   <label className="flex items-center gap-3 p-4 border rounded-xl cursor-pointer hover:border-indigo-400 transition-colors">
                     <input type="checkbox" checked={useOllama} onChange={e => setUseOllama(e.target.checked)} className="w-4 h-4" />
-                    <div>
+                    <div className="flex-1">
                       <div className="font-medium">🦙 Ollama (Local)</div>
-                      <div className="text-sm text-gray-500">Run models locally on this machine</div>
+                      <div className="text-sm text-gray-500">Run models locally on this machine (optional fallback)</div>
                     </div>
-                    <span className={pill('Recommended')}>Recommended</span>
                   </label>
                   {useOllama && (
                     <div className="ml-8 space-y-3">
@@ -816,11 +871,26 @@ export default function SetupWizardPage({ onComplete }) {
               </div>
             )}
 
-            {/* ── Step 2: Local Models ───────────────────────────────────── */}
+            {/* ── Step 2: Model Selection ────────────────────────────────── */}
             {step === 2 && (
               <div>
-                <h2 className="text-xl font-bold text-gray-800 mb-1">Local Models</h2>
-                <p className="text-gray-500 text-sm mb-4">Configure local setup and choose the best models for your machine.</p>
+                <h2 className="text-xl font-bold text-gray-800 mb-1">Model Selection</h2>
+                <p className="text-gray-500 text-sm mb-4">
+                  {useNvidiaNim
+                    ? 'Using Nvidia NIM free cloud models. Change or override below if needed.'
+                    : 'Configure local setup and choose the best models for your machine.'}
+                </p>
+                {useNvidiaNim && (
+                  <div className="bg-green-50 border border-green-200 rounded-xl p-4 mb-5">
+                    <div className="font-semibold text-green-800 mb-2">🟢 Nvidia NIM Free Models</div>
+                    <div className="grid grid-cols-1 gap-1 text-sm text-green-700">
+                      <div><span className="font-medium">Coder:</span> {NVIDIA_MODELS.executor}</div>
+                      <div><span className="font-medium">Planner:</span> {NVIDIA_MODELS.planner}</div>
+                      <div><span className="font-medium">Verifier:</span> {NVIDIA_MODELS.verifier}</div>
+                    </div>
+                    <p className="text-xs text-green-600 mt-2">All inference routed through integrate.api.nvidia.com — no local GPU needed.</p>
+                  </div>
+                )}
 
                 {/* Local daemon control (local-only) */}
                 {useOllama && (
@@ -961,6 +1031,7 @@ export default function SetupWizardPage({ onComplete }) {
                     <label className="text-sm font-medium text-gray-700">Cost Policy</label>
                     <select className="w-full mt-1 border border-gray-300 rounded-lg px-3 py-2 text-base text-gray-900 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200 focus:outline-none"
                       value={costPolicy} onChange={e => setCostPolicy(e.target.value)}>
+                      <option value="free_only">Free only (Nvidia NIM + local — no paid cloud)</option>
                       <option value="local_only">Local only (no cloud costs)</option>
                       <option value="allow_paid">Allow paid escalation</option>
                     </select>
