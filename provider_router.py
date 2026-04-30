@@ -329,7 +329,7 @@ class ProviderRouter:
                     default_model=os.environ.get("OLLAMA_MODEL")
                     or os.environ.get("AGENT_EXECUTOR_MODEL")
                     or "qwen3-coder:30b",
-                    priority=10,
+                    priority=0,  # local Ollama beats windows-server (5) and cloud fallbacks
                 )
             )
 
