@@ -1461,6 +1461,49 @@ async def seed_default_providers():
                 )
 
 
+def _builtin_provider_records() -> list[dict]:
+    """Return the static built-in provider list without touching MongoDB.
+
+    Used by seed_default_providers and as a fallback for list_providers when
+    MongoDB is unavailable (limited mode).
+    """
+    return [
+        {
+            "provider_id": "ollama-local",
+            "name": "Ollama (Local)",
+            "type": "ollama",
+            "base_url": _resolve_ollama_url(OLLAMA_BASE),
+            "api_key": "",
+            "default_model": OLLAMA_MODEL,
+            "is_default": LLM_PROVIDER == "ollama",
+            "priority": 0,
+            "status": "configured",
+        },
+        {
+            "provider_id": "anthropic-universal",
+            "name": "Anthropic (Universal Key)",
+            "type": "emergent-anthropic",
+            "base_url": "emergent://anthropic",
+            "api_key": EMERGENT_LLM_KEY,
+            "default_model": EMERGENT_ANTHROPIC_MODEL,
+            "is_default": False,
+            "priority": 55,
+            "status": "configured" if EMERGENT_LLM_KEY else "unconfigured",
+        },
+        {
+            "provider_id": "anthropic",
+            "name": "Anthropic Claude (Direct API)",
+            "type": "anthropic",
+            "base_url": ANTHROPIC_BASE_URL,
+            "api_key": ANTHROPIC_API_KEY,
+            "default_model": ANTHROPIC_MODEL,
+            "is_default": False,
+            "priority": 50,
+            "status": "configured" if ANTHROPIC_API_KEY else "unconfigured",
+        },
+    ]
+
+
 # ─── Multi-Agent Orchestration ────────────────────────────────────────────────
 # Implements the Planner → Executor → Verifier three-role loop described in the
 # project README and ADR-003. Applies Anthropic's context efficiency principles:
@@ -1915,35 +1958,47 @@ class ChatMessage(BaseModel):
 async def chat_send(body: ChatMessage, user: dict = Depends(get_current_user)):
     uid = user["_id"]
     sid = body.session_id
+    _db_limited = False
     if not sid:
-        active = await get_active_provider()
-        default_pid = active.get("provider_id") if active else "ollama-local"
-        result = await db.chat_sessions.insert_one(
-            {
-                "user_id": uid,
-                "title": body.content[:60],
-                "provider_id": body.provider_id or default_pid,
-                "model": body.model or None,
-                "temperature": body.temperature
-                if body.temperature is not None
-                else None,
-                "messages": [],
-                "created_at": datetime.now(timezone.utc).isoformat(),
-                "updated_at": datetime.now(timezone.utc).isoformat(),
-            }
-        )
-        sid = str(result.inserted_id)
-    session = await db.chat_sessions.find_one({"_id": ObjectId(sid)})
-    if not session:
+        try:
+            active = await get_active_provider()
+            default_pid = active.get("provider_id") if active else "ollama-local"
+            result = await db.chat_sessions.insert_one(
+                {
+                    "user_id": uid,
+                    "title": body.content[:60],
+                    "provider_id": body.provider_id or default_pid,
+                    "model": body.model or None,
+                    "temperature": body.temperature
+                    if body.temperature is not None
+                    else None,
+                    "messages": [],
+                    "created_at": datetime.now(timezone.utc).isoformat(),
+                    "updated_at": datetime.now(timezone.utc).isoformat(),
+                }
+            )
+            sid = str(result.inserted_id)
+        except Exception:
+            import uuid
+            sid = str(uuid.uuid4())
+            _db_limited = True
+    try:
+        session = await db.chat_sessions.find_one({"_id": ObjectId(sid)}) if not _db_limited else None
+    except Exception:
+        session = None
+        _db_limited = True
+    if not session and not _db_limited:
         raise HTTPException(status_code=404, detail="Session not found")
+    session = session or {}
     messages = session.get("messages", [])
     messages.append({"role": "user", "content": body.content})
 
     wiki_pages = []
-    async for page in db.wiki_pages.find({}, {"_id": 0, "slug": 1, "title": 1}).limit(
-        50
-    ):
-        wiki_pages.append(f"- {page['title']} ({page['slug']})")
+    try:
+        async for page in db.wiki_pages.find({}, {"_id": 0, "slug": 1, "title": 1}).limit(50):
+            wiki_pages.append(f"- {page['title']} ({page['slug']})")
+    except Exception:
+        pass
     wiki_index = "\n".join(wiki_pages) if wiki_pages else "(empty wiki)"
 
     provider_id = body.provider_id or session.get("provider_id")
@@ -1962,11 +2017,14 @@ async def chat_send(body: ChatMessage, user: dict = Depends(get_current_user)):
     _LLM_TIMEOUT_SEC = 300  # 5 minutes for simple LLM calls
 
     if use_agent:
-        provider = (
-            await db.providers.find_one({"provider_id": provider_hint_id})
-            if provider_hint_id
-            else await get_active_provider()
-        )
+        try:
+            provider = (
+                await db.providers.find_one({"provider_id": provider_hint_id})
+                if provider_hint_id
+                else await get_active_provider()
+            )
+        except Exception:
+            provider = None
         if not provider:
             provider = _fallback_local_provider_record()
         try:
@@ -2096,21 +2154,24 @@ async def chat_send(body: ChatMessage, user: dict = Depends(get_current_user)):
             )
 
     messages.append({"role": "assistant", "content": response_text})
-    await db.chat_sessions.update_one(
-        {"_id": ObjectId(sid)},
-        {
-            "$set": {
-                "messages": messages,
-                "provider_id": provider_id,
-                "model": body.model or session.get("model"),
-                "temperature": temperature,
-                "updated_at": datetime.now(timezone.utc).isoformat(),
-            }
-        },
-    )
-    await log_activity(
-        "chat", f"Chat in session {sid[:8]}...", user_id=uid, meta={"session_id": sid}
-    )
+    try:
+        await db.chat_sessions.update_one(
+            {"_id": ObjectId(sid)},
+            {
+                "$set": {
+                    "messages": messages,
+                    "provider_id": provider_id,
+                    "model": body.model or session.get("model"),
+                    "temperature": temperature,
+                    "updated_at": datetime.now(timezone.utc).isoformat(),
+                }
+            },
+        )
+        await log_activity(
+            "chat", f"Chat in session {sid[:8]}...", user_id=uid, meta={"session_id": sid}
+        )
+    except Exception:
+        pass  # limited mode: session persistence is best-effort
     return {
         "session_id": sid,
         "response": response_text,
@@ -2445,18 +2506,26 @@ class ProviderUpdate(BaseModel):
 @app.get("/api/providers")
 async def list_providers(user: dict = Depends(get_current_user)):
     providers = []
-    async for p in db.providers.find({}).sort("created_at", 1):
-        p["_id"] = str(p["_id"])
-        if p.get("api_key"):
-            p["api_key_masked"] = (
-                p["api_key"][:8] + "..." + p["api_key"][-4:]
-                if len(p["api_key"]) > 12
-                else "***"
-            )
-        else:
+    try:
+        async for p in db.providers.find({}).sort("created_at", 1):
+            p["_id"] = str(p["_id"])
+            if p.get("api_key"):
+                p["api_key_masked"] = (
+                    p["api_key"][:8] + "..." + p["api_key"][-4:]
+                    if len(p["api_key"]) > 12
+                    else "***"
+                )
+            else:
+                p["api_key_masked"] = ""
+            p.pop("api_key", None)
+            providers.append(p)
+    except Exception:
+        # Limited mode: MongoDB unavailable — return built-in defaults
+        for p in _builtin_provider_records():
+            p = dict(p)
+            p.pop("api_key", None)
             p["api_key_masked"] = ""
-        p.pop("api_key", None)
-        providers.append(p)
+            providers.append(p)
     return {"providers": providers}
 
 
