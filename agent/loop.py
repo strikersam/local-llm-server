@@ -180,9 +180,37 @@ class AgentRunner:
             planner_model, planner_decision.mode, planner_decision.selection_source,
         )
         raw = await self._chat_json(planner_model, messages)
+        raw = self._normalize_plan_response(raw, instruction)
         plan = AgentPlan.model_validate(raw)
         plan.steps = plan.steps[:max_steps]
         return plan
+
+    def _normalize_plan_response(self, raw: dict[str, Any], instruction: str) -> dict[str, Any]:
+        """Normalize an LLM planner response to match the AgentPlan schema.
+
+        Some models (especially those trained on workflow/slice terminology) return
+        'slices' instead of 'steps', omit 'goal', or omit 'type' on individual steps.
+        This method repairs those deviations so Pydantic validation never fails due to
+        schema mismatch alone.
+        """
+        normalized = dict(raw)
+
+        # 'slices' is CRISPY-workflow terminology; map it to 'steps'
+        if "steps" not in normalized and "slices" in normalized:
+            normalized["steps"] = normalized.pop("slices")
+
+        # Derive goal from instruction when the model omits it
+        if not normalized.get("goal"):
+            normalized["goal"] = instruction[:200].strip() or "Complete the requested task"
+
+        # Ensure each step has a valid 'type' field (Literal on AgentStep requires it).
+        # Infer from context when absent: steps with files get "edit", others "analyze".
+        valid_types = {"edit", "create", "analyze", "github"}
+        for step in normalized.get("steps", []):
+            if isinstance(step, dict) and step.get("type") not in valid_types:
+                step["type"] = "edit" if step.get("files") else "analyze"
+
+        return normalized
 
     async def _execute_step(
         self,

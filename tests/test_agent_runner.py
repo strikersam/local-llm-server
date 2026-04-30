@@ -189,3 +189,122 @@ def test_agent_runner_fails_unsafe_jwt_change(tmp_path: Path):
 
     assert result["steps"][0]["status"] == "failed"
     assert any("secret_key" in issue.lower() for issue in result["steps"][0]["issues"])
+
+
+# ── _normalize_plan_response unit tests ──────────────────────────────────────
+
+def _make_runner() -> AgentRunner:
+    return AgentRunner(ollama_base="http://localhost:11434")
+
+
+def test_normalize_slices_renamed_to_steps():
+    runner = _make_runner()
+    raw = {
+        "goal": "do the thing",
+        "slices": [{"id": 1, "description": "step one", "type": "analyze", "files": []}],
+    }
+    result = runner._normalize_plan_response(raw, "do the thing")
+    assert "steps" in result
+    assert "slices" not in result
+    assert result["steps"][0]["description"] == "step one"
+
+
+def test_normalize_missing_goal_derived_from_instruction():
+    runner = _make_runner()
+    raw = {"steps": [{"id": 1, "description": "do it", "type": "edit", "files": ["f.py"]}]}
+    result = runner._normalize_plan_response(raw, "Update the config file")
+    assert result["goal"] == "Update the config file"
+
+
+def test_normalize_goal_truncated_to_200_chars():
+    runner = _make_runner()
+    long_instruction = "x" * 300
+    raw = {"steps": []}
+    result = runner._normalize_plan_response(raw, long_instruction)
+    assert len(result["goal"]) == 200
+
+
+def test_normalize_missing_step_type_defaults_to_analyze():
+    runner = _make_runner()
+    raw = {
+        "goal": "refactor",
+        "steps": [{"id": 1, "description": "look around", "files": []}],
+    }
+    result = runner._normalize_plan_response(raw, "refactor")
+    assert result["steps"][0]["type"] == "analyze"
+
+
+def test_normalize_invalid_step_type_replaced_with_analyze():
+    runner = _make_runner()
+    raw = {
+        "goal": "check something",
+        "steps": [{"id": 1, "description": "review code", "files": [], "type": "review"}],
+    }
+    result = runner._normalize_plan_response(raw, "check something")
+    assert result["steps"][0]["type"] == "analyze"
+
+
+def test_normalize_valid_step_type_unchanged():
+    runner = _make_runner()
+    for valid_type in ("edit", "create", "github"):
+        raw = {
+            "goal": "task",
+            "steps": [{"id": 1, "description": "do", "files": [], "type": valid_type}],
+        }
+        result = runner._normalize_plan_response(raw, "task")
+        assert result["steps"][0]["type"] == valid_type
+
+
+def test_normalize_slices_and_missing_goal_together():
+    """Reproduce the exact error from the screenshot: slices present, goal absent."""
+    runner = _make_runner()
+    raw = {
+        "slices": [
+            {"id": 1, "description": "gather retrospective findings", "files": []},
+        ]
+    }
+    result = runner._normalize_plan_response(raw, "Summarise retrospective findings")
+    assert "steps" in result
+    assert "slices" not in result
+    assert result["goal"] == "Summarise retrospective findings"
+    assert result["steps"][0]["type"] == "analyze"
+
+
+def test_runner_succeeds_when_model_returns_slices_schema(tmp_path: Path):
+    """End-to-end: model returns CRISPY-style slices, plan should still execute."""
+    root = tmp_path / "repo"
+    root.mkdir()
+    target = root / "notes.txt"
+    target.write_text("old\n", encoding="utf-8")
+
+    runner = AgentRunner(ollama_base="http://localhost:11434", workspace_root=root)
+    responses = iter(
+        [
+            # Planner returns slices schema (no goal, no steps)
+            '{"slices":[{"id":1,"description":"Update notes file","files":["notes.txt"]}]}',
+            # Executor tool selection
+            '{"tool":"finish","args":{"reason":"ready"}}',
+            # Executor writes file
+            "FILE: notes.txt\nACTION: replace\n```text\nnew content\n```",
+            # Verifier approves
+            '{"status":"pass","issues":[]}',
+        ]
+    )
+
+    async def fake_chat_text(model: str, messages: list) -> str:
+        return next(responses)
+
+    runner._chat_text = fake_chat_text  # type: ignore[method-assign]
+
+    result = asyncio.run(
+        runner.run(
+            instruction="Update notes file",
+            history=[],
+            requested_model=None,
+            auto_commit=False,
+            max_steps=3,
+        )
+    )
+
+    assert result["steps"][0]["status"] == "applied"
+    assert target.read_text(encoding="utf-8") == "new content\n"
