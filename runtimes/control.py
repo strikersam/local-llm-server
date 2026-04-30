@@ -203,6 +203,19 @@ async def _runtime_health(runtime_id: str) -> dict[str, Any]:
     return health if isinstance(health, dict) else {"available": False}
 
 
+def _is_docker_unavailable(error_lower: str) -> bool:
+    """Return True when the error string indicates Docker is not reachable."""
+    patterns = (
+        "only available when running locally",
+        "docker daemon",
+        "cannot connect",
+        "docker.sock",
+        "daemon is running",
+        "failed to connect to the docker",
+    )
+    return any(p in error_lower for p in patterns)
+
+
 async def _remote_runtime_response(runtime_id: str, action: str) -> dict[str, Any]:
     health = await _runtime_health(runtime_id)
     available = health.get("available") is True
@@ -254,9 +267,7 @@ async def start_runtime(runtime_id: str) -> dict[str, Any]:
         }
     except subprocess.CalledProcessError as e:
         error_msg = e.stderr.decode() if e.stderr else str(e)
-        error_lower = error_msg.lower()
-        if "only available when running locally" in error_lower or "docker daemon" in error_lower or "cannot connect" in error_lower:
-            # Check if already reachable before trying local fallback
+        if _is_docker_unavailable(error_msg.lower()):
             remote_resp = await _remote_runtime_response(runtime_id, "start")
             if remote_resp.get("remote_managed"):
                 return remote_resp
@@ -305,9 +316,7 @@ async def stop_runtime(runtime_id: str) -> dict[str, Any]:
         }
     except subprocess.CalledProcessError as e:
         error_msg = e.stderr.decode() if e.stderr else str(e)
-        error_lower = error_msg.lower()
-        if "only available when running locally" in error_lower or "docker daemon" in error_lower or "cannot connect" in error_lower:
-            # Check if already reachable before trying local fallback
+        if _is_docker_unavailable(error_msg.lower()):
             remote_resp = await _remote_runtime_response(runtime_id, "stop")
             if remote_resp.get("remote_managed"):
                 return remote_resp
