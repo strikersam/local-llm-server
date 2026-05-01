@@ -57,6 +57,7 @@ class AgentSessionStore:
                     title        TEXT NOT NULL,
                     provider_id  TEXT,
                     workspace_id TEXT,
+                    owner_id     TEXT NOT NULL DEFAULT '',
                     created_at   TEXT NOT NULL,
                     updated_at   TEXT NOT NULL,
                     last_plan    TEXT,
@@ -94,6 +95,11 @@ class AgentSessionStore:
                 "CREATE INDEX IF NOT EXISTS idx_events_session "
                 "ON agent_events (session_id, position)"
             )
+            # Schema migration: add owner_id column to existing databases that
+            # were created before this field was introduced.
+            existing_cols = {row[1] for row in conn.execute("PRAGMA table_info(agent_sessions)")}
+            if "owner_id" not in existing_cols:
+                conn.execute("ALTER TABLE agent_sessions ADD COLUMN owner_id TEXT NOT NULL DEFAULT ''")
             conn.commit()
 
     def _load_all(self) -> dict[str, AgentSession]:
@@ -109,6 +115,7 @@ class AgentSessionStore:
                     title=row["title"],
                     provider_id=row["provider_id"],
                     workspace_id=row["workspace_id"],
+                    owner_id=row["owner_id"] if "owner_id" in row.keys() else "",
                     created_at=row["created_at"],
                     updated_at=row["updated_at"],
                     history=[AgentSessionMessage(role=m["role"], content=m["content"]) for m in msgs],
@@ -122,15 +129,16 @@ class AgentSessionStore:
         conn.execute(
             """
             INSERT OR REPLACE INTO agent_sessions
-                (session_id, title, provider_id, workspace_id, created_at, updated_at,
-                 last_plan, last_result, event_count)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                (session_id, title, provider_id, workspace_id, owner_id,
+                 created_at, updated_at, last_plan, last_result, event_count)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 session.session_id,
                 session.title,
                 session.provider_id,
                 session.workspace_id,
+                session.owner_id,
                 session.created_at,
                 session.updated_at,
                 json.dumps(session.last_plan.model_dump()) if session.last_plan else None,
@@ -147,6 +155,7 @@ class AgentSessionStore:
         title: str | None = None,
         provider_id: str | None = None,
         workspace_id: str | None = None,
+        owner_id: str = "",
     ) -> AgentSession:
         session_id = "as_" + secrets.token_hex(8)
         now = _now()
@@ -155,6 +164,7 @@ class AgentSessionStore:
             title=title or "Coding Agent Session",
             provider_id=provider_id,
             workspace_id=workspace_id,
+            owner_id=owner_id,
             created_at=now,
             updated_at=now,
             history=[],
@@ -175,14 +185,19 @@ class AgentSessionStore:
         title: str | None = None,
         provider_id: str | None = None,
         workspace_id: str | None = None,
+        owner_id: str = "",
     ) -> AgentSession:
-        """Create a session with an explicit session_id (e.g. a caller-supplied UUID)."""
+        """Create a session with an explicit session_id (e.g. a caller-supplied UUID).
+
+        Idempotent: returns the existing session unchanged if session_id is already known.
+        """
         now = _now()
         session = AgentSession(
             session_id=session_id,
             title=title or "Coding Agent Session",
             provider_id=provider_id,
             workspace_id=workspace_id,
+            owner_id=owner_id,
             created_at=now,
             updated_at=now,
             history=[],
@@ -190,6 +205,8 @@ class AgentSessionStore:
             last_result=None,
         )
         with self._lock:
+            if session_id in self._sessions:
+                return AgentSession.model_validate(self._sessions[session_id].model_dump())
             self._sessions[session_id] = session
             with self._connect() as conn:
                 self._db_upsert_session(conn, session)

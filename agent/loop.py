@@ -33,7 +33,12 @@ log = logging.getLogger("qwen-agent")
 # Security-sensitive files the planner/runner must flag for extra scrutiny.
 # Any step that touches these triggers a risky-module warning and extra
 # verifier passes.  Kept as a module constant so tests can reference it.
-_RISKY_FILES: frozenset[str] = frozenset({"admin_auth.py", "key_store.py", "agent/tools.py"})
+_RISKY_FILES: frozenset[str] = frozenset({
+    "admin_auth.py",
+    "key_store.py",
+    "agent/tools.py",
+    "proxy.py",          # auth middleware — changes need risky-module-review
+})
 
 # Default to Nvidia NIM free models — no local infra required.
 # These are overridden by env vars when local Ollama models are preferred.
@@ -159,6 +164,12 @@ class AgentRunner:
             key_id=key_id,
         )
         if parallel_result is not None:
+            parallel_result["judge"] = await self._run_judge(
+                plan=plan,
+                step_results=parallel_result.get("steps", []),
+                requested_model=requested_model,
+                session_id=session_id,
+            )
             return parallel_result
 
         step_results: list[dict[str, Any]] = []
@@ -641,8 +652,10 @@ class AgentRunner:
             self._log_event(session_id, "assistant_message", {"judge": raw})
             return raw
         except Exception as exc:
-            log.debug("Judge call failed (non-fatal): %s", exc)
-            return {"verdict": "APPROVED_WITH_CONDITIONS", "notes": f"Judge unavailable: {exc}"}
+            log.warning("Judge call failed; defaulting to APPROVED_WITH_CONDITIONS: %s", exc)
+            fallback = {"verdict": "APPROVED_WITH_CONDITIONS", "notes": f"Judge unavailable: {exc}"}
+            self._log_event(session_id, "assistant_message", {"judge": fallback})
+            return fallback
 
     # ------------------------------------------------------------------
     # State checkpointing  (.claude/state/)
@@ -1029,10 +1042,13 @@ class AgentRunner:
             return ""
 
     def _commit_step(self, description: str, changed_files: list[str]) -> str | None:
+        # Strip control characters (newlines, CR, tabs) so multi-line step
+        # descriptions don't create malformed git commit messages.
+        safe_description = " ".join(description.splitlines()).strip()[:200] or "agent change"
         try:
             subprocess.run(["git", "add", *changed_files], cwd=self.tools.root, check=True, capture_output=True, text=True)
             subprocess.run(
-                ["git", "commit", "-m", f"agent: {description}"],
+                ["git", "commit", "-m", f"agent: {safe_description}"],
                 cwd=self.tools.root,
                 check=True,
                 capture_output=True,

@@ -167,7 +167,10 @@ class InternalAgentAdapter(RuntimeAdapter):
         steps = result.get("steps") or []
         applied_steps = [s for s in steps if s.get("status") == "applied"]
         output_text = result.get("report") or result.get("summary") or ""
-        did_work = bool(unique_files or applied_steps or output_text.strip())
+        judge_verdict = str((result.get("judge") or {}).get("verdict") or "").upper()
+        # A bare summary/report without file edits is not meaningful work; require
+        # actual applied steps or changed files to consider the run a success.
+        did_work = bool(unique_files or applied_steps) and judge_verdict != "BLOCKED"
 
         provider_label = "nvidia-nim" if nvidia_chain else "ollama"
         return TaskResult(

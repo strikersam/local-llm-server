@@ -137,6 +137,7 @@ class AgentSession(BaseModel):
     title: str
     provider_id: str | None = None
     workspace_id: str | None = None
+    owner_id: str = ""   # email of the creating user; enforced on load in /agent/chat
     created_at: str
     updated_at: str
     history: list[AgentSessionMessage] = Field(default_factory=list)

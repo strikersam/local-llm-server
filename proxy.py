@@ -1153,11 +1153,16 @@ async def agent_chat(
     session_id = body.session_id or str(_uuid.uuid4())
 
     # Load or create a persistent session so history survives across calls.
-    if AGENT_SESSIONS.get(session_id) is None:
+    existing = AGENT_SESSIONS.get(session_id)
+    if existing is None:
         AGENT_SESSIONS.create_with_id(
             session_id=session_id,
             title=f"Chat for {auth.email}",
+            owner_id=auth.email,
         )
+    elif existing.owner_id and existing.owner_id != auth.email:
+        # Refuse access to another user's session rather than silently leaking history.
+        raise HTTPException(status_code=403, detail="Session belongs to a different user")
     AGENT_SESSIONS.append_message(session_id, "user", body.instruction)
     live_session = AGENT_SESSIONS.get(session_id)
     history = [item.model_dump() for item in (live_session.history if live_session else [])]
