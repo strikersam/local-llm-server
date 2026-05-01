@@ -213,16 +213,18 @@ SYSTEM = textwrap.dedent("""
 
 
 # ---------------------------------------------------------------------------
-# Pick a working NVIDIA NIM model (first one that responds)
+# Pick a working NVIDIA NIM model (first one that responds AND supports tools)
 # ---------------------------------------------------------------------------
 def pick_model(client: OpenAI) -> str:
     for model, label in CANDIDATE_MODELS:
         print(f"[model] Trying {label} ({model})")
         try:
+            # Probe with tools= to verify tool-calling support
             client.chat.completions.create(
                 model=model,
                 max_tokens=8,
                 messages=[{"role": "user", "content": "hi"}],
+                tools=TOOLS,  # type: ignore[arg-type]
             )
             print(f"[model] Using {model}")
             return model
@@ -293,10 +295,12 @@ def main() -> None:
         # Append assistant message
         messages.append(msg.model_dump(exclude_unset=False))
 
-        # No tool calls → done
+        # No tool calls → just update summary, don't mark as successful yet
         if finish == "stop" or not msg.tool_calls:
             summary = msg.content or summary
-            success = True
+            # Only succeed if the model explicitly signals completion in content
+            if msg.content and "IMPLEMENTATION_COMPLETE" in msg.content:
+                success = True
             break
 
         # Execute tool calls

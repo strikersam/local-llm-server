@@ -58,11 +58,11 @@ def load_council_skill() -> str:
 def main() -> None:
     api_key = os.environ.get("NVIDIA_API_KEY", "")
     if not api_key:
-        print("ERROR: NVIDIA_API_KEY not set — skipping review, will auto-pass", file=sys.stderr)
-        result = {"verdict": "WARN", "summary": "Review skipped (no API key)", "details": ""}
+        print("ERROR: NVIDIA_API_KEY not set — review failed", file=sys.stderr)
+        result = {"verdict": "FAIL", "summary": "Review failed (no API key)", "details": ""}
         with open(RESULT_FILE, "w") as f:
             json.dump(result, f)
-        sys.exit(0)
+        sys.exit(1)
 
     diff = get_pr_diff(PR_NUMBER)
     files = get_pr_files(PR_NUMBER)
@@ -113,23 +113,30 @@ def main() -> None:
     text = response.choices[0].message.content or ""
     print(text)
 
-    # Parse verdict
-    verdict = "WARN"  # default to WARN (allow merge) if parsing fails
+    # Parse verdict — fail closed if output is unparseable
+    verdict = "FAIL"
+    parsed_successfully = False
     for line in text.splitlines():
         if line.startswith("OVERALL:"):
             v = line.split(":", 1)[1].strip().split()[0].upper()
             if v in {"PASS", "WARN", "FAIL"}:
                 verdict = v
+                parsed_successfully = True
             break
 
     summary_lines = [l for l in text.splitlines() if l.startswith("SUMMARY:")]
     summary = summary_lines[0].replace("SUMMARY:", "").strip() if summary_lines else text[:300]
 
-    result = {"verdict": verdict, "summary": summary, "details": text}
+    result = {
+        "verdict": verdict,
+        "summary": summary,
+        "details": text,
+        "parsed_successfully": parsed_successfully,
+    }
     with open(RESULT_FILE, "w") as f:
         json.dump(result, f)
 
-    print(f"\n[review] Verdict: {verdict}")
+    print(f"\n[review] Verdict: {verdict} (parsed={parsed_successfully})")
     sys.exit(0 if verdict in {"PASS", "WARN"} else 1)
 
 
