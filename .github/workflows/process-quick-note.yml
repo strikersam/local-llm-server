@@ -124,7 +124,7 @@ jobs:
       - name: Install Python dependencies
         if: steps.pick.outputs.found == 'true'
         run: |
-          pip install anthropic requests
+          pip install openai requests
           pip install -r requirements.txt --quiet || true
 
       # ── 6. Fetch URL content (multi-strategy) ─────────────────────────────
@@ -192,7 +192,7 @@ jobs:
         id: implement
         if: steps.branch.outputs.branch != ''
         env:
-          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          NVIDIA_API_KEY: ${{ secrets.NVIDIA_API_KEY }}
         run: |
           python3 .github/scripts/implement_agent.py \
             "${{ steps.issue.outputs.url }}" \
@@ -289,7 +289,7 @@ jobs:
         id: review
         if: steps.pr.outputs.pr_number != ''
         env:
-          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          NVIDIA_API_KEY: ${{ secrets.NVIDIA_API_KEY }}
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           python3 .github/scripts/review_agent.py \

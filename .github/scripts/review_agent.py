@@ -1,5 +1,5 @@
 """
-Council-review agent using Claude.
+Council-review agent using NVIDIA NIM.
 
 Fetches the git diff of a PR branch vs master and runs the council-review
 skill (Security, Correctness, Performance, Maintainability reviewers).
@@ -23,7 +23,7 @@ import sys
 import textwrap
 from pathlib import Path
 
-import anthropic
+from openai import OpenAI
 
 PR_NUMBER = sys.argv[1] if len(sys.argv) > 1 else ""
 RESULT_FILE = "/tmp/review_result.json"
@@ -56,9 +56,9 @@ def load_council_skill() -> str:
 
 
 def main() -> None:
-    api_key = os.environ.get("ANTHROPIC_API_KEY", "")
+    api_key = os.environ.get("NVIDIA_API_KEY", "")
     if not api_key:
-        print("ERROR: ANTHROPIC_API_KEY not set — skipping review, will auto-pass", file=sys.stderr)
+        print("ERROR: NVIDIA_API_KEY not set — skipping review, will auto-pass", file=sys.stderr)
         result = {"verdict": "WARN", "summary": "Review skipped (no API key)", "details": ""}
         with open(RESULT_FILE, "w") as f:
             json.dump(result, f)
@@ -101,13 +101,16 @@ def main() -> None:
         SUMMARY: <one-paragraph summary of the changes and verdict>
     """).strip()
 
-    client = anthropic.Anthropic(api_key=api_key)
-    response = client.messages.create(
-        model="claude-sonnet-4-6",
+    client = OpenAI(
+        base_url="https://integrate.api.nvidia.com/v1",
+        api_key=api_key,
+    )
+    response = client.chat.completions.create(
+        model="meta/llama-3.3-70b-instruct",
         max_tokens=2048,
         messages=[{"role": "user", "content": prompt}],
     )
-    text = response.content[0].text if response.content else ""
+    text = response.choices[0].message.content or ""
     print(text)
 
     # Parse verdict

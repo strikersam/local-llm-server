@@ -1,9 +1,9 @@
 """
-Agentic implementation loop using Anthropic tool use.
+Agentic implementation loop using NVIDIA NIM (OpenAI-compatible tool use).
 
 Reads URL content + task from args, loads repo context (CLAUDE.md + skills),
-and runs a Claude-powered plan → implement → test cycle with real file
-editing and bash execution.
+and runs a plan → implement → test cycle with real file editing and bash
+execution via OpenAI function-calling against the NVIDIA NIM API.
 
 Usage:
   python implement_agent.py <url> <issue_num> <task>
@@ -19,7 +19,7 @@ import sys
 import textwrap
 from pathlib import Path
 
-import anthropic
+from openai import OpenAI
 
 # ---------------------------------------------------------------------------
 # Args
@@ -28,7 +28,15 @@ URL = sys.argv[1] if len(sys.argv) > 1 else ""
 ISSUE_NUM = sys.argv[2] if len(sys.argv) > 2 else "?"
 TASK = sys.argv[3] if len(sys.argv) > 3 else ""
 RESULT_FILE = "/tmp/impl_result.json"
-MAX_TURNS = 40  # hard cap on agentic loop iterations
+MAX_TURNS = 40
+
+# Model preference: heavy reasoning model first, reliable fallbacks after.
+# All are free-tier NVIDIA NIM models.
+CANDIDATE_MODELS = [
+    ("nvidia/llama-3.1-nemotron-ultra-253b-v1", "reasoning (Nemotron Ultra 253B)"),
+    ("meta/llama-3.3-70b-instruct",             "coding (Llama 3.3 70B)"),
+    ("qwen/qwen2.5-coder-32b-instruct",         "coding (Qwen2.5 Coder 32B)"),
+]
 
 
 # ---------------------------------------------------------------------------
@@ -83,73 +91,71 @@ def tool_list_files(pattern: str = "**/*.py") -> str:
         return f"[error: {exc}]"
 
 
+TOOL_DISPATCH = {
+    "bash": lambda inp: tool_bash(inp["cmd"]),
+    "read_file": lambda inp: tool_read_file(inp["path"]),
+    "write_file": lambda inp: tool_write_file(inp["path"], inp["content"]),
+    "list_files": lambda inp: tool_list_files(inp.get("pattern", "**/*.py")),
+}
+
+# OpenAI-format tool schemas
 TOOLS = [
     {
-        "name": "bash",
-        "description": (
-            "Run a bash command in the repository root. "
-            "Use for: git operations, running pytest, installing packages, "
-            "inspecting directory structure, running the app. "
-            "stdout and stderr are returned (last 6000 chars)."
-        ),
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "cmd": {"type": "string", "description": "The bash command to run"}
+        "type": "function",
+        "function": {
+            "name": "bash",
+            "description": (
+                "Run a bash command in the repository root. "
+                "Use for git operations, running pytest, installing packages, "
+                "inspecting directory structure. stdout+stderr are returned."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {"cmd": {"type": "string"}},
+                "required": ["cmd"],
             },
-            "required": ["cmd"],
         },
     },
     {
-        "name": "read_file",
-        "description": "Read the contents of a file (up to 8000 chars).",
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "path": {"type": "string", "description": "Path relative to repo root"}
+        "type": "function",
+        "function": {
+            "name": "read_file",
+            "description": "Read the contents of a file (up to 8000 chars).",
+            "parameters": {
+                "type": "object",
+                "properties": {"path": {"type": "string"}},
+                "required": ["path"],
             },
-            "required": ["path"],
         },
     },
     {
-        "name": "write_file",
-        "description": "Write (overwrite) a file with the given content. Creates parent dirs.",
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "path": {"type": "string", "description": "Path relative to repo root"},
-                "content": {"type": "string", "description": "Complete file content"},
+        "type": "function",
+        "function": {
+            "name": "write_file",
+            "description": "Write (overwrite) a file with the given content. Creates parent dirs.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "path": {"type": "string"},
+                    "content": {"type": "string"},
+                },
+                "required": ["path", "content"],
             },
-            "required": ["path", "content"],
         },
     },
     {
-        "name": "list_files",
-        "description": "List tracked files matching a git-ls-files glob pattern.",
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "pattern": {
-                    "type": "string",
-                    "description": "Glob pattern, e.g. '*.py' or 'tests/*.py'",
-                }
+        "type": "function",
+        "function": {
+            "name": "list_files",
+            "description": "List tracked files matching a git-ls-files glob pattern.",
+            "parameters": {
+                "type": "object",
+                "properties": {"pattern": {"type": "string"}},
+                "required": ["pattern"],
             },
-            "required": ["pattern"],
         },
     },
 ]
-
-
-def dispatch_tool(name: str, inp: dict) -> str:
-    if name == "bash":
-        return tool_bash(inp["cmd"])
-    if name == "read_file":
-        return tool_read_file(inp["path"])
-    if name == "write_file":
-        return tool_write_file(inp["path"], inp["content"])
-    if name == "list_files":
-        return tool_list_files(inp.get("pattern", "**/*.py"))
-    return f"[unknown tool: {name}]"
 
 
 # ---------------------------------------------------------------------------
@@ -157,31 +163,23 @@ def dispatch_tool(name: str, inp: dict) -> str:
 # ---------------------------------------------------------------------------
 def load_context() -> str:
     parts = []
-
-    # CLAUDE.md
-    claude_md = Path("CLAUDE.md")
-    if claude_md.exists():
-        parts.append("=== CLAUDE.md (repo operating guide) ===\n" + claude_md.read_text()[:3000])
-
-    # Key skills
-    skill_paths = [
+    for p_str in [
+        "CLAUDE.md",
         ".agents/skills/implementation-planner/SKILL.md",
         ".agents/skills/test-first-executor/SKILL.md",
         ".agents/skills/changelog-enforcer/SKILL.md",
         ".agents/skills/issue-resolver/SKILL.md",
-    ]
-    for sp in skill_paths:
-        p = Path(sp)
+    ]:
+        p = Path(p_str)
         if p.exists():
-            parts.append(f"=== SKILL: {p.parent.name} ===\n" + p.read_text()[:1500])
+            label = p.name if p.name != "CLAUDE.md" else "CLAUDE.md"
+            parts.append(f"=== {label} ===\n" + p.read_text()[:2000])
 
-    # File tree
     result = subprocess.run(
         "git ls-files -- '*.py' '*.js' '*.ts' '*.yml' '*.yaml' '*.md' | head -120",
         shell=True, capture_output=True, text=True,
     )
     parts.append("=== REPO FILE TREE ===\n" + result.stdout)
-
     return "\n\n".join(parts)
 
 
@@ -192,66 +190,83 @@ SYSTEM = textwrap.dedent("""
     You are an expert software engineer implementing a feature for the
     local-llm-server repository (a self-hosted OpenAI-compatible proxy).
 
-    ## Your mandate
-    Given a URL's content and a task description, you will:
-    1. Understand what features are described in the URL content.
-    2. Identify which features are relevant and implementable in this repo.
-    3. Follow the implementation-planner skill: plan before coding.
-    4. Follow the test-first-executor skill: write tests, confirm they fail,
-       then implement until they pass.
-    5. Follow the changelog-enforcer skill: add a changelog entry under
-       [Unreleased] in docs/changelog.md.
-    6. Use the bash tool to run `pytest -x -q --tb=short` after implementing.
+    Given a URL content and a task description you will:
+    1. Read CLAUDE.md and the skill files using read_file to understand context.
+    2. Follow the implementation-planner skill: plan before coding.
+    3. Follow the test-first-executor skill: write tests first, confirm they
+       fail, then implement until they pass.
+    4. Follow the changelog-enforcer skill: add an entry under [Unreleased]
+       in docs/changelog.md.
+    5. Use bash to run `pytest -x -q --tb=short` after implementing.
        If tests fail, fix the code — do NOT give up.
-    7. When done, call bash with `echo IMPLEMENTATION_COMPLETE` to signal done.
+    6. When done and tests are green, call:
+         bash(cmd="echo IMPLEMENTATION_COMPLETE")
 
-    ## Rules
+    Rules:
     - Only implement features clearly supported by the URL content.
-    - Make minimal, focused changes. No sprawling refactors.
-    - All public functions need type annotations.
-    - Log with the module-level logger, never print().
-    - Use async for all I/O (FastAPI handlers, etc.).
+    - Minimal focused changes — no sprawling refactors.
+    - Type annotations on all public functions.
+    - Use async for all I/O handlers.
+    - Log with module-level logger, never print().
     - Never hardcode secrets.
-    - New routes belong in the appropriate module and must be wired into proxy.py.
-
-    ## Finishing
-    When implementation is complete and tests pass, output a brief summary
-    of what was implemented (2-4 bullet points) then call:
-      bash(cmd="echo IMPLEMENTATION_COMPLETE")
 """).strip()
+
+
+# ---------------------------------------------------------------------------
+# Pick a working NVIDIA NIM model (first one that responds)
+# ---------------------------------------------------------------------------
+def pick_model(client: OpenAI) -> str:
+    for model, label in CANDIDATE_MODELS:
+        print(f"[model] Trying {label} ({model})")
+        try:
+            client.chat.completions.create(
+                model=model,
+                max_tokens=8,
+                messages=[{"role": "user", "content": "hi"}],
+            )
+            print(f"[model] Using {model}")
+            return model
+        except Exception as exc:
+            print(f"[model] {model} unavailable: {exc}")
+    print("[model] All models failed — aborting", file=sys.stderr)
+    sys.exit(1)
 
 
 # ---------------------------------------------------------------------------
 # Main agent loop
 # ---------------------------------------------------------------------------
 def main() -> None:
-    api_key = os.environ.get("ANTHROPIC_API_KEY", "")
+    api_key = os.environ.get("NVIDIA_API_KEY", "")
     if not api_key:
-        print("ERROR: ANTHROPIC_API_KEY not set", file=sys.stderr)
+        print("ERROR: NVIDIA_API_KEY not set", file=sys.stderr)
         sys.exit(1)
+
+    client = OpenAI(
+        base_url="https://integrate.api.nvidia.com/v1",
+        api_key=api_key,
+    )
+    model = pick_model(client)
 
     url_content = Path("/tmp/note_content.txt").read_text()
     context = load_context()
 
+    system_with_context = SYSTEM + "\n\n" + context[:4000]
     user_msg = textwrap.dedent(f"""
         ## Issue #{ISSUE_NUM}
-
         **URL**: {URL}
         **Task**: {TASK or "(no specific task — infer from URL content)"}
 
         ## URL Content
-        {url_content[:5000]}
+        {url_content[:4000]}
 
-        ## Repo Context
-        {context[:6000]}
-
-        ---
-        Begin by reading CLAUDE.md and the relevant skill files using read_file,
-        then plan and implement. Run pytest when done.
+        Begin by reading CLAUDE.md and the skill files, then plan and implement.
+        Run pytest when done.
     """).strip()
 
-    client = anthropic.Anthropic(api_key=api_key)
-    messages: list[dict] = [{"role": "user", "content": user_msg}]
+    messages: list[dict] = [
+        {"role": "system", "content": system_with_context},
+        {"role": "user", "content": user_msg},
+    ]
 
     success = False
     summary = "No implementation performed"
@@ -261,49 +276,51 @@ def main() -> None:
         turns += 1
         print(f"\n[agent] Turn {turns}/{MAX_TURNS}")
 
-        response = client.messages.create(
-            model="claude-opus-4-7",
+        response = client.chat.completions.create(
+            model=model,
             max_tokens=8192,
-            system=SYSTEM,
             tools=TOOLS,  # type: ignore[arg-type]
+            tool_choice="auto",
             messages=messages,  # type: ignore[arg-type]
         )
 
-        # Collect text output
-        text_blocks = [b.text for b in response.content if hasattr(b, "text")]
-        tool_uses = [b for b in response.content if b.type == "tool_use"]
+        msg = response.choices[0].message
+        finish = response.choices[0].finish_reason
 
-        if text_blocks:
-            print("[agent] " + " ".join(text_blocks)[:500])
+        if msg.content:
+            print(f"[agent] {msg.content[:400]}")
 
-        # Append assistant turn
-        messages.append({"role": "assistant", "content": response.content})
+        # Append assistant message
+        messages.append(msg.model_dump(exclude_unset=False))
 
-        # Done?
-        if response.stop_reason == "end_turn" and not tool_uses:
-            summary = " ".join(text_blocks) or summary
-            # Check if IMPLEMENTATION_COMPLETE was signalled via bash
-            success = True  # end_turn without tool_use = done
+        # No tool calls → done
+        if finish == "stop" or not msg.tool_calls:
+            summary = msg.content or summary
+            success = True
             break
 
-        # Execute tools
-        tool_results = []
-        for tu in tool_uses:
-            print(f"[tool] {tu.name}({list(tu.input.keys())})")
-            output = dispatch_tool(tu.name, tu.input)
+        # Execute tool calls
+        for tc in msg.tool_calls:
+            fn_name = tc.function.name
+            try:
+                fn_args = json.loads(tc.function.arguments)
+            except json.JSONDecodeError:
+                fn_args = {}
+
+            print(f"[tool] {fn_name}({list(fn_args.keys())})")
+            handler = TOOL_DISPATCH.get(fn_name)
+            output = handler(fn_args) if handler else f"[unknown tool: {fn_name}]"
             print(f"[tool result] {output[:300]}")
 
-            if tu.name == "bash" and "IMPLEMENTATION_COMPLETE" in output:
+            if fn_name == "bash" and "IMPLEMENTATION_COMPLETE" in output:
                 success = True
-                summary = " ".join(text_blocks) or summary
+                summary = msg.content or summary
 
-            tool_results.append({
-                "type": "tool_result",
-                "tool_use_id": tu.id,
+            messages.append({
+                "role": "tool",
+                "tool_call_id": tc.id,
                 "content": output,
             })
-
-        messages.append({"role": "user", "content": tool_results})
 
         if success:
             break
@@ -316,7 +333,6 @@ def main() -> None:
         json.dump(result, f)
 
     print(f"\n[agent] Done — success={success}, turns={turns}")
-    print(f"[agent] Summary: {summary[:300]}")
     sys.exit(0 if success else 1)
 
 
