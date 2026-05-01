@@ -6,7 +6,7 @@
 - `agent/loop.py` — `spawn_subagent(instruction, model?, max_steps?)` tool added to the Executor toolkit; lets any in-flight agent delegate a self-contained subtask to a child `AgentRunner` and receive a condensed result, enabling recursive subagent delegation without an explicit API call.
 - `agent/loop.py` — `_maybe_run_parallel()`: after planning, if all steps touch disjoint files and there are ≥ 3 steps, `AgentRunner.run()` automatically routes through `MultiAgentSwarm` (via `AgentCoordinator`) instead of the sequential loop, so subagents activate without any caller change.
 - `agent/loop.py` — Judge gate (`_run_judge()`): single LLM call after all steps complete; returns APPROVED / APPROVED_WITH_CONDITIONS / BLOCKED verdict mirroring `.claude/agents/judge.md`; verdict included in every `AgentRunner.run()` response dict.
-- `agent/loop.py` — `_write_checkpoint()`: writes `.claude/state/agent-state.json` before each planning handoff so sessions are resumable via `scripts/ai_runner.py resume`.
+- `agent/loop.py` — `_write_checkpoint()`: writes `.claude/state/agent-state-{session_id}.json` before each planning handoff so sessions are resumable via `scripts/ai_runner.py resume`; each session gets its own file so concurrent runs don't overwrite each other.
 - `agent/state.py` — `AgentSessionStore.create_with_id()`: creates a session with a caller-supplied ID (e.g. a UUID from `/agent/chat`), allowing chat sessions to be persistent and addressable by the client.
 
 ### Changed
@@ -25,6 +25,9 @@
 - `agent/models.py` — added `"spawn_subagent"` to `ToolCall.tool` Literal so Pydantic validates subagent delegation tool calls correctly.
 - `agent/prompts.py` — documented `spawn_subagent` in the Executor tool prompt so LLMs know the tool exists and when to use it.
 - `agent/state.py` — `create_with_id()` is now idempotent: returns the existing session unchanged when called with a session_id that already exists, preventing history loss on client retries.
+- `agent/loop.py` — `_run_judge()` now validates the LLM verdict against `{"APPROVED","APPROVED_WITH_CONDITIONS","BLOCKED"}`; an unrecognised or missing verdict is treated as BLOCKED rather than silently passing; exception fallback also returns BLOCKED (was APPROVED_WITH_CONDITIONS) so judge failures are conservative.
+- `agent/loop.py` — `_step_touches_risky()` now normalises backslashes to forward slashes before comparing against `_RISKY_FILES`, fixing false negatives on Windows-style paths.
+- `proxy.py` — `/agent/chat` builds the history snapshot before appending the current user instruction, preventing the planner from seeing the new turn twice (once in history, once as the `instruction` argument).
 
 ### Fixed
 - `frontend/src/pages/AuthCallback.js` — social login (Google/GitHub) no longer bounces the user back to `/login` after a successful OAuth callback. Root cause: `AuthCallback` stored the JWT in localStorage but navigated to `/control-plane` before `AuthContext` re-checked auth state, so `ProtectedRoute` still saw `user = false` and redirected to `/login`. Fix: call `checkAuth()` (already exposed by `AuthContext`) after storing the token and navigate only once it resolves, guaranteeing `ProtectedRoute` sees the authenticated user.

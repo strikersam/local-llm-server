@@ -133,7 +133,7 @@ class AgentRunner:
         # Per risky-module-review skill and agent/CLAUDE.md.
         def _step_touches_risky(step_files: list[str]) -> bool:
             return any(
-                sf == rf or sf.endswith(f"/{rf}")
+                sf.replace("\\", "/") == rf or sf.replace("\\", "/").endswith(f"/{rf}")
                 for sf in step_files
                 for rf in _RISKY_FILES
             )
@@ -145,7 +145,7 @@ class AgentRunner:
                 "RISKY MODULE detected in plan for '%s'. "
                 "Steps touching: %s. Risks: %s. Proceeding with extra verifier scrutiny.",
                 plan.goal,
-                [f for step in plan.steps for f in step.files if any(f == r or f.endswith(f"/{r}") for r in _RISKY_FILES)],
+                [f for step in plan.steps for f in step.files if any(f.replace("\\", "/") == r or f.replace("\\", "/").endswith(f"/{r}") for r in _RISKY_FILES)],
                 plan.risks,
             )
             self._log_event(session_id, "step_start", {"risky_review": True, "risks": plan.risks})
@@ -644,16 +644,24 @@ class AgentRunner:
                 ),
             },
         ]
+        _VALID_VERDICTS = {"APPROVED", "APPROVED_WITH_CONDITIONS", "BLOCKED"}
         try:
             raw = await self._chat_json(judge_model, messages)
-            verdict = raw.get("verdict", "APPROVED_WITH_CONDITIONS")
-            if verdict == "BLOCKED":
+            verdict = raw.get("verdict", "")
+            if verdict not in _VALID_VERDICTS:
+                log.warning(
+                    "Judge returned invalid verdict %r for session %s; treating as BLOCKED",
+                    verdict, session_id,
+                )
+                raw["verdict"] = "BLOCKED"
+                raw.setdefault("notes", f"Verdict {verdict!r} is not a recognised value.")
+            if raw["verdict"] == "BLOCKED":
                 log.warning("Judge BLOCKED session %s: %s", session_id, raw.get("notes", ""))
             self._log_event(session_id, "assistant_message", {"judge": raw})
             return raw
         except Exception as exc:
-            log.warning("Judge call failed; defaulting to APPROVED_WITH_CONDITIONS: %s", exc)
-            fallback = {"verdict": "APPROVED_WITH_CONDITIONS", "notes": f"Judge unavailable: {exc}"}
+            log.warning("Judge call failed; defaulting to BLOCKED: %s", exc)
+            fallback = {"verdict": "BLOCKED", "notes": f"Judge unavailable: {exc}"}
             self._log_event(session_id, "assistant_message", {"judge": fallback})
             return fallback
 
@@ -662,10 +670,11 @@ class AgentRunner:
     # ------------------------------------------------------------------
 
     def _write_checkpoint(self, session_id: str | None, plan: AgentPlan) -> None:
-        """Persist the current plan to .claude/state/agent-state.json.
+        """Persist the current plan to .claude/state/agent-state-{session_id}.json.
 
         Mirrors the planner.md spec: state is written before each handoff so
-        sessions are resumable via scripts/ai_runner.py resume.
+        sessions are resumable via scripts/ai_runner.py resume.  Each session
+        gets its own file so concurrent sessions don't overwrite each other.
         """
         state_dir = self.tools.root / ".claude" / "state"
         try:
@@ -679,7 +688,9 @@ class AgentRunner:
                 "risks": plan.risks,
                 "requires_risky_review": plan.requires_risky_review,
             }
-            state_file = state_dir / "agent-state.json"
+            # Sanitize the session_id to produce a safe filename component.
+            safe_sid = re.sub(r"[^A-Za-z0-9_\-]", "_", session_id or "unknown")
+            state_file = state_dir / f"agent-state-{safe_sid}.json"
             state_file.write_text(json.dumps(state, indent=2), encoding="utf-8")
         except Exception as exc:
             log.debug("Checkpoint write failed (non-fatal): %s", exc)

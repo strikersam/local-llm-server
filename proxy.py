@@ -1163,9 +1163,13 @@ async def agent_chat(
     elif existing.owner_id and existing.owner_id != auth.email:
         # Refuse access to another user's session rather than silently leaking history.
         raise HTTPException(status_code=403, detail="Session belongs to a different user")
+    # Snapshot history BEFORE appending the new user turn so the planner
+    # receives prior context only — the current instruction is already passed
+    # as the `instruction` argument to runner.run(), so including it in
+    # history would cause the model to see it twice.
+    prior_session = AGENT_SESSIONS.get(session_id)
+    history = [item.model_dump() for item in (prior_session.history if prior_session else [])]
     AGENT_SESSIONS.append_message(session_id, "user", body.instruction)
-    live_session = AGENT_SESSIONS.get(session_id)
-    history = [item.model_dump() for item in (live_session.history if live_session else [])]
 
     if not PROVIDER_ROUTER.providers:
         raise HTTPException(status_code=503, detail="No LLM providers configured")

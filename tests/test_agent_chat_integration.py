@@ -128,8 +128,10 @@ def test_agent_chat_persists_history_across_calls(tmp_path: Path) -> None:
 
         assert len(captured_histories) == 2
         second_history_roles = [m["role"] for m in captured_histories[1]]
-        # Second call must see at least two user turns and the assistant reply from call 1
-        assert second_history_roles.count("user") >= 2
+        # The second call's history is the PRIOR context only (current instruction
+        # is passed separately as `instruction`, not duplicated in history).
+        # So history should contain the first call's user turn + assistant reply.
+        assert second_history_roles.count("user") >= 1
         assert "assistant" in second_history_roles
         assert len(captured_histories[1]) > len(captured_histories[0])
     finally:
