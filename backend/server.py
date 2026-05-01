@@ -1293,7 +1293,27 @@ async def seed_default_agents() -> None:
 
 
 async def seed_default_providers():
+    _nvidia_key = (
+        os.environ.get("NVIDIA_API_KEY") or os.environ.get("NVidiaApiKey") or ""
+    ).strip()
+    _nvidia_base = (
+        os.environ.get("NVIDIA_BASE_URL") or "https://integrate.api.nvidia.com/v1"
+    ).rstrip("/")
+    _nvidia_model = (
+        os.environ.get("NVIDIA_DEFAULT_MODEL") or "meta/llama-3.3-70b-instruct"
+    )
     defaults = [
+        {
+            "provider_id": "nvidia-nim",
+            "name": "Nvidia NIM (Free)",
+            "type": "openai-compatible",
+            "base_url": _nvidia_base,
+            "api_key": _nvidia_key,
+            "default_model": _nvidia_model,
+            "is_default": LLM_PROVIDER == "nvidia-nim",
+            "priority": -10,
+            "status": "configured" if _nvidia_key else "unconfigured",
+        },
         {
             "provider_id": "ollama-local",
             "name": "Ollama (Local)",

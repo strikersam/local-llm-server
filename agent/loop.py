@@ -292,12 +292,17 @@ class AgentRunner:
             }
 
         if step.get("type") in ("github", "analyze"):
+            # For analysis/Q&A steps, synthesize a readable answer from observations.
+            answer = await self._synthesize_answer(
+                goal, step, observations, executor_model
+            )
             return {
                 "step_id": step["id"],
                 "description": step["description"],
                 "status": "applied",
                 "changed_files": [],
                 "observations": observations,
+                "answer": answer,
                 "models": {"executor": executor_model, "verifier": verifier_model},
             }
 
@@ -754,12 +759,62 @@ class AgentRunner:
             log.warning("Auto-commit failed: %s", exc.stderr.strip() if exc.stderr else exc)
             return None
 
+    async def _synthesize_answer(
+        self,
+        goal: str,
+        step: dict[str, Any],
+        observations: list[dict[str, Any]],
+        model: str,
+    ) -> str:
+        """Synthesize a human-readable answer for analyze/github steps from tool observations."""
+        obs_text = json.dumps(observations, indent=2)
+        messages = [
+            {
+                "role": "system",
+                "content": (
+                    "You are a helpful assistant. Based on the tool call results provided, "
+                    "give a clear, comprehensive answer. Be specific and include relevant details."
+                ),
+            },
+            {
+                "role": "user",
+                "content": (
+                    f"Goal: {goal}\n"
+                    f"Step: {step['description']}\n\n"
+                    f"Tool results gathered:\n{obs_text}\n\n"
+                    "Provide a complete, well-structured answer based on this information."
+                ),
+            },
+        ]
+        try:
+            return await self._chat_text(model, messages)
+        except Exception as exc:
+            log.warning("Answer synthesis failed: %s", exc)
+            # Fall back to the finish reason if the synthesis LLM call fails
+            for obs in reversed(observations):
+                if obs.get("tool") == "finish":
+                    return str(obs.get("result", ""))
+            return ""
+
     def _build_summary(self, goal: str, step_results: list[dict[str, Any]], commits: list[str]) -> str:
         applied = sum(1 for step in step_results if step.get("status") == "applied")
         failed = [step for step in step_results if step.get("status") == "failed"]
-        parts = [f"Goal: {goal}", f"Applied steps: {applied}/{len(step_results)}"]
+
+        # Collect synthesized answers from analyze/github steps
+        answers = [
+            step.get("answer", "")
+            for step in step_results
+            if step.get("answer")
+        ]
+
+        meta_parts = [f"Goal: {goal}", f"Steps: {applied}/{len(step_results)}"]
         if failed:
-            parts.append(f"Failed steps: {len(failed)}")
+            meta_parts.append(f"Failed: {len(failed)}")
         if commits:
-            parts.append(f"Commits: {len(commits)}")
-        return " | ".join(parts)
+            meta_parts.append(f"Commits: {len(commits)}")
+        meta = " | ".join(meta_parts)
+
+        if answers:
+            return "\n\n".join(answers) + f"\n\n---\n_{meta}_"
+
+        return meta
