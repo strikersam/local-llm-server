@@ -75,8 +75,13 @@ input, textarea, select {
 }
 
 input[type="checkbox"], input[type="radio"] {
-  -webkit-appearance: revert;
-  appearance: revert;
+  /* Restore native rendering that the global appearance:none above removes.
+     Use `auto` (not `revert`) — `auto` is an explicit instruction to the
+     browser to render the element with its default native control; `revert`
+     can silently lose to layered cascade rules in some browsers. */
+  -webkit-appearance: auto;
+  appearance: auto;
+  cursor: pointer;
 }
 
 input::placeholder, textarea::placeholder {
