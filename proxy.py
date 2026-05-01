@@ -517,7 +517,10 @@ async def lifespan(app: FastAPI):
                         "debugging",
                         "general",
                     ],
-                    "model": os.environ.get("AGENT_PLANNER_MODEL", "gemma4:latest"),
+                    "model": os.environ.get(
+                        "AGENT_PLANNER_MODEL",
+                        "qwen/qwen2.5-coder-32b-instruct" if _nim_key else "gemma4:latest",
+                    ),
                 },
             }
             store = get_agent_store()
@@ -685,11 +688,22 @@ if ADMIN_AUTH.enabled:
     )
 
 register_admin_gui(app, KEY_STORE, ADMIN_AUTH, SERVICE_MANAGER)
-AGENT_RUNNER = AgentRunner(
-    ollama_base=OLLAMA_BASE, workspace_root=Path(__file__).resolve().parent
-)
 AGENT_SESSIONS = AgentSessionStore()
 USER_MEMORY = UserMemoryStore()
+
+# Build AGENT_RUNNER with NIM headers when the API key is configured so that
+# session-based runs (/agent/run, /agent/sessions/{id}/run) also benefit from
+# the free NVIDIA NIM models instead of always hitting local Ollama.
+_nim_key = os.environ.get("NVIDIA_API_KEY") or os.environ.get("NVidiaApiKey") or ""
+_nim_base = os.environ.get("NVIDIA_BASE_URL", "https://integrate.api.nvidia.com/v1")
+_runner_headers = {"Authorization": f"Bearer {_nim_key}"} if _nim_key else None
+_runner_base = _nim_base if _nim_key else OLLAMA_BASE
+AGENT_RUNNER = AgentRunner(
+    ollama_base=_runner_base,
+    workspace_root=Path(__file__).resolve().parent,
+    provider_headers=_runner_headers,
+    session_store=AGENT_SESSIONS,
+)
 
 # ─── Feature singletons ────────────────────────────────────────────────────────
 SESSION_MEMORY = SessionMemory()
@@ -1138,6 +1152,25 @@ async def agent_chat(
 
     session_id = body.session_id or str(_uuid.uuid4())
 
+    # Load or create a persistent session so history survives across calls.
+    existing = AGENT_SESSIONS.get(session_id)
+    if existing is None:
+        AGENT_SESSIONS.create_with_id(
+            session_id=session_id,
+            title=f"Chat for {auth.email}",
+            owner_id=auth.email,
+        )
+    elif existing.owner_id and existing.owner_id != auth.email:
+        # Refuse access to another user's session rather than silently leaking history.
+        raise HTTPException(status_code=403, detail="Session belongs to a different user")
+    # Snapshot history BEFORE appending the new user turn so the planner
+    # receives prior context only — the current instruction is already passed
+    # as the `instruction` argument to runner.run(), so including it in
+    # history would cause the model to see it twice.
+    prior_session = AGENT_SESSIONS.get(session_id)
+    history = [item.model_dump() for item in (prior_session.history if prior_session else [])]
+    AGENT_SESSIONS.append_message(session_id, "user", body.instruction)
+
     if not PROVIDER_ROUTER.providers:
         raise HTTPException(status_code=503, detail="No LLM providers configured")
 
@@ -1160,6 +1193,7 @@ async def agent_chat(
                 ollama_base=provider.normalized_base_url,
                 workspace_root=str(Path(__file__).resolve().parent),
                 provider_headers=provider.auth_headers() if provider.api_key else None,
+                session_store=AGENT_SESSIONS,
                 email=auth.email,
                 department=auth.department,
                 key_id=auth.key_id,
@@ -1172,15 +1206,20 @@ async def agent_chat(
             result = await asyncio.wait_for(
                 runner.run(
                     instruction=body.instruction,
-                    history=[],
+                    history=history,
                     requested_model=body.model or provider.default_model,
                     auto_commit=False,
                     max_steps=body.max_steps,
                     user_id=auth.email,
                     department=auth.department,
                     key_id=auth.key_id,
+                    memory_store=USER_MEMORY,
+                    session_id=session_id,
                 ),
                 timeout=body.timeout,
+            )
+            AGENT_SESSIONS.append_message(
+                session_id, "assistant", result.get("summary", "")
             )
             return {
                 "session_id": session_id,

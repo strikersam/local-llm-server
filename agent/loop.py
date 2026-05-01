@@ -30,6 +30,16 @@ from router import get_router
 
 log = logging.getLogger("qwen-agent")
 
+# Security-sensitive files the planner/runner must flag for extra scrutiny.
+# Any step that touches these triggers a risky-module warning and extra
+# verifier passes.  Kept as a module constant so tests can reference it.
+_RISKY_FILES: frozenset[str] = frozenset({
+    "admin_auth.py",
+    "key_store.py",
+    "agent/tools.py",
+    "proxy.py",          # auth middleware — changes need risky-module-review
+})
+
 # Default to Nvidia NIM free models — no local infra required.
 # These are overridden by env vars when local Ollama models are preferred.
 DEFAULT_PLANNER_MODEL = os.environ.get(
@@ -119,6 +129,49 @@ class AgentRunner:
         )
         self._log_event(session_id, "step_start", {"goal": plan.goal, "steps": len(plan.steps)})
 
+        # Risky module detection: warn loudly if the plan touches security-sensitive files.
+        # Per risky-module-review skill and agent/CLAUDE.md.
+        def _step_touches_risky(step_files: list[str]) -> bool:
+            return any(
+                sf.replace("\\", "/") == rf or sf.replace("\\", "/").endswith(f"/{rf}")
+                for sf in step_files
+                for rf in _RISKY_FILES
+            )
+
+        if plan.requires_risky_review or any(
+            _step_touches_risky(step.files) for step in plan.steps
+        ):
+            log.warning(
+                "RISKY MODULE detected in plan for '%s'. "
+                "Steps touching: %s. Risks: %s. Proceeding with extra verifier scrutiny.",
+                plan.goal,
+                [f for step in plan.steps for f in step.files if any(f.replace("\\", "/") == r or f.replace("\\", "/").endswith(f"/{r}") for r in _RISKY_FILES)],
+                plan.risks,
+            )
+            self._log_event(session_id, "step_start", {"risky_review": True, "risks": plan.risks})
+        self._write_checkpoint(session_id, plan)
+
+        parallel_result = await self._maybe_run_parallel(
+            plan=plan,
+            instruction=instruction,
+            requested_model=requested_model,
+            max_steps=max_steps,
+            auto_commit=auto_commit,
+            user_id=user_id,
+            memory_store=memory_store,
+            session_id=session_id,
+            department=department,
+            key_id=key_id,
+        )
+        if parallel_result is not None:
+            parallel_result["judge"] = await self._run_judge(
+                plan=plan,
+                step_results=parallel_result.get("steps", []),
+                requested_model=requested_model,
+                session_id=session_id,
+            )
+            return parallel_result
+
         step_results: list[dict[str, Any]] = []
         commits: list[str] = []
 
@@ -140,6 +193,15 @@ class AgentRunner:
         report  = self._build_rich_report(plan.goal, step_results, commits)
         self._log_event(session_id, "assistant_message", {"summary": summary})
 
+        # Judge gate: quick holistic review of all applied changes.
+        # Mirrors .claude/agents/judge.md — runs after all steps complete.
+        judge_verdict = await self._run_judge(
+            plan=plan,
+            step_results=step_results,
+            requested_model=requested_model,
+            session_id=session_id,
+        )
+
         # Update auth context if passed in run()
         if user_id:
             self.email = user_id
@@ -155,6 +217,7 @@ class AgentRunner:
             "commits": commits,
             "summary": summary,
             "report": report,
+            "judge": judge_verdict,
         }
 
     async def _generate_plan(
@@ -511,7 +574,254 @@ class AgentRunner:
                 repo_name=str(args.get("repo_name", ""))
             )
 
+        if tool == "spawn_subagent":
+            return await self._spawn_subagent(
+                instruction=str(args.get("instruction", "")),
+                requested_model=args.get("model") or None,
+                max_steps=int(args.get("max_steps", 5)),
+                user_id=user_id,
+                memory_store=memory_store,
+            )
+
         raise ValueError(f"Unsupported tool: {tool}")
+
+    # ------------------------------------------------------------------
+    # Judge gate  (.claude/agents/judge.md)
+    # ------------------------------------------------------------------
+
+    async def _run_judge(
+        self,
+        *,
+        plan: AgentPlan,
+        step_results: list[dict[str, Any]],
+        requested_model: str | None,
+        session_id: str | None,
+    ) -> dict[str, Any]:
+        """Lightweight Judge agent: holistic review of completed work.
+
+        Produces a verdict (APPROVED / APPROVED_WITH_CONDITIONS / BLOCKED) mirroring
+        the .claude/agents/judge.md spec.  We use a single LLM call with the verifier
+        model rather than a full council-review run.
+        """
+        applied = [s for s in step_results if s.get("status") == "applied"]
+        failed  = [s for s in step_results if s.get("status") == "failed"]
+        all_files = sorted({f for s in applied for f in s.get("changed_files", [])})
+
+        if not applied and not failed:
+            # Nothing happened — no judgement needed
+            return {"verdict": "APPROVED", "notes": "No changes were made."}
+
+        judge_model = requested_model or DEFAULT_VERIFIER_MODEL
+        messages = [
+            {
+                "role": "system",
+                "content": (
+                    "You are the Judge agent. Perform a release-readiness check on the completed work.\n\n"
+                    "Return ONLY JSON:\n"
+                    "{\n"
+                    '  "verdict": "APPROVED | APPROVED_WITH_CONDITIONS | BLOCKED",\n'
+                    '  "security": "PASS | WARN | FAIL",\n'
+                    '  "correctness": "PASS | WARN | FAIL",\n'
+                    '  "notes": "brief explanation"\n'
+                    "}\n\n"
+                    "Verdict rules:\n"
+                    "- BLOCKED if: any applied file contains a hardcoded secret, a broken import, "
+                    "or a step explicitly failed on a risky module.\n"
+                    "- APPROVED_WITH_CONDITIONS if: warnings exist but nothing is blocking.\n"
+                    "- APPROVED if: all checks pass."
+                ),
+            },
+            {
+                "role": "user",
+                "content": (
+                    f"Goal: {plan.goal}\n"
+                    f"Steps applied: {len(applied)}/{len(plan.steps)}\n"
+                    f"Steps failed: {len(failed)}\n"
+                    f"Files changed: {all_files}\n"
+                    f"Plan risks: {plan.risks}\n"
+                    f"Requires risky review: {plan.requires_risky_review}\n"
+                    f"Failed steps: {[s.get('description') for s in failed]}"
+                ),
+            },
+        ]
+        _VALID_VERDICTS = {"APPROVED", "APPROVED_WITH_CONDITIONS", "BLOCKED"}
+        try:
+            raw = await self._chat_json(judge_model, messages)
+            verdict = raw.get("verdict", "")
+            if verdict not in _VALID_VERDICTS:
+                log.warning(
+                    "Judge returned invalid verdict %r for session %s; treating as BLOCKED",
+                    verdict, session_id,
+                )
+                raw["verdict"] = "BLOCKED"
+                raw.setdefault("notes", f"Verdict {verdict!r} is not a recognised value.")
+            if raw["verdict"] == "BLOCKED":
+                log.warning("Judge BLOCKED session %s: %s", session_id, raw.get("notes", ""))
+            self._log_event(session_id, "assistant_message", {"judge": raw})
+            return raw
+        except Exception as exc:
+            log.warning("Judge call failed; defaulting to BLOCKED: %s", exc)
+            fallback = {"verdict": "BLOCKED", "notes": f"Judge unavailable: {exc}"}
+            self._log_event(session_id, "assistant_message", {"judge": fallback})
+            return fallback
+
+    # ------------------------------------------------------------------
+    # State checkpointing  (.claude/state/)
+    # ------------------------------------------------------------------
+
+    def _write_checkpoint(self, session_id: str | None, plan: AgentPlan) -> None:
+        """Persist the current plan to .claude/state/agent-state-{session_id}.json.
+
+        Mirrors the planner.md spec: state is written before each handoff so
+        sessions are resumable via scripts/ai_runner.py resume.  Each session
+        gets its own file so concurrent sessions don't overwrite each other.
+        """
+        state_dir = self.tools.root / ".claude" / "state"
+        try:
+            state_dir.mkdir(parents=True, exist_ok=True)
+            state = {
+                "session_id": session_id or "unknown",
+                "status": "running",
+                "last_updated": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+                "goal": plan.goal,
+                "step_count": len(plan.steps),
+                "risks": plan.risks,
+                "requires_risky_review": plan.requires_risky_review,
+            }
+            # Sanitize the session_id to produce a safe filename component.
+            safe_sid = re.sub(r"[^A-Za-z0-9_\-]", "_", session_id or "unknown")
+            state_file = state_dir / f"agent-state-{safe_sid}.json"
+            state_file.write_text(json.dumps(state, indent=2), encoding="utf-8")
+        except Exception as exc:
+            log.debug("Checkpoint write failed (non-fatal): %s", exc)
+
+    # ------------------------------------------------------------------
+    # Subagent delegation
+    # ------------------------------------------------------------------
+
+    async def _spawn_subagent(
+        self,
+        *,
+        instruction: str,
+        requested_model: str | None,
+        max_steps: int,
+        user_id: str | None = None,
+        memory_store: UserMemoryStore | None = None,
+    ) -> dict[str, Any]:
+        """Run a child AgentRunner for a self-contained subtask and return its condensed result."""
+        if not instruction.strip():
+            return {"error": "spawn_subagent: instruction is empty"}
+        child = AgentRunner(
+            ollama_base=self.ollama_base,
+            workspace_root=self.tools.root,
+            provider_headers=self.provider_headers,
+            provider_chain=self.provider_chain,
+            allow_commercial_fallback=self.allow_commercial_fallback,
+            provider_temperature=self.provider_temperature,
+            github_token=self.github.token if hasattr(self.github, "token") else None,
+            email=self.email,
+            department=self.department,
+            key_id=self.key_id,
+        )
+        result = await child.run(
+            instruction=instruction,
+            history=[],
+            requested_model=requested_model,
+            auto_commit=False,
+            max_steps=max_steps,
+            user_id=user_id,
+            memory_store=memory_store,
+        )
+        return ContextManager.condense_step_result(result)
+
+    # ------------------------------------------------------------------
+    # Auto-parallelization
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _steps_are_independent(steps: list[Any]) -> bool:
+        """Return True when no file appears in more than one step (safe to parallelize)."""
+        seen: set[str] = set()
+        for step in steps:
+            files = list(step.files) if hasattr(step, "files") else step.get("files") or []
+            for f in files:
+                if f in seen:
+                    return False
+                seen.add(f)
+        return True
+
+    async def _maybe_run_parallel(
+        self,
+        *,
+        plan: AgentPlan,
+        instruction: str,
+        requested_model: str | None,
+        max_steps: int,
+        auto_commit: bool,
+        user_id: str | None,
+        memory_store: UserMemoryStore | None,
+        session_id: str | None,
+        department: str | None,
+        key_id: str | None,
+    ) -> dict[str, Any] | None:
+        """If plan steps are independent, run them concurrently via MultiAgentSwarm.
+
+        Returns a result dict (same shape as AgentRunner.run) when parallelism was
+        applied, or None to signal the caller should fall back to the sequential loop.
+        """
+        from agent.coordinator import AgentCoordinator, WorkerSpec
+
+        _PARALLEL_THRESHOLD = 3
+        if len(plan.steps) < _PARALLEL_THRESHOLD or not self._steps_are_independent(plan.steps):
+            return None
+
+        log.info(
+            "agent: %d independent steps detected — switching to MultiAgentSwarm",
+            len(plan.steps),
+        )
+        self._log_event(session_id, "step_start", {"parallel_steps": len(plan.steps), "mode": "swarm"})
+
+        coordinator = AgentCoordinator(
+            ollama_base=self.ollama_base,
+            workspace_root=str(self.tools.root),
+            github_token=self.github.token if hasattr(self.github, "token") else None,
+        )
+        worker_specs = [
+            WorkerSpec(
+                worker_id=f"step-{step.id}",
+                instruction=f"Goal: {plan.goal}\n\nStep: {step.description}\nFiles: {', '.join(step.files) or '(determine from context)'}",
+                model=requested_model,
+                max_steps=max(2, max_steps // len(plan.steps)),
+            )
+            for step in plan.steps[:max_steps]
+        ]
+        coord_result = await coordinator.run(
+            plan.goal,
+            worker_specs,
+            max_concurrent=min(len(worker_specs), 4),
+            email=user_id,
+            department=department,
+            key_id=key_id,
+        )
+
+        # Flatten worker results into the standard run() return shape
+        all_steps: list[dict[str, Any]] = []
+        all_commits: list[str] = []
+        for worker in coord_result.workers:
+            inner = worker.get("result") or {}
+            all_steps.extend(inner.get("steps", []))
+            all_commits.extend(inner.get("commits", []))
+
+        summary = coord_result.summary
+        self._log_event(session_id, "assistant_message", {"summary": summary, "mode": "swarm"})
+        return {
+            "goal": plan.goal,
+            "plan": plan.model_dump(),
+            "steps": all_steps,
+            "commits": all_commits,
+            "summary": summary,
+            "report": summary,
+        }
 
     # ------------------------------------------------------------------
     # Event log helpers  (stateless harness / durable session log)
@@ -569,15 +879,18 @@ class AgentRunner:
             or "localhost" in self.ollama_base
             or "127.0.0.1" in self.ollama_base
         )
+        # Only inject the NVIDIA api_key when there are no provider_headers carrying
+        # auth already (e.g. DeepSeek / Anthropic pass their key via headers; adding
+        # the NVIDIA key on top would clobber the Authorization header they set).
+        _has_auth_headers = bool(self.provider_headers)
+        _nvidia_key = (
+            os.environ.get("NVIDIA_API_KEY") or os.environ.get("NVidiaApiKey") or None
+        ) if not _is_ollama and not _has_auth_headers else None
         primary = ProviderConfig(
             provider_id="agent-primary",
             type="ollama" if _is_ollama else "openai-compatible",
             base_url=self.ollama_base,
-            api_key=(
-                os.environ.get("NVIDIA_API_KEY")
-                or os.environ.get("NVidiaApiKey")
-                or None
-            ) if not _is_ollama else None,
+            api_key=_nvidia_key,
             headers=dict(self.provider_headers),
             default_model=model,
             priority=0,
@@ -740,10 +1053,13 @@ class AgentRunner:
             return ""
 
     def _commit_step(self, description: str, changed_files: list[str]) -> str | None:
+        # Strip control characters (newlines, CR, tabs) so multi-line step
+        # descriptions don't create malformed git commit messages.
+        safe_description = " ".join(description.splitlines()).strip()[:200] or "agent change"
         try:
             subprocess.run(["git", "add", *changed_files], cwd=self.tools.root, check=True, capture_output=True, text=True)
             subprocess.run(
-                ["git", "commit", "-m", f"agent: {description}"],
+                ["git", "commit", "-m", f"agent: {safe_description}"],
                 cwd=self.tools.root,
                 check=True,
                 capture_output=True,
@@ -757,6 +1073,10 @@ class AgentRunner:
                 text=True,
             )
             return proc.stdout.strip()
+        except FileNotFoundError:
+            # git binary not available in this environment — skip auto-commit silently.
+            log.warning("Auto-commit skipped: git not found in PATH")
+            return None
         except subprocess.CalledProcessError as exc:
             log.warning("Auto-commit failed: %s", exc.stderr.strip() if exc.stderr else exc)
             return None

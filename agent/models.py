@@ -56,11 +56,16 @@ class AgentStep(BaseModel):
     description: str = Field(..., min_length=1)
     files: list[str] = Field(default_factory=list)
     type: Literal["edit", "create", "analyze", "github"]
+    # Planner-annotated fields (optional — older plans without them still validate)
+    risky: bool = False          # True when step touches a security-sensitive module
+    acceptance: str = ""         # How to verify this step succeeded
 
 
 class AgentPlan(BaseModel):
     goal: str = Field(..., min_length=1)
     steps: list[AgentStep] = Field(default_factory=list)  # truncated by max_steps in loop.py
+    risks: list[str] = Field(default_factory=list)
+    requires_risky_review: bool = False  # True when any step touches admin_auth, key_store, agent/tools
 
 
 class ToolCall(BaseModel):
@@ -74,6 +79,7 @@ class ToolCall(BaseModel):
         "search_code",
         "recall_memory",
         "save_memory",
+        "spawn_subagent",
         "github_read_repo_file",
         "github_list_repos",
         "github_list_branches",
@@ -131,6 +137,7 @@ class AgentSession(BaseModel):
     title: str
     provider_id: str | None = None
     workspace_id: str | None = None
+    owner_id: str = ""   # email of the creating user; enforced on load in /agent/chat
     created_at: str
     updated_at: str
     history: list[AgentSessionMessage] = Field(default_factory=list)
