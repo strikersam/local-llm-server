@@ -150,6 +150,7 @@ jobs:
               "architect", "design", "plan", "strategy", "system", "security", "auth",
               "performance", "scalab", "tradeoff", "compare", "evaluate", "migration",
               "pipeline", "multi", "integrate", "orchestrat", "infrastructure",
+              "theme", "align", "page", "wizard", "dashboard", "ui", "ux",
           ]
           CODE_KEYWORDS = [
               "implement", "build", "create", "add", "refactor", "endpoint",
@@ -163,36 +164,60 @@ jobs:
 
           task_lower = (task + " " + url).lower()
 
+          # Preferred model per tier → fallback chain (all free NVIDIA NIM models).
+          # Nemotron Ultra requires explicit account enablement; use llama-3.3-70b
+          # as the reliable heavy model and fall through on 404.
           if any(kw in task_lower for kw in REASONING_KEYWORDS) or len(task) > 120:
-              model = "nvidia/llama-3.1-nemotron-ultra-253b-v1"
-              tier = "reasoning/planning (Nemotron Ultra 253B)"
+              candidates = [
+                  ("nvidia/llama-3.1-nemotron-ultra-253b-v1", "reasoning/planning (Nemotron Ultra 253B)"),
+                  ("meta/llama-3.3-70b-instruct",             "reasoning/planning (Llama 3.3 70B)"),
+                  ("qwen/qwen2.5-coder-32b-instruct",         "reasoning/planning (Qwen2.5 Coder 32B fallback)"),
+              ]
           elif any(kw in task_lower for kw in ANALYSIS_KEYWORDS):
-              model = "deepseek-ai/deepseek-r1"
-              tier = "data analysis/math (DeepSeek R1)"
+              candidates = [
+                  ("deepseek-ai/deepseek-r1",         "data analysis/math (DeepSeek R1)"),
+                  ("meta/llama-3.3-70b-instruct",     "data analysis/math (Llama 3.3 70B fallback)"),
+              ]
           elif any(kw in task_lower for kw in CODE_KEYWORDS) or len(task) > 40:
-              model = "qwen/qwen2.5-coder-32b-instruct"
-              tier = "code generation (Qwen2.5 Coder 32B)"
+              candidates = [
+                  ("qwen/qwen2.5-coder-32b-instruct", "code generation (Qwen2.5 Coder 32B)"),
+                  ("meta/llama-3.3-70b-instruct",     "code generation (Llama 3.3 70B fallback)"),
+              ]
           else:
-              model = "meta/llama-3.1-8b-instruct"
-              tier = "fast response (Llama 3.1 8B)"
+              candidates = [
+                  ("meta/llama-3.1-8b-instruct",  "fast response (Llama 3.1 8B)"),
+                  ("meta/llama-3.3-70b-instruct", "fast response (Llama 3.3 70B fallback)"),
+              ]
 
           nvidia_key = os.environ.get("NVIDIA_API_KEY", "")
           if not nvidia_key:
               print("ERROR: NVIDIA_API_KEY secret not set — cannot call NVIDIA NIM API")
               sys.exit(1)
 
-          print(f"Task tier: {tier}")
-          print(f"Selected model: {model}")
           client = OpenAI(
               base_url="https://integrate.api.nvidia.com/v1",
               api_key=nvidia_key,
           )
-          msg = client.chat.completions.create(
-              model=model,
-              max_tokens=8192,
-              messages=[{"role": "user", "content": prompt}],
-          )
-          response = msg.choices[0].message.content
+
+          response = None
+          for model, tier in candidates:
+              print(f"Task tier: {tier}")
+              print(f"Trying model: {model}")
+              try:
+                  msg = client.chat.completions.create(
+                      model=model,
+                      max_tokens=8192,
+                      messages=[{"role": "user", "content": prompt}],
+                  )
+                  response = msg.choices[0].message.content
+                  print(f"Success with model: {model}")
+                  break
+              except Exception as e:
+                  print(f"Model {model} unavailable ({e}) — trying next fallback")
+
+          if response is None:
+              print("ERROR: All NVIDIA NIM models failed")
+              sys.exit(1)
 
           print(f"Response length: {len(response)} chars")
           print("--- LLM RESPONSE START ---")
