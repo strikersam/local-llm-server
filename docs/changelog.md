@@ -1,6 +1,15 @@
+# Changelog
+
 ## [Unreleased]
 
-- Added URL Reader skill to analyze URLs and extract relevant information.
+### Changed
+- `.github/workflows/process-quick-note.yml` — **complete pipeline rewrite**: quick-note issues now go through a full automated engineering cycle: (1) multi-strategy URL fetch (direct → og:url/canonical resolution → Google Cache → Wayback Machine) with a 500-char content gate that reopens the issue with a clear message instead of hallucinating; (2) dedicated `quick-note/issue-N` feature branch; (3) Claude agentic implementation loop (`implement_agent.py`) using Anthropic tool-use — reads CLAUDE.md and all relevant skills, edits files, runs pytest inside the loop, fixes failures; (4) pytest gate before commit; (5) automatic PR creation with summary; (6) council-review pass (`review_agent.py` — Security / Correctness / Performance / Maintainability) posted as PR comment; (7) auto-merge on PASS/WARN; (8) auto-retry up to 3× on failure — issues reopened with a failure log and a `retry:N` label; after 3 failures the issue receives `quick-note:exhausted` for human triage.
+- `.github/scripts/fetch_url.py` — standalone multi-strategy URL fetcher (direct → og:url resolve → Google Cache → Wayback Machine).
+- `.github/scripts/implement_agent.py` — Claude claude-opus-4-7 agentic loop with `bash`, `read_file`, `write_file`, `list_files` tools; follows all repo skills (implementation-planner, test-first-executor, changelog-enforcer, issue-resolver); 40-turn limit with `IMPLEMENTATION_COMPLETE` signal.
+- `.github/scripts/review_agent.py` — council-review using Claude claude-sonnet-4-6; outputs per-role PASS/WARN/FAIL verdicts; auto-merge on PASS/WARN, leaves PR open on FAIL.
+
+### Fixed
+- `.github/workflows/process-quick-note.yml` — removed spurious `.agents/skills/url-reader/` committed by failed issue #24 run and restored `docs/changelog.md` to correct state; root cause was bare `curl` failing on `share.google` JS-redirect URLs and the LLM hallucinating changes from empty input.
 
 ### Added
 - `agent/loop.py` — `spawn_subagent(instruction, model?, max_steps?)` tool added to the Executor toolkit; lets any in-flight agent delegate a self-contained subtask to a child `AgentRunner` and receive a condensed result, enabling recursive subagent delegation without an explicit API call.

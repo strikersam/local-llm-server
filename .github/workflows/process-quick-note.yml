@@ -1,12 +1,13 @@
 name: Process Quick Note
 
+# Triggered on schedule, manually, or by the self-retry mechanism.
 on:
   schedule:
     - cron: '0 */4 * * *'
   workflow_dispatch:
     inputs:
       issue_number:
-        description: "Issue number to process (leave blank to auto-pick oldest)"
+        description: "Issue number to process (blank = auto-pick oldest)"
         required: false
         type: string
 
@@ -17,17 +18,25 @@ concurrency:
 permissions:
   contents: write
   issues: write
+  pull-requests: write
 
+# ---------------------------------------------------------------------------
+# Pipeline: find → fetch URL → branch → implement → test → PR → review → merge
+# On any failure the issue is reopened (auto-retry up to 3×).
+# After 3 failures the issue is labelled quick-note:exhausted and left open.
+# ---------------------------------------------------------------------------
 jobs:
   process:
     runs-on: ubuntu-latest
 
     steps:
+      # ── 1. Checkout ───────────────────────────────────────────────────────
       - uses: actions/checkout@v4
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
           fetch-depth: 0
 
+      # ── 2. Find next pending issue ─────────────────────────────────────────
       - name: Find next pending quick-note issue
         id: pick
         env:
@@ -37,10 +46,11 @@ jobs:
             NUM="${{ github.event.inputs.issue_number }}"
             echo "Manual override — using issue #$NUM"
           else
+            # Oldest open quick-note that has not exhausted retries
             NUM=$(gh issue list \
               --repo "${{ github.repository }}" \
               --state open \
-              --search "quick-note: in:title" \
+              --search "quick-note: in:title -label:quick-note:exhausted" \
               --json number \
               --limit 100 \
               --jq 'sort_by(.number) | .[0].number // empty')
@@ -53,245 +63,386 @@ jobs:
             echo "number=$NUM" >> "$GITHUB_OUTPUT"
           fi
 
-      - name: Resolve issue body and extract URL / task
+      # ── 3. Extract URL, task, and retry count ──────────────────────────────
+      - name: Resolve issue body
         id: issue
         if: steps.pick.outputs.found == 'true'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           NUM="${{ steps.pick.outputs.number }}"
-          BODY=$(gh issue view "$NUM" --repo "${{ github.repository }}" --json body -q .body)
-          URL=$(echo "$BODY" | grep -oE 'https?://[^[:space:]]+' | head -1)
-          TASK=$(echo "$BODY" | grep -i "^Task:" | sed 's/^[Tt]ask:[[:space:]]*//')
-          echo "number=$NUM" >> "$GITHUB_OUTPUT"
-          echo "url=$URL" >> "$GITHUB_OUTPUT"
-          echo "task=$TASK" >> "$GITHUB_OUTPUT"
-          echo "Resolved issue #$NUM → $URL | task: $TASK"
+          BODY=$(gh issue view "$NUM" \
+            --repo "${{ github.repository }}" --json body -q .body)
 
-      - name: Comment processing started
+          # Extract first https:// URL from body
+          URL=$(echo "$BODY" | grep -oE 'https?://[^[:space:]>)]+' | head -1)
+
+          # Extract Task: line
+          TASK=$(echo "$BODY" \
+            | grep -iE "^[Tt]ask:" \
+            | sed 's/^[Tt]ask:[[:space:]]*//' \
+            | head -1)
+
+          # Read retry count from labels (label format: retry:N)
+          RETRY=$(gh issue view "$NUM" \
+            --repo "${{ github.repository }}" \
+            --json labels \
+            -q '.labels[].name' \
+            | grep -oE 'retry:[0-9]+' \
+            | grep -oE '[0-9]+' \
+            | head -1 || echo "0")
+          [ -z "$RETRY" ] && RETRY=0
+
+          echo "number=$NUM"       >> "$GITHUB_OUTPUT"
+          echo "url=$URL"          >> "$GITHUB_OUTPUT"
+          echo "task=$TASK"        >> "$GITHUB_OUTPUT"
+          echo "retry=$RETRY"      >> "$GITHUB_OUTPUT"
+          echo "Resolved #$NUM → URL=$URL task=$TASK retry=$RETRY"
+
+      # ── 4. Comment "processing started" ───────────────────────────────────
+      - name: Comment — processing started
         if: steps.pick.outputs.found == 'true'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
+          RETRY="${{ steps.issue.outputs.retry }}"
+          if [ "$RETRY" -gt 0 ]; then
+            MSG="🔄 Retry #${RETRY} — processing \`${{ steps.issue.outputs.url }}\`"
+          else
+            MSG="⏳ Processing started — fetching \`${{ steps.issue.outputs.url }}\`"
+          fi
           gh issue comment "${{ steps.issue.outputs.number }}" \
-            --repo "${{ github.repository }}" \
-            --body "⏳ Processing started — fetching ${{ steps.issue.outputs.url }}"
+            --repo "${{ github.repository }}" --body "$MSG"
 
+      # ── 5. Python + Node setup ─────────────────────────────────────────────
       - uses: actions/setup-python@v5
         if: steps.pick.outputs.found == 'true'
         with:
           python-version: "3.12"
+          cache: pip
 
-      - name: Install OpenAI SDK
+      - name: Install Python dependencies
         if: steps.pick.outputs.found == 'true'
-        run: pip install openai
+        run: |
+          pip install anthropic requests
+          pip install -r requirements.txt --quiet || true
 
+      # ── 6. Fetch URL content (multi-strategy) ─────────────────────────────
       - name: Fetch URL content
+        id: fetch
         if: steps.pick.outputs.found == 'true'
-        run: |
-          URL="${{ steps.issue.outputs.url }}"
-          if [ -z "$URL" ]; then
-            echo "ERROR: no URL found in issue body" >&2
-            exit 1
-          fi
-          # Fetch and strip HTML tags → plain text is 4x more token-efficient
-          curl -sL --max-time 30 --user-agent "Mozilla/5.0" "$URL" \
-            | sed 's/<[^>]*>/ /g' \
-            | tr -s ' \t' ' ' \
-            | grep -v '^\s*$' \
-            | head -c 5000 > /tmp/note_content.txt
-          echo "Extracted $(wc -c < /tmp/note_content.txt) chars of plain text from $URL"
-
-      - name: Write LLM script
-        if: steps.pick.outputs.found == 'true'
-        run: |
-          cat > /tmp/run_llm.py << 'PYEOF'
-          import os, subprocess, sys, re
-          from openai import OpenAI
-
-          url = sys.argv[1]
-          issue_num = sys.argv[2]
-          task = sys.argv[3] if len(sys.argv) > 3 else ""
-
-          page_content = open("/tmp/note_content.txt").read()
-
-          result = subprocess.run(
-              ["git", "ls-files", "--", "*.py", "*.js", "*.ts", "*.tsx", "*.yml", "*.yaml", "*.md"],
-              capture_output=True, text=True
-          )
-          file_tree = result.stdout[:1500]
-
-          task_line = f"User instruction: {task}\n\n" if task else ""
-
-          prompt = (
-              "You are implementing a coding task queued by the repository owner via an iPhone shortcut.\n"
-              f"Issue #{issue_num} -- URL: {url}\n\n"
-              + task_line
-              + "Repository files (partial):\n"
-              + file_tree + "\n\n"
-              "Fetched page content from the URL:\n---\n"
-              + page_content[:4000] + "\n---\n\n"
-              "Your task:\n"
-              "1. Follow the user instruction above. Use the URL content as reference.\n"
-              "   If no instruction given, infer what to implement from the URL content.\n"
-              "2. Output EVERY file change using this EXACT format (no other format accepted):\n\n"
-              "=== FILE: path/to/file.ext ===\n"
-              "<complete file contents here>\n"
-              "=== END FILE ===\n\n"
-              "3. Add a short entry to docs/changelog.md under [Unreleased].\n"
-              "4. Be focused -- only implement what is clearly described.\n"
-              "5. If nothing actionable, output only: NOTHING_TO_IMPLEMENT"
-          )
-
-          # Auto-select free NVIDIA NIM model by task complexity.
-          # Tiers mirror router/classifier.py categories so routing is consistent
-          # with the proxy's own model-selection logic.
-          REASONING_KEYWORDS = [
-              "architect", "design", "plan", "strategy", "system", "security", "auth",
-              "performance", "scalab", "tradeoff", "compare", "evaluate", "migration",
-              "pipeline", "multi", "integrate", "orchestrat", "infrastructure",
-              "theme", "align", "page", "wizard", "dashboard", "ui", "ux",
-          ]
-          CODE_KEYWORDS = [
-              "implement", "build", "create", "add", "refactor", "endpoint",
-              "api", "handler", "module", "feature", "cloud", "vercel", "deploy",
-              "async", "agent", "function", "class", "route", "scaffold",
-          ]
-          ANALYSIS_KEYWORDS = [
-              "math", "calculat", "proof", "algorithm", "data analysis",
-              "machine learning", "deep learning", "neural", "dataset", "ml",
-          ]
-
-          task_lower = (task + " " + url).lower()
-
-          # Preferred model per tier → fallback chain (all free NVIDIA NIM models).
-          # Nemotron Ultra requires explicit account enablement; use llama-3.3-70b
-          # as the reliable heavy model and fall through on 404.
-          if any(kw in task_lower for kw in REASONING_KEYWORDS) or len(task) > 120:
-              candidates = [
-                  ("nvidia/llama-3.1-nemotron-ultra-253b-v1", "reasoning/planning (Nemotron Ultra 253B)"),
-                  ("meta/llama-3.3-70b-instruct",             "reasoning/planning (Llama 3.3 70B)"),
-                  ("qwen/qwen2.5-coder-32b-instruct",         "reasoning/planning (Qwen2.5 Coder 32B fallback)"),
-              ]
-          elif any(kw in task_lower for kw in ANALYSIS_KEYWORDS):
-              candidates = [
-                  ("deepseek-ai/deepseek-r1",         "data analysis/math (DeepSeek R1)"),
-                  ("meta/llama-3.3-70b-instruct",     "data analysis/math (Llama 3.3 70B fallback)"),
-              ]
-          elif any(kw in task_lower for kw in CODE_KEYWORDS) or len(task) > 40:
-              candidates = [
-                  ("qwen/qwen2.5-coder-32b-instruct", "code generation (Qwen2.5 Coder 32B)"),
-                  ("meta/llama-3.3-70b-instruct",     "code generation (Llama 3.3 70B fallback)"),
-              ]
-          else:
-              candidates = [
-                  ("meta/llama-3.1-8b-instruct",  "fast response (Llama 3.1 8B)"),
-                  ("meta/llama-3.3-70b-instruct", "fast response (Llama 3.3 70B fallback)"),
-              ]
-
-          nvidia_key = os.environ.get("NVIDIA_API_KEY", "")
-          if not nvidia_key:
-              print("ERROR: NVIDIA_API_KEY secret not set — cannot call NVIDIA NIM API")
-              sys.exit(1)
-
-          client = OpenAI(
-              base_url="https://integrate.api.nvidia.com/v1",
-              api_key=nvidia_key,
-          )
-
-          response = None
-          for model, tier in candidates:
-              print(f"Task tier: {tier}")
-              print(f"Trying model: {model}")
-              try:
-                  msg = client.chat.completions.create(
-                      model=model,
-                      max_tokens=8192,
-                      messages=[{"role": "user", "content": prompt}],
-                  )
-                  response = msg.choices[0].message.content
-                  print(f"Success with model: {model}")
-                  break
-              except Exception as e:
-                  print(f"Model {model} unavailable ({e}) — trying next fallback")
-
-          if response is None:
-              print("ERROR: All NVIDIA NIM models failed")
-              sys.exit(1)
-
-          print(f"Response length: {len(response)} chars")
-          print("--- LLM RESPONSE START ---")
-          print(response[:3000])
-          print("--- LLM RESPONSE END ---")
-
-          if "NOTHING_TO_IMPLEMENT" in response:
-              print("Nothing actionable to implement.")
-              sys.exit(0)
-
-          pattern = r"=== FILE: (.+?) ===\n(.*?)=== END FILE ==="
-          matches = re.findall(pattern, response, re.DOTALL)
-          if not matches:
-              pattern2 = r"```[^\n]*\n(?:#|//|--)\s*([^\n]+)\n(.*?)```"
-              matches = re.findall(pattern2, response, re.DOTALL)
-          if not matches:
-              print("No file blocks found — writing response to /tmp/llm_response.txt")
-              with open("/tmp/llm_response.txt", "w") as f:
-                  f.write(response)
-              sys.exit(0)
-
-          for filepath, contents in matches:
-              filepath = filepath.strip()
-              os.makedirs(os.path.dirname(filepath) if os.path.dirname(filepath) else ".", exist_ok=True)
-              with open(filepath, "w") as f:
-                  f.write(contents)
-              print(f"Wrote: {filepath}")
-
-          print("Done applying changes.")
-          PYEOF
-
-      - name: Run LLM (auto-select free NVIDIA NIM model by complexity)
-        id: llm
-        if: steps.pick.outputs.found == 'true'
-        env:
-          NVIDIA_API_KEY: ${{ secrets.NVIDIA_API_KEY }}
-        run: |
-          python3 /tmp/run_llm.py "${{ steps.issue.outputs.url }}" "${{ steps.issue.outputs.number }}" "${{ steps.issue.outputs.task }}" 2>&1 | tee /tmp/llm_output.txt
-
-      - name: Commit and push
-        id: commit
-        if: steps.pick.outputs.found == 'true'
-        run: |
-          git config user.email "claude-actions@github.com"
-          git config user.name "Claude Actions [bot]"
-          git add -A
-          if git diff --staged --quiet; then
-            echo "changed=false" >> "$GITHUB_OUTPUT"
-          else
-            git commit -m "feat: implement quick-note from issue #${{ steps.issue.outputs.number }}"
-            git push -u origin master
-            echo "changed=true" >> "$GITHUB_OUTPUT"
-          fi
-
-      - name: Close issue
-        if: steps.pick.outputs.found == 'true' && always()
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          if [ "${{ steps.commit.outputs.changed }}" = "true" ]; then
-            echo "✅ Done — changes committed and pushed to master." > /tmp/issue_msg.txt
-          elif [ -f /tmp/llm_output.txt ] && grep -q "Error\|Exception\|Traceback" /tmp/llm_output.txt; then
-            echo "❌ LLM step failed:" > /tmp/issue_msg.txt
-            tail -20 /tmp/llm_output.txt >> /tmp/issue_msg.txt
-          elif [ -f /tmp/llm_response.txt ]; then
-            echo "⚠️ LLM ran but produced no parseable file changes. Raw response (first 1500 chars):" > /tmp/issue_msg.txt
-            head -c 1500 /tmp/llm_response.txt >> /tmp/issue_msg.txt
-          else
-            echo "✅ Done — LLM ran but made no file changes." > /tmp/issue_msg.txt
+          URL="${{ steps.issue.outputs.url }}"
+          if [ -z "$URL" ]; then
+            gh issue comment "${{ steps.issue.outputs.number }}" \
+              --repo "${{ github.repository }}" \
+              --body "$(cat <<'MSG'
+          ❌ No URL found in the issue body.
+
+          Please include a full `https://` link and reopen the issue.
+          If the share link requires a login, paste the article text directly into the issue body instead.
+          MSG
+          )"
+            exit 1
           fi
-          MSG=$(cat /tmp/issue_msg.txt)
+
+          python3 .github/scripts/fetch_url.py "$URL"
+          FETCH_EXIT=$?
+
+          if [ "$FETCH_EXIT" -eq 2 ]; then
+            gh issue comment "${{ steps.issue.outputs.number }}" \
+              --repo "${{ github.repository }}" \
+              --body "$(cat <<MSG
+          ❌ Could not fetch content from \`${URL}\` (tried direct fetch, Google Cache, and Wayback Machine).
+
+          **Possible causes:**
+          - Login-required share link (e.g. \`share.google/...\`)
+          - Paywalled article
+          - JavaScript-only rendering
+
+          **Fix:** Paste the article text directly into the issue body and reopen.
+          MSG
+          )"
+            exit 1
+          fi
+
+          CHARS=$(wc -c < /tmp/note_content.txt)
+          echo "fetch_chars=$CHARS" >> "$GITHUB_OUTPUT"
+          echo "Fetched $CHARS chars"
+
+      # ── 7. Create feature branch ───────────────────────────────────────────
+      - name: Create feature branch
+        id: branch
+        if: steps.pick.outputs.found == 'true' && steps.fetch.outputs.fetch_chars != ''
+        run: |
+          BRANCH="quick-note/issue-${{ steps.issue.outputs.number }}"
+          git config user.email "claude-actions@github.com"
+          git config user.name "Claude Actions [bot]"
+
+          # Clean up any stale branch
+          git push origin --delete "$BRANCH" 2>/dev/null || true
+          git checkout -b "$BRANCH"
+
+          echo "branch=$BRANCH" >> "$GITHUB_OUTPUT"
+
+      # ── 8. Implement features with Claude ──────────────────────────────────
+      - name: Implement features (Claude agentic loop)
+        id: implement
+        if: steps.branch.outputs.branch != ''
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: |
+          python3 .github/scripts/implement_agent.py \
+            "${{ steps.issue.outputs.url }}" \
+            "${{ steps.issue.outputs.number }}" \
+            "${{ steps.issue.outputs.task }}" \
+            2>&1 | tee /tmp/impl_output.txt
+
+          if [ -f /tmp/impl_result.json ]; then
+            SUCCESS=$(python3 -c "import json; d=json.load(open('/tmp/impl_result.json')); print(d['success'])")
+            echo "success=$SUCCESS" >> "$GITHUB_OUTPUT"
+          else
+            echo "success=False" >> "$GITHUB_OUTPUT"
+          fi
+
+      # ── 9. Run test suite ──────────────────────────────────────────────────
+      - name: Run pytest
+        id: tests
+        if: steps.implement.outputs.success == 'True'
+        run: |
+          if pytest -x -q --tb=short 2>&1 | tee /tmp/test_output.txt; then
+            echo "passed=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "passed=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      # ── 10. Commit and push branch ─────────────────────────────────────────
+      - name: Commit and push
+        id: commit
+        if: steps.tests.outputs.passed == 'true'
+        run: |
+          git add -A
+          if git diff --staged --quiet; then
+            echo "No file changes detected after implementation."
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+          else
+            SUMMARY=$(python3 -c "
+          import json, sys
+          try:
+              d = json.load(open('/tmp/impl_result.json'))
+              print(d.get('summary','')[:200])
+          except Exception:
+              print('')
+          " 2>/dev/null || echo "")
+            git commit -m "feat(quick-note): implement issue #${{ steps.issue.outputs.number }}
+
+          $SUMMARY"
+            git push -u origin "${{ steps.branch.outputs.branch }}"
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      # ── 11. Create pull request ────────────────────────────────────────────
+      - name: Create pull request
+        id: pr
+        if: steps.commit.outputs.changed == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          IMPL_SUMMARY=$(python3 -c "
+          import json, sys
+          try:
+              d = json.load(open('/tmp/impl_result.json'))
+              print(d.get('summary','(see diff)'))
+          except Exception:
+              print('(see diff)')
+          " 2>/dev/null || echo "(see diff)")
+
+          PR_URL=$(gh pr create \
+            --repo "${{ github.repository }}" \
+            --title "feat: implement quick-note issue #${{ steps.issue.outputs.number }}" \
+            --body "$(cat <<PRBODY
+          ## Summary
+          Closes #${{ steps.issue.outputs.number }}
+
+          **Source URL:** ${{ steps.issue.outputs.url }}
+          **Task:** ${{ steps.issue.outputs.task }}
+
+          ### What was implemented
+          $IMPL_SUMMARY
+
+          ---
+          *Auto-generated by the process-quick-note workflow.*
+          PRBODY
+          )" \
+            --base master \
+            --head "${{ steps.branch.outputs.branch }}")
+
+          PR_NUM=$(echo "$PR_URL" | grep -oE '[0-9]+$')
+          echo "pr_number=$PR_NUM" >> "$GITHUB_OUTPUT"
+          echo "pr_url=$PR_URL"    >> "$GITHUB_OUTPUT"
+          echo "Created PR #$PR_NUM — $PR_URL"
+
+      # ── 12. Council review ─────────────────────────────────────────────────
+      - name: Council review (Security / Correctness / Performance / Maintainability)
+        id: review
+        if: steps.pr.outputs.pr_number != ''
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          python3 .github/scripts/review_agent.py \
+            "${{ steps.pr.outputs.pr_number }}" \
+            2>&1 | tee /tmp/review_output.txt
+
+          REVIEW_EXIT=$?
+          if [ -f /tmp/review_result.json ]; then
+            VERDICT=$(python3 -c "import json; print(json.load(open('/tmp/review_result.json'))['verdict'])")
+          else
+            VERDICT="WARN"
+          fi
+          echo "verdict=$VERDICT" >> "$GITHUB_OUTPUT"
+          echo "review_exit=$REVIEW_EXIT" >> "$GITHUB_OUTPUT"
+
+          # Post review as PR comment
+          REVIEW_BODY=$(cat /tmp/review_output.txt | tail -60)
+          gh pr comment "${{ steps.pr.outputs.pr_number }}" \
+            --repo "${{ github.repository }}" \
+            --body "## Council Review
+
+          \`\`\`
+          $REVIEW_BODY
+          \`\`\`"
+
+      # ── 13. Merge PR ───────────────────────────────────────────────────────
+      - name: Merge PR into master
+        id: merge
+        if: >
+          steps.pr.outputs.pr_number != '' &&
+          (steps.review.outputs.verdict == 'PASS' || steps.review.outputs.verdict == 'WARN')
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh pr merge "${{ steps.pr.outputs.pr_number }}" \
+            --repo "${{ github.repository }}" \
+            --squash \
+            --delete-branch \
+            --subject "feat: implement quick-note issue #${{ steps.issue.outputs.number }}"
+          echo "merged=true" >> "$GITHUB_OUTPUT"
+          echo "Merged PR #${{ steps.pr.outputs.pr_number }} into master."
+
+      # ── 14. Close issue on success ─────────────────────────────────────────
+      - name: Close issue — success
+        if: steps.merge.outputs.merged == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          IMPL_SUMMARY=$(python3 -c "
+          import json
+          try:
+              d = json.load(open('/tmp/impl_result.json'))
+              print(d.get('summary',''))
+          except Exception:
+              print('')
+          " 2>/dev/null || echo "")
+
           gh issue comment "${{ steps.issue.outputs.number }}" \
             --repo "${{ github.repository }}" \
-            --body "$MSG"
+            --body "$(cat <<MSG
+          ✅ Done — PR #${{ steps.pr.outputs.pr_number }} merged into master.
+
+          ### What was implemented
+          $IMPL_SUMMARY
+
+          **Review verdict:** ${{ steps.review.outputs.verdict }}
+          MSG
+          )"
           gh issue close "${{ steps.issue.outputs.number }}" \
             --repo "${{ github.repository }}" \
             --reason completed
+
+      # ── 15. Leave PR open for human review if council review failed ─────────
+      - name: Comment — needs human review
+        if: >
+          steps.pr.outputs.pr_number != '' &&
+          steps.review.outputs.verdict == 'FAIL'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh issue comment "${{ steps.issue.outputs.number }}" \
+            --repo "${{ github.repository }}" \
+            --body "$(cat <<MSG
+          ⚠️ Council review returned **FAIL** — PR #${{ steps.pr.outputs.pr_number }} needs human review before merging.
+
+          Please review and merge (or close) the PR manually.
+          MSG
+          )"
+
+      # ── 16. Auto-retry: reopen issue on failure ────────────────────────────
+      # Runs whenever ANY earlier step failed and we found an issue to process.
+      # After 3 failures the issue is exhausted.
+      - name: Handle failure — reopen for retry
+        if: >
+          failure() &&
+          steps.pick.outputs.found == 'true' &&
+          steps.merge.outputs.merged != 'true' &&
+          steps.review.outputs.verdict != 'FAIL'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          RETRY="${{ steps.issue.outputs.retry }}"
+          NEW_RETRY=$((RETRY + 1))
+          MAX_RETRIES=3
+          ISSUE="${{ steps.issue.outputs.number }}"
+
+          # Remove old retry label (best-effort)
+          gh issue edit "$ISSUE" \
+            --repo "${{ github.repository }}" \
+            --remove-label "retry:${RETRY}" 2>/dev/null || true
+
+          if [ "$NEW_RETRY" -ge "$MAX_RETRIES" ]; then
+            # Exhausted — label and leave open for human
+            gh label create "quick-note:exhausted" \
+              --repo "${{ github.repository }}" \
+              --color "b60205" --description "Retries exhausted" 2>/dev/null || true
+            gh issue edit "$ISSUE" \
+              --repo "${{ github.repository }}" \
+              --add-label "quick-note:exhausted"
+            gh issue comment "$ISSUE" \
+              --repo "${{ github.repository }}" \
+              --body "$(cat <<MSG
+          ❌ Failed after ${MAX_RETRIES} attempts — manual intervention required.
+
+          **Failure log (last 40 lines of agent output):**
+          \`\`\`
+          $(tail -40 /tmp/impl_output.txt 2>/dev/null || tail -40 /tmp/test_output.txt 2>/dev/null || echo "(no log)")
+          \`\`\`
+          MSG
+          )"
+          else
+            # Create retry label if it doesn't exist
+            gh label create "retry:${NEW_RETRY}" \
+              --repo "${{ github.repository }}" \
+              --color "e4e669" \
+              --description "Auto-retry attempt ${NEW_RETRY}" 2>/dev/null || true
+            gh issue edit "$ISSUE" \
+              --repo "${{ github.repository }}" \
+              --add-label "retry:${NEW_RETRY}"
+            gh issue reopen "$ISSUE" \
+              --repo "${{ github.repository }}" 2>/dev/null || true
+            gh issue comment "$ISSUE" \
+              --repo "${{ github.repository }}" \
+              --body "$(cat <<MSG
+          ⚠️ Attempt ${RETRY} failed — reopening for automatic retry (${NEW_RETRY}/${MAX_RETRIES}).
+
+          The next scheduled run (every 4 h) will pick this up automatically.
+          To trigger immediately: re-run the *Process Quick Note* workflow with issue number \`${ISSUE}\`.
+
+          **What failed:**
+          \`\`\`
+          $(tail -20 /tmp/impl_output.txt 2>/dev/null || tail -20 /tmp/test_output.txt 2>/dev/null || echo "(no log available)")
+          \`\`\`
+          MSG
+          )"
+          fi
