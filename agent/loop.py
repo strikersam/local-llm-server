@@ -30,6 +30,11 @@ from router import get_router
 
 log = logging.getLogger("qwen-agent")
 
+# Security-sensitive files the planner/runner must flag for extra scrutiny.
+# Any step that touches these triggers a risky-module warning and extra
+# verifier passes.  Kept as a module constant so tests can reference it.
+_RISKY_FILES: frozenset[str] = frozenset({"admin_auth.py", "key_store.py", "agent/tools.py"})
+
 # Default to Nvidia NIM free models — no local infra required.
 # These are overridden by env vars when local Ollama models are preferred.
 DEFAULT_PLANNER_MODEL = os.environ.get(
@@ -121,16 +126,21 @@ class AgentRunner:
 
         # Risky module detection: warn loudly if the plan touches security-sensitive files.
         # Per risky-module-review skill and agent/CLAUDE.md.
-        _RISKY_FILES = {"admin_auth.py", "key_store.py", "agent/tools.py"}
+        def _step_touches_risky(step_files: list[str]) -> bool:
+            return any(
+                sf == rf or sf.endswith(f"/{rf}")
+                for sf in step_files
+                for rf in _RISKY_FILES
+            )
+
         if plan.requires_risky_review or any(
-            any(f in step.files or f.endswith(f"/{f}") for f in _RISKY_FILES)
-            for step in plan.steps
+            _step_touches_risky(step.files) for step in plan.steps
         ):
             log.warning(
                 "RISKY MODULE detected in plan for '%s'. "
                 "Steps touching: %s. Risks: %s. Proceeding with extra verifier scrutiny.",
                 plan.goal,
-                [f for step in plan.steps for f in step.files if any(r in f for r in _RISKY_FILES)],
+                [f for step in plan.steps for f in step.files if any(f == r or f.endswith(f"/{r}") for r in _RISKY_FILES)],
                 plan.risks,
             )
             self._log_event(session_id, "step_start", {"risky_review": True, "risks": plan.risks})
@@ -644,7 +654,6 @@ class AgentRunner:
         Mirrors the planner.md spec: state is written before each handoff so
         sessions are resumable via scripts/ai_runner.py resume.
         """
-        import json as _json
         state_dir = self.tools.root / ".claude" / "state"
         try:
             state_dir.mkdir(parents=True, exist_ok=True)
@@ -658,7 +667,7 @@ class AgentRunner:
                 "requires_risky_review": plan.requires_risky_review,
             }
             state_file = state_dir / "agent-state.json"
-            state_file.write_text(_json.dumps(state, indent=2), encoding="utf-8")
+            state_file.write_text(json.dumps(state, indent=2), encoding="utf-8")
         except Exception as exc:
             log.debug("Checkpoint write failed (non-fatal): %s", exc)
 
