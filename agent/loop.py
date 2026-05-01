@@ -119,6 +119,23 @@ class AgentRunner:
         )
         self._log_event(session_id, "step_start", {"goal": plan.goal, "steps": len(plan.steps)})
 
+        # Risky module detection: warn loudly if the plan touches security-sensitive files.
+        # Per risky-module-review skill and agent/CLAUDE.md.
+        _RISKY_FILES = {"admin_auth.py", "key_store.py", "agent/tools.py"}
+        if plan.requires_risky_review or any(
+            any(f in step.files or f.endswith(f"/{f}") for f in _RISKY_FILES)
+            for step in plan.steps
+        ):
+            log.warning(
+                "RISKY MODULE detected in plan for '%s'. "
+                "Steps touching: %s. Risks: %s. Proceeding with extra verifier scrutiny.",
+                plan.goal,
+                [f for step in plan.steps for f in step.files if any(r in f for r in _RISKY_FILES)],
+                plan.risks,
+            )
+            self._log_event(session_id, "step_start", {"risky_review": True, "risks": plan.risks})
+        self._write_checkpoint(session_id, plan)
+
         parallel_result = await self._maybe_run_parallel(
             plan=plan,
             instruction=instruction,
@@ -155,6 +172,15 @@ class AgentRunner:
         report  = self._build_rich_report(plan.goal, step_results, commits)
         self._log_event(session_id, "assistant_message", {"summary": summary})
 
+        # Judge gate: quick holistic review of all applied changes.
+        # Mirrors .claude/agents/judge.md — runs after all steps complete.
+        judge_verdict = await self._run_judge(
+            plan=plan,
+            step_results=step_results,
+            requested_model=requested_model,
+            session_id=session_id,
+        )
+
         # Update auth context if passed in run()
         if user_id:
             self.email = user_id
@@ -170,6 +196,7 @@ class AgentRunner:
             "commits": commits,
             "summary": summary,
             "report": report,
+            "judge": judge_verdict,
         }
 
     async def _generate_plan(
@@ -536,6 +563,104 @@ class AgentRunner:
             )
 
         raise ValueError(f"Unsupported tool: {tool}")
+
+    # ------------------------------------------------------------------
+    # Judge gate  (.claude/agents/judge.md)
+    # ------------------------------------------------------------------
+
+    async def _run_judge(
+        self,
+        *,
+        plan: AgentPlan,
+        step_results: list[dict[str, Any]],
+        requested_model: str | None,
+        session_id: str | None,
+    ) -> dict[str, Any]:
+        """Lightweight Judge agent: holistic review of completed work.
+
+        Produces a verdict (APPROVED / APPROVED_WITH_CONDITIONS / BLOCKED) mirroring
+        the .claude/agents/judge.md spec.  We use a single LLM call with the verifier
+        model rather than a full council-review run.
+        """
+        applied = [s for s in step_results if s.get("status") == "applied"]
+        failed  = [s for s in step_results if s.get("status") == "failed"]
+        all_files = sorted({f for s in applied for f in s.get("changed_files", [])})
+
+        if not applied and not failed:
+            # Nothing happened — no judgement needed
+            return {"verdict": "APPROVED", "notes": "No changes were made."}
+
+        judge_model = requested_model or DEFAULT_VERIFIER_MODEL
+        messages = [
+            {
+                "role": "system",
+                "content": (
+                    "You are the Judge agent. Perform a release-readiness check on the completed work.\n\n"
+                    "Return ONLY JSON:\n"
+                    "{\n"
+                    '  "verdict": "APPROVED | APPROVED_WITH_CONDITIONS | BLOCKED",\n'
+                    '  "security": "PASS | WARN | FAIL",\n'
+                    '  "correctness": "PASS | WARN | FAIL",\n'
+                    '  "notes": "brief explanation"\n'
+                    "}\n\n"
+                    "Verdict rules:\n"
+                    "- BLOCKED if: any applied file contains a hardcoded secret, a broken import, "
+                    "or a step explicitly failed on a risky module.\n"
+                    "- APPROVED_WITH_CONDITIONS if: warnings exist but nothing is blocking.\n"
+                    "- APPROVED if: all checks pass."
+                ),
+            },
+            {
+                "role": "user",
+                "content": (
+                    f"Goal: {plan.goal}\n"
+                    f"Steps applied: {len(applied)}/{len(plan.steps)}\n"
+                    f"Steps failed: {len(failed)}\n"
+                    f"Files changed: {all_files}\n"
+                    f"Plan risks: {plan.risks}\n"
+                    f"Requires risky review: {plan.requires_risky_review}\n"
+                    f"Failed steps: {[s.get('description') for s in failed]}"
+                ),
+            },
+        ]
+        try:
+            raw = await self._chat_json(judge_model, messages)
+            verdict = raw.get("verdict", "APPROVED_WITH_CONDITIONS")
+            if verdict == "BLOCKED":
+                log.warning("Judge BLOCKED session %s: %s", session_id, raw.get("notes", ""))
+            self._log_event(session_id, "assistant_message", {"judge": raw})
+            return raw
+        except Exception as exc:
+            log.debug("Judge call failed (non-fatal): %s", exc)
+            return {"verdict": "APPROVED_WITH_CONDITIONS", "notes": f"Judge unavailable: {exc}"}
+
+    # ------------------------------------------------------------------
+    # State checkpointing  (.claude/state/)
+    # ------------------------------------------------------------------
+
+    def _write_checkpoint(self, session_id: str | None, plan: AgentPlan) -> None:
+        """Persist the current plan to .claude/state/agent-state.json.
+
+        Mirrors the planner.md spec: state is written before each handoff so
+        sessions are resumable via scripts/ai_runner.py resume.
+        """
+        import json as _json
+        state_dir = self.tools.root / ".claude" / "state"
+        try:
+            state_dir.mkdir(parents=True, exist_ok=True)
+            state = {
+                "session_id": session_id or "unknown",
+                "status": "running",
+                "last_updated": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+                "goal": plan.goal,
+                "step_count": len(plan.steps),
+                "risks": plan.risks,
+                "requires_risky_review": plan.requires_risky_review,
+            }
+            state_file = state_dir / "agent-state.json"
+            state_file.write_text(_json.dumps(state, indent=2), encoding="utf-8")
+        except Exception as exc:
+            log.debug("Checkpoint write failed (non-fatal): %s", exc)
 
     # ------------------------------------------------------------------
     # Subagent delegation

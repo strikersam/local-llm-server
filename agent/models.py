@@ -56,11 +56,16 @@ class AgentStep(BaseModel):
     description: str = Field(..., min_length=1)
     files: list[str] = Field(default_factory=list)
     type: Literal["edit", "create", "analyze", "github"]
+    # Planner-annotated fields (optional — older plans without them still validate)
+    risky: bool = False          # True when step touches a security-sensitive module
+    acceptance: str = ""         # How to verify this step succeeded
 
 
 class AgentPlan(BaseModel):
     goal: str = Field(..., min_length=1)
     steps: list[AgentStep] = Field(default_factory=list)  # truncated by max_steps in loop.py
+    risks: list[str] = Field(default_factory=list)
+    requires_risky_review: bool = False  # True when any step touches admin_auth, key_store, agent/tools
 
 
 class ToolCall(BaseModel):
