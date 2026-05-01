@@ -48,9 +48,11 @@ class ScheduledJob:
 
     def as_dict(self) -> dict[str, Any]:
         return {
+            "id": self.job_id,
             "job_id": self.job_id,
             "name": self.name,
             "cron": self.cron,
+            "schedule": self.cron,
             "instruction": self.instruction,
             "created_at": self.created_at,
             "agent_id": self.agent_id,
@@ -58,10 +60,14 @@ class ScheduledJob:
             "model": self.model,
             "task_type": self.task_type,
             "requires_approval": self.requires_approval,
+            "approval_gate": self.requires_approval,
             "tags": list(self.tags or []),
             "last_run": self.last_run,
             "run_count": self.run_count,
             "enabled": self.enabled,
+            "status": "active" if self.enabled else "paused",
+            "failures": 0,
+            "fail_count": 0,
         }
 
 
