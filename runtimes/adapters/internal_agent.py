@@ -126,32 +126,47 @@ class InternalAgentAdapter(RuntimeAdapter):
             if not model and nvidia_chain:
                 model = nvidia_chain[0].default_model
 
+            # auto_commit can be requested via task context; defaults off so the
+            # agent writes files but lets the user review before committing.
+            auto_commit = bool(spec.context.get("auto_commit", False))
+
             result = await runner.run(
                 instruction=spec.instruction,
                 history=list(spec.context.get("conversation", [])),
                 requested_model=model,
-                auto_commit=False,
+                auto_commit=auto_commit,
                 max_steps=int(spec.context.get("max_steps", 8)),
                 user_id=str(spec.context.get("owner_id") or ""),
             )
         except Exception as exc:
             raise RuntimeExecutionError(self.RUNTIME_ID, str(exc), spec.task_id) from exc
 
+        # Collect every file that was actually written to disk across all steps.
+        changed_files: list[str] = []
+        for step in result.get("steps", []):
+            changed_files.extend(step.get("changed_files", []))
+        unique_files = sorted(set(changed_files))
+
         metadata = dict(spec.context)
         metadata["raw_result"] = result
+        metadata["changed_files"] = unique_files
         if spec.context.get("task", {}).get("requires_approval"):
             metadata["task_status"] = "in_review"
             metadata["review_reason"] = "Awaiting human approval"
-        if result.get("summary"):
-            metadata["agent_comment"] = result["summary"]
+
+        # Prefer the rich markdown report for the task discussion comment.
+        # Falls back to the one-liner summary when report is unavailable.
+        agent_comment = result.get("report") or result.get("summary") or ""
+        if agent_comment:
+            metadata["agent_comment"] = agent_comment
 
         provider_label = "nvidia-nim" if nvidia_chain else "ollama"
         return TaskResult(
             runtime_id=self.RUNTIME_ID,
             task_id=spec.task_id,
             success=True,
-            output=result.get("summary", ""),
-            artifacts=[],
+            output=result.get("report") or result.get("summary", ""),
+            artifacts=unique_files,
             tool_calls=[],
             model_used=model or _NVIDIA_DEFAULT_MODEL,
             provider_used=provider_label,

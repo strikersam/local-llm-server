@@ -137,6 +137,7 @@ class AgentRunner:
                     commits.append(commit)
 
         summary = self._build_summary(plan.goal, step_results, commits)
+        report  = self._build_rich_report(plan.goal, step_results, commits)
         self._log_event(session_id, "assistant_message", {"summary": summary})
 
         # Update auth context if passed in run()
@@ -153,6 +154,7 @@ class AgentRunner:
             "steps": step_results,
             "commits": commits,
             "summary": summary,
+            "report": report,
         }
 
     async def _generate_plan(
@@ -797,24 +799,68 @@ class AgentRunner:
             return ""
 
     def _build_summary(self, goal: str, step_results: list[dict[str, Any]], commits: list[str]) -> str:
-        applied = sum(1 for step in step_results if step.get("status") == "applied")
-        failed = [step for step in step_results if step.get("status") == "failed"]
+        applied = sum(1 for s in step_results if s.get("status") == "applied")
+        failed  = sum(1 for s in step_results if s.get("status") == "failed")
+        files_changed = sum(len(s.get("changed_files", [])) for s in step_results)
 
-        # Collect synthesized answers from analyze/github steps
-        answers = [
-            step.get("answer", "")
-            for step in step_results
-            if step.get("answer")
-        ]
+        # Surface synthesized answers from analyze/github steps when present.
+        answers = [s.get("answer", "") for s in step_results if s.get("answer")]
 
         meta_parts = [f"Goal: {goal}", f"Steps: {applied}/{len(step_results)}"]
+        if files_changed:
+            meta_parts.append(f"Files modified: {files_changed}")
         if failed:
-            meta_parts.append(f"Failed: {len(failed)}")
+            meta_parts.append(f"Failed: {failed}")
         if commits:
             meta_parts.append(f"Commits: {len(commits)}")
         meta = " | ".join(meta_parts)
 
         if answers:
             return "\n\n".join(answers) + f"\n\n---\n_{meta}_"
-
         return meta
+
+    def _build_rich_report(self, goal: str, step_results: list[dict[str, Any]], commits: list[str]) -> str:
+        """Build a detailed markdown execution report for the task discussion comment."""
+        lines: list[str] = [f"**Goal:** {goal}", ""]
+
+        all_changed: list[str] = []
+        for step in step_results:
+            status = step.get("status", "unknown")
+            icon = "✅" if status == "applied" else "❌" if status == "failed" else "⏭️"
+            desc = step.get("description", "")
+            lines.append(f"{icon} **Step {step.get('step_id', '?')}:** {desc}")
+
+            changed = step.get("changed_files", [])
+            if changed:
+                all_changed.extend(changed)
+                lines.append("   Files: " + ", ".join(f"`{f}`" for f in changed))
+            elif status == "applied":
+                answer = step.get("answer", "")
+                if answer:
+                    lines.append(f"   💬 {answer[:200]}")
+                else:
+                    lines.append("   *(analysis — no files modified)*")
+
+            if status == "failed":
+                for issue in step.get("issues", []):
+                    lines.append(f"   ⚠️ {issue}")
+
+            lines.append("")
+
+        unique_files = sorted(set(all_changed))
+        if unique_files:
+            lines.append("**Files modified:**")
+            for f in unique_files:
+                lines.append(f"- `{f}`")
+            lines.append("")
+        else:
+            lines.append("**No files were modified.** All steps were analysis only.")
+            lines.append("")
+
+        if commits:
+            lines.append(f"**Auto-committed:** {len(commits)} commit(s)")
+            lines.append("")
+
+        applied_count = sum(1 for s in step_results if s.get("status") == "applied")
+        lines.append(f"**Result:** {applied_count}/{len(step_results)} steps completed, {len(unique_files)} file(s) changed.")
+        return "\n".join(lines)
