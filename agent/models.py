@@ -74,6 +74,7 @@ class ToolCall(BaseModel):
         "search_code",
         "recall_memory",
         "save_memory",
+        "spawn_subagent",
         "github_read_repo_file",
         "github_list_repos",
         "github_list_branches",

@@ -160,12 +160,21 @@ class InternalAgentAdapter(RuntimeAdapter):
         if agent_comment:
             metadata["agent_comment"] = agent_comment
 
+        # Determine actual success: the agent must have either changed files or
+        # produced a non-empty text output.  An empty plan (0 steps executed) or
+        # all-failed steps with no output is treated as a failure so the task is
+        # not silently moved to DONE without any real work.
+        steps = result.get("steps") or []
+        applied_steps = [s for s in steps if s.get("status") == "applied"]
+        output_text = result.get("report") or result.get("summary") or ""
+        did_work = bool(unique_files or applied_steps or output_text.strip())
+
         provider_label = "nvidia-nim" if nvidia_chain else "ollama"
         return TaskResult(
             runtime_id=self.RUNTIME_ID,
             task_id=spec.task_id,
-            success=True,
-            output=result.get("report") or result.get("summary", ""),
+            success=did_work,
+            output=output_text,
             artifacts=unique_files,
             tool_calls=[],
             model_used=model or _NVIDIA_DEFAULT_MODEL,

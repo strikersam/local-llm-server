@@ -119,6 +119,21 @@ class AgentRunner:
         )
         self._log_event(session_id, "step_start", {"goal": plan.goal, "steps": len(plan.steps)})
 
+        parallel_result = await self._maybe_run_parallel(
+            plan=plan,
+            instruction=instruction,
+            requested_model=requested_model,
+            max_steps=max_steps,
+            auto_commit=auto_commit,
+            user_id=user_id,
+            memory_store=memory_store,
+            session_id=session_id,
+            department=department,
+            key_id=key_id,
+        )
+        if parallel_result is not None:
+            return parallel_result
+
         step_results: list[dict[str, Any]] = []
         commits: list[str] = []
 
@@ -511,7 +526,144 @@ class AgentRunner:
                 repo_name=str(args.get("repo_name", ""))
             )
 
+        if tool == "spawn_subagent":
+            return await self._spawn_subagent(
+                instruction=str(args.get("instruction", "")),
+                requested_model=args.get("model") or None,
+                max_steps=int(args.get("max_steps", 5)),
+                user_id=user_id,
+                memory_store=memory_store,
+            )
+
         raise ValueError(f"Unsupported tool: {tool}")
+
+    # ------------------------------------------------------------------
+    # Subagent delegation
+    # ------------------------------------------------------------------
+
+    async def _spawn_subagent(
+        self,
+        *,
+        instruction: str,
+        requested_model: str | None,
+        max_steps: int,
+        user_id: str | None = None,
+        memory_store: UserMemoryStore | None = None,
+    ) -> dict[str, Any]:
+        """Run a child AgentRunner for a self-contained subtask and return its condensed result."""
+        if not instruction.strip():
+            return {"error": "spawn_subagent: instruction is empty"}
+        child = AgentRunner(
+            ollama_base=self.ollama_base,
+            workspace_root=self.tools.root,
+            provider_headers=self.provider_headers,
+            provider_chain=self.provider_chain,
+            allow_commercial_fallback=self.allow_commercial_fallback,
+            provider_temperature=self.provider_temperature,
+            github_token=self.github.token if hasattr(self.github, "token") else None,
+            email=self.email,
+            department=self.department,
+            key_id=self.key_id,
+        )
+        result = await child.run(
+            instruction=instruction,
+            history=[],
+            requested_model=requested_model,
+            auto_commit=False,
+            max_steps=max_steps,
+            user_id=user_id,
+            memory_store=memory_store,
+        )
+        return ContextManager.condense_step_result(result)
+
+    # ------------------------------------------------------------------
+    # Auto-parallelization
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _steps_are_independent(steps: list[Any]) -> bool:
+        """Return True when no file appears in more than one step (safe to parallelize)."""
+        seen: set[str] = set()
+        for step in steps:
+            files = list(step.files) if hasattr(step, "files") else step.get("files") or []
+            for f in files:
+                if f in seen:
+                    return False
+                seen.add(f)
+        return True
+
+    async def _maybe_run_parallel(
+        self,
+        *,
+        plan: AgentPlan,
+        instruction: str,
+        requested_model: str | None,
+        max_steps: int,
+        auto_commit: bool,
+        user_id: str | None,
+        memory_store: UserMemoryStore | None,
+        session_id: str | None,
+        department: str | None,
+        key_id: str | None,
+    ) -> dict[str, Any] | None:
+        """If plan steps are independent, run them concurrently via MultiAgentSwarm.
+
+        Returns a result dict (same shape as AgentRunner.run) when parallelism was
+        applied, or None to signal the caller should fall back to the sequential loop.
+        """
+        from agent.coordinator import AgentCoordinator, WorkerSpec
+
+        _PARALLEL_THRESHOLD = 3
+        if len(plan.steps) < _PARALLEL_THRESHOLD or not self._steps_are_independent(plan.steps):
+            return None
+
+        log.info(
+            "agent: %d independent steps detected — switching to MultiAgentSwarm",
+            len(plan.steps),
+        )
+        self._log_event(session_id, "step_start", {"parallel_steps": len(plan.steps), "mode": "swarm"})
+
+        coordinator = AgentCoordinator(
+            ollama_base=self.ollama_base,
+            workspace_root=str(self.tools.root),
+            github_token=self.github.token if hasattr(self.github, "token") else None,
+        )
+        worker_specs = [
+            WorkerSpec(
+                worker_id=f"step-{step.id}",
+                instruction=f"Goal: {plan.goal}\n\nStep: {step.description}\nFiles: {', '.join(step.files) or '(determine from context)'}",
+                model=requested_model,
+                max_steps=max(2, max_steps // len(plan.steps)),
+            )
+            for step in plan.steps[:max_steps]
+        ]
+        coord_result = await coordinator.run(
+            plan.goal,
+            worker_specs,
+            max_concurrent=min(len(worker_specs), 4),
+            email=user_id,
+            department=department,
+            key_id=key_id,
+        )
+
+        # Flatten worker results into the standard run() return shape
+        all_steps: list[dict[str, Any]] = []
+        all_commits: list[str] = []
+        for worker in coord_result.workers:
+            inner = worker.get("result") or {}
+            all_steps.extend(inner.get("steps", []))
+            all_commits.extend(inner.get("commits", []))
+
+        summary = coord_result.summary
+        self._log_event(session_id, "assistant_message", {"summary": summary, "mode": "swarm"})
+        return {
+            "goal": plan.goal,
+            "plan": plan.model_dump(),
+            "steps": all_steps,
+            "commits": all_commits,
+            "summary": summary,
+            "report": summary,
+        }
 
     # ------------------------------------------------------------------
     # Event log helpers  (stateless harness / durable session log)
@@ -569,15 +721,18 @@ class AgentRunner:
             or "localhost" in self.ollama_base
             or "127.0.0.1" in self.ollama_base
         )
+        # Only inject the NVIDIA api_key when there are no provider_headers carrying
+        # auth already (e.g. DeepSeek / Anthropic pass their key via headers; adding
+        # the NVIDIA key on top would clobber the Authorization header they set).
+        _has_auth_headers = bool(self.provider_headers)
+        _nvidia_key = (
+            os.environ.get("NVIDIA_API_KEY") or os.environ.get("NVidiaApiKey") or None
+        ) if not _is_ollama and not _has_auth_headers else None
         primary = ProviderConfig(
             provider_id="agent-primary",
             type="ollama" if _is_ollama else "openai-compatible",
             base_url=self.ollama_base,
-            api_key=(
-                os.environ.get("NVIDIA_API_KEY")
-                or os.environ.get("NVidiaApiKey")
-                or None
-            ) if not _is_ollama else None,
+            api_key=_nvidia_key,
             headers=dict(self.provider_headers),
             default_model=model,
             priority=0,
@@ -757,6 +912,10 @@ class AgentRunner:
                 text=True,
             )
             return proc.stdout.strip()
+        except FileNotFoundError:
+            # git binary not available in this environment — skip auto-commit silently.
+            log.warning("Auto-commit skipped: git not found in PATH")
+            return None
         except subprocess.CalledProcessError as exc:
             log.warning("Auto-commit failed: %s", exc.stderr.strip() if exc.stderr else exc)
             return None
