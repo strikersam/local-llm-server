@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any, Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 # ---------------------------------------------------------------------------
 # Event log  (append-only session journal)
@@ -88,6 +88,22 @@ class ToolCall(BaseModel):
 class VerificationResult(BaseModel):
     status: Literal["pass", "fail"]
     issues: list[str] = Field(default_factory=list)
+
+    @field_validator("issues", mode="before")
+    @classmethod
+    def coerce_issues_to_str(cls, v: Any) -> list[str]:
+        if not isinstance(v, list):
+            return []
+        result = []
+        for item in v:
+            if isinstance(item, str):
+                result.append(item)
+            elif isinstance(item, dict):
+                text = item.get("issue") or item.get("description") or item.get("message") or str(item)
+                result.append(str(text))
+            else:
+                result.append(str(item))
+        return result
 
 
 class AgentRunRequest(BaseModel):

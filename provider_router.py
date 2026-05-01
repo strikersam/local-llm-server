@@ -18,7 +18,9 @@ log = logging.getLogger("llm-provider-router")
 # These are module-level so cooldown state persists across ProviderRouter
 # instances within the same process.
 _provider_cooldowns: dict[str, float] = {}
-_DEFAULT_COOLDOWN_SECONDS: int = int(os.environ.get("PROVIDER_COOLDOWN_SECONDS", "60"))
+_DEFAULT_COOLDOWN_SECONDS: int = int(os.environ.get("PROVIDER_COOLDOWN_SECONDS", "30"))
+_AUTH_FAILURE_COOLDOWN_SECONDS: int = 300  # bad API key — don't retry for 5 min
+_CONN_FAILURE_COOLDOWN_SECONDS: int = 15  # network hiccup — retry sooner
 
 
 def mark_provider_failed(provider_id: str, cooldown_seconds: int | None = None) -> None:
@@ -489,6 +491,56 @@ class ProviderRouter:
             )
             return False
 
+    async def _try_one_provider(
+        self,
+        provider: ProviderConfig,
+        payload: dict[str, Any],
+        original_model: str,
+        model_fallbacks: list[str],
+        is_primary: bool,
+        max_retries: int,
+        attempts: list[ProviderAttempt],
+    ) -> ProviderResult | None:
+        """Try all models for one provider. Returns ProviderResult on success, None on failure.
+
+        Records attempts in-place and applies a failure-type-aware cooldown on exhaustion.
+        """
+        last_status: int | None = None
+        last_was_conn_error = False
+        for model in self._candidate_models(provider, original_model, model_fallbacks, is_primary):
+            provider_payload = {**payload, "model": model, "stream": False}
+            for attempt_number in range(max_retries + 1):
+                started = time.perf_counter()
+                try:
+                    response = await self._post_chat(provider, provider_payload)
+                    latency_ms = int((time.perf_counter() - started) * 1000)
+                    attempts.append(ProviderAttempt(
+                        provider.provider_id, model, response.status_code, latency_ms=latency_ms,
+                    ))
+                    if self._is_success(response):
+                        return ProviderResult(
+                            response=response, provider=provider, model=model, attempts=list(attempts)
+                        )
+                    last_status = response.status_code
+                    if not self._should_retry_status(response.status_code):
+                        break
+                except Exception as exc:
+                    latency_ms = int((time.perf_counter() - started) * 1000)
+                    attempts.append(ProviderAttempt(
+                        provider.provider_id, model, None, error=str(exc), latency_ms=latency_ms,
+                    ))
+                    last_was_conn_error = True
+                if attempt_number < max_retries:
+                    await asyncio.sleep(min(0.25 * (2**attempt_number), 2.0))
+        # Apply failure-type-aware cooldown: auth errors last longer than transient failures.
+        if last_status in (401, 403):
+            mark_provider_failed(provider.provider_id, _AUTH_FAILURE_COOLDOWN_SECONDS)
+        elif last_was_conn_error:
+            mark_provider_failed(provider.provider_id, _CONN_FAILURE_COOLDOWN_SECONDS)
+        else:
+            mark_provider_failed(provider.provider_id)
+        return None
+
     async def chat_completion(
         self,
         payload: dict[str, Any],
@@ -503,66 +555,48 @@ class ProviderRouter:
             raise ProviderFallbackError(attempts)
 
         original_model = str(payload.get("model") or "").strip()
+        skipped_on_cooldown: list[tuple[ProviderConfig, bool]] = []  # (provider, is_primary)
+
         for provider_index, provider in enumerate(self.providers):
-            # Skip providers that are currently on cooldown
             if is_provider_on_cooldown(provider.provider_id):
                 log.info(
                     "Skipping provider %s (on cooldown, expires %.0fs from now)",
                     provider.provider_id,
                     _provider_cooldowns.get(provider.provider_id, 0) - time.time(),
                 )
+                skipped_on_cooldown.append((provider, provider_index == 0))
                 continue
-            if (
-                provider_index > 0
-                and is_commercial_provider(provider)
-                and not allow_commercial_fallback
-            ):
+            if provider_index > 0 and is_commercial_provider(provider) and not allow_commercial_fallback:
                 deferred_commercial.append(provider.provider_id)
                 continue
-            candidate_models = self._candidate_models(
-                provider, original_model, model_fallbacks or [], provider_index == 0
+            result = await self._try_one_provider(
+                provider, payload, original_model, model_fallbacks or [],
+                provider_index == 0, max_retries, attempts,
             )
-            for model in candidate_models:
-                provider_payload = dict(payload)
-                provider_payload["model"] = model
-                provider_payload["stream"] = False
-                for attempt_number in range(max_retries + 1):
-                    started = time.perf_counter()
-                    try:
-                        response = await self._post_chat(provider, provider_payload)
-                        latency_ms = int((time.perf_counter() - started) * 1000)
-                        attempts.append(
-                            ProviderAttempt(
-                                provider.provider_id,
-                                model,
-                                response.status_code,
-                                latency_ms=latency_ms,
-                            )
-                        )
-                        if self._is_success(response):
-                            return ProviderResult(
-                                response=response,
-                                provider=provider,
-                                model=model,
-                                attempts=attempts,
-                            )
-                        if not self._should_retry_status(response.status_code):
-                            break
-                    except Exception as exc:
-                        latency_ms = int((time.perf_counter() - started) * 1000)
-                        attempts.append(
-                            ProviderAttempt(
-                                provider.provider_id,
-                                model,
-                                None,
-                                error=str(exc),
-                                latency_ms=latency_ms,
-                            )
-                        )
-                    if attempt_number < max_retries:
-                        await asyncio.sleep(min(0.25 * (2**attempt_number), 2.0))
-            # All models for this provider exhausted — put it on cooldown
-            mark_provider_failed(provider.provider_id)
+            if result is not None:
+                return result
+
+        # ── Last-resort bypass ────────────────────────────────────────────────
+        # If all providers were on cooldown (attempts is empty), bypass cooldowns
+        # and make a single best-effort attempt per skipped provider.
+        # This prevents the misleading "no providers attempted" dead-end that
+        # occurs when a previous request put every provider on cooldown.
+        if not attempts and skipped_on_cooldown:
+            log.warning(
+                "All %d providers on cooldown — making last-resort bypass attempt",
+                len(skipped_on_cooldown),
+            )
+            for provider, is_primary in skipped_on_cooldown:
+                if is_commercial_provider(provider) and not allow_commercial_fallback:
+                    deferred_commercial.append(provider.provider_id)
+                    continue
+                result = await self._try_one_provider(
+                    provider, payload, original_model, model_fallbacks or [],
+                    is_primary, 0, attempts,  # max_retries=0 for last-resort
+                )
+                if result is not None:
+                    return result
+
         if deferred_commercial and not attempts:
             raise CommercialFallbackRequiredError(deferred_commercial)
         if deferred_commercial:
