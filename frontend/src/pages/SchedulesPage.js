@@ -15,6 +15,13 @@ const FREQ_OPTS = {
   monthly: 'Monthly 1st 09:00',
 };
 
+const FREQ_TO_CRON = {
+  daily:   '0 8 * * *',
+  weekly:  '0 2 * * 1',
+  hourly:  '0 * * * *',
+  monthly: '0 9 1 * *',
+};
+
 function Toggle({ active, onClick }) {
   return (
     <button onClick={onClick}
@@ -58,9 +65,10 @@ function NewScheduleForm({ agents, onCancel, onCreate }) {
     try {
       const payload = {
         name: name.trim(),
-        agent_id: agentId,
-        schedule: freq,
-        approval_gate: approval,
+        cron: FREQ_TO_CRON[freq] || freq,
+        instruction: name.trim(),
+        agent_id: agentId || undefined,
+        requires_approval: approval,
         task_type: 'scheduled',
       };
       const r = await createSchedule(payload);

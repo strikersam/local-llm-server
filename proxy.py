@@ -1750,6 +1750,21 @@ async def scheduler_delete(job_id: str, auth: AuthContext = Depends(verify_api_k
     return {"deleted": deleted}
 
 
+class SchedulerToggleRequest(BaseModel):
+    status: str = Field(..., pattern="^(active|paused)$")
+
+
+@app.patch("/agent/scheduler/jobs/{job_id}")
+async def scheduler_toggle(
+    job_id: str, body: SchedulerToggleRequest, auth: AuthContext = Depends(verify_api_key)
+):
+    try:
+        job = SCHEDULER.toggle(job_id, enabled=(body.status == "active"))
+    except KeyError:
+        raise HTTPException(status_code=404, detail="Job not found")
+    return job.as_dict()
+
+
 # ─── Automation Playbooks ─────────────────────────────────────────────────────
 
 

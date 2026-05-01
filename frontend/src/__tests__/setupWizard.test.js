@@ -89,6 +89,46 @@ describe('SetupWizardPage rendering', () => {
     expect(heading).toBeInTheDocument();
   });
 
+  // ── Checkbox visibility regression guard ──────────────────────────────────
+  // Regression: global `appearance:none` in index.css was hiding native
+  // checkboxes. These tests verify the checkbox elements exist in the DOM so
+  // any future CSS change that removes them is caught immediately.
+
+  test('step 1 provider checkboxes are rendered in the DOM', async () => {
+    mockHealthyBackend();
+    mockSetupState({ current_step: 1 });
+    renderWizard();
+    await screen.findByRole('heading', { name: /provider setup/i });
+
+    // Every provider card should have a visible checkbox role element
+    const checkboxes = screen.getAllByRole('checkbox');
+    expect(checkboxes.length).toBeGreaterThanOrEqual(2);
+  });
+
+  test('Nvidia NIM checkbox is checked by default on step 1', async () => {
+    mockHealthyBackend();
+    mockSetupState({ current_step: 1 });
+    renderWizard();
+    await screen.findByRole('heading', { name: /provider setup/i });
+
+    // Nvidia NIM is the recommended default — must start checked
+    const nvidiaLabel = screen.getByText(/nvidia nim/i).closest('label');
+    const nvidiaCheckbox = nvidiaLabel.querySelector('input[type="checkbox"]');
+    expect(nvidiaCheckbox).toBeInTheDocument();
+    expect(nvidiaCheckbox.checked).toBe(true);
+  });
+
+  test('step 3 runtime checkboxes are all rendered in the DOM', async () => {
+    mockHealthyBackend();
+    mockSetupState({ current_step: 3 });
+    renderWizard();
+    await screen.findByRole('heading', { name: /runtime configuration/i });
+
+    // All 3 runtimes (Hermes, OpenCode, Aider) must have checkbox controls
+    const checkboxes = screen.getAllByRole('checkbox');
+    expect(checkboxes.length).toBeGreaterThanOrEqual(3);
+  });
+
   test('shows all 5 step labels in sidebar', async () => {
     mockHealthyBackend();
     mockSetupState();
