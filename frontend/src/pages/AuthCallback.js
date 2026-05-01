@@ -12,10 +12,12 @@
 
 import React, { useEffect, useState } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
+import { useAuth } from '../AuthContext';
 
 export default function AuthCallback() {
   const navigate  = useNavigate();
   const location  = useLocation();
+  const { checkAuth } = useAuth();
   const [status, setStatus]   = useState('processing');
   const [provider, setProvider] = useState('');
 
@@ -31,22 +33,23 @@ export default function AuthCallback() {
     const refreshToken = params.get('refresh_token');
 
     if (socialToken) {
-      // Social login: store JWT
+      // Social login: store JWT then sync AuthContext before navigating so
+      // ProtectedRoute sees the authenticated user and doesn't bounce to /login.
       localStorage.setItem('access_token', socialToken);
       sessionStorage.setItem('access_token', socialToken);
       setProvider(socialProv || 'oauth');
       setStatus('success');
-      setTimeout(() => navigate('/control-plane', { replace: true }), 1200);
+      checkAuth().then(() => navigate('/control-plane', { replace: true }));
     } else if (accessToken && refreshToken) {
       // Legacy flow
       localStorage.setItem('access_token', accessToken);
       localStorage.setItem('refresh_token', refreshToken);
       setStatus('success');
-      setTimeout(() => navigate('/', { replace: true }), 800);
+      checkAuth().then(() => navigate('/', { replace: true }));
     } else {
       setStatus('error');
     }
-  }, [location, navigate]);
+  }, [location, navigate, checkAuth]);
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-gray-50">

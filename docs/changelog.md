@@ -3,6 +3,7 @@
 ## [Unreleased]
 
 ### Fixed
+- `frontend/src/pages/AuthCallback.js` — social login (Google/GitHub) no longer bounces the user back to `/login` after a successful OAuth callback. Root cause: `AuthCallback` stored the JWT in localStorage but navigated to `/control-plane` before `AuthContext` re-checked auth state, so `ProtectedRoute` still saw `user = false` and redirected to `/login`. Fix: call `checkAuth()` (already exposed by `AuthContext`) after storing the token and navigate only once it resolves, guaranteeing `ProtectedRoute` sees the authenticated user.
 - `agent/scheduler.py` — `ScheduledJob.as_dict()` now includes `id`, `status` ("active"/"paused"), `approval_gate`, `schedule`, `failures`, and `fail_count` fields so the Schedules UI can render and toggle jobs correctly.
 - `proxy.py` — added missing `PATCH /agent/scheduler/jobs/{job_id}` endpoint; the frontend's pause/resume toggle was calling this route but it did not exist, leaving all active schedules stuck non-toggleable.
 - `frontend/src/pages/SchedulesPage.js` — `NewScheduleForm` now maps human-readable frequency presets ("daily", "weekly", etc.) to proper 5-field cron expressions before submitting; previously sent `schedule: "daily"` which the backend rejected because it requires a `cron` field and an `instruction`.
