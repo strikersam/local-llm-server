@@ -5,6 +5,18 @@
 ### Added
 - `agent/loop.py` — `spawn_subagent(instruction, model?, max_steps?)` tool added to the Executor toolkit; lets any in-flight agent delegate a self-contained subtask to a child `AgentRunner` and receive a condensed result, enabling recursive subagent delegation without an explicit API call.
 - `agent/loop.py` — `_maybe_run_parallel()`: after planning, if all steps touch disjoint files and there are ≥ 3 steps, `AgentRunner.run()` automatically routes through `MultiAgentSwarm` (via `AgentCoordinator`) instead of the sequential loop, so subagents activate without any caller change.
+- `agent/loop.py` — Judge gate (`_run_judge()`): single LLM call after all steps complete; returns APPROVED / APPROVED_WITH_CONDITIONS / BLOCKED verdict mirroring `.claude/agents/judge.md`; verdict included in every `AgentRunner.run()` response dict.
+- `agent/loop.py` — `_write_checkpoint()`: writes `.claude/state/agent-state.json` before each planning handoff so sessions are resumable via `scripts/ai_runner.py resume`.
+- `agent/state.py` — `AgentSessionStore.create_with_id()`: creates a session with a caller-supplied ID (e.g. a UUID from `/agent/chat`), allowing chat sessions to be persistent and addressable by the client.
+
+### Changed
+- `proxy.py` — `AGENT_RUNNER` singleton now receives `session_store=AGENT_SESSIONS` and, when `NVIDIA_API_KEY` is set, is pointed at the NVIDIA NIM base URL with the NIM auth header so that session-based `/agent/run` and `/agent/sessions/{id}/run` calls also benefit from free NIM models instead of always hitting local Ollama.
+- `proxy.py` — `internal_agent` runtime registered model default updated from `gemma4:latest` to `qwen/qwen2.5-coder-32b-instruct` (NVIDIA NIM free tier) when `NVIDIA_API_KEY` is set.
+
+### Fixed
+- `proxy.py` — `/agent/chat` now loads conversation history from `AGENT_SESSIONS` when `session_id` is provided (previously always passed `history=[]`); creates a persistent session for the generated session_id; passes `session_store=AGENT_SESSIONS` and `memory_store=USER_MEMORY` to `AgentRunner` so memory recall/save and event logging work correctly in direct-chat mode.
+- `agent/models.py` — `AgentStep` gains `risky: bool` and `acceptance: str` fields; `AgentPlan` gains `risks: list[str]` and `requires_risky_review: bool` to align with `.claude/agents/planner.md` spec and enable downstream risky-module gating.
+- `agent/prompts.py` — Planner system prompt extended: "you NEVER write implementation code — you only plan"; JSON schema includes `risky`/`acceptance`/`risks`/`requires_risky_review`; instructs LLM to set `risky=true` on steps touching security-sensitive files.
 
 ### Fixed
 - `agent/loop.py` — `_commit_step()` now catches `FileNotFoundError` and logs a warning instead of crashing with `[Errno 2] No such file or directory: 'git'` on environments where git is not in PATH (e.g. Render.com deployments).

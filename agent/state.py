@@ -168,6 +168,34 @@ class AgentSessionStore:
                 conn.commit()
         return session
 
+    def create_with_id(
+        self,
+        *,
+        session_id: str,
+        title: str | None = None,
+        provider_id: str | None = None,
+        workspace_id: str | None = None,
+    ) -> AgentSession:
+        """Create a session with an explicit session_id (e.g. a caller-supplied UUID)."""
+        now = _now()
+        session = AgentSession(
+            session_id=session_id,
+            title=title or "Coding Agent Session",
+            provider_id=provider_id,
+            workspace_id=workspace_id,
+            created_at=now,
+            updated_at=now,
+            history=[],
+            last_plan=None,
+            last_result=None,
+        )
+        with self._lock:
+            self._sessions[session_id] = session
+            with self._connect() as conn:
+                self._db_upsert_session(conn, session)
+                conn.commit()
+        return session
+
     def get(self, session_id: str) -> AgentSession | None:
         with self._lock:
             session = self._sessions.get(session_id)
