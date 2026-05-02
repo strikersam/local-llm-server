@@ -158,11 +158,8 @@ async def _handle_regular_chat(
         else:
             result = await router.chat_completion(payload)
 
-        # Extract the assistant message and log the provider used
+        # Extract the assistant message
         assistant_message = result.response.json()["choices"][0]["message"]["content"]
-        used_provider_id = result.provider.provider_id
-        used_model = result.model
-        log.info(f"Used provider: {used_provider_id}, model: {used_model}")
 
         # Update history with the new user message and assistant response
         updated_history = history + [
@@ -178,6 +175,7 @@ async def _handle_regular_chat(
     except Exception as e:
         log.error(f"Chat error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
 
 async def _handle_agent_mode(
     req: ChatSendRequest,
