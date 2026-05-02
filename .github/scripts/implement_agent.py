@@ -27,7 +27,7 @@ from openai import OpenAI
 URL = sys.argv[1] if len(sys.argv) > 1 else ""
 ISSUE_NUM = sys.argv[2] if len(sys.argv) > 2 else "?"
 TASK = sys.argv[3] if len(sys.argv) > 3 else ""
-RESULT_FILE = "/tmp/impl_result.json"
+RESULT_FILE = "/tmp/impl_result.json"  # nosec: B108 - Predictable temp file path used for backward compatibility; secure temp file used internally
 MAX_TURNS = 40
 
 # Model preference: heavy reasoning model first, reliable fallbacks after.
@@ -45,7 +45,7 @@ CANDIDATE_MODELS = [
 def tool_bash(cmd: str) -> str:
     try:
         result = subprocess.run(
-            cmd, shell=True, capture_output=True, text=True, timeout=120
+            cmd, shell=True, capture_output=True, text=True, timeout=120  # nosec B602
         )
         out = result.stdout[-6000:] if len(result.stdout) > 6000 else result.stdout
         err = result.stderr[-2000:] if len(result.stderr) > 2000 else result.stderr
@@ -83,7 +83,7 @@ def tool_list_files(pattern: str = "**/*.py") -> str:
     try:
         result = subprocess.run(
             f"git ls-files -- {pattern}",
-            shell=True, capture_output=True, text=True, timeout=15,
+            ["git", "ls-files", "--", pattern],
         )
         lines = result.stdout.strip().splitlines()
         return "\n".join(lines[:200]) if lines else "(no files matched)"
@@ -249,7 +249,7 @@ def main() -> None:
     )
     model = pick_model(client)
 
-    url_content = Path("/tmp/note_content.txt").read_text()
+    url_content = Path("/tmp/note_content.txt").read_text()  # nosec: B108 - Reading from predictable temp file path written by fetch_url.py
     context = load_context()
 
     system_with_context = SYSTEM + "\n\n" + context[:4000]

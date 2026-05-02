@@ -303,7 +303,7 @@ class InferenceCache:
 
     def _hash_messages(self, messages: list[dict]) -> str:
         raw = json.dumps(messages, sort_keys=True, ensure_ascii=False)
-        return hashlib.sha1(raw.encode()).hexdigest()[:12]
+        return hashlib.sha256(raw.encode()).hexdigest()[:12]
 
     def _evict(self, key: str) -> None:
         """Remove a single entry (must be called with lock held)."""
