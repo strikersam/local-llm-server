@@ -4,13 +4,26 @@ module.exports = {
   theme: {
     extend: {
       colors: {
-        base: '#0A0A0A',
-        surface: '#111111',
-        elevated: '#1A1A1A',
-        accent: '#002FA7',
-        'accent-hover': '#0038CC',
-        danger: '#FF3333',
-        warning: '#F59E0B',
+        'background-base': 'var(--bg-base)',
+        'background-sidebar': 'var(--bg-sidebar)',
+        'background-surface': 'var(--bg-surface)',
+        'background-elevated': 'var(--bg-elevated)',
+        'text-primary': 'var(--text-primary)',
+        'text-secondary': 'var(--text-secondary)',
+        'text-tertiary': 'var(--text-tertiary)',
+        'text-muted': 'var(--text-muted)',
+        'border': 'var(--border)',
+        'border-soft': 'var(--border-soft)',
+        'border-strong': 'var(--border-strong)',
+        'accent': 'var(--accent)',
+        'accent-hover': 'var(--accent-hover)',
+        'danger': 'var(--danger)',
+        'warning': 'var(--warning)',
+        'success': 'var(--success)',
+        'text-icon-inactive': 'var(--text-icon-inactive)',
+        'text-icon-hover': 'var(--text-icon-hover)',
+        'role-power-user': 'var(--role-power-user)',
+        'role-user': 'var(--role-user)',
       },
       fontFamily: {
         heading: ['Outfit', 'system-ui', 'sans-serif'],
@@ -56,4 +69,4 @@ module.exports = {
     },
   },
   plugins: [],
-};
+}

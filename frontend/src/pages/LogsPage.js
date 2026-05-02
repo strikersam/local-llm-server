@@ -34,7 +34,7 @@ function TabBar({ tabs, active, onChange }) {
       {tabs.map(([id, label]) => (
         <button key={id} onClick={() => onChange(id)}
           className="px-3 py-1.5 text-[10px] font-mono uppercase tracking-wider transition-colors"
-          style={active === id ? { background: C.accent, color: '#fff' } : { color: C.tertiary }}
+          style={active === id ? { background: C.accent, color: C.primary } : { color: C.tertiary }}
           onMouseEnter={e => { if (active !== id) e.currentTarget.style.color = C.secondary; }}
           onMouseLeave={e => { if (active !== id) e.currentTarget.style.color = C.tertiary; }}>
           {label}

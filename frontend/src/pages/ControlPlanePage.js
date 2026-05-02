@@ -33,15 +33,16 @@ function relTime(ts) {
 
 // ── Design tokens (match design bundle) ───────────────────────────────────────
 
+
 const C = {
-  bg:      '#0F0F13',
-  surface: '#141418',
-  border:  'rgba(255,255,255,0.06)',
-  primary: '#F2F2F6',
-  secondary:'#B2B2C4',
-  tertiary: '#808094',
-  muted:    '#565666',
-  accent:   '#002FA7',
+  bg:      "var(--bg-base)",
+  surface: "var(--bg-surface)",
+  border:  "var(--border)",
+  primary: "var(--text-primary)",
+  secondary: "var(--text-secondary)",
+  tertiary: "var(--text-tertiary)",
+  muted:    "var(--text-muted)",
+  accent:   "var(--accent)",
 };
 
 const STATUS_DOT = {

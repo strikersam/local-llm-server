@@ -685,7 +685,7 @@ export default function SetupWizardPage({ onComplete }) {
             {step === 1 && (
               <div>
                 <h2 className="text-xl font-bold text-gray-800 mb-1">Provider Setup</h2>
-                <p className="text-gray-500 text-sm mb-6">Choose which AI providers you want to use. Nvidia NIM is the default — free cloud inference, no local GPU needed.</p>
+                <p className="text-gray-500 text-sm mb-6">Choose which AI providers you want to use. The default is free cloud inference — no local GPU needed.</p>
                 <div className="space-y-4">
 
                   {/* Nvidia NIM — first priority */}
@@ -705,7 +705,7 @@ export default function SetupWizardPage({ onComplete }) {
                         <span className="inline-block px-2 py-0.5 rounded text-xs font-semibold bg-green-100 text-green-800">Free</span>
                         <span className="inline-block px-2 py-0.5 rounded text-xs font-semibold bg-indigo-100 text-indigo-800">Recommended</span>
                       </div>
-                      <div className="text-sm text-gray-500">Free cloud inference via Nvidia NIM — no local GPU or Ollama required</div>
+                      <div className="text-sm text-gray-500">Free cloud inference — no local GPU or Ollama required</div>
                       {nvidiaKeyConfigured
                         ? <div className="text-xs text-green-600 mt-1">✓ API key already configured on server — ready to use</div>
                         : <div className="text-xs text-amber-600 mt-1">Set NVIDIA_API_KEY on your Render/server environment to activate</div>

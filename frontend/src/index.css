@@ -27,6 +27,14 @@
   /* Fonts */
   --font-main: 'Geist', 'Outfit', system-ui, sans-serif;
   --font-mono: 'IBM Plex Mono', 'JetBrains Mono', monospace;
+  /* Additional variables for DashboardLayout */
+  --text-icon-inactive: #6E6E80;
+  --text-icon-hover: #8E8EA2;
+  --role-power-user: #3B82F6;
+  --role-user: #10B981;
+  --accent-shadow: rgba(0,47,167,0.5);
+  --danger-hover: #f87171;
+  --danger-hover-bg: rgba(239,68,68,0.05);
 }
 
 * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -51,7 +59,7 @@ body {
   overscroll-behavior: none;
 }
 
-::selection { background: var(--accent); color: #fff; }
+::selection { background: var(--accent); color: var(--text-primary); }
 
 ::-webkit-scrollbar { width: 4px; height: 4px; }
 ::-webkit-scrollbar-track { background: transparent; }
