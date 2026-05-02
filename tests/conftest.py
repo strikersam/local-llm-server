@@ -8,17 +8,28 @@ from unittest.mock import MagicMock, AsyncMock
 os.environ.setdefault("ADMIN_EMAIL", "admin@llmrelay.local")
 os.environ.setdefault("ADMIN_PASSWORD", "WikiAdmin2026!")
 
-# Set environment variables BEFORE importing the app
-os.environ["MONGO_URL"] = "mongodb://mongomock://localhost"
-os.environ["JWT_SECRET"] = "test-secret-for-tests-only"
-os.environ["ADMIN_EMAIL"] = "admin@llmrelay.local"
-os.environ["ADMIN_PASSWORD"] = "WikiAdmin2026!"
-os.environ["ADMIN_SECRET"] = "test-admin-secret"  # Enable admin login
-os.environ["EMERGENT_LLM_KEY"] = "test-key-for-testing"
-os.environ["DB_NAME"] = "llm_wiki_dashboard"
-os.environ["V3_ADMIN_PASSWORD"] = "test-v3-password"
-os.environ["V3_ADMIN_EMAIL"] = "admin@v3.test.local"
-os.environ["V3_JWT_SECRET"] = "test-v3-jwt-secret"
+# Load .env so tests see the same environment as the app
+from dotenv import load_dotenv
+load_dotenv()
+
+
+def pytest_configure() -> None:
+    """Ensure repo root is importable when running `pytest` as a console script."""
+    root = Path(__file__).resolve().parents[1]
+    root_str = str(root)
+    if root_str not in sys.path:
+        sys.path.insert(0, root_str)
+
+    # Test defaults (CI may not have a .env and proxy reads env at import time).
+    os.environ.setdefault("API_KEYS", "ci-test-key")
+    # Enable admin API routes for tests that hit /admin/api/*
+    os.environ.setdefault("ADMIN_SECRET", "ci-admin-secret-123")
+    # V3 API JWT secret for tests
+    os.environ.setdefault("V3_JWT_SECRET", "ci-jwt-secret-key-12345678901234567890")
+    os.environ.setdefault("JWT_SECRET", "ci-jwt-secret-key-12345678901234567890")
+    os.environ.setdefault("V3_ADMIN_EMAIL", "admin@llmrelay.local")
+    os.environ.setdefault("V3_ADMIN_NAME", "Administrator")
+
 
 # Mock motor modules to avoid connection errors
 mock_motor = MagicMock()
@@ -45,12 +56,6 @@ sys.modules['motor'] = mock_motor
 sys.modules['motor.motor_asyncio'] = mock_motor_asyncio
 sys.modules['motor.motor_tornado'] = mock_motor_tornado
 
-# Now we can import the app and the hash_password function
-from backend.server import app, hash_password
-
-# Provide a TestClient for the app
-from fastapi.testclient import TestClient
-import pytest
 
 # We need to mock the collection methods and ensure_bootstrap to return the expected values
 # We'll do this in a fixture that runs before each test
@@ -116,34 +121,38 @@ def setup_database_moks(monkeypatch):
     # For the users collection, we want to return a user that matches the test credentials
     # We'll use a fixed valid ObjectId string for the _id
     fake_object_id = "000000000000000000000000"
-    hashed_pw = hash_password("WikiAdmin2026!")
+    hashed_pw = None  # We'll get this after importing
+    
+    def get_hash_password():
+        nonlocal hashed_pw
+        if hashed_pw is None:
+            # Import here to avoid circular imports during mock setup
+            from backend.server import hash_password
+            hashed_pw = hash_password("WikiAdmin2026!")
+        return hashed_pw
+    
     async def mock_find_one(query):
-        # print(f"[DEBUG] mock_find_one called with query: {query}")  # Uncomment for debugging
         if "email" in query:
-            # print("[DEBUG] Returning user for email query")  # Uncomment for debugging
             return {
                 "_id": fake_object_id,
                 "email": "admin@llmrelay.local",
-                "password_hash": hashed_pw,
+                "password_hash": get_hash_password(),
                 "name": "Admin",
                 "role": "admin",
             }
         elif "_id" in query:
             # Convert the query's _id to string for comparison
             if str(query["_id"]) == fake_object_id:
-                # print("[DEBUG] Returning user for _id query")  # Uncomment for debugging
                 return {
                     "_id": fake_object_id,
                     "email": "admin@llmrelay.local",
-                    "password_hash": hashed_pw,
+                    "password_hash": get_hash_password(),
                     "name": "Admin",
                     "role": "admin",
                 }
             else:
-                # print(f"[DEBUG] Returning None for _id query: {query['_id']}")  # Uncomment for debugging
                 return None
         else:
-            # print(f"[DEBUG] Returning None for unknown query: {query}")  # Uncomment for debugging
             return None
     
     mock_users_collection.find_one = mock_find_one
@@ -152,10 +161,13 @@ def setup_database_moks(monkeypatch):
     
     # After the test, we can check if the mocks were called as expected if needed
 
+
 # Provide a TestClient for the app
 @pytest.fixture
 def wiki_client():
+    from backend.server import app
     return TestClient(app)
+
 
 # Reset cross-request provider cooldown state before every test.
 #
@@ -168,24 +180,3 @@ def reset_provider_cooldowns():
     clear_cooldowns()
     yield
     clear_cooldowns()
-
-# Ensure repo root is importable when running `pytest` as a console script.
-def pytest_configure() -> None:
-    root = Path(__file__).resolve().parents[1]
-    root_str = str(root)
-    if root_str not in sys.path:
-        sys.path.insert(0, root_str)
-
-    # Test defaults (CI may not have a .env and proxy reads env at import time).
-    os.environ.setdefault("API_KEYS", "ci-test-key")
-    # Enable admin API routes for tests that hit /admin/api/*
-    os.environ.setdefault("ADMIN_SECRET", "ci-admin-secret-123")
-    # V3 API JWT secret for tests
-    os.environ.setdefault("V3_JWT_SECRET", "ci-jwt-secret-key-12345678901234567890")
-    os.environ.setdefault("JWT_SECRET", "ci-jwt-secret-key-12345678901234567890")
-    os.environ.setdefault("V3_ADMIN_EMAIL", "admin@llmrelay.local")
-    os.environ.setdefault("V3_ADMIN_NAME", "Administrator")
-
-# Load .env so tests see the same environment as the app
-from dotenv import load_dotenv
-load_dotenv()
