@@ -189,7 +189,7 @@ class KeyStore:
             if not rec or old_h is None:
                 return None
             del self._by_hash[old_h]
-            plain_key = "test-sk-qwen-" + secrets.token_urlsafe(32)
+            plain_key = "test-key-" + secrets.token_urlsafe(32)
             new_h = hashlib.sha256(plain_key.encode("utf-8")).hexdigest()
             kept = KeyRecord(key_id=rec.key_id, email=rec.email, department=rec.department, created=rec.created)
             self._by_hash[new_h] = kept
@@ -233,6 +233,6 @@ def load_key_store() -> KeyStore:
 def issue_new_api_key(store: KeyStore, email: str, department: str) -> tuple[str, KeyRecord]:
     """Generate a new plaintext API key, persist hash + metadata, return (plain_key, record)."""
     key_id = "kid_" + secrets.token_hex(6)
-    plain_key = "test-sk-qwen-" + secrets.token_urlsafe(32)
+    plain_key = "test-key-" + secrets.token_urlsafe(32)
     rec = store.add_key(plain_key=plain_key, email=email, department=department, key_id=key_id)
     return plain_key, rec
