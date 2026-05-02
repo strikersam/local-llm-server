@@ -304,8 +304,8 @@ class PhaseRunner:
         for cmd in commands:
             try:
                 proc = subprocess.run(
-                    cmd,
-                    shell=True,
+                    shlex.split(cmd),
+                    shell=False,
                     cwd=str(ws),
                     capture_output=True,
                     text=True,

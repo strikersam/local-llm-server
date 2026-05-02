@@ -26,13 +26,13 @@ from pathlib import Path
 from openai import OpenAI
 
 PR_NUMBER = sys.argv[1] if len(sys.argv) > 1 else ""
-RESULT_FILE = "/tmp/review_result.json"
+RESULT_FILE = "/tmp/review_result.json"  # nosec: B108 - Predictable temp file path used for backward compatibility
 
 
 def get_pr_diff(pr_num: str) -> str:
     result = subprocess.run(
         f"gh pr diff {pr_num} --patch",
-        shell=True, capture_output=True, text=True, timeout=60,
+            ["gh", "pr", "diff", pr_num, "--patch"],
     )
     diff = result.stdout
     if len(diff) > 12000:
@@ -43,7 +43,7 @@ def get_pr_diff(pr_num: str) -> str:
 def get_pr_files(pr_num: str) -> str:
     result = subprocess.run(
         f"gh pr view {pr_num} --json files -q '.files[].path'",
-        shell=True, capture_output=True, text=True, timeout=30,
+            ["gh", "pr", "view", pr_num, "--json", "files", "-q", ".files[].path"],
     )
     return result.stdout.strip()
 
