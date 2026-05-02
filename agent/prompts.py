@@ -100,6 +100,16 @@ def build_tool_prompt(
                 "- github_commit_changes(repo_name, branch_name, message, path, content)"
                 "  → commit a change to a single file\n"
                 "- github_open_pull_request(repo_name, title, head, base='main', body='')"
+                "- self_audit()"\
+                  "  → perform comprehensive self-audit of agent configuration"\
+                "- setup_mcp_server(service_name, config?)"\
+                  "  → automate MCP server setup for a service"\
+                "- install_skill(skill_source, skill_name?)"\
+                  "  → automate skill installation from various sources"\
+                "- generate_claude_md(target_path?)"\
+                  "  → generate CLAUDE.md based on codebase analysis"\
+                "- apply_recommendations(audit_results)"\
+                  "  → apply recommended improvements from audit"
                 "  → create a pull request\n"
                 "- spawn_subagent(instruction, model=None, max_steps=5)"
                 "  → delegate a self-contained subtask to a child agent; returns its condensed result\n"
