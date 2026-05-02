@@ -240,7 +240,7 @@ class TestAuditLog:
 class TestMaskSecret:
 
     def test_masks_openai_key(self):
-        key = "sk-fake-test-key-for-unit-testing-12345"
+        key = "sk-proj-test-key-for-unit-testing-12345"
         result = mask_secret(key)
         assert "sk-p" in result
         assert "****" in result
