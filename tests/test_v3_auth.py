@@ -147,7 +147,7 @@ async def test_v3_auth_me_endpoint(client: TestClient):
     assert response.status_code == 200
     data = response.json()
     assert data["email"] == admin_email
-    assert data["id"]
+    assert data["_id"]
     assert data["role"] == "admin"
 
 
