@@ -115,3 +115,6 @@
 
 ### Added
 - direct_chat.py — Added `agent_mode` flag to the `/send` endpoint. When enabled, the endpoint runs an agent loop (similar to the dashboard) to perform the instruction, enabling complex tasks like cloning a repository, editing files, and opening pull requests.
+
+### Added
+- .claude/skills/fabric-patterns/ — Implemented a Fabric-like reusable prompt pattern system. Includes tools for listing, retrieving, applying, and stitching patterns. Comes with example patterns: summarize and extract_wisdom.
