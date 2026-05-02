@@ -172,6 +172,12 @@ def wiki_client():
     return TestClient(app)
 
 
+@pytest.fixture
+def client(wiki_client: TestClient) -> TestClient:
+    """Backward-compatible alias for tests expecting a generic client fixture."""
+    return wiki_client
+
+
 # Reset cross-request provider cooldown state before every test.
 #
 # Without this, a test that triggers a provider failure (and thus a cooldown)
