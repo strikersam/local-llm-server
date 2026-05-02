@@ -19,6 +19,15 @@ const STATUS_STYLE = {
 const RUNTIME_OPTIONS = ['hermes', 'opencode', 'goose', 'aider', 'openhands'];
 const TASK_TYPES = ['general', 'code_generation', 'code_review', 'repo_editing', 'reasoning', 'scheduled'];
 
+function normalizeAgent(agent) {
+  return {
+    ...agent,
+    preferred_runtime: agent.preferred_runtime || agent.runtime_id || '',
+    task_specializations: agent.task_specializations || agent.task_types || [],
+    role: agent.role || '',
+  };
+}
+
 function AgentCard({ agent, onEdit, onDelete }) {
   const status = agent.status || 'idle';
   const style = STATUS_STYLE[status] || STATUS_STYLE.idle;
@@ -80,12 +89,12 @@ function AgentCard({ agent, onEdit, onDelete }) {
 }
 
 function AgentForm({ agent, onSave, onCancel }) {
-  const [form, setForm] = useState(agent || {
+  const [form, setForm] = useState(normalizeAgent(agent || {
     name: '', description: '', role: '', system_prompt: '',
     preferred_runtime: 'hermes', fallback_runtimes: [],
     task_specializations: [], requires_approval: false,
     cost_policy: 'local_only',
-  });
+  }));
 
   const set = (k, v) => setForm(f => ({ ...f, [k]: v }));
 
@@ -211,7 +220,7 @@ export default function AgentsPage() {
     setError('');
     try {
       const r = await listAgents();
-      setAgents(r.data.agents || []);
+      setAgents((r.data.agents || []).map(normalizeAgent));
     } catch (e) {
       setError(fmtErr(e?.response?.data?.detail) || e.message);
     } finally {
@@ -286,7 +295,7 @@ export default function AgentsPage() {
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
           {agents.map(a => (
             <AgentCard key={a.agent_id} agent={a}
-              onEdit={a => { setEditAgent(a); setShowForm(false); }}
+              onEdit={a => { setEditAgent(normalizeAgent(a)); setShowForm(false); }}
               onDelete={handleDelete} />
           ))}
         </div>

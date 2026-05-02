@@ -44,6 +44,7 @@ from starlette.middleware.sessions import SessionMiddleware
 # Feature routers — agents, runtimes, tasks
 from agents.api import agent_router
 from agents.store import AgentStore, set_agent_store
+from agent.scheduler import AgentScheduler, get_scheduler, set_scheduler
 from provider_router import (
     CommercialFallbackRequiredError,
     ProviderConfig,
@@ -53,9 +54,11 @@ from provider_router import (
 )
 from runtimes.api import runtime_router
 from runtimes.manager import get_runtime_manager
+from schedules import schedules_router
+from tasks.automation import TaskAutomationService
 from tasks.api import task_router
 from tasks.dispatcher import TaskDispatcher
-from tasks.store import TaskStore, set_task_store
+from tasks.store import TaskStore, get_task_store, set_task_store
 from setup import setup_router
 from secrets_store import secrets_router, get_secrets_store
 
@@ -63,6 +66,9 @@ logging.basicConfig(
     level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s"
 )
 log = logging.getLogger("llm-wiki")
+
+SCHEDULER = AgentScheduler()
+set_scheduler(SCHEDULER)
 
 MONGO_URL = os.environ.get("MONGO_URL", "mongodb://localhost:27017")
 DB_NAME = os.environ.get("DB_NAME", "llm_wiki_dashboard")
@@ -540,6 +546,7 @@ async def get_current_user(request: Request) -> dict:
 async def lifespan(app_: "FastAPI"):
     dispatcher: TaskDispatcher | None = None
     dispatcher_task: asyncio.Task | None = None
+    task_automation: TaskAutomationService | None = None
     runtime_manager = get_runtime_manager()
     try:
         await ensure_bootstrap()
@@ -549,6 +556,9 @@ async def lifespan(app_: "FastAPI"):
         log.info(
             "LLM Relay Platform started in limited mode — set MONGO_URL to enable full features"
         )
+    task_automation = TaskAutomationService(store=get_task_store())
+    SCHEDULER.set_on_fire(task_automation.handle_scheduled_job)
+    log.info("Scheduler automation wired to task workflow")
     await runtime_manager.start()
     log.info(
         "RuntimeManager started (%d runtimes registered)",
@@ -2534,7 +2544,7 @@ async def get_activity(limit: int = 50, user: dict = Depends(get_current_user)):
     async for entry in db.activity_log.find({}).sort("created_at", -1).limit(limit):
         entry["_id"] = str(entry["_id"])
         logs.append(entry)
-    return {"logs": logs}
+    return {"logs": logs, "events": logs, "activity": logs}
 
 
 @app.get("/api/stats")
@@ -2876,6 +2886,167 @@ async def delete_api_key(key_id: str, user: dict = Depends(get_current_user)):
 
 
 # ─── Observability (Langfuse) ───────────────────────────────────────────────────
+
+
+def _period_cutoff(period: str) -> datetime:
+    now = datetime.now(timezone.utc)
+    if period == "day":
+        return now - timedelta(days=1)
+    if period == "week":
+        return now - timedelta(days=7)
+    if period == "month":
+        return now - timedelta(days=30)
+    return datetime.fromtimestamp(0, tz=timezone.utc)
+
+
+async def _load_local_metrics_since(cutoff: datetime) -> list[dict]:
+    docs: list[dict] = []
+    try:
+        cursor = db.local_metrics.find({"timestamp": {"$gte": cutoff}}).sort("timestamp", 1)
+        async for doc in cursor:
+            docs.append(doc)
+    except Exception:
+        return []
+    return docs
+
+
+def _to_dt(value: object) -> datetime | None:
+    if isinstance(value, datetime):
+        return value.astimezone(timezone.utc)
+    return None
+
+
+@app.get("/api/observability/savings")
+async def observability_savings(
+    period: str = "month",
+    bucket: str = "day",
+    user: dict = Depends(get_current_user),
+):
+    cutoff = _period_cutoff(period)
+    docs = await _load_local_metrics_since(cutoff)
+    user_role = str(user.get("role", "user"))
+    user_email = user.get("email")
+    if user_role not in {"admin", "power_user"} and user_email:
+        docs = [doc for doc in docs if doc.get("email") == user_email]
+
+    total_saved = round(sum(float(doc.get("cost_usd") or 0.0) for doc in docs), 4)
+    total_tokens = sum(int(doc.get("prompt_tokens") or 0) + int(doc.get("completion_tokens") or 0) for doc in docs)
+    total_requests = len(docs)
+
+    bucket_map: dict[str, dict] = {}
+    for doc in docs:
+        ts = _to_dt(doc.get("timestamp"))
+        if ts is None:
+            continue
+        if bucket == "hour":
+            stamp = ts.replace(minute=0, second=0, microsecond=0)
+            label = stamp.strftime("%m-%d %H:00")
+        else:
+            stamp = ts.replace(hour=0, minute=0, second=0, microsecond=0)
+            label = stamp.strftime("%m-%d")
+        key = stamp.isoformat()
+        entry = bucket_map.setdefault(
+            key,
+            {
+                "timestamp": int(stamp.timestamp()),
+                "date": label,
+                "label": label,
+                "saved_usd": 0.0,
+                "savings_usd": 0.0,
+                "tokens": 0,
+                "requests": 0,
+            },
+        )
+        saved = float(doc.get("cost_usd") or 0.0)
+        entry["saved_usd"] += saved
+        entry["savings_usd"] += saved
+        entry["tokens"] += int(doc.get("prompt_tokens") or 0) + int(doc.get("completion_tokens") or 0)
+        entry["requests"] += 1
+
+    buckets = list(bucket_map.values())
+    for entry in buckets:
+        entry["saved_usd"] = round(entry["saved_usd"], 4)
+        entry["savings_usd"] = round(entry["savings_usd"], 4)
+    buckets.sort(key=lambda entry: entry["timestamp"])
+
+    today_cutoff = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
+    today_saved = round(
+        sum(float(doc.get("cost_usd") or 0.0) for doc in docs if (_to_dt(doc.get("timestamp")) or today_cutoff) >= today_cutoff),
+        4,
+    )
+
+    user_rollup: dict[str, dict] = {}
+    for doc in docs:
+        email = str(doc.get("email") or "unknown")
+        row = user_rollup.setdefault(
+            email,
+            {"user": email, "saved_usd": 0.0, "local_requests": 0, "cloud_requests": 0},
+        )
+        row["saved_usd"] += float(doc.get("cost_usd") or 0.0)
+        row["local_requests"] += 1
+    by_user = []
+    for row in user_rollup.values():
+        total_user_requests = row["local_requests"] + row["cloud_requests"]
+        row["saved_usd"] = round(row["saved_usd"], 4)
+        row["local_pct"] = round((row["local_requests"] / total_user_requests) * 100) if total_user_requests else 0
+        by_user.append(row)
+    by_user.sort(key=lambda row: row["saved_usd"], reverse=True)
+
+    summary = {
+        "period": period,
+        "total_requests": total_requests,
+        "total_tokens": total_tokens,
+        "total_infra_cost_usd": 0.0,
+        "total_commercial_eq_usd": total_saved,
+        "total_savings_usd": total_saved,
+    }
+    return {
+        "summary": summary,
+        "time_series": buckets,
+        "total_saved_usd": total_saved,
+        "period_saved_usd": total_saved,
+        "today_saved_usd": today_saved,
+        "buckets": buckets,
+        "by_user": by_user,
+    }
+
+
+@app.get("/api/observability/usage")
+async def observability_usage(period: str = "month", user: dict = Depends(get_current_user)):
+    cutoff = _period_cutoff(period)
+    docs = await _load_local_metrics_since(cutoff)
+    user_role = str(user.get("role", "user"))
+    user_email = user.get("email")
+    if user_role not in {"admin", "power_user"} and user_email:
+        docs = [doc for doc in docs if doc.get("email") == user_email]
+
+    by_model: dict[str, dict] = {}
+    for doc in docs:
+        model = str(doc.get("model") or "unknown")
+        row = by_model.setdefault(model, {"requests": 0, "tokens": 0, "savings_usd": 0.0})
+        row["requests"] += 1
+        row["tokens"] += int(doc.get("prompt_tokens") or 0) + int(doc.get("completion_tokens") or 0)
+        row["savings_usd"] += float(doc.get("cost_usd") or 0.0)
+    for row in by_model.values():
+        row["savings_usd"] = round(row["savings_usd"], 4)
+
+    requests_24h = 0
+    try:
+        day_cutoff = _period_cutoff("day")
+        requests_24h = len([doc for doc in await _load_local_metrics_since(day_cutoff) if user_role in {"admin", "power_user"} or doc.get("email") == user_email])
+    except Exception:
+        requests_24h = len(docs)
+
+    total_requests = len(docs)
+    return {
+        "period": period,
+        "total_requests": total_requests,
+        "requests_24h": requests_24h,
+        "total_tokens": sum(row["tokens"] for row in by_model.values()),
+        "local_ratio": 1.0 if total_requests else 0.0,
+        "escalations": 0,
+        "by_model": by_model,
+    }
 
 
 @app.get("/api/observability/status")
@@ -3559,10 +3730,84 @@ async def create_github_pr(
         ) from exc
 
 
+# ─── Legacy scheduler compatibility (pre-Control Plane frontend builds) ─────
+
+
+class LegacyScheduleJobRequest(BaseModel):
+    name: str = Field(..., min_length=1, max_length=200)
+    cron: str = Field(..., min_length=9, max_length=100)
+    instruction: str = Field(..., min_length=1, max_length=4000)
+    agent_id: str | None = Field(default=None, max_length=64)
+    runtime_id: str | None = Field(default=None, max_length=64)
+    model: str | None = Field(default=None, max_length=200)
+    task_type: str = Field(default="scheduled", max_length=64)
+    requires_approval: bool = False
+    tags: list[str] = Field(default_factory=list)
+
+
+class LegacyScheduleToggleRequest(BaseModel):
+    status: str = Field(..., pattern="^(active|paused)$")
+
+
+@app.post("/agent/scheduler/jobs")
+async def legacy_scheduler_create(
+    body: LegacyScheduleJobRequest, user: dict = Depends(get_current_user)
+):
+    job = get_scheduler().create(
+        name=body.name,
+        cron=body.cron,
+        instruction=body.instruction,
+        agent_id=body.agent_id,
+        runtime_id=body.runtime_id,
+        model=body.model,
+        task_type=body.task_type,
+        requires_approval=body.requires_approval,
+        tags=body.tags,
+    )
+    return job.as_dict()
+
+
+@app.get("/agent/scheduler/jobs")
+async def legacy_scheduler_list(user: dict = Depends(get_current_user)):
+    return {"jobs": [job.as_dict() for job in get_scheduler().list()]}
+
+
+@app.get("/agent/scheduler/jobs/{job_id}")
+async def legacy_scheduler_get(job_id: str, user: dict = Depends(get_current_user)):
+    job = get_scheduler().get(job_id)
+    if job is None:
+        raise HTTPException(status_code=404, detail="Job not found")
+    return job.as_dict()
+
+
+@app.post("/agent/scheduler/jobs/{job_id}/trigger")
+async def legacy_scheduler_trigger(job_id: str, user: dict = Depends(get_current_user)):
+    try:
+        return get_scheduler().trigger(job_id).as_dict()
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="Job not found") from exc
+
+
+@app.delete("/agent/scheduler/jobs/{job_id}")
+async def legacy_scheduler_delete(job_id: str, user: dict = Depends(get_current_user)):
+    return {"deleted": get_scheduler().delete(job_id)}
+
+
+@app.patch("/agent/scheduler/jobs/{job_id}")
+async def legacy_scheduler_toggle(
+    job_id: str, body: LegacyScheduleToggleRequest, user: dict = Depends(get_current_user)
+):
+    try:
+        return get_scheduler().toggle(job_id, enabled=(body.status == "active")).as_dict()
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="Job not found") from exc
+
+
 # ─── Feature Routers ────────────────────────────────────────────────────────────
 app.include_router(agent_router)
 app.include_router(runtime_router)
 app.include_router(task_router)
+app.include_router(schedules_router, dependencies=[Depends(get_current_user)])
 app.include_router(setup_router)
 app.include_router(secrets_router)
 

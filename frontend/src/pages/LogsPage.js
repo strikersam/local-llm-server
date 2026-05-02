@@ -122,7 +122,7 @@ function ActivityTab() {
     setLoading(true);
     try {
       const r = await getActivity(100);
-      setEvents(Array.isArray(r.data) ? r.data : r.data?.events || r.data?.activity || []);
+      setEvents(Array.isArray(r.data) ? r.data : r.data?.events || r.data?.activity || r.data?.logs || []);
     } catch (e) {
       setError(fmtErr(e));
     } finally {
@@ -199,15 +199,20 @@ function MetricsTab() {
 
   if (loading) return <div className="py-12 text-center text-[11px] font-mono" style={{ color: C.muted }}>Loading metrics…</div>;
 
-  const totalSaved   = savings?.total_saved_usd ?? stats?.cost_saved_usd ?? 0;
-  const monthlySaved = savings?.period_saved_usd ?? 0;
+  const savingsSummary = savings?.summary || {};
+  const totalSaved   = savings?.total_saved_usd ?? savingsSummary.total_savings_usd ?? stats?.cost_saved_usd ?? 0;
+  const monthlySaved = savings?.period_saved_usd ?? savingsSummary.total_savings_usd ?? 0;
   const todaySaved   = savings?.today_saved_usd ?? 0;
-  const dailyBuckets = savings?.buckets || [];
+  const dailyBuckets = savings?.buckets || (savings?.time_series || []).map(d => ({
+    ...d,
+    saved_usd: d.saved_usd ?? d.savings_usd ?? 0,
+    date: d.date || d.label || '',
+  }));
   const maxSaving    = dailyBuckets.length ? Math.max(...dailyBuckets.map(d => d.saved_usd || 0), 1) : 1;
 
-  const totalTokens  = usage?.total_tokens ?? stats?.total_tokens ?? 0;
+  const totalTokens  = usage?.total_tokens ?? savingsSummary.total_tokens ?? stats?.total_tokens ?? 0;
   const localRatio   = usage?.local_ratio ?? stats?.local_ratio ?? null;
-  const requests24h  = usage?.requests_24h ?? stats?.requests_24h ?? 0;
+  const requests24h  = usage?.requests_24h ?? usage?.total_requests ?? savingsSummary.total_requests ?? stats?.requests_24h ?? 0;
   const escalations  = usage?.escalations ?? stats?.escalations ?? 0;
   const escalPct     = requests24h > 0 ? ((escalations / requests24h) * 100).toFixed(1) : '—';
 
