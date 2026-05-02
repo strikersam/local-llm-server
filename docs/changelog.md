@@ -119,3 +119,6 @@
 - Added `skill-composer` skill: orchestration layer for combining multiple skills into coordinated workflows
 - Added `git-hygiene` skill: ensures clean git history, valid commit messages, and safe pushes before merging
 - Added `task-scoper` skill: prevents scope creep by explicitly defining task boundaries before implementation begins
+
+### Added
+- .claude/skills/repowise-intelligence/ - Implemented codebase intelligence layers inspired by repowise-dev/repowise. Provides four intelligence layers: dependency graph, git history, auto-generated documentation, and architectural decisions. Includes seven MCP tools for AI agents to efficiently understand and navigate the codebase.

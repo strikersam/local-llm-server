@@ -100,6 +100,20 @@ def build_tool_prompt(
                 "- github_commit_changes(repo_name, branch_name, message, path, content)"
                 "  → commit a change to a single file\n"
                 "- github_open_pull_request(repo_name, title, head, base='main', body='')"
+                "- get_overview()"\
+                  "  → get architecture summary and module map"\
+                "- get_answer(question)"\
+                  "  → ask a question about the codebase with confidence scoring"\
+                "- get_context(targets, include?)"\
+                  "  → get detailed context for files/symbols with options"\
+                "- search_codebase(query)"\
+                  "  → semantic search over codebase documentation"\
+                "- get_risk(targets?, changed_files?)"\
+                  "  → assess risk hotspots and dependencies"\
+                "- get_why(target)"\
+                  "  → get architectural decisions related to targets"\
+                "- get_decision_flownodes()"\
+                  "  → extract decision-linked flow nodes"
                 "  → create a pull request\n"
                 "- spawn_subagent(instruction, model=None, max_steps=5)"
                 "  → delegate a self-contained subtask to a child agent; returns its condensed result\n"
