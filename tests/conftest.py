@@ -3,6 +3,7 @@ import sys
 from pathlib import Path
 from unittest.mock import MagicMock, AsyncMock
 import pytest
+from fastapi.testclient import TestClient
 from dotenv import load_dotenv
 
 # Pin test credentials before load_dotenv() so the real .env cannot override
