@@ -2,6 +2,8 @@ import os
 import sys
 from pathlib import Path
 from unittest.mock import MagicMock, AsyncMock
+import pytest
+from dotenv import load_dotenv
 
 # Pin test credentials before load_dotenv() so the real .env cannot override
 # these values during test runs. seed_admin will sync the DB to match.
@@ -9,7 +11,6 @@ os.environ.setdefault("ADMIN_EMAIL", "admin@llmrelay.local")
 os.environ.setdefault("ADMIN_PASSWORD", "WikiAdmin2026!")
 
 # Load .env so tests see the same environment as the app
-from dotenv import load_dotenv
 load_dotenv()
 
 
