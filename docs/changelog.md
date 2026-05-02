@@ -2,6 +2,17 @@
 
 ## [Unreleased]
 
+### Changed
+- `frontend/package.json` / `frontend/package-lock.json` — restored `react-scripts` so the GitHub Pages dashboard can run `npm test` and `npm run build` in CI again.
+
+### Fixed
+- `backend/server.py` — wired the hosted `backend.server:app` deployment to expose authenticated schedule routes (`/api/schedules/*`) and legacy schedule compatibility routes (`/agent/scheduler/jobs*`), and initialised the shared scheduler so hosted schedule creation no longer returns 404.
+- `backend/server.py` — added `/api/observability/savings` and `/api/observability/usage` on the hosted backend, plus activity response aliases, so the Control Plane logs/metrics views have the data contracts expected by the GitHub Pages frontend.
+- `agents/store.py` / `agents/api.py` — agent profiles now persist Control Plane fields such as `role`, `preferred_runtime`, `fallback_runtimes`, `task_specializations`, and `requires_approval` while staying backward-compatible with `runtime_id` / `task_types`.
+- `frontend/src/api.js` / `frontend/src/pages/SchedulesPage.js` — the Schedules UI now uses `/api/schedules/*`, defaults assigned agents correctly, and removes misleading hardcoded “Recent Runs” sample data when there is no real schedule history.
+- `frontend/src/pages/LogsPage.js` — the logs dashboard now reads both hosted backend activity payloads (`logs`) and observability summaries (`summary` / `time_series`) instead of silently rendering empty activity or zeroed metrics.
+- `frontend/src/pages/DashboardLayout.js` — corrected a broken `NavItem` className ternary that prevented production React builds from compiling.
+
 ### Fixed
 - `tests/test_iteration_7_features.py` — corrected the placement of the temporary skip decorator on `test_anthropic_universal_provider_exists` so Python 3.13 CI syntax checks pass on pull request builds.
 - `tests/conftest.py` — restored a shared `client` fixture alias to `wiki_client` so `tests/test_v3_auth.py` can run under the full Python 3.13 CI suite.
