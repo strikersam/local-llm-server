@@ -295,6 +295,31 @@ claude
 
 </details>
 
+### Using with NVIDIA NIM
+
+To use Claude Code with NVIDIA NIM models via the local proxy:
+
+1. **Get a NVIDIA API key** from [build.nvidia.com](https://build.nvidia.com) (free, no credit card required).
+2. **Set the environment variable**:
+
+    ```bash
+    export NVIDIA_API_KEY="your-key-here"
+    # Optional: set a custom base URL (default: https://integrate.api.nvidia.com/v1)
+    export NVIDIA_BASE_URL="https://integrate.api.nvidia.com/v1"
+    ```
+
+3. **Start the local proxy** (if not already running):
+
+    ```bash
+    # Linux/macOS
+    ./launch-claude-code.sh --local
+
+    # Windows PowerShell
+    .\\launch-claude-code.ps1 -Local
+    ```
+
+4. **Use Claude Code** as usual. The proxy will automatically route requests to NVIDIA NIM when appropriate (given highest priority).
+
 <details>
 <summary><b>Aider · Continue · Zed · VS Code · Python SDK · iOS Shortcuts</b></summary>
 
