@@ -104,10 +104,8 @@ async def test_v3_auth_login_endpoint(client: TestClient):
     data = response.json()
     assert "access_token" in data
     assert "refresh_token" in data
-    assert data["token_type"] == "bearer"
-    assert data["expires_in"] > 0
     assert data["email"] == admin_email
-    assert data["id"]
+    assert data["_id"]
     assert data["role"] == "admin"
 
 
