@@ -6,6 +6,7 @@
 - `frontend/package-lock.json` — bump `follow-redirects` to latest version (dependabot security update).
 
 ### Changed
+- webui/frontend: bump esbuild and vite (dependabot)
 - `.github/scripts/implement_agent.py` and `.github/scripts/review_agent.py` — swapped Anthropic SDK for OpenAI SDK pointing at NVIDIA NIM; both scripts now use `NVIDIA_API_KEY` and the `https://integrate.api.nvidia.com/v1` endpoint with free-tier models (`meta/llama-3.3-70b-instruct`, `nvidia/llama-3.1-nemotron-ultra-253b-v1`, `qwen/qwen2.5-coder-32b-instruct`). `implement_agent.py` probes tool-calling support during model selection and only marks implementation successful on explicit `IMPLEMENTATION_COMPLETE` signal. `review_agent.py` fails closed when API key is missing or model output is unparseable.
 - `.github/workflows/process-quick-note.yml` — **complete pipeline rewrite**: quick-note issues now go through a full automated engineering cycle: (1) multi-strategy URL fetch (direct → og:url/canonical resolution → Google Cache → Wayback Machine) with a 500-char content gate that reopens the issue with a clear message instead of hallucinating; (2) dedicated `quick-note/issue-N` feature branch; (3) Claude agentic implementation loop (`implement_agent.py`) using Anthropic tool-use — reads CLAUDE.md and all relevant skills, edits files, runs pytest inside the loop, fixes failures; (4) pytest gate before commit; (5) automatic PR creation with summary; (6) council-review pass (`review_agent.py` — Security / Correctness / Performance / Maintainability) posted as PR comment; (7) auto-merge on PASS/WARN; (8) auto-retry up to 3× on failure — issues reopened with a failure log and a `retry:N` label; after 3 failures the issue receives `quick-note:exhausted` for human triage.
 - `.github/scripts/fetch_url.py` — standalone multi-strategy URL fetcher (direct → og:url resolve → Google Cache → Wayback Machine).
@@ -23,6 +24,7 @@
 - `agent/state.py` — `AgentSessionStore.create_with_id()`: creates a session with a caller-supplied ID (e.g. a UUID from `/agent/chat`), allowing chat sessions to be persistent and addressable by the client.
 
 ### Changed
+- webui/frontend: bump esbuild and vite (dependabot)
 - `proxy.py` — `AGENT_RUNNER` singleton now receives `session_store=AGENT_SESSIONS` and, when `NVIDIA_API_KEY` is set, is pointed at the NVIDIA NIM base URL with the NIM auth header so that session-based `/agent/run` and `/agent/sessions/{id}/run` calls also benefit from free NIM models instead of always hitting local Ollama.
 - `proxy.py` — `internal_agent` runtime registered model default updated from `gemma4:latest` to `qwen/qwen2.5-coder-32b-instruct` (NVIDIA NIM free tier) when `NVIDIA_API_KEY` is set.
 
@@ -72,6 +74,7 @@
 - `frontend/src/pages/SetupWizardPage.js` — Nvidia NIM card added as first/recommended option in Step 1 with "Free" + "Recommended" badges; wizard auto-detects server-configured Nvidia key on load and shows "already configured" indicator; toggling Nvidia NIM on auto-updates model defaults across Steps 2 and 4; added `free_only` cost policy option.
 
 ### Changed
+- webui/frontend: bump esbuild and vite (dependabot)
 - `setup/api.py` — `Step1Request.use_nvidia_nim` defaulted `True`; `use_ollama` defaulted `False` (no local infra needed by default); `Step2Request` and `Step4Request` model defaults updated to Nvidia NIM models (`qwen/qwen2.5-coder-32b-instruct`, `deepseek-ai/deepseek-r1`); `Step4Request.cost_policy` defaulted to `free_only`.
 - `frontend/src/pages/SetupWizardPage.js` — Step 2 renamed from "Local Models" to "Model Selection"; Nvidia NIM model info box shown in Step 2 when Nvidia is selected; draft persistence and `handleSave` payloads include `useNvidiaNim`; `applyDraftState` restores Nvidia NIM selection.
 
@@ -91,6 +94,7 @@
 - Wired both new routers into `proxy.py` at startup.
 
 ### Changed
+- webui/frontend: bump esbuild and vite (dependabot)
 - `.python-version` — pinned to `3.13` to match CI (`python-version: ["3.13"]` in `.github/workflows/ci.yml`); local pytest environment reinstalled with Python 3.13 so version-specific behaviour (event-loop enforcement, etc.) is caught locally before CI.
 
 ### Fixed
