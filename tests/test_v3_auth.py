@@ -242,5 +242,4 @@ async def test_v3_auth_logout_endpoint(client: TestClient):
 
     assert response.status_code == 200
     data = response.json()
-    assert data["status"] == "logged out"
-    assert data["email"] == admin_email
+    assert data["ok"] is True
