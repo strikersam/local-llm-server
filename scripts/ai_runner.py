@@ -40,6 +40,7 @@ import logging
 import os
 import re
 import subprocess
+import shlex
 import sys
 import time
 from datetime import datetime, timezone
@@ -450,7 +451,7 @@ def cmd_resume() -> int:
 
     if resume_cmd and resume_cmd.startswith("python"):
         log.info("Executing resume command: %s", resume_cmd)
-        result = subprocess.run(resume_cmd, shell=True, cwd=REPO_ROOT)
+        result = subprocess.run(shlex.split(resume_cmd), shell=False, cwd=REPO_ROOT)
         return result.returncode
 
     with RunnerLock():
@@ -749,7 +750,7 @@ def cmd_test_resume_simulation() -> int:
     # Step 7: Execute the resume command (dry-run: echo only)
     resume_cmd = next_step.get("resume_command", "")
     if resume_cmd.startswith("echo"):
-        result = subprocess.run(resume_cmd, shell=True, capture_output=True, text=True)
+        result = subprocess.run(shlex.split(resume_cmd), shell=False, capture_output=True, text=True)
         assert "RESUMED_STEP_TWO" in result.stdout, f"Resume command output: {result.stdout}"
         print(f"  ✓ Resume command executed: {result.stdout.strip()}")
 

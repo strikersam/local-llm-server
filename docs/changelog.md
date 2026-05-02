@@ -12,6 +12,8 @@
 - `frontend/package-lock.json` — bump `follow-redirects` to latest version (dependabot security update).
 
 ### Changed
+- webui/frontend: bump esbuild and vite (dependabot)
+- webui/frontend: bump npm_and_yarn group (dependabot)
 - `.github/scripts/implement_agent.py` and `.github/scripts/review_agent.py` — swapped Anthropic SDK for OpenAI SDK pointing at NVIDIA NIM; both scripts now use `NVIDIA_API_KEY` and the `https://integrate.api.nvidia.com/v1` endpoint with free-tier models (`meta/llama-3.3-70b-instruct`, `nvidia/llama-3.1-nemotron-ultra-253b-v1`, `qwen/qwen2.5-coder-32b-instruct`). `implement_agent.py` probes tool-calling support during model selection and only marks implementation successful on explicit `IMPLEMENTATION_COMPLETE` signal. `review_agent.py` fails closed when API key is missing or model output is unparseable.
 - `.github/workflows/process-quick-note.yml` — **complete pipeline rewrite**: quick-note issues now go through a full automated engineering cycle: (1) multi-strategy URL fetch (direct → og:url/canonical resolution → Google Cache → Wayback Machine) with a 500-char content gate that reopens the issue with a clear message instead of hallucinating; (2) dedicated `quick-note/issue-N` feature branch; (3) Claude agentic implementation loop (`implement_agent.py`) using Anthropic tool-use — reads CLAUDE.md and all relevant skills, edits files, runs pytest inside the loop, fixes failures; (4) pytest gate before commit; (5) automatic PR creation with summary; (6) council-review pass (`review_agent.py` — Security / Correctness / Performance / Maintainability) posted as PR comment; (7) auto-merge on PASS/WARN; (8) auto-retry up to 3× on failure — issues reopened with a failure log and a `retry:N` label; after 3 failures the issue receives `quick-note:exhausted` for human triage.
 - `.github/scripts/fetch_url.py` — standalone multi-strategy URL fetcher (direct → og:url resolve → Google Cache → Wayback Machine).
@@ -115,6 +117,3 @@
 - Added `skill-composer` skill: orchestration layer for combining multiple skills into coordinated workflows
 - Added `git-hygiene` skill: ensures clean git history, valid commit messages, and safe pushes before merging
 - Added `task-scoper` skill: prevents scope creep by explicitly defining task boundaries before implementation begins
-
-### Added
-- direct_chat.py — Added `agent_mode` flag to the `/send` endpoint. When enabled, the endpoint runs an agent loop (similar to the dashboard) to perform the instruction, enabling complex tasks like cloning a repository, editing files, and opening pull requests.
