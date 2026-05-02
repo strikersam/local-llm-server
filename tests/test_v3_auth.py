@@ -9,7 +9,11 @@ from tokens import create_tokens, verify_token, refresh_access_token
 
 
 def _configured_v3_password() -> str:
-    return os.environ.get("V3_ADMIN_PASSWORD") or os.environ.get("ADMIN_SECRET", "")
+    return (
+        os.environ.get("V3_ADMIN_PASSWORD")
+        or os.environ.get("ADMIN_PASSWORD")
+        or os.environ.get("ADMIN_SECRET", "")
+    )
 
 
 def test_token_creation_and_verification():
