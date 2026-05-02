@@ -14,7 +14,7 @@ import os
 
 load_dotenv()
 
-API_KEY = os.getenv("API_KEYS", "sk-qwen-9Ob7nJSX4vxkr4AbYlXNB0Z-FVO6MitnOZGLZwRhGps").split(",")[0].strip()
+API_KEY = os.getenv("API_KEYS", "test-key-9Ob7nJSX4vxkr4AbYlXNB0Z-FVO6MitnOZGLZwRhGps").split(",")[0].strip()
 BASE_URL = f"http://{os.getenv('PROXY_HOST', '127.0.0.1')}:{os.getenv('PROXY_PORT', '8000')}"
 WORKSPACE = os.getenv("AGENT_WORKSPACE_ROOT", str(Path.cwd()))
 
