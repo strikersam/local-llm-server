@@ -156,3 +156,80 @@ class WorkspaceTools:
                     if len(matches) >= limit:
                         return matches
         return matches
+
+    def list_patterns(self) -> list[dict[str, str]]:
+        """List all available fabric patterns with their descriptions."""
+        patterns_dir = self._resolve_path(".claude/skills/fabric-patterns/patterns")
+        if not patterns_dir.exists():
+            return []
+        
+        patterns = []
+        for pattern_file in patterns_dir.glob("*.md"):
+            try:
+                content = pattern_file.read_text(encoding="utf-8")
+                # Extract frontmatter if present
+                name = pattern_file.stem
+                description = "No description available"
+                
+                if content.startswith("---"):
+                    parts = content.split("---", 2)
+                    if len(parts) >= 3:
+                        frontmatter = parts[1]
+                        for line in frontmatter.split("\n"):
+                            if line.startswith("name:"):
+                                name = line.split(":", 1)[1].strip()
+                            elif line.startswith("description:"):
+                                description = line.split(":", 1)[1].strip()
+                
+                patterns.append({
+                    "name": name,
+                    "description": description,
+                    "file": str(pattern_file.relative_to(self.root))
+                })
+            except Exception:
+                # Skip unreadable files
+                continue
+        
+        return sorted(patterns, key=lambda x: x["name"])
+
+    def get_pattern(self, name: str) -> str:
+        """Retrieve the raw content of a pattern by name."""
+        patterns_dir = self._resolve_path(".claude/skills/fabric-patterns/patterns")
+        pattern_file = patterns_dir / f"{name}.md"
+        
+        if not pattern_file.exists():
+            raise FileNotFoundError(f"Pattern '{name}' not found")
+        
+        return pattern_file.read_text(encoding="utf-8")
+
+    def apply_pattern(self, name: str, variables: dict[str, str]) -> str:
+        """Apply a pattern with variable substitution."""
+        content = self.get_pattern(name)
+        
+        # Extract template content (skip frontmatter if present)
+        if content.startswith("---"):
+            parts = content.split("---", 2)
+            if len(parts) >= 3:
+                template = parts[2]
+            else:
+                template = content
+        else:
+            template = content
+        
+        # Replace variables
+        result = template
+        for key, value in variables.items():
+            result = result.replace(f"{{{{{key}}}}}", value)
+        
+        return result.strip()
+
+    def stitch_patterns(self, pattern_names: list[str], initial_input: str) -> str:
+        """Chain multiple patterns together, passing output of one as input to next."""
+        current_input = initial_input
+        
+        for pattern_name in pattern_names:
+            # Apply the pattern with current input as content
+            variables = {"content": current_input}
+            current_input = self.apply_pattern(pattern_name, variables)
+        
+        return current_input

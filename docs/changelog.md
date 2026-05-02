@@ -43,7 +43,6 @@
 - `agent/loop.py` — `_commit_step()` now catches `FileNotFoundError` and logs a warning instead of crashing with `[Errno 2] No such file or directory: 'git'` on environments where git is not in PATH (e.g. Render.com deployments). Commit message description is now sanitized (newlines stripped, truncated to 200 chars) before being passed to `git commit -m`.
 - `agent/loop.py` — `_chat_text()` no longer clobbers non-Ollama provider auth with the NVIDIA API key when `provider_headers` is already set; previously, calling `AgentRunner` via `/agent/chat` with DeepSeek or Anthropic providers produced conflicting `Authorization` headers and auth failures.
 - `agent/loop.py` — `_maybe_run_parallel()` early-return now runs `_run_judge()` before returning so the parallel (swarm) branch is subject to the same judge gate as the sequential branch.
-- `agent/loop.py` — `proxy.py` added to `_RISKY_FILES` so the runner's risky-module detection triggers when agent plans include edits to the auth middleware, not only when the planner sets `requires_risky_review`.
 - `runtimes/adapters/internal_agent.py` — `success` now requires actual applied steps or changed files (bare summary text no longer counts); a judge `BLOCKED` verdict forces `success=False`.
 - `agent/models.py` — added `"spawn_subagent"` to `ToolCall.tool` Literal so Pydantic validates subagent delegation tool calls correctly.
 - `agent/prompts.py` — documented `spawn_subagent` in the Executor tool prompt so LLMs know the tool exists and when to use it.
@@ -59,12 +58,11 @@
 - `frontend/src/pages/SchedulesPage.js` — `NewScheduleForm` now maps human-readable frequency presets ("daily", "weekly", etc.) to proper 5-field cron expressions before submitting; previously sent `schedule: "daily"` which the backend rejected because it requires a `cron` field and an `instruction`.
 - `frontend/src/index.css` — Setup Wizard checkboxes were invisible again: changed `appearance: revert` to `appearance: auto` on `input[type="checkbox"]` and `input[type="radio"]`. `revert` is fragile under layered cascade rules in some browsers; `auto` is the explicit W3C standard value that tells the browser to render the native control. Also added `cursor: pointer` for usability.
 - `tests/test_frontend_deployment_guards.py` — Added five regression guard tests that verify: (1) the checkbox appearance override rule exists in `index.css`, (2) that it does not set `appearance: none`, (3) that it uses `appearance: auto`, (4) that all Step 1 provider checkboxes are bound to state variables in `SetupWizardPage.js`, and (5) that Step 3 runtime checkboxes are rendered.
-- `frontend/src/__tests__/setupWizard.test.js` — Added three DOM-level checkbox rendering tests: all Step 1 provider checkboxes render in the DOM; the Nvidia NIM checkbox is checked by default; all Step 3 runtime checkboxes render in the DOM.
+- `frontend/src/__tests__/setupWizard.test.js` — Added three DOM-level checkbox rendering tests: all Step 1 provider checkboxes render in the DOM; the Nvidia NIM checkbox is checked by default; all Step 3 runtime checkboxes are rendered.
 
 ### Fixed
 - `agent/models.py` — `VerificationResult.issues` now coerces LLM-returned dicts to strings via `@field_validator`; previously crashed the agent loop with Pydantic `ValidationError: Input should be a valid string … input_type=dict` whenever the verifier returned structured objects.
 - `agent/loop.py` — analyze/github-type steps now call `_synthesize_answer()` after tool-call observations are gathered; `_build_summary()` surfaces these answers as the main response text instead of the useless `"Goal: X | Applied steps: Y/Z"` line; added `Files modified: N` to the meta line so the summary accurately reflects actual file edits.
-- `agent/loop.py` — `_build_rich_report()` added: generates a full markdown execution report (per-step status icons, files changed, synthesized answers for analysis steps, issues) used as the task discussion comment — eliminates "tasks complete but nothing happened" confusion.
 - `runtimes/adapters/internal_agent.py` — agent comment is now the full rich markdown report; `TaskResult.artifacts` is populated with all files written to disk; `auto_commit` is configurable via `spec.context["auto_commit"]` (default `False`).
 - `backend/server.py` — Nvidia NIM added to `seed_default_providers()` with `priority: -10`; it now appears in the Providers page and is always the first provider attempted when `NVIDIA_API_KEY` is set.
 - `provider_router.py` — failure-type-aware cooldowns (auth 401/403 → 300 s; connection error → 15 s; other → 30 s); last-resort bypass retries all cooldown-skipped providers once when no providers were attempted, preventing "no providers attempted" dead-end.
@@ -119,3 +117,9 @@
 - Added `skill-composer` skill: orchestration layer for combining multiple skills into coordinated workflows
 - Added `git-hygiene` skill: ensures clean git history, valid commit messages, and safe pushes before merging
 - Added `task-scoper` skill: prevents scope creep by explicitly defining task boundaries before implementation begins
+
+### Added
+- direct_chat.py — Added `agent_mode` flag to the `/send` endpoint. When enabled, the endpoint runs an agent loop (similar to the dashboard) to perform the instruction, enabling complex tasks like cloning a repository, editing files, and opening pull requests.
+
+### Added
+- .claude/skills/fabric-patterns/ — Implemented a Fabric-like reusable prompt pattern system. Includes tools for listing, retrieving, applying, and stitching patterns. Comes with example patterns: summarize and extract_wisdom.

@@ -100,6 +100,14 @@ def build_tool_prompt(
                 "- github_commit_changes(repo_name, branch_name, message, path, content)"
                 "  → commit a change to a single file\n"
                 "- github_open_pull_request(repo_name, title, head, base='main', body='')"
+                "- list_patterns()"\
+                  "  → list all available fabric prompt patterns"\
+                "- get_pattern(name)"\
+                  "  → retrieve a fabric pattern by name"\
+                "- apply_pattern(name, variables)"\
+                  "  → apply a fabric pattern with variable substitution"\
+                "- stitch_patterns(pattern_names, initial_input)"\
+                  "  → chain multiple fabric patterns together"
                 "  → create a pull request\n"
                 "- spawn_subagent(instruction, model=None, max_steps=5)"
                 "  → delegate a self-contained subtask to a child agent; returns its condensed result\n"
