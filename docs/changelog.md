@@ -112,3 +112,6 @@
 - Added `skill-composer` skill: orchestration layer for combining multiple skills into coordinated workflows
 - Added `git-hygiene` skill: ensures clean git history, valid commit messages, and safe pushes before merging
 - Added `task-scoper` skill: prevents scope creep by explicitly defining task boundaries before implementation begins
+
+### Added
+- direct_chat.py — Added `agent_mode` flag to the `/send` endpoint. When enabled, the endpoint runs an agent loop (similar to the dashboard) to perform the instruction, enabling complex tasks like cloning a repository, editing files, and opening pull requests.
