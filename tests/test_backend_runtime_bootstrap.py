@@ -1,21 +1,26 @@
-from __future__ import annotations
-
 import os
-
-import pytest
-
+# Set the environment variable for MONGO_URL to a dummy value that we will mock
 os.environ.setdefault("MONGO_URL", "mongodb://localhost:27017")
 os.environ.setdefault("JWT_SECRET", "test-secret-for-tests-only")
 os.environ.setdefault("ADMIN_EMAIL", "admin@test.local")
 os.environ.setdefault("ADMIN_PASSWORD", "TestPassword1!")
 
-import backend.server as server  # noqa: E402
+from unittest.mock import MagicMock, patch
 
+# Mock the AsyncIOMotorClient from motor.motor_asyncio to avoid connection attempts
+with patch('motor.motor_asyncio.AsyncIOMotorClient') as mock_client:
+    # Create a mock client instance
+    mock_client_instance = MagicMock()
+    # The server calls client.get_database(DB_NAME) so we need to mock that
+    mock_client_instance.get_database.return_value = MagicMock()
+    mock_client.return_value = mock_client_instance
+
+    # Now we can import the server module
+    import backend.server as server
 
 class _StubRuntimeRegistry:
     def ids(self) -> list[str]:
         return ["hermes"]
-
 
 class _StubRuntimeManager:
     def __init__(self) -> None:
@@ -29,7 +34,6 @@ class _StubRuntimeManager:
     async def stop(self) -> None:
         self.stopped += 1
 
-
 class _StubTaskDispatcher:
     def __init__(self, *, workspace_root: str, poll_interval_s: float) -> None:
         self.workspace_root = workspace_root
@@ -42,7 +46,6 @@ class _StubTaskDispatcher:
     def stop(self) -> None:
         self.stop_called += 1
 
-
 class _StubTask:
     def __init__(self, coro) -> None:
         self._coro = coro
@@ -54,7 +57,7 @@ class _StubTask:
     def __await__(self):
         return self._coro.__await__()
 
-
+import pytest
 @pytest.mark.anyio
 async def test_backend_lifespan_starts_runtime_manager_and_dispatcher(monkeypatch):
     manager = _StubRuntimeManager()
