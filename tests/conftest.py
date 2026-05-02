@@ -5,6 +5,7 @@ from unittest.mock import MagicMock, AsyncMock
 import pytest
 from fastapi.testclient import TestClient
 from dotenv import load_dotenv
+from fastapi.testclient import TestClient
 
 # Pin test credentials before load_dotenv() so the real .env cannot override
 # these values during test runs. seed_admin will sync the DB to match.
