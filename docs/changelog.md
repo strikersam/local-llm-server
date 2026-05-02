@@ -4,6 +4,7 @@
 
 ### Changed
 - `frontend/package.json` / `frontend/package-lock.json` — restored `react-scripts` so the GitHub Pages dashboard can run `npm test` and `npm run build` in CI again.
+- `.github/workflows/deploy-frontend.yml` — switched the Pages build install step from `npm ci` to `npm install` so GitHub Pages deployments are not blocked by npm lockfile strictness on the hosted runner image.
 
 ### Fixed
 - `backend/server.py` — wired the hosted `backend.server:app` deployment to expose authenticated schedule routes (`/api/schedules/*`) and legacy schedule compatibility routes (`/agent/scheduler/jobs*`), and initialised the shared scheduler so hosted schedule creation no longer returns 404.
