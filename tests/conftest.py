@@ -1,6 +1,12 @@
 import os
 import sys
+from pathlib import Path
 from unittest.mock import MagicMock, AsyncMock
+
+# Pin test credentials before load_dotenv() so the real .env cannot override
+# these values during test runs. seed_admin will sync the DB to match.
+os.environ.setdefault("ADMIN_EMAIL", "admin@llmrelay.local")
+os.environ.setdefault("ADMIN_PASSWORD", "WikiAdmin2026!")
 
 # Set environment variables BEFORE importing the app
 os.environ["MONGO_URL"] = "mongodb://mongomock://localhost"
@@ -146,6 +152,40 @@ def setup_database_moks(monkeypatch):
     
     # After the test, we can check if the mocks were called as expected if needed
 
+# Provide a TestClient for the app
 @pytest.fixture
 def wiki_client():
     return TestClient(app)
+
+# Reset cross-request provider cooldown state before every test.
+#
+# Without this, a test that triggers a provider failure (and thus a cooldown)
+# would pollute subsequent tests that use the same provider_id.
+@pytest.fixture(autouse=True)
+def reset_provider_cooldowns():
+    from provider_router import clear_cooldowns
+
+    clear_cooldowns()
+    yield
+    clear_cooldowns()
+
+# Ensure repo root is importable when running `pytest` as a console script.
+def pytest_configure() -> None:
+    root = Path(__file__).resolve().parents[1]
+    root_str = str(root)
+    if root_str not in sys.path:
+        sys.path.insert(0, root_str)
+
+    # Test defaults (CI may not have a .env and proxy reads env at import time).
+    os.environ.setdefault("API_KEYS", "ci-test-key")
+    # Enable admin API routes for tests that hit /admin/api/*
+    os.environ.setdefault("ADMIN_SECRET", "ci-admin-secret-123")
+    # V3 API JWT secret for tests
+    os.environ.setdefault("V3_JWT_SECRET", "ci-jwt-secret-key-12345678901234567890")
+    os.environ.setdefault("JWT_SECRET", "ci-jwt-secret-key-12345678901234567890")
+    os.environ.setdefault("V3_ADMIN_EMAIL", "admin@llmrelay.local")
+    os.environ.setdefault("V3_ADMIN_NAME", "Administrator")
+
+# Load .env so tests see the same environment as the app
+from dotenv import load_dotenv
+load_dotenv()
