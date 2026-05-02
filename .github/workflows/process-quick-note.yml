@@ -42,6 +42,8 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
+          # Authenticate gh CLI with the token
+          echo "" | gh auth login --with-token
           if [ -n "${{ github.event.inputs.issue_number }}" ]; then
             NUM="${{ github.event.inputs.issue_number }}"
             echo "Manual override — using issue #$NUM"
