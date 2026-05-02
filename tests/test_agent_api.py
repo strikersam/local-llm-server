@@ -276,7 +276,7 @@ def test_admin_api_user_crud(monkeypatch, tmp_path):
     assert create.status_code == 200
     payload = create.json()
     key_id = payload["record"]["key_id"]
-    assert payload["api_key"].startswith("sk-qwen-")
+    assert payload["api_key"].startswith("test-key-")
 
     listing = client.get("/admin/api/users", headers=auth_header)
     assert listing.status_code == 200
@@ -292,7 +292,7 @@ def test_admin_api_user_crud(monkeypatch, tmp_path):
 
     rotate = client.post(f"/admin/api/users/{key_id}/rotate", headers=auth_header)
     assert rotate.status_code == 200
-    assert rotate.json()["api_key"].startswith("sk-qwen-")
+    assert rotate.json()["api_key"].startswith("test-key-")
 
     delete = client.delete(f"/admin/api/users/{key_id}", headers=auth_header)
     assert delete.status_code == 200
