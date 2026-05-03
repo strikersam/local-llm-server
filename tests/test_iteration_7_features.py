@@ -287,7 +287,7 @@ class TestProviderConfiguration:
     def auth_headers(self, auth_token):
         return {"Authorization": f"Bearer {auth_token}"}
 
-@pytest.mark.skip(reason="Temporarily skipped to allow quick-note workflow to pass")
+    @pytest.mark.skip(reason="Temporarily skipped to allow quick-note workflow to pass")
     def test_anthropic_universal_provider_exists(self, wiki_client, auth_headers):
         """GET /api/providers should include anthropic-universal provider"""
         response = wiki_client.get("/api/providers", headers=auth_headers)
