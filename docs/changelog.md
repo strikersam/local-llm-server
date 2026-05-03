@@ -11,6 +11,7 @@
 - `.github/workflows/deploy-frontend.yml` — switched the Pages build install step from `npm ci` to `npm install` so GitHub Pages deployments are not blocked by npm lockfile strictness on the hosted runner image.
 
 ### Fixed
+- `backend/server.py` / `tests/test_chat_mode_regressions.py` — direct chat now refuses to fabricate repo-specific multi-file edit plans when Agent Mode is off. For repository-bound requests it returns a deterministic boundary message asking the user to enable Agent Mode or paste the relevant files instead of hallucinating framework/file details.
 - `backend/server.py` — explicit Agent Mode requests now time out early enough for hosted deployments and fall back to a substantive direct recovery answer instead of returning a generic timeout banner or upstream 502 page; the recovery path also retries with the provider default model when an explicit requested model is unavailable and keeps recovery pinned to the same provider chain instead of drifting back to a broken active-provider default.
 - `backend/server.py` / `tests/test_chat_mode_regressions.py` — agent-mode chat now seeds the hosted agent loop with the selected provider's default model when the user does not specify one, avoiding invalid planner/executor model selection on deployed cloud providers.
 - `tasks/service.py` / `tests/test_tasks_workflow.py` — task execution now has a hard timeout and fails cleanly instead of remaining stuck in `in_progress` forever when a runtime hangs.
