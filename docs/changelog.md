@@ -3,6 +3,8 @@
 ## [Unreleased]
 
 ### Changed
+- `README.md` — rewrote the README again with a human-first, screenshot-rich product story aimed at non-technical readers: simpler language, clearer use cases, visual tour, friendlier setup path, and links out to technical docs instead of front-loading route details.
+- `docs/api-surfaces.md` — added a separate technical route map so API and surface details live outside the README.
 - `README.md` — rewrote the top-level documentation to reflect the current product surface: corrected startup and port guidance, documented the built-in admin/web UI and separate dashboard deployment modes, and added an end-to-end feature inventory covering proxy compatibility, routing, agents, workflows, schedules, GitHub, secrets, sync, observability, and operations.
 - `frontend/package.json` / `frontend/package-lock.json` — restored `react-scripts` so the GitHub Pages dashboard can run `npm test` and `npm run build` in CI again.
 - `.github/workflows/deploy-frontend.yml` — switched the Pages build install step from `npm ci` to `npm install` so GitHub Pages deployments are not blocked by npm lockfile strictness on the hosted runner image.
