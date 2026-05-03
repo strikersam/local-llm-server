@@ -12,6 +12,7 @@
 
 ### Fixed
 - `backend/server.py` — explicit Agent Mode requests now time out early enough for hosted deployments and fall back to a substantive direct recovery answer instead of returning a generic timeout banner or upstream 502 page.
+- `backend/server.py` / `tests/test_chat_mode_regressions.py` — agent-mode chat now seeds the hosted agent loop with the selected provider's default model when the user does not specify one, avoiding invalid planner/executor model selection on deployed cloud providers.
 - `tasks/service.py` / `tests/test_tasks_workflow.py` — task execution now has a hard timeout and fails cleanly instead of remaining stuck in `in_progress` forever when a runtime hangs.
 - `backend/server.py` / `tests/test_chat_mode_regressions.py` — direct chat now respects the Agent Mode toggle strictly, so complex coding prompts stay on the fast LLM path unless the caller explicitly enables agent orchestration. This prevents default chat from failing behind agent-only provider/runtime issues.
 - `Dockerfile.backend` — copy the `schedules/` package into the hosted backend image so `backend.server:app` can import `schedules_router` on Render instead of crashing with `ModuleNotFoundError: No module named 'schedules'` during deploy.
