@@ -7,6 +7,7 @@
 - `.github/workflows/deploy-frontend.yml` — switched the Pages build install step from `npm ci` to `npm install` so GitHub Pages deployments are not blocked by npm lockfile strictness on the hosted runner image.
 
 ### Fixed
+- `Dockerfile.backend` — copy the `schedules/` package into the hosted backend image so `backend.server:app` can import `schedules_router` on Render instead of crashing with `ModuleNotFoundError: No module named 'schedules'` during deploy.
 - `backend/server.py` — wired the hosted `backend.server:app` deployment to expose authenticated schedule routes (`/api/schedules/*`) and legacy schedule compatibility routes (`/agent/scheduler/jobs*`), and initialised the shared scheduler so hosted schedule creation no longer returns 404.
 - `backend/server.py` — added `/api/observability/savings` and `/api/observability/usage` on the hosted backend, plus activity response aliases, so the Control Plane logs/metrics views have the data contracts expected by the GitHub Pages frontend.
 - `agents/store.py` / `agents/api.py` — agent profiles now persist Control Plane fields such as `role`, `preferred_runtime`, `fallback_runtimes`, `task_specializations`, and `requires_approval` while staying backward-compatible with `runtime_id` / `task_types`.
