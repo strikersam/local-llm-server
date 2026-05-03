@@ -91,11 +91,10 @@ function NavItem({ to, icon: Icon, label, end, onClick, adminOnly }) {
       onClick={onClick}
       data-testid={`nav-${label.toLowerCase().replace(/\s/g, '-')}`}
       className={({ isActive }) =>
-        `group relative flex items-center gap-2.5 px-3 py-2 mx-2 text-[12.5px] font-medium rounded-lg transition-all duration-150
-        ${isActive
-          : ? .bg-accent/10 text-primary'
-          : 'text-[#808094] hover:text-[#B2B2C4] hover:bg-white/[0.04]'
-        }`
+        `group relative flex items-center gap-2.5 px-3 py-2 mx-2 text-[12.5px] font-medium rounded-lg transition-all duration-150 ${isActive ? ".bg-accent/10 text-primary" : "text-[#808094] hover:text-[#B2B2C4] hover:bg-white/[0.04]"}`
+      }
+      style={{ width: 'calc(100% - 16px)' }}
+    >
       }
       style={{ width: 'calc(100% - 16px)' }}
     >
