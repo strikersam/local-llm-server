@@ -5,9 +5,9 @@ Your local-llm-server is configured and running. Here's what's ready:
 ## ✅ Current Status
 
 - **Proxy Server**: Running on `http://localhost:8000`
-- **Ollama**: Running with `gemma4:latest` model
+- **Ollama**: Running with `nemotron-3-super-120b-a12b` model
 - **API Key**: `sk-qwen-9Ob7nJSX4vxkr4AbYlXNB0Z-FVO6MitnOZGLZwRhGps`
-- **Agent Models**: Configured to use `gemma4:latest` for planner, executor, and verifier
+- **Agent Models**: Configured to use `nemotron-3-super-120b-a12b` for planner, executor, and verifier
 - **Health Check**: `curl http://localhost:8000/health`
 
 ## 🚀 Using Tasks & Agents
@@ -75,9 +75,9 @@ python task_runner.py "Run the test suite with pytest and report results"
 ## 🔧 Configuration
 
 Your `.env` is pre-configured:
-- **Agent Planner**: `gemma4:latest`
-- **Agent Executor**: `gemma4:latest`
-- **Agent Verifier**: `gemma4:latest`
+- **Agent Planner**: `nemotron-3-super-120b-a12b`
+- **Agent Executor**: `nemotron-3-super-120b-a12b`
+- **Agent Verifier**: `nemotron-3-super-120b-a12b`
 - **API Port**: 8000
 - **Ollama Base**: http://127.0.0.1:11434
 

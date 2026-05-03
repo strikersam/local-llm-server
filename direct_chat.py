@@ -112,18 +112,23 @@ async def _handle_regular_chat(
     """Handle regular chat (non-agent mode)."""
     log.info(f"Chat message from {user.email}: {req.content[:50]}...")
 
-    # Load history if session_id is provided
-    session_id = req.session_id
-    if session_id:
-        history = _direct_chat_store.get(session_id) or []
-    else:
-        # Generate a new session_id
-        session_id = str(uuid.uuid4())
-        history = []
+        # Load history if session_id is provided
+        session_id = req.session_id
+        if session_id:
+            history = _direct_chat_store.get(session_id) or []
+        else:
+            # Generate a new session_id
+            session_id = str(uuid.uuid4())
+            history = []
 
-    # Build the payload for the provider router
-    payload = {
-        "messages": history + [{"role": "user", "content": req.content}],
+        # Build OpenAI-compatible request
+        payload = {
+            "messages": history + [{"role": "user", "content": req.content}],
+            "model": req.model or "nemotron-3-super-120b-a12b",
+            "stream": False,
+        }
+        if req.temperature is not None:
+            payload["temperature"] = req.temperature
         "stream": False,
     }
     if req.model:
