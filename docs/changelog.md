@@ -7,6 +7,7 @@
 - `.github/workflows/deploy-frontend.yml` — switched the Pages build install step from `npm ci` to `npm install` so GitHub Pages deployments are not blocked by npm lockfile strictness on the hosted runner image.
 
 ### Fixed
+- `backend/server.py` / `tests/test_chat_mode_regressions.py` — direct chat now respects the Agent Mode toggle strictly, so complex coding prompts stay on the fast LLM path unless the caller explicitly enables agent orchestration. This prevents default chat from failing behind agent-only provider/runtime issues.
 - `Dockerfile.backend` — copy the `schedules/` package into the hosted backend image so `backend.server:app` can import `schedules_router` on Render instead of crashing with `ModuleNotFoundError: No module named 'schedules'` during deploy.
 - `backend/server.py` — wired the hosted `backend.server:app` deployment to expose authenticated schedule routes (`/api/schedules/*`) and legacy schedule compatibility routes (`/agent/scheduler/jobs*`), and initialised the shared scheduler so hosted schedule creation no longer returns 404.
 - `backend/server.py` — added `/api/observability/savings` and `/api/observability/usage` on the hosted backend, plus activity response aliases, so the Control Plane logs/metrics views have the data contracts expected by the GitHub Pages frontend.
