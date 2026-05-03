@@ -362,3 +362,37 @@ async def test_end_to_end_api_task_creation_and_execution_history(
     assert task["last_model_used"] == "qwen3-coder:30b"
     assert task["comments"][-1]["author"] == "agent:agent_e2e"
     assert any(entry["event_type"] == "runtime_selected" for entry in task["execution_log"])
+
+
+@pytest.mark.asyncio
+async def test_execution_timeout_marks_task_failed(
+    task_store: TaskStore,
+    workflow: TaskWorkflowService,
+) -> None:
+    task = Task(
+        owner_id="owner@example.com",
+        title="Long running task",
+        prompt="Do something slow.",
+        task_type="code_generation",
+        pending_agent_run=True,
+    )
+    await task_store.create(task)
+
+    class _SlowRuntimeManager:
+        async def execute(self, spec):
+            await asyncio.sleep(0.05)
+
+    coordinator = TaskExecutionCoordinator(
+        store=task_store,
+        workflow=workflow,
+        runtime_manager=_SlowRuntimeManager(),
+        workspace_root="/tmp/workspace",
+        execution_timeout_s=0.01,
+    )
+
+    updated = await coordinator.execute(task.task_id)
+
+    assert updated.status is TaskStatus.FAILED
+    assert updated.pending_agent_run is False
+    assert updated.error_message is not None
+    assert "timed out" in updated.error_message.lower()

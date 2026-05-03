@@ -2051,6 +2051,43 @@ class ChatMessage(BaseModel):
     allow_commercial_fallback_once: bool = False
 
 
+async def _agent_timeout_fallback_response(
+    *,
+    content: str,
+    model: str | None,
+    temperature: float,
+    session_model: str | None,
+    allow_commercial_fallback_once: bool,
+) -> str:
+    fallback_messages = [
+        {
+            "role": "system",
+            "content": (
+                "You are recovering from an agent-mode timeout. The tool-using agent "
+                "did not finish before the hosted request deadline. Provide the most "
+                "useful possible advisory answer without claiming any files were changed. "
+                "For code-edit tasks, include likely root cause, exact proposed edits, "
+                "tests to add, and a conventional commit message when relevant."
+            ),
+        },
+        {"role": "user", "content": content},
+    ]
+    recovered = await asyncio.wait_for(
+        call_llm(
+            fallback_messages,
+            model=model or session_model,
+            temperature=temperature,
+            allow_commercial_fallback_once=allow_commercial_fallback_once,
+        ),
+        timeout=30,
+    )
+    return (
+        "⚠️ Agent Mode timed out before tool execution completed. "
+        "Here is a direct recovery answer without repository side effects:\n\n"
+        f"{recovered}"
+    )
+
+
 @app.post("/api/chat/send")
 async def chat_send(body: ChatMessage, user: dict = Depends(get_current_user)):
     uid = user["_id"]
@@ -2110,7 +2147,7 @@ async def chat_send(body: ChatMessage, user: dict = Depends(get_current_user)):
     use_agent = body.agent_mode
 
     # Hard timeouts so a stuck/thinking model never silently hangs the request.
-    _AGENT_TIMEOUT_SEC = 120  # 2 minutes for agent loop
+    _AGENT_TIMEOUT_SEC = 45  # stay below hosted edge timeouts; recover with direct answer
     _LLM_TIMEOUT_SEC = 120  # 2 minutes for simple LLM calls
 
     if use_agent:
@@ -2159,13 +2196,25 @@ async def chat_send(body: ChatMessage, user: dict = Depends(get_current_user)):
             raise HTTPException(status_code=503, detail=str(exc)) from exc
         except asyncio.TimeoutError:
             log.warning(
-                "Agent loop timed out after %ds — returning timeout message",
+                "Agent loop timed out after %ds — falling back to direct recovery answer",
                 _AGENT_TIMEOUT_SEC,
             )
-            response_text = (
-                f"⚠️ The agent took too long to respond (exceeded {_AGENT_TIMEOUT_SEC} seconds). "
-                "Try a simpler query or switch to a faster model."
-            )
+            try:
+                response_text = await _agent_timeout_fallback_response(
+                    content=body.content,
+                    model=body.model,
+                    session_model=session.get("model"),
+                    temperature=float(temperature),
+                    allow_commercial_fallback_once=body.allow_commercial_fallback_once,
+                )
+            except Exception as fallback_exc:
+                log.error(
+                    "Agent timeout fallback failed: %s", fallback_exc, exc_info=True
+                )
+                response_text = (
+                    f"⚠️ The agent took too long to respond (exceeded {_AGENT_TIMEOUT_SEC} seconds). "
+                    "Try a simpler query or switch to a faster model."
+                )
             use_agent = True  # mark handled — skip simple LLM fallback
         except Exception as exc:
             log.error("Agent loop failed: %s", exc, exc_info=True)

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 from unittest.mock import AsyncMock
 
 
@@ -65,3 +66,28 @@ def test_chat_send_uses_agent_path_only_when_agent_mode_is_enabled(
     assert response.json()["response"] == "Agent answer"
     agent_reply.assert_awaited_once()
     direct_reply.assert_not_called()
+
+
+def test_chat_send_falls_back_to_direct_answer_when_agent_mode_times_out(
+    client, monkeypatch
+) -> None:
+    direct_reply = AsyncMock(return_value="Recovered direct answer")
+    timed_out_agent = AsyncMock(side_effect=asyncio.TimeoutError())
+
+    monkeypatch.setattr("backend.server.call_llm", direct_reply)
+    monkeypatch.setattr("backend.server._run_agent_loop", timed_out_agent)
+
+    response = client.post(
+        "/api/chat/send",
+        headers=_auth_headers(client),
+        json={
+            "session_id": "not-an-object-id-3",
+            "agent_mode": True,
+            "content": "Make the fix, add tests, and give me the commit message.",
+        },
+    )
+
+    assert response.status_code == 200, response.text
+    assert "Recovered direct answer" in response.json()["response"]
+    timed_out_agent.assert_awaited_once()
+    direct_reply.assert_awaited_once()
