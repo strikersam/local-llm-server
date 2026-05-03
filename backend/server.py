@@ -2105,10 +2105,9 @@ async def chat_send(body: ChatMessage, user: dict = Depends(get_current_user)):
         else (session.get("temperature") or 0.3)
     )
 
-    # Determine whether to use multi-agent orchestration.
-    # Use agent only when the task warrants it — simple greetings/questions use
-    # the fast direct-LLM path; complex code/GitHub tasks use Plan→Execute→Verify.
-    use_agent = body.agent_mode or _classify_complexity(body.content) == "complex"
+    # Respect the chat toggle strictly: direct chat stays on the fast LLM path
+    # unless the caller explicitly enables Agent Mode.
+    use_agent = body.agent_mode
 
     # Hard timeouts so a stuck/thinking model never silently hangs the request.
     _AGENT_TIMEOUT_SEC = 120  # 2 minutes for agent loop
