@@ -2,123 +2,220 @@
 @tailwind components;
 @tailwind utilities;
 
+/* Premium Black Theme - Elevated Design System */
 :root {
-  /* Palette — lifted from Control Plane design system */
-  --bg-base:    #0F0F13;
-  --bg-sidebar: #0D0D11;
-  --bg-surface: #141418;
-  --bg-elevated:#1A1A1E;
-  /* 4-level text hierarchy */
-  --text-primary:   #F2F2F6;
-  --text-secondary: #B2B2C4;
-  --text-tertiary:  #808094;
-  --text-muted:     #565666;
-  /* Borders */
-  --border:        rgba(255,255,255,0.06);
-  --border-soft:   rgba(255,255,255,0.06);
+  /* Core Blacks - Pure black foundation */
+  --bg-base:    #000000;
+  --bg-sidebar: #000000;
+  --bg-surface: #000000;
+  --bg-elevated:#000000;
+  
+  /* Elevated Neutrals - Slight variations for depth */
+  --bg-surface-2: #0A0A0A;
+  --bg-surface-3: #121212;
+  --bg-elevated-2:#0C0C0C;
+  
+  /* 4-level text hierarchy on pure black */
+  --text-primary:   #FFFFFF;
+  --text-secondary: #E0E0E0;
+  --text-tertiary:  #B0B0B0;
+  --text-muted:     #808080;
+  
+  /* Borders - Subtle definition */
+  --border:        rgba(255,255,255,0.08);
+  --border-soft:   rgba(255,255,255,0.04);
   --border-strong: rgba(255,255,255,0.12);
-  /* Accent + status */
-  --accent:       #002FA7;
-  --accent-hover: #0038CC;
-  --danger:       #EF4444;
-  --warning:      #F59E0B;
-  --success:      #10B981;
-  --radius: 12px;
+  
+  /* Accent - Electric Blue for premium feel */
+  --accent:       #0066FF;
+  --accent-hover: #0052E5;
+  --accent-soft:  rgba(0,102,255,0.1);
+  
+  /* Status colors - Vibrant but not overwhelming */
+  --danger:       #FF4757;
+  --warning:      #FFA502;
+  --success:      #2ED573;
+  --info:         #3742FA;
+  
+  /* Radius & Shadows */
+  --radius: 16px;
+  --radius-lg: 20px;
+  --radius-sm: 12px;
+  
   /* Fonts */
-  --font-main: 'Geist', 'Outfit', system-ui, sans-serif;
+  --font-main: 'Outfit', 'Geist', system-ui, sans-serif;
   --font-mono: 'IBM Plex Mono', 'JetBrains Mono', monospace;
-  /* Additional variables for DashboardLayout */
-  --text-icon-inactive: #6E6E80;
-  --text-icon-hover: #8E8EA2;
-  --role-power-user: #3B82F6;
-  --role-user: #10B981;
-  --accent-shadow: rgba(0,47,167,0.5);
-  --danger-hover: #f87171;
-  --danger-hover-bg: rgba(239,68,68,0.05);
+  
+  /* Additional variables */
+  --text-icon-inactive: #606060;
+  --text-icon-hover: #909090;
+  --role-power-user: #0066FF;
+  --role-user: #2ED573;
+  --accent-shadow: rgba(0,102,255,0.3);
+  --danger-hover: #FF3742;
+  --danger-hover-bg: rgba(255,71,87,0.08);
 }
 
-* { box-sizing: border-box; margin: 0; padding: 0; }
+/* Mobile-first base styles */
+* { 
+  box-sizing: border-box; 
+  margin: 0; 
+  padding: 0; 
+}
 
+/* Smooth scrolling and text scaling */
 html {
   scroll-behavior: smooth;
   -webkit-text-size-adjust: 100%;
+  -moz-text-size-adjust: 100%;
+  text-size-adjust: 100%;
 }
 
 html, body, #root {
-  min-height: 100%;
+  min-height: 100vh;
   background: var(--bg-base);
   color: var(--text-primary);
+  font-size: 16px; /* Base for rem units */
+  overflow-x: hidden; /* Prevent horizontal scroll on mobile */
 }
 
 body {
   font-family: var(--font-main);
-  font-size: 14px;
-  line-height: 1.6;
+  line-height: 1.7;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
   overscroll-behavior: none;
+  background-color: var(--bg-base);
 }
 
-::selection { background: var(--accent); color: var(--text-primary); }
+/* Selection styling */
+::selection { 
+  background: var(--accent); 
+  color: var(--text-primary); 
+}
 
-::-webkit-scrollbar { width: 4px; height: 4px; }
-::-webkit-scrollbar-track { background: transparent; }
-::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.1); border-radius: 99px; }
-::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.2); }
+/* Scrollbar styling */
+::-webkit-scrollbar { 
+  width: 6px; 
+  height: 6px; 
+}
+::-webkit-scrollbar-track { 
+  background: transparent; 
+}
+::-webkit-scrollbar-thumb { 
+  background: rgba(255,255,255,0.15); 
+  border-radius: 99px; 
+}
+::-webkit-scrollbar-thumb:hover { 
+  background: rgba(255,255,255,0.25); 
+}
 
-a { color: var(--accent); text-decoration: none; }
-a:hover { color: var(--accent-hover); }
+/* Links */
+a { 
+  color: var(--accent); 
+  text-decoration: none; 
+  transition: color 0.2s ease; 
+}
+a:hover { 
+  color: var(--accent-hover); 
+}
 
+/* Focus rings */
 :focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: 2px;
 }
 
+/* Form elements */
 input, textarea, select {
   font-family: inherit;
-  font-size: 15px;
-  color: #1f2937;
+  font-size: 1rem;
+  color: var(--text-primary);
+  background: rgba(255,255,255,0.02);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 0.75rem 1rem;
+  transition: all 0.2s ease;
   -webkit-appearance: none;
   appearance: none;
 }
 
-input[type="checkbox"], input[type="radio"] {
-  /* Restore native rendering that the global appearance:none above removes.
-     Use `auto` (not `revert`) — `auto` is an explicit instruction to the
-     browser to render the element with its default native control; `revert`
-     can silently lose to layered cascade rules in some browsers. */
-  -webkit-appearance: auto;
-  appearance: auto;
-  cursor: pointer;
-}
-
 input::placeholder, textarea::placeholder {
-  color: #9ca3af;
+  color: var(--text-muted);
+  opacity: 0.7;
 }
 
 input:focus, textarea:focus, select:focus {
   outline: none;
+  border-color: var(--accent);
+  background: rgba(255,255,255,0.04);
+  box-shadow: 0 0 0 2px rgba(0,102,255,0.2);
+}
+
+input[type="checkbox"], input[type="radio"] {
+  -webkit-appearance: auto;
+  appearance: auto;
+  cursor: pointer;
+  width: 1rem;
+  height: 1rem;
+}
+
+/* Button reset */
+button {
+  background: none;
+  border: none;
+  padding: 0;
+  margin: 0;
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+/* Disabled state */
+[disabled], .disabled {
+  opacity: 0.5 !important;
+  cursor: not-allowed !important;
+  pointer-events: none !important;
 }
 
 /* ── Animations ─────────────────────────────────────────────────────── */
 @keyframes fadeIn {
-  from { opacity: 0; transform: translateY(6px); }
-  to   { opacity: 1; transform: translateY(0); }
+  from { 
+    opacity: 0; 
+    transform: translateY(8px); 
+  }
+  to { 
+    opacity: 1; 
+    transform: translateY(0); 
+  }
 }
 
 @keyframes slideInLeft {
-  from { opacity: 0; transform: translateX(-8px); }
-  to   { opacity: 1; transform: translateX(0); }
+  from { 
+    opacity: 0; 
+    transform: translateX(-12px); 
+  }
+  to { 
+    opacity: 1; 
+    transform: translateX(0); 
+  }
 }
 
 @keyframes pulseSlow {
   0%, 100% { opacity: 1; }
-  50%       { opacity: 0.4; }
+  50%       { opacity: 0.6; }
 }
 
 @keyframes thinkingDot {
-  0%, 80%, 100% { transform: scale(0); opacity: 0; }
-  40%           { transform: scale(1); opacity: 1; }
+  0%, 80%, 100% { 
+    transform: scale(0); 
+    opacity: 0; 
+  }
+  40% { 
+    transform: scale(1); 
+    opacity: 1; 
+  }
 }
 
 @keyframes shimmer {
@@ -127,58 +224,227 @@ input:focus, textarea:focus, select:focus {
 }
 
 @keyframes scaleIn {
-  from { opacity: 0; transform: scale(0.97); }
-  to   { opacity: 1; transform: scale(1); }
+  from { 
+    opacity: 0; 
+    transform: scale(0.98); 
+  }
+  to   { 
+    opacity: 1; 
+    transform: scale(1); 
+  }
 }
 
 @keyframes slideUp {
-  from { opacity: 0; transform: translateY(10px); }
-  to   { opacity: 1; transform: translateY(0); }
+  from { 
+    opacity: 0; 
+    transform: translateY(12px); 
+  }
+  to   { 
+    opacity: 1; 
+    transform: translateY(0); 
+  }
 }
 
-.animate-fade-in       { animation: fadeIn 0.25s ease-out forwards; }
-.animate-slide-in-left { animation: slideInLeft 0.2s ease-out forwards; }
+@keyframes float {
+  0%, 100% { transform: translateY(0px); }
+  50%      { transform: translateY(-8px); }
+}
+
+.animate-fade-in       { animation: fadeIn 0.3s ease-out forwards; }
+.animate-slide-in-left { animation: slideInLeft 0.25s ease-out forwards; }
 .animate-pulse-slow    { animation: pulseSlow 2s ease-in-out infinite; }
-.animate-scale-in      { animation: scaleIn 0.2s ease-out forwards; }
+.animate-scale-in      { animation: scaleIn 0.25s ease-out forwards; }
+.animate-float         { animation: float 3s ease-in-out infinite; }
 
-.stagger-1 { animation: slideUp 0.3s ease-out 0.03s both; }
-.stagger-2 { animation: slideUp 0.3s ease-out 0.07s both; }
-.stagger-3 { animation: slideUp 0.3s ease-out 0.11s both; }
-.stagger-4 { animation: slideUp 0.3s ease-out 0.15s both; }
-.stagger-5 { animation: slideUp 0.3s ease-out 0.19s both; }
-.stagger-6 { animation: slideUp 0.3s ease-out 0.23s both; }
+.stagger-1 { animation: slideUp 0.35s ease-out 0.05s both; }
+.stagger-2 { animation: slideUp 0.35s ease-out 0.10s both; }
+.stagger-3 { animation: slideUp 0.35s ease-out 0.15s both; }
+.stagger-4 { animation: slideUp 0.35s ease-out 0.20s both; }
+.stagger-5 { animation: slideUp 0.35s ease-out 0.25s both; }
+.stagger-6 { animation: slideUp 0.35s ease-out 0.30s both; }
 
-/* ── Skeleton ───────────────────────────────────────────────────────── */
+/* ── Skeleton Loaders ───────────────────────────────────────────────── */
 .skeleton {
   background: linear-gradient(90deg,
-    rgba(255,255,255,0.04) 25%,
-    rgba(255,255,255,0.08) 50%,
-    rgba(255,255,255,0.04) 75%);
+    rgba(255,255,255,0.03) 0%,
+    rgba(255,255,255,0.06) 50%,
+    rgba(255,255,255,0.03) 100%);
   background-size: 200% 100%;
-  animation: shimmer 1.5s infinite;
+  animation: shimmer 1.8s infinite ease-in-out;
   border-radius: var(--radius);
 }
 
-/* ── Markdown (Wiki) ────────────────────────────────────────────────── */
-.wiki-content { font-size: 14px; line-height: 1.75; color: var(--text-secondary); }
-.wiki-content h1 { font-family: 'Outfit', sans-serif; font-size: 1.75rem; font-weight: 700; margin: 1.75rem 0 0.75rem; letter-spacing: -0.03em; color: var(--text-primary); }
-.wiki-content h2 { font-family: 'Outfit', sans-serif; font-size: 1.35rem; font-weight: 600; margin: 1.5rem 0 0.6rem; letter-spacing: -0.02em; color: var(--text-primary); }
-.wiki-content h3 { font-family: 'Outfit', sans-serif; font-size: 1.1rem; font-weight: 600; margin: 1.25rem 0 0.5rem; color: var(--text-primary); }
-.wiki-content p { margin: 0.6rem 0; }
-.wiki-content ul, .wiki-content ol { padding-left: 1.5rem; margin: 0.5rem 0; }
-.wiki-content li { margin: 0.3rem 0; }
-.wiki-content code { font-family: var(--font-mono); background: rgba(255,255,255,0.06); padding: 2px 6px; font-size: 0.85em; border: 1px solid var(--border); border-radius: 3px; }
-.wiki-content pre { background: rgba(0,0,0,0.5); border: 1px solid var(--border); border-radius: var(--radius); padding: 1rem; overflow-x: auto; margin: 0.75rem 0; }
-.wiki-content pre code { background: none; border: none; padding: 0; font-size: 0.875rem; }
-.wiki-content blockquote { border-left: 2px solid var(--accent); padding-left: 1rem; margin: 0.75rem 0; color: var(--text-muted); font-style: italic; }
-.wiki-content table { width: 100%; border-collapse: collapse; margin: 0.75rem 0; font-size: 0.9em; }
-.wiki-content th, .wiki-content td { border: 1px solid var(--border); padding: 8px 12px; text-align: left; }
-.wiki-content th { background: rgba(255,255,255,0.04); font-weight: 600; color: var(--text-primary); }
-.wiki-content a { color: var(--accent); text-decoration: underline; }
-.wiki-content hr { border: none; border-top: 1px solid var(--border); margin: 1.5rem 0; }
+/* ── Typography Utilities ──────────────────────────────────────────── */
+.text-balance { text-wrap: balance; }
+.text-pretty { text-wrap: pretty; }
 
-/* ── Safe area (iOS notch) ──────────────────────────────────────────── */
+/* ── Markdown (Wiki) Styling ──────────────────────────────────────── */
+.wiki-content { 
+  font-size: 1rem; 
+  line-height: 1.8; 
+  color: var(--text-secondary); 
+}
+.wiki-content h1 { 
+  font-family: 'Outfit', sans-serif; 
+  font-size: 2.25rem; 
+  font-weight: 800; 
+  margin: 2.5rem 0 1rem; 
+  letter-spacing: -0.02em; 
+  color: var(--text-primary); 
+}
+.wiki-content h2 { 
+  font-family: 'Outfit', sans-serif; 
+  font-size: 1.75rem; 
+  font-weight: 700; 
+  margin: 2rem 0 0.75rem; 
+  letter-spacing: -0.015em; 
+  color: var(--text-primary); 
+}
+.wiki-content h3 { 
+  font-family: 'Outfit', sans-serif; 
+  font-size: 1.5rem; 
+  font-weight: 600; 
+  margin: 1.75rem 0 0.6rem; 
+  color: var(--text-primary); 
+}
+.wiki-content h4 { 
+  font-family: 'Outfit', sans-serif; 
+  font-size: 1.25rem; 
+  font-weight: 600; 
+  margin: 1.5rem 0 0.5rem; 
+  color: var(--text-primary); 
+}
+.wiki-content p { 
+  margin: 1.25rem 0; 
+}
+.wiki-content ul, .wiki-content ol { 
+  padding-left: 2rem; 
+  margin: 1rem 0; 
+}
+.wiki-content li { 
+  margin: 0.5rem 0; 
+}
+.wiki-content code { 
+  font-family: var(--font-mono); 
+  background: rgba(255,255,255,0.04); 
+  padding: 0.25rem 0.5rem; 
+  font-size: 0.9rem; 
+  border: 1px solid var(--border); 
+  border-radius: var(--radius-sm);
+}
+.wiki-content pre { 
+  background: rgba(0,0,0,0.3); 
+  border: 1px solid var(--border); 
+  border-radius: var(--radius-lg); 
+  padding: 1.5rem; 
+  overflow-x: auto; 
+  margin: 1.5rem 0; 
+}
+.wiki-content pre code { 
+  background: none; 
+  border: none; 
+  padding: 0; 
+  font-size: 0.9rem; 
+}
+.wiki-content blockquote { 
+  border-left: 3px solid var(--accent); 
+  padding-left: 1.5rem; 
+  margin: 1.5rem 0; 
+  color: var(--text-muted); 
+  font-style: italic; 
+  border-radius: 0 var(--radius) var(--radius) 0;
+}
+.wiki-content table { 
+  width: 100%; 
+  border-collapse: separate; 
+  border-spacing: 0; 
+  margin: 1.5rem 0; 
+  font-size: 0.95rem; 
+}
+.wiki-content th, .wiki-content td { 
+  border: 1px solid var(--border-soft); 
+  padding: 1rem 1.25rem; 
+  text-align: left; 
+}
+.wiki-content th { 
+  background: rgba(255,255,255,0.02); 
+  font-weight: 600; 
+  color: var(--text-primary); 
+}
+.wiki-content tbody tr:hover { 
+  background: rgba(255,255,255,0.02); 
+}
+.wiki-content a { 
+  color: var(--accent); 
+  text-decoration: underline; 
+  text-underline-offset: 2px; 
+}
+.wiki-content hr { 
+  border: none; 
+  border-top: 1px solid var(--border); 
+  margin: 2.5rem 0; 
+}
+
+/* ── Mobile & Touch Optimizations ─────────────────────────────────── */
+.touch-friendly {
+  min-height: 48px; /* Minimum touch target */
+  min-width: 48px;
+}
+
+/* Ensure adequate spacing for mobile */
+.mobile-padding {
+  padding-left: 1rem !important;
+  padding-right: 1rem !important;
+}
+
+/* Safe area support for iOS devices */
 @supports (padding: env(safe-area-inset-bottom)) {
-  .safe-bottom { padding-bottom: env(safe-area-inset-bottom); }
-  .safe-top    { padding-top: env(safe-area-inset-top); }
+  .safe-bottom { 
+    padding-bottom: env(safe-area-inset-bottom); 
+  }
+  .safe-top { 
+    padding-top: env(safe-area-inset-top); 
+  }
+  .safe-left { 
+    padding-left: env(safe-area-inset-left); 
+  }
+  .safe-right { 
+    padding-right: env(safe-area-inset-right); 
+  }
+}
+
+/* Reduce motion preference */
+@media (prefers-reduced-motion: reduce) {
+  * {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+/* ── Dark Mode Enhancements ──────────────────────────────────────── */
+@media (prefers-color-scheme: dark) {
+  :root {
+    /* Already dark, but we can refine */
+    --bg-base: #000000;
+    --bg-sidebar: #000000;
+  }
+}
+
+/* Print styles */
+@media print {
+  body { 
+    background: white !important; 
+    color: black !important; 
+  }
+  
+  a { 
+    color: black !important; 
+    text-decoration: underline; 
+  }
+  
+  .no-print { 
+    display: none !important; 
+  }
 }
