@@ -112,27 +112,21 @@ async def _handle_regular_chat(
     """Handle regular chat (non-agent mode)."""
     log.info(f"Chat message from {user.email}: {req.content[:50]}...")
 
-        # Load history if session_id is provided
-        session_id = req.session_id
-        if session_id:
-            history = _direct_chat_store.get(session_id) or []
-        else:
-            # Generate a new session_id
-            session_id = str(uuid.uuid4())
-            history = []
+    # Load history if session_id is provided
+    session_id = req.session_id
+    if session_id:
+        history = _direct_chat_store.get(session_id) or []
+    else:
+        # Generate a new session_id
+        session_id = str(uuid.uuid4())
+        history = []
 
-        # Build OpenAI-compatible request
-        payload = {
-            "messages": history + [{"role": "user", "content": req.content}],
-            "model": req.model or "nemotron-3-super-120b-a12b",
-            "stream": False,
-        }
-        if req.temperature is not None:
-            payload["temperature"] = req.temperature
+    # Build OpenAI-compatible request
+    payload = {
+        "messages": history + [{"role": "user", "content": req.content}],
+        "model": req.model or "nemotron-3-super-120b-a12b",
         "stream": False,
     }
-    if req.model:
-        payload["model"] = req.model
     if req.temperature is not None:
         payload["temperature"] = req.temperature
 
@@ -157,33 +151,20 @@ async def _handle_regular_chat(
             original_providers = router.providers
             router.providers = [provider]
             try:
-                result = await router.chat_completion(payload)
+                resp = await router._get_provider_response(payload)
             finally:
                 router.providers = original_providers
         else:
-            result = await router.chat_completion(payload)
-
-        # Extract the assistant message and log the provider used
-        assistant_message = result.response.json()["choices"][0]["message"]["content"]
-        used_provider_id = result.provider.provider_id
-        used_model = result.model
-        log.info(f"Used provider: {used_provider_id}, model: {used_model}")
-
-        # Update history with the new user message and assistant response
-        updated_history = history + [
-            {"role": "user", "content": req.content},
-            {"role": "assistant", "content": assistant_message}
-        ]
-        _direct_chat_store.set(session_id, updated_history)
-
-        return JSONResponse(content={
-            "session_id": session_id,
-            "response": assistant_message,
-        })
+            resp = await router._get_provider_response(payload)
     except Exception as e:
-        log.error(f"Chat error: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        log.error(f"Failed to get provider response: {e}")
+        raise HTTPException(status_code=500, detail="Failed to get provider response")
 
+    if resp.status_code != 200:
+        log.error(f"Provider returned error status: {resp.status_code}")
+        raise HTTPException(status_code=resp.status_code, detail=resp.text)
+
+    return JSONResponse(content=resp.json())
 async def _handle_agent_mode(
     req: ChatSendRequest,
     user: UserInfo,
