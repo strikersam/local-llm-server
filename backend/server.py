@@ -2054,6 +2054,7 @@ class ChatMessage(BaseModel):
 async def _agent_timeout_fallback_response(
     *,
     content: str,
+    provider_id: str | None,
     model: str | None,
     provider_default_model: str | None,
     temperature: float,
@@ -2087,6 +2088,7 @@ async def _agent_timeout_fallback_response(
                     fallback_messages,
                     model=candidate,
                     temperature=temperature,
+                    provider_id=provider_id,
                     allow_commercial_fallback_once=allow_commercial_fallback_once,
                 ),
                 timeout=15,
@@ -2226,6 +2228,7 @@ async def chat_send(body: ChatMessage, user: dict = Depends(get_current_user)):
             try:
                 response_text = await _agent_timeout_fallback_response(
                     content=body.content,
+                    provider_id=primary_provider.get("provider_id"),
                     model=requested_agent_model,
                     provider_default_model=primary_provider.get("default_model"),
                     session_model=session.get("model"),
