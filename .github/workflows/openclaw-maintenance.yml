@@ -24,6 +24,20 @@ jobs:
           npm install -g openclaw@latest
           openclaw --version
 
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install Python dependencies
+        run: |
+          if [ -f requirements.txt ]; then
+            pip install -r requirements.txt
+          fi
+          # Install pytest if not present
+          pip install pytest
+
       - name: Start OpenClaw gateway
         run: |
           # Start gateway in background
@@ -49,28 +63,6 @@ jobs:
         continue-on-error: true
         run: |
           openclaw skills list > skills-list.txt 2>&1 || true
-
-      - name: Stop OpenClaw gateway
-        if: always()
-        run: |
-          if [ -f gateway.pid ]; then
-            kill $(cat gateway.pid) || true
-            rm gateway.pid
-          fi
-
-      - name: Setup Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.11'
-          cache: 'pip'
-
-      - name: Install Python dependencies
-        run: |
-          if [ -f requirements.txt ]; then
-            pip install -r requirements.txt
-          fi
-          # Install pytest if not present
-          pip install pytest
 
       - name: Run AI runner audit
         id: audit
@@ -231,7 +223,7 @@ jobs:
               body: issueBody
             });
 
-      - name: Stop OpenClaw gateway (final safety)
+      - name: Stop OpenClaw gateway
         if: always()
         run: |
           if [ -f gateway.pid ]; then
