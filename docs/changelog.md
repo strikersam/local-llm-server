@@ -3,6 +3,7 @@
 ## [Unreleased]
 
 ### Changed
+- `README.md` — refined the human-first README again to improve page traction: replaced the potentially friction-heavy “5-year-old” phrasing, added clearer value framing, a simple benefits table, and more team/adoption-oriented positioning for non-technical readers.
 - `README.md` — rewrote the README again with a human-first, screenshot-rich product story aimed at non-technical readers: simpler language, clearer use cases, visual tour, friendlier setup path, and links out to technical docs instead of front-loading route details.
 - `docs/api-surfaces.md` — added a separate technical route map so API and surface details live outside the README.
 - `README.md` — rewrote the top-level documentation to reflect the current product surface: corrected startup and port guidance, documented the built-in admin/web UI and separate dashboard deployment modes, and added an end-to-end feature inventory covering proxy compatibility, routing, agents, workflows, schedules, GitHub, secrets, sync, observability, and operations.

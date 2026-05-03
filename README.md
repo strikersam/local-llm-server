@@ -18,7 +18,7 @@
 
 ## What is LLM Relay?
 
-If a 5-year-old asked, I would say:
+If someone brand new to AI asked, I would say:
 
 > **LLM Relay is a smart front desk for your AI helpers.**
 > It knows who is allowed in, which helper should do the job, what it costs, and where everything should go.
@@ -29,6 +29,18 @@ In normal people words:
 - you can connect **Cursor, Claude Code, Aider, Continue, scripts, and dashboards** to one place
 - you can give your team a **simple web app** to chat, create tasks, manage agents, and watch what is happening
 - you can keep control of **costs, access, secrets, and data**
+
+### Why this feels different
+
+Many AI tools solve only one piece of the puzzle.
+LLM Relay tries to bring the important pieces together in one product:
+
+- **one place to connect tools** instead of many separate configs
+- **one dashboard for people** instead of making everyone live in terminals
+- **one set of rules** for cost, access, routing, and safety
+- **one shared memory** for chats, tasks, sources, and team knowledge
+
+That means less setup pain, less tool sprawl, and fewer "wait, where did that answer come from?" moments.
 
 <p align="center">
   <img src="docs/screenshots/v3-control-plane.png" alt="LLM Relay control plane" width="100%"/>
@@ -49,6 +61,16 @@ Most teams hit the same problems:
 - nobody knows which model, agent, or tool did what
 
 LLM Relay turns that mess into **one home for your AI work**.
+
+### In one glance
+
+| If you want... | LLM Relay gives you... |
+|---|---|
+| one simple way to use local AI | one URL your tools can all talk to |
+| lower cloud spend | local-first and cost-aware routing |
+| a team-friendly AI product | chat, tasks, agents, schedules, and knowledge in one place |
+| more trust and control | logins, roles, audit trails, secrets, and activity history |
+| something that can start small | a setup that works for solo use and grows into a team control plane |
 
 ---
 
@@ -102,6 +124,16 @@ You can start small and still have room for bigger workflows later:
 - voice transcription
 - Telegram control
 - peer sync between machines
+
+### ❤️ Why this can create traction inside a team
+
+Good internal AI tools spread when they are easy to explain.
+This one is easy to explain:
+
+- **for leaders:** better visibility and cost control
+- **for operators:** better permissions, logs, and safer access
+- **for builders:** better model flexibility and automation
+- **for everyone else:** a simpler place to just use AI without learning five different systems
 
 ---
 
@@ -217,6 +249,9 @@ Use routing policies, provider priority, and approval-aware escalation.
 ### “I want our AI to remember project context.”
 Use the wiki, sources, and GitHub integration.
 
+### “I want something I can demo in five minutes.”
+Open the control plane, show chat, tasks, agents, routing, and logs, and people quickly understand the value.
+
 ---
 
 ## Quick start
@@ -328,6 +363,9 @@ You do **not** need to learn all of this to get started, but the platform includ
 - browser and voice tools
 - Telegram bot controls
 
+You do not need to learn all of these on day one.
+Most people start with **chat + models + one dashboard**, then add the rest when the team is ready.
+
 If you want the deep technical breakdown, jump to the docs below.
 
 ---
@@ -361,6 +399,8 @@ LLM Relay is:
 - **a control room** for teams
 - **a memory box** for saved knowledge
 - **a manager** for agents, tasks, and schedules
+
+It is built for people who want AI to feel like **one understandable product**, not a pile of disconnected tools.
 
 If you want AI to feel less like scattered tools and more like one product, that is what this repo is trying to do.
 
