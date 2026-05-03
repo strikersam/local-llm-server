@@ -108,7 +108,7 @@ async def _handle_regular_chat(
     # Build OpenAI-compatible request
     body = {
         "messages": [{"role": "user", "content": req.content}],
-        "model": req.model or "gemma4:latest",
+        "model": req.model or "nemotron-3-super-120b-a12b",
         "stream": False,
     }
     if req.temperature is not None:
