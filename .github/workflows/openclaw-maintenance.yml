@@ -1,0 +1,240 @@
+name: OpenClaw Maintenance
+
+on:
+  schedule:
+    - cron: '0 2 * * *'  # Daily at 2 AM UTC
+  workflow_dispatch:
+
+jobs:
+  maintenance:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install OpenClaw
+        run: |
+          npm install -g openclaw@latest
+          openclaw --version
+
+      - name: Start OpenClaw gateway
+        run: |
+          # Start gateway in background
+          nohup openclaw gateway > gateway.log 2>&1 &
+          echo $! > gateway.pid
+          # Wait for gateway to start
+          sleep 15
+
+      - name: Run OpenClaw doctor
+        id: doctor
+        continue-on-error: true
+        run: |
+          openclaw doctor --json > doctor.json 2>&1 || true
+
+      - name: Run OpenClaw security audit
+        id: security-audit
+        continue-on-error: true
+        run: |
+          openclaw security audit --json > security-audit.json 2>&1 || true
+
+      - name: List OpenClaw skills
+        id: skills-list
+        continue-on-error: true
+        run: |
+          openclaw skills list > skills-list.txt 2>&1 || true
+
+      - name: Stop OpenClaw gateway
+        if: always()
+        run: |
+          if [ -f gateway.pid ]; then
+            kill $(cat gateway.pid) || true
+            rm gateway.pid
+          fi
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install Python dependencies
+        run: |
+          if [ -f requirements.txt ]; then
+            pip install -r requirements.txt
+          fi
+          # Install pytest if not present
+          pip install pytest
+
+      - name: Run AI runner audit
+        id: audit
+        continue-on-error: true
+        run: |
+          python scripts/ai_runner.py audit > audit-output.txt 2>&1 || true
+
+      - name: Run pytest
+        id: pytest
+        continue-on-error: true
+        run: |
+          pytest -x --tb=short > pytest-output.txt 2>&1 || echo "pytest_exit_code=$?" >> $GITHUB_ENV
+
+      - name: Create issue if OpenClaw doctor failed
+        if: steps.doctor.outcome == 'failure'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            let output = 'No output';
+            try {
+              output = fs.readFileSync('doctor.json', 'utf8');
+            } catch (e) {
+              output = 'Failed to read doctor.json';
+            }
+            const issueTitle = `🩺 OpenClaw doctor check failed on ${{ github.repository }}`;
+            const issueBody = `
+            ### OpenClaw Doctor Failure
+            
+            The daily OpenClaw doctor check has failed.
+            
+            #### Output
+            \`\`\`json
+            ${output}
+            \`\`\`
+            
+            #### Workflow Details
+            - Workflow: OpenClaw Maintenance
+            - Repository: ${{ github.repository }}
+            - Commit: ${{ github.sha }}
+            - Timestamp: ${new Date().toISOString()}
+            
+            Please investigate and fix the issues reported by the doctor.
+            `;
+            await github.rest.issues.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title: issueTitle,
+              body: issueBody
+            });
+
+      - name: Create issue if OpenClaw security audit failed
+        if: steps.security-audit.outcome == 'failure'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            let output = 'No output';
+            try {
+              output = fs.readFileSync('security-audit.json', 'utf8');
+            } catch (e) {
+              output = 'Failed to read security-audit.json';
+            }
+            const issueTitle = `🔒 OpenClaw security audit failed on ${{ github.repository }}`;
+            const issueBody = `
+            ### OpenClaw Security Audit Failure
+            
+            The daily OpenClaw security audit has failed.
+            
+            #### Output
+            \`\`\`json
+            ${output}
+            \`\`\`
+            
+            #### Workflow Details
+            - Workflow: OpenClaw Maintenance
+            - Repository: ${{ github.repository }}
+            - Commit: ${{ github.sha }}
+            - Timestamp: ${new Date().toISOString()}
+            
+            Please investigate and fix the security issues reported.
+            `;
+            await github.rest.issues.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title: issueTitle,
+              body: issueBody
+            });
+
+      - name: Create issue if AI runner audit failed
+        if: steps.audit.outcome == 'failure'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            let output = 'No output';
+            try {
+              output = fs.readFileSync('audit-output.txt', 'utf8');
+            } catch (e) {
+              output = 'Failed to read audit-output.txt';
+            }
+            const issueTitle = `🔍 AI Runner audit failed on ${{ github.repository }}`;
+            const issueBody = `
+            ### AI Runner Audit Failure
+            
+            The daily AI runner audit has failed.
+            
+            #### Output
+            \`\`\`
+            ${output}
+            \`\`\`
+            
+            #### Workflow Details
+            - Workflow: OpenClaw Maintenance
+            - Repository: ${{ github.repository }}
+            - Commit: ${{ github.sha }}
+            - Timestamp: ${new Date().toISOString()}
+            
+            Please investigate and fix the issues reported by the audit.
+            `;
+            await github.rest.issues.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title: issueTitle,
+              body: issueBody
+            });
+
+      - name: Create issue if pytest failed
+        if: env.pytest_exit_code != '0' && env.pytest_exit_code != ''
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const output = fs.readFileSync('pytest-output.txt', 'utf8');
+            const issueTitle = `🚨 Daily smoke test failed on ${{ github.repository }}`;
+            const issueBody = `
+            ### Smoke Test Failure
+            
+            The daily smoke test run via the OpenClaw maintenance workflow has failed.
+            
+            #### Error Output
+            \`\`\`
+            ${output}
+            \`\`\`
+            
+            #### Workflow Details
+            - Workflow: OpenClaw Maintenance
+            - Repository: ${{ github.repository }}
+            - Commit: ${{ github.sha }}
+            - Timestamp: ${new Date().toISOString()}
+            
+            Please investigate and fix the failing tests.
+            `;
+            await github.rest.issues.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title: issueTitle,
+              body: issueBody
+            });
+
+      - name: Stop OpenClaw gateway (final safety)
+        if: always()
+        run: |
+          if [ -f gateway.pid ]; then
+            kill $(cat gateway.pid) || true
+            rm gateway.pid
+          fi
