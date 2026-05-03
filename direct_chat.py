@@ -11,6 +11,7 @@ import json
 import logging
 import os
 import uuid
+from pathlib import Path
 from typing import Annotated
 
 import httpx
@@ -19,10 +20,15 @@ from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel
 
 from tokens import verify_token
+from provider_router import ProviderRouter
 
 log = logging.getLogger("qwen-proxy")
 OLLAMA_BASE = os.environ.get("OLLAMA_BASE", "http://localhost:11434")
 direct_chat_router = APIRouter(prefix="/api/chat", tags=["chat"])
+
+# Session store for direct chat
+from agent.state import AgentSessionStore
+_direct_chat_store = AgentSessionStore(db_path="direct_chat_sessions.db")
 
 
 class UserInfo(BaseModel):
@@ -95,59 +101,88 @@ async def send_chat_message(
     if req.agent_mode:
         return await _handle_agent_mode(req, user, request)
     else:
-        return await _handle_regular_chat(req, user)
+        return await _handle_regular_chat(req, user, request)
 
 
 async def _handle_regular_chat(
     req: ChatSendRequest,
     user: UserInfo,
+    request: Request,
 ):
     """Handle regular chat (non-agent mode)."""
     log.info(f"Chat message from {user.email}: {req.content[:50]}...")
 
-    # Build OpenAI-compatible request
-    body = {
-        "messages": [{"role": "user", "content": req.content}],
-        "model": req.model or "nemotron-3-super-120b-a12b",
+        # Load history if session_id is provided
+        session_id = req.session_id
+        if session_id:
+            history = _direct_chat_store.get(session_id) or []
+        else:
+            # Generate a new session_id
+            session_id = str(uuid.uuid4())
+            history = []
+
+        # Build OpenAI-compatible request
+        payload = {
+            "messages": history + [{"role": "user", "content": req.content}],
+            "model": req.model or "nemotron-3-super-120b-a12b",
+            "stream": False,
+        }
+        if req.temperature is not None:
+            payload["temperature"] = req.temperature
         "stream": False,
     }
+    if req.model:
+        payload["model"] = req.model
     if req.temperature is not None:
-        body["temperature"] = req.temperature
+        payload["temperature"] = req.temperature
 
-    # Forward request directly to Ollama (bypass router to use available models)
+    # Use the provider router from the app state
+    router: ProviderRouter = request.app.state.PROVIDER_ROUTER
     try:
-        log.info(f"Using model {body['model']}")
+        # Try to get the provider if provider_id is specified
+        provider = None
+        if req.provider_id:
+            # Find the provider in the router's list
+            for p in router.providers:
+                if p.provider_id == req.provider_id:
+                    provider = p
+                    break
+            if not provider:
+                log.warning(f"Provider {req.provider_id} not found, using default router")
 
-        # Forward to Ollama via OpenAI-compatible /v1/chat/completions endpoint
-        async with httpx.AsyncClient(timeout=httpx.Timeout(300.0, connect=10.0)) as client:
-            ollama_url = f"{OLLAMA_BASE}/v1/chat/completions"
-            response = await client.post(
-                ollama_url,
-                json=body,
-                headers={"Content-Type": "application/json"},
-            )
+        # Call the router
+        if provider:
+            # We want to try just this provider, but we don't have a method for that.
+            # We can temporarily set the router's providers to just this one.
+            original_providers = router.providers
+            router.providers = [provider]
+            try:
+                result = await router.chat_completion(payload)
+            finally:
+                router.providers = original_providers
+        else:
+            result = await router.chat_completion(payload)
 
-        if response.status_code >= 400:
-            log.error(f"Ollama error {response.status_code}: {response.text}")
-            raise HTTPException(
-                status_code=response.status_code,
-                detail=f"LLM provider error: {response.text}"
-            )
+        # Extract the assistant message and log the provider used
+        assistant_message = result.response.json()["choices"][0]["message"]["content"]
+        used_provider_id = result.provider.provider_id
+        used_model = result.model
+        log.info(f"Used provider: {used_provider_id}, model: {used_model}")
 
-        ollama_data = response.json()
-        assistant_message = ollama_data["choices"][0]["message"]["content"]
+        # Update history with the new user message and assistant response
+        updated_history = history + [
+            {"role": "user", "content": req.content},
+            {"role": "assistant", "content": assistant_message}
+        ]
+        _direct_chat_store.set(session_id, updated_history)
 
         return JSONResponse(content={
-            "session_id": req.session_id or "temp",
+            "session_id": session_id,
             "response": assistant_message,
         })
-    except httpx.ConnectError as e:
-        log.error(f"Chat connection error: {e}")
-        raise HTTPException(status_code=503, detail="LLM backend unreachable")
     except Exception as e:
         log.error(f"Chat error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
-
 
 async def _handle_agent_mode(
     req: ChatSendRequest,
@@ -156,6 +191,15 @@ async def _handle_agent_mode(
 ):
     """Handle agent mode: run an agent loop to perform the instruction."""
     log.info(f"Agent mode chat from {user.email}: {req.content[:50]}...")
+
+    # Load history if session_id is provided
+    session_id = req.session_id
+    if session_id:
+        history = _direct_chat_store.get(session_id) or []
+    else:
+        # Generate a new session_id
+        session_id = str(uuid.uuid4())
+        history = []
 
     # Fetch GitHub token for the user
     github_token = await _get_github_token_for_user(user.email)
@@ -197,7 +241,9 @@ async def _handle_agent_mode(
 
         # Prepare instruction and history
         instruction = req.content
-        history = []  # We don't have chat history in direct chat yet
+        # We are going to pass the history (without the current user message) to the agent.
+        # The agent will add the user message as the first step? Actually, the agent's run method
+        # expects the history to be the past conversation.
         requested_model = req.model
         auto_commit = True
         max_steps = 10
@@ -205,7 +251,7 @@ async def _handle_agent_mode(
         department = None
         key_id = None
         memory_store = None
-        session_id = req.session_id or str(uuid.uuid4())
+        # We are not using a session_id for the agent's internal session store? We are passing None.
 
         # Run the agent loop
         result = await runner.run(
@@ -218,16 +264,26 @@ async def _handle_agent_mode(
             department=department,
             key_id=key_id,
             memory_store=memory_store,
-            session_id=session_id,
+            session_id=None,   # We are not using the agent's internal session store for now
         )
 
         # Clean up workspace
         shutil.rmtree(workspace_root, ignore_errors=True)
 
+        # Extract the summary from the result to use as the assistant's message
+        assistant_message = result.get("summary", "Agent completed")
+
+        # Update history with the new user message and assistant response
+        updated_history = history + [
+            {"role": "user", "content": req.content},
+            {"role": "assistant", "content": assistant_message}
+        ]
+        _direct_chat_store.set(session_id, updated_history)
+
         # Return the result
         return JSONResponse(content={
             "session_id": session_id,
-            "response": result.get("summary", "Agent completed"),
+            "response": assistant_message,
             "agent_result": result,
         })
     except Exception as e:
@@ -243,6 +299,8 @@ async def list_chat_sessions(
     user: Annotated[UserInfo, Depends(_get_current_user)],
 ):
     """List chat sessions for current user."""
+    # We don't have a way to list sessions by user in the AgentSessionStore.
+    # We are going to return an empty list for now.
     return {"sessions": [], "total": 0}
 
 
@@ -252,7 +310,22 @@ async def get_chat_session(
     user: Annotated[UserInfo, Depends(_get_current_user)],
 ):
     """Get a specific chat session."""
-    return {"session_id": session_id, "messages": []}
+    history = _direct_chat_store.get(session_id)
+    if history is None:
+        raise HTTPException(status_code=404, detail="Session not found")
+    # We don't store the title, so we'll set it to the first user message or "Untitled"
+    title = "Untitled chat"
+    if history:
+        # Look for the first user message
+        for msg in history:
+            if msg["role"] == "user":
+                title = msg["content"][:50]  # truncate
+                break
+    return {
+        "session_id": session_id,
+        "title": title,
+        "history": history,
+    }
 
 
 @direct_chat_router.delete("/sessions/{session_id}")
@@ -261,4 +334,5 @@ async def delete_chat_session(
     user: Annotated[UserInfo, Depends(_get_current_user)],
 ):
     """Delete a chat session."""
+    _direct_chat_store.delete(session_id)
     return {"deleted": True, "session_id": session_id}

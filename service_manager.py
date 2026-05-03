@@ -146,7 +146,7 @@ class WindowsServiceManager:
         # Query ngrok's local API for the live tunnel URL.
         try:
             import urllib.request
-            with urllib.request.urlopen("http://localhost:4040/api/tunnels", timeout=2) as resp:
+            with urllib.request.urlopen("http://localhost:4040/api/tunnels", timeout=2) as resp:  # nosec: B110 - URL is localhost:4040, expected for local tunnel
                 data = json.loads(resp.read())
             for t in data.get("tunnels", []):
                 url = t.get("public_url", "")

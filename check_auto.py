@@ -73,7 +73,10 @@ def main():
             note = r[3]
             if r[2] == "❌":
                 # check git history
-                git_log = subprocess.run(f"git log --all --oneline --grep='{r[1][:10]}' -n 1", shell=True, capture_output=True, text=True).stdout.strip()
+                git_log = subprocess.run(
+                    ["git", "log", "--all", "--oneline", "--grep", r[1][:10], "-n 1"],
+                    capture_output=True, text=True
+                ).stdout.strip()
                 if git_log:
                     note += f". Found in git history: {git_log}"
                 else:

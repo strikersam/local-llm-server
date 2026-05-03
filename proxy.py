@@ -2390,5 +2390,5 @@ if __name__ == "__main__":
         len(KEY_STORE),
     )
     uvicorn.run(
-        "proxy:app", host="0.0.0.0", port=PROXY_PORT, log_level=LOG_LEVEL.lower()
+        "proxy:app", host="0.0.0.0", port=PROXY_PORT, log_level=LOG_LEVEL.lower()  # nosec: B104 - Binding to all interfaces is required for external access
     )

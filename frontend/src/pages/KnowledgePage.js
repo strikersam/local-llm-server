@@ -19,7 +19,7 @@ function TabBar({ tabs, active, onChange }) {
         <button key={id} onClick={() => onChange(id)}
           className="px-4 py-1.5 text-[10px] font-mono uppercase tracking-wider transition-colors"
           style={active === id
-            ? { background: C.accent, color: '#fff' }
+            ? { background: C.accent, color: C.primary }
             : { color: C.tertiary, background: 'transparent' }}
           onMouseEnter={e => { if (active !== id) e.currentTarget.style.color = C.secondary; }}
           onMouseLeave={e => { if (active !== id) e.currentTarget.style.color = C.tertiary; }}>

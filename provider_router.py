@@ -302,7 +302,7 @@ class ProviderRouter:
         ).strip()
         if nvidia_key:
             nvidia_base = (
-                os.environ.get("NVIDIA_BASE_URL") or "https://integrate.api.nvidia.com/v1"
+                os.environ.get("NVIDIA_BASE_URL") or "https://integrate.api.nvidia.com"
             ).rstrip("/")
             providers.append(
                 ProviderConfig(

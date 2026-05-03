@@ -1,0 +1,331 @@
+"""direct_chat.py — Direct chat endpoints for v3 dashboard.
+
+Handles chat sessions and message sending for the Direct Chat feature.
+Protected by JWT authentication (v3 auth system).
+Delegates to LLM providers via the proxy's routing system.
+"""
+
+from __future__ import annotations
+
+import json
+import logging
+import os
+import uuid
+from pathlib import Path
+from typing import Annotated
+
+import httpx
+from fastapi import APIRouter, Depends, HTTPException, Header, Request
+from fastapi.responses import JSONResponse, StreamingResponse
+from pydantic import BaseModel
+
+from tokens import verify_token
+from provider_router import ProviderRouter
+
+log = logging.getLogger("qwen-proxy")
+OLLAMA_BASE = os.environ.get("OLLAMA_BASE", "http://localhost:11434")
+direct_chat_router = APIRouter(prefix="/api/chat", tags=["chat"])
+
+# Session store for direct chat
+from agent.state import AgentSessionStore
+_direct_chat_store = AgentSessionStore(db_path="direct_chat_sessions.db")
+
+
+class UserInfo(BaseModel):
+    """Current user from JWT token."""
+    id: str
+    email: str
+
+
+def _get_bearer_token(authorization: str | None = Header(None)) -> str:
+    """Extract bearer token from Authorization header."""
+    if not authorization:
+        raise HTTPException(status_code=401, detail="Missing authorization header")
+    if not authorization.startswith("Bearer "):
+        raise HTTPException(status_code=401, detail="Invalid authorization header")
+    return authorization[7:].strip()
+
+
+async def _get_current_user(token: Annotated[str, Depends(_get_bearer_token)]) -> UserInfo:
+    """Extract and validate current user from JWT token."""
+    payload = verify_token(token, token_type="access")
+    if not payload:
+        raise HTTPException(status_code=401, detail="Invalid or expired token")
+    return UserInfo(
+        id=payload.get("sub", ""),
+        email=payload.get("email", ""),
+    )
+
+
+class ChatSendRequest(BaseModel):
+    """Send chat message request."""
+    content: str
+    session_id: str | None = None
+    model: str | None = None
+    provider_id: str | None = None
+    temperature: float | None = None
+    agent_mode: bool = False
+
+
+async def _get_github_token_for_user(user_email: str) -> str | None:
+    """Fetch GitHub token for user from secrets store or environment."""
+    try:
+        from secrets_store import get_secrets_store
+        from rbac import get_user_role
+        store = get_secrets_store()
+        uid = user_email
+        role = get_user_role({"email": user_email})  # Simplified
+        recs = await store.list_for_user(uid, role)
+        for rec in recs:
+            if "github" in rec.tags or rec.name.lower().startswith("github"):
+                value = await store.get_value(rec.secret_id, uid, role)
+                if value:
+                    return value
+    except Exception as e:
+        log.debug("Could not fetch GitHub token from secrets: %s", e)
+    # Fallback: env var
+    return os.environ.get("GITHUB_TOKEN") or os.environ.get("GH_TOKEN")
+
+
+@direct_chat_router.post("/send")
+async def send_chat_message(
+    req: ChatSendRequest,
+    request: Request,
+    user: Annotated[UserInfo, Depends(_get_current_user)],
+):
+    """Send a chat message (Direct Chat feature).
+
+    If agent_mode is True, runs an agent loop to perform the instruction.
+    Otherwise, routes the message to the appropriate LLM provider based on the model parameter.
+    """
+    if req.agent_mode:
+        return await _handle_agent_mode(req, user, request)
+    else:
+        return await _handle_regular_chat(req, user, request)
+
+
+async def _handle_regular_chat(
+    req: ChatSendRequest,
+    user: UserInfo,
+    request: Request,
+):
+    """Handle regular chat (non-agent mode)."""
+    log.info(f"Chat message from {user.email}: {req.content[:50]}...")
+
+    # Load history if session_id is provided
+    session_id = req.session_id
+    if session_id:
+        history = _direct_chat_store.get(session_id) or []
+    else:
+        # Generate a new session_id
+        session_id = str(uuid.uuid4())
+        history = []
+
+    # Build the payload for the provider router
+    payload = {
+        "messages": history + [{"role": "user", "content": req.content}],
+        "stream": False,
+    }
+    if req.model:
+        payload["model"] = req.model
+    if req.temperature is not None:
+        payload["temperature"] = req.temperature
+
+    # Use the provider router from the app state
+    router: ProviderRouter = request.app.state.PROVIDER_ROUTER
+    try:
+        # Try to get the provider if provider_id is specified
+        provider = None
+        if req.provider_id:
+            # Find the provider in the router's list
+            for p in router.providers:
+                if p.provider_id == req.provider_id:
+                    provider = p
+                    break
+            if not provider:
+                log.warning(f"Provider {req.provider_id} not found, using default router")
+
+        # Call the router
+        if provider:
+            # We want to try just this provider, but we don't have a method for that.
+            # We can temporarily set the router's providers to just this one.
+            original_providers = router.providers
+            router.providers = [provider]
+            try:
+                result = await router.chat_completion(payload)
+            finally:
+                router.providers = original_providers
+        else:
+            result = await router.chat_completion(payload)
+
+        # Extract the assistant message
+        assistant_message = result.response.json()["choices"][0]["message"]["content"]
+
+        # Update history with the new user message and assistant response
+        updated_history = history + [
+            {"role": "user", "content": req.content},
+            {"role": "assistant", "content": assistant_message}
+        ]
+        _direct_chat_store.set(session_id, updated_history)
+
+        return JSONResponse(content={
+            "session_id": session_id,
+            "response": assistant_message,
+        })
+    except Exception as e:
+        log.error(f"Chat error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+async def _handle_agent_mode(
+    req: ChatSendRequest,
+    user: UserInfo,
+    request: Request,
+):
+    """Handle agent mode: run an agent loop to perform the instruction."""
+    log.info(f"Agent mode chat from {user.email}: {req.content[:50]}...")
+
+    # Load history if session_id is provided
+    session_id = req.session_id
+    if session_id:
+        history = _direct_chat_store.get(session_id) or []
+    else:
+        # Generate a new session_id
+        session_id = str(uuid.uuid4())
+        history = []
+
+    # Fetch GitHub token for the user
+    github_token = await _get_github_token_for_user(user.email)
+    if not github_token:
+        log.warning(f"No GitHub token found for user {user.email}")
+        # We can still run the agent without GitHub token for local operations
+
+    try:
+        # Import agent components here to avoid circular imports and speed up regular chat
+        from agent.loop import AgentRunner
+        from agent.tools import WorkspaceTools
+        from agent.context_manager import ContextManager
+        from agent.models import AgentPlan
+        from agent.user_memory import UserMemoryStore
+        from agent.state import AgentSessionStore
+        from agent.github_tools import GitHubTools
+        import tempfile
+        import shutil
+        from pathlib import Path
+
+        # Set up workspace root (temporary directory for this agent run)
+        workspace_root = Path(tempfile.mkdtemp(prefix="agent_workspace_"))
+        log.info(f"Agent workspace: {workspace_root}")
+
+        # Initialize AgentRunner
+        runner = AgentRunner(
+            ollama_base=OLLAMA_BASE,
+            workspace_root=str(workspace_root),
+            provider_headers={},  # We don't have extra headers for now
+            provider_chain=[],    # We'll use the default Ollama model
+            allow_commercial_fallback=False,
+            provider_temperature=req.temperature,
+            session_store=None,   # We don't have a session store for agent in direct chat
+            github_token=github_token,
+            email=user.email,
+            department=None,      # We don't have department info in JWT
+            key_id=None,          # We don't have key_id in JWT
+        )
+
+        # Prepare instruction and history
+        instruction = req.content
+        # We are going to pass the history (without the current user message) to the agent.
+        # The agent will add the user message as the first step? Actually, the agent's run method
+        # expects the history to be the past conversation.
+        requested_model = req.model
+        auto_commit = True
+        max_steps = 10
+        user_id = user.id
+        department = None
+        key_id = None
+        memory_store = None
+        # We are not using a session_id for the agent's internal session store? We are passing None.
+
+        # Run the agent loop
+        result = await runner.run(
+            instruction=instruction,
+            history=history,
+            requested_model=requested_model,
+            auto_commit=auto_commit,
+            max_steps=max_steps,
+            user_id=user_id,
+            department=department,
+            key_id=key_id,
+            memory_store=memory_store,
+            session_id=None,   # We are not using the agent's internal session store for now
+        )
+
+        # Clean up workspace
+        shutil.rmtree(workspace_root, ignore_errors=True)
+
+        # Extract the summary from the result to use as the assistant's message
+        assistant_message = result.get("summary", "Agent completed")
+
+        # Update history with the new user message and assistant response
+        updated_history = history + [
+            {"role": "user", "content": req.content},
+            {"role": "assistant", "content": assistant_message}
+        ]
+        _direct_chat_store.set(session_id, updated_history)
+
+        # Return the result
+        return JSONResponse(content={
+            "session_id": session_id,
+            "response": assistant_message,
+            "agent_result": result,
+        })
+    except Exception as e:
+        log.error(f"Agent mode error: {e}")
+        # Clean up workspace on error
+        if 'workspace_root' in locals():
+            shutil.rmtree(workspace_root, ignore_errors=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@direct_chat_router.get("/sessions")
+async def list_chat_sessions(
+    user: Annotated[UserInfo, Depends(_get_current_user)],
+):
+    """List chat sessions for current user."""
+    # We don't have a way to list sessions by user in the AgentSessionStore.
+    # We are going to return an empty list for now.
+    return {"sessions": [], "total": 0}
+
+
+@direct_chat_router.get("/sessions/{session_id}")
+async def get_chat_session(
+    session_id: str,
+    user: Annotated[UserInfo, Depends(_get_current_user)],
+):
+    """Get a specific chat session."""
+    history = _direct_chat_store.get(session_id)
+    if history is None:
+        raise HTTPException(status_code=404, detail="Session not found")
+    # We don't store the title, so we'll set it to the first user message or "Untitled"
+    title = "Untitled chat"
+    if history:
+        # Look for the first user message
+        for msg in history:
+            if msg["role"] == "user":
+                title = msg["content"][:50]  # truncate
+                break
+    return {
+        "session_id": session_id,
+        "title": title,
+        "history": history,
+    }
+
+
+@direct_chat_router.delete("/sessions/{session_id}")
+async def delete_chat_session(
+    session_id: str,
+    user: Annotated[UserInfo, Depends(_get_current_user)],
+):
+    """Delete a chat session."""
+    _direct_chat_store.delete(session_id)
+    return {"deleted": True, "session_id": session_id}

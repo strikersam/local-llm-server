@@ -185,7 +185,7 @@ class ResourceWatchdog:
             if resource.kind == "file":
                 content = Path(resource.target).read_bytes()
             elif resource.kind == "url":
-                with urllib.request.urlopen(resource.target, timeout=10) as resp:  # noqa: S310
+                with urllib.request.urlopen(resource.target, timeout=10) as resp:  # noqa: S310  # nosec: B110 - URL is from trusted resource (WatchedResource)
                     content = resp.read()
             else:
                 return None

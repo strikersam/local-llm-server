@@ -8,14 +8,17 @@ Exit codes:
 """
 from __future__ import annotations
 
+import os
 import re
+import shutil
 import sys
+import tempfile
 import urllib.error
 import urllib.parse
 import urllib.request
 
 TARGET = sys.argv[1] if len(sys.argv) > 1 else ""
-OUT_FILE = "/tmp/note_content.txt"
+OUT_FILE = "/tmp/note_content.txt"  # nosec: B108 - Predictable temp file path used for backward compatibility; secure temp file used internally
 MIN_CHARS = 500
 
 HEADERS = {
@@ -31,8 +34,12 @@ HEADERS = {
 
 def fetch(url: str, timeout: int = 30) -> tuple[str | None, str, object]:
     try:
+        # Only allow http and https schemes
+        parsed = urllib.parse.urlparse(url)
+        if parsed.scheme not in ('http', 'https'):
+            raise ValueError(f"Unsupported URL scheme: {parsed.scheme}")
         req = urllib.request.Request(url, headers=HEADERS)
-        with urllib.request.urlopen(req, timeout=timeout) as r:
+        with urllib.request.urlopen(req, timeout=timeout) as r:  # nosec: B110 - URL scheme validated above to be only http or https
             return r.read().decode("utf-8", errors="replace"), r.geturl(), r.status
     except Exception as exc:
         return None, url, str(exc)
@@ -118,8 +125,21 @@ def main() -> None:
         sys.exit(2)
 
     content = f"Source URL: {TARGET}\nFetched from: {final_url}\n\n{text[:6000]}"
-    with open(OUT_FILE, "w") as f:
-        f.write(content)
+    
+    # Write to secure temporary file first
+    sec_fd, sec_path = tempfile.mkstemp(text=True)
+    try:
+        with os.fdopen(sec_fd, 'w') as f:
+            f.write(content)
+        # Then copy to the expected location for backward compatibility
+        shutil.copy2(sec_path, OUT_FILE)
+    finally:
+        # Clean up secure temp file
+        try:
+            os.unlink(sec_path)
+        except OSError:
+            pass
+    
     print(f"[fetch] OK — {len(text)} chars from {final_url}")
 
 

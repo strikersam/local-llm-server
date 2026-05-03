@@ -5,6 +5,7 @@ from unittest.mock import MagicMock, AsyncMock
 import pytest
 from fastapi.testclient import TestClient
 from dotenv import load_dotenv
+from fastapi.testclient import TestClient
 
 # Pin test credentials before load_dotenv() so the real .env cannot override
 # these values during test runs. seed_admin will sync the DB to match.
@@ -169,6 +170,12 @@ def setup_database_moks(monkeypatch):
 def wiki_client():
     from backend.server import app
     return TestClient(app)
+
+
+@pytest.fixture
+def client(wiki_client: TestClient) -> TestClient:
+    """Backward-compatible alias for tests expecting a generic client fixture."""
+    return wiki_client
 
 
 # Reset cross-request provider cooldown state before every test.

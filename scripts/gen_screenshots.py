@@ -530,7 +530,8 @@ body { background: #17212b; font-family: -apple-system, BlinkMacSystemFont, 'Seg
 
 
 async def save_html_screenshot(html: str, name: str, pw, width: int = 1280, height: int = 900):
-    tmp = pathlib.Path(tempfile.mktemp(suffix=".html"))
+    with tempfile.NamedTemporaryFile(suffix=".html", delete=False) as tmp:
+        tmp_path = pathlib.Path(tmp.name)
     tmp.write_text(html, encoding="utf-8")
     browser = await pw.chromium.launch(headless=True)
     ctx = await browser.new_context(viewport={"width": width, "height": height})

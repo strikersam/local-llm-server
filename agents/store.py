@@ -25,11 +25,16 @@ class AgentDefinition(BaseModel):
     agent_id:     str = Field(default_factory=lambda: f"agent_{secrets.token_hex(8)}")
     owner_id:     str                                   # user email or internal ID
     name:         str
+    role:         str = ""
     description:  str = ""
     model:        str = "qwen3-coder:30b"
     system_prompt: str = ""
+    preferred_runtime: str | None = None
     runtime_id:   str | None = None                    # preferred runtime (e.g. "hermes")
+    fallback_runtimes: list[str] = Field(default_factory=list)
+    task_specializations: list[str] = Field(default_factory=list)
     task_types:   list[str] = Field(default_factory=list)  # code_generation, review, etc.
+    requires_approval: bool = False
     is_public:    bool = False                          # visible to whole workspace
     cost_policy:  str = "local_only"                   # local_only | allow_paid | budget_X
     tags:         list[str] = Field(default_factory=list)
@@ -42,21 +47,42 @@ class AgentDefinition(BaseModel):
     def touch(self) -> None:
         self.updated_at = time.time()
 
+    def model_post_init(self, __context: Any) -> None:
+        self.sync_compat_fields()
+
+    def sync_compat_fields(self) -> None:
+        """Keep legacy backend fields and Control Plane UI fields aligned."""
+        if self.preferred_runtime and not self.runtime_id:
+            self.runtime_id = self.preferred_runtime
+        elif self.runtime_id and not self.preferred_runtime:
+            self.preferred_runtime = self.runtime_id
+
+        if self.task_specializations and not self.task_types:
+            self.task_types = list(self.task_specializations)
+        elif self.task_types and not self.task_specializations:
+            self.task_specializations = list(self.task_types)
+
     def record_use(self) -> None:
         self.last_used_at = time.time()
         self.use_count += 1
 
     def as_dict(self) -> dict[str, Any]:
+        self.sync_compat_fields()
         return self.model_dump()
 
 
 class AgentCreateRequest(BaseModel):
     name:          str
+    role:          str = ""
     description:   str = ""
     model:         str = "qwen3-coder:30b"
     system_prompt: str = ""
+    preferred_runtime: str | None = None
     runtime_id:    str | None = None
+    fallback_runtimes: list[str] = Field(default_factory=list)
+    task_specializations: list[str] = Field(default_factory=list)
     task_types:    list[str] = Field(default_factory=list)
+    requires_approval: bool = False
     is_public:     bool = False
     cost_policy:   str = "local_only"
     tags:          list[str] = Field(default_factory=list)
@@ -64,11 +90,16 @@ class AgentCreateRequest(BaseModel):
 
 class AgentUpdateRequest(BaseModel):
     name:          str | None = None
+    role:          str | None = None
     description:   str | None = None
     model:         str | None = None
     system_prompt: str | None = None
+    preferred_runtime: str | None = None
     runtime_id:    str | None = None
+    fallback_runtimes: list[str] | None = None
+    task_specializations: list[str] | None = None
     task_types:    list[str] | None = None
+    requires_approval: bool | None = None
     is_public:     bool | None = None
     cost_policy:   str | None = None
     tags:          list[str] | None = None
