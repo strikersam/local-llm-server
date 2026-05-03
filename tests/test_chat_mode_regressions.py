@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
 
@@ -91,3 +92,42 @@ def test_chat_send_falls_back_to_direct_answer_when_agent_mode_times_out(
     assert "Recovered direct answer" in response.json()["response"]
     timed_out_agent.assert_awaited_once()
     direct_reply.assert_awaited_once()
+
+
+def test_chat_send_uses_provider_default_model_for_agent_mode_when_model_is_omitted(
+    client, monkeypatch
+) -> None:
+    captured: dict[str, str | None] = {}
+
+    async def fake_build_provider_router(**kwargs):
+        return (
+            SimpleNamespace(providers=[]),
+            {"allow_commercial_fallback": True},
+            {
+                "default_model": "meta/llama-3.3-70b-instruct",
+                "base_url": "https://integrate.api.nvidia.com/v1",
+                "api_key": "test-key",
+            },
+        )
+
+    async def fake_run_agent_loop(**kwargs):
+        captured["requested_model"] = kwargs.get("requested_model")
+        return "Agent answer"
+
+    monkeypatch.setattr("backend.server.get_active_provider", AsyncMock(return_value=None))
+    monkeypatch.setattr("backend.server._build_provider_router", fake_build_provider_router)
+    monkeypatch.setattr("backend.server._run_agent_loop", fake_run_agent_loop)
+
+    response = client.post(
+        "/api/chat/send",
+        headers=_auth_headers(client),
+        json={
+            "session_id": "not-an-object-id-4",
+            "agent_mode": True,
+            "content": "Fix the endpoint and add a regression test.",
+        },
+    )
+
+    assert response.status_code == 200, response.text
+    assert response.json()["response"] == "Agent answer"
+    assert captured["requested_model"] == "meta/llama-3.3-70b-instruct"

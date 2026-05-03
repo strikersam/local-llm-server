@@ -2166,6 +2166,11 @@ async def chat_send(body: ChatMessage, user: dict = Depends(get_current_user)):
                 primary_provider_id=provider_hint_id,
                 allow_commercial_fallback_once=body.allow_commercial_fallback_once,
             )
+            requested_agent_model = (
+                body.model
+                or session.get("model")
+                or primary_provider.get("default_model")
+            )
             response_text = await asyncio.wait_for(
                 _run_agent_loop(
                     instruction=body.content,
@@ -2174,7 +2179,7 @@ async def chat_send(body: ChatMessage, user: dict = Depends(get_current_user)):
                     ],  # exclude the just-appended user msg
                     wiki_index=wiki_index,
                     provider=primary_provider,
-                    requested_model=body.model or session.get("model"),
+                    requested_model=requested_agent_model,
                     github_token=user.get("github_repo_token"),
                     provider_chain=router.providers[1:],
                     allow_commercial_fallback=policy["allow_commercial_fallback"],
@@ -2202,7 +2207,7 @@ async def chat_send(body: ChatMessage, user: dict = Depends(get_current_user)):
             try:
                 response_text = await _agent_timeout_fallback_response(
                     content=body.content,
-                    model=body.model,
+                    model=requested_agent_model,
                     session_model=session.get("model"),
                     temperature=float(temperature),
                     allow_commercial_fallback_once=body.allow_commercial_fallback_once,
