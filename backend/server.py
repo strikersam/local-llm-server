@@ -1597,6 +1597,21 @@ _COMPLEX_KEYWORDS = {
 }
 _COMPLEX_WORD_THRESHOLD = 25
 _COMPACT_THRESHOLD = 16
+_DIRECT_CHAT_REPO_ACTION_KEYWORDS = {
+    "repository",
+    "repo",
+    "open a pr",
+    "open pr",
+    "pull request",
+    "branch",
+    "run tests",
+    "merge strategy",
+    "multi-file",
+    "multiple files",
+    "docker image",
+    "production app",
+    "regressions",
+}
 
 
 def _classify_complexity(content: str) -> str:
@@ -1609,6 +1624,22 @@ def _classify_complexity(content: str) -> str:
         if (word_count >= _COMPLEX_WORD_THRESHOLD or has_keyword)
         else "simple"
     )
+
+
+def _requires_agent_mode_for_safe_repo_help(content: str) -> bool:
+    lower = content.lower()
+    hits = sum(keyword in lower for keyword in _DIRECT_CHAT_REPO_ACTION_KEYWORDS)
+    requests_edits = any(
+        phrase in lower
+        for phrase in (
+            "exact file edits",
+            "change two files",
+            "fix plan",
+            "commit message",
+            "tests to add",
+        )
+    )
+    return hits >= 2 or (hits >= 1 and requests_edits)
 
 
 def _mask_observations(messages: list[dict], max_chars: int = 300) -> list[dict]:
@@ -2257,6 +2288,35 @@ async def chat_send(body: ChatMessage, user: dict = Depends(get_current_user)):
             use_agent = True  # mark handled — skip the silent LLM fallback
 
     if not use_agent:
+        if _requires_agent_mode_for_safe_repo_help(body.content):
+            response_text = (
+                "This request needs Agent Mode or the actual source files. In direct chat, "
+                "I can explain likely causes and patterns, but I should not invent repo-specific "
+                "file edits, test changes, or merge steps without code access. Please enable Agent "
+                "Mode (⚡) or paste the relevant files, and I can help safely."
+            )
+            messages.append({"role": "assistant", "content": response_text})
+            try:
+                await db.chat_sessions.update_one(
+                    {"_id": ObjectId(sid)},
+                    {
+                        "$set": {
+                            "messages": messages,
+                            "provider_id": provider_id,
+                            "model": body.model or session.get("model"),
+                            "temperature": temperature,
+                            "updated_at": datetime.now(timezone.utc).isoformat(),
+                        }
+                    },
+                )
+            except Exception:
+                pass
+            return {
+                "session_id": sid,
+                "response": response_text,
+                "message_count": len(messages),
+            }
+
         github_connected = bool(user.get("github_repo_token"))
         github_hint = (
             " You also have GitHub repository access via the connected token — "

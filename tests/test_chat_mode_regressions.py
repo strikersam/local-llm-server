@@ -71,6 +71,35 @@ def test_chat_send_uses_agent_path_only_when_agent_mode_is_enabled(
     direct_reply.assert_not_called()
 
 
+def test_chat_send_returns_safe_boundary_for_repo_editing_requests_when_agent_mode_is_off(
+    client, monkeypatch
+) -> None:
+    unexpected_direct_call = AsyncMock(
+        side_effect=AssertionError("direct llm path should not fabricate repo edits")
+    )
+
+    monkeypatch.setattr("backend.server.call_llm", unexpected_direct_call)
+
+    response = client.post(
+        "/api/chat/send",
+        headers=_auth_headers(client),
+        json={
+            "session_id": "not-an-object-id-boundary",
+            "agent_mode": False,
+            "content": (
+                "A production app has three regressions: a missing mounted router causing 404s, "
+                "an invisible checkbox caused by CSS appearance:none, and a Docker image that forgot "
+                "to copy a Python package. Provide a concrete multi-file fix plan, exact edits, tests "
+                "to add, and a merge strategy."
+            ),
+        },
+    )
+
+    assert response.status_code == 200, response.text
+    assert "needs Agent Mode" in response.json()["response"]
+    unexpected_direct_call.assert_not_called()
+
+
 def test_chat_send_falls_back_to_direct_answer_when_agent_mode_times_out(
     client, monkeypatch
 ) -> None:
