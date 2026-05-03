@@ -2055,6 +2055,7 @@ async def _agent_timeout_fallback_response(
     *,
     content: str,
     model: str | None,
+    provider_default_model: str | None,
     temperature: float,
     session_model: str | None,
     allow_commercial_fallback_once: bool,
@@ -2072,15 +2073,33 @@ async def _agent_timeout_fallback_response(
         },
         {"role": "user", "content": content},
     ]
-    recovered = await asyncio.wait_for(
-        call_llm(
-            fallback_messages,
-            model=model or session_model,
-            temperature=temperature,
-            allow_commercial_fallback_once=allow_commercial_fallback_once,
-        ),
-        timeout=30,
-    )
+    candidate_models: list[str | None] = []
+    for candidate in (model, provider_default_model, session_model, None):
+        if candidate not in candidate_models:
+            candidate_models.append(candidate)
+
+    last_exc: Exception | None = None
+    recovered: str | None = None
+    for candidate in candidate_models:
+        try:
+            recovered = await asyncio.wait_for(
+                call_llm(
+                    fallback_messages,
+                    model=candidate,
+                    temperature=temperature,
+                    allow_commercial_fallback_once=allow_commercial_fallback_once,
+                ),
+                timeout=15,
+            )
+            break
+        except Exception as exc:
+            last_exc = exc
+            continue
+
+    if recovered is None:
+        assert last_exc is not None
+        raise last_exc
+
     return (
         "⚠️ Agent Mode timed out before tool execution completed. "
         "Here is a direct recovery answer without repository side effects:\n\n"
@@ -2208,6 +2227,7 @@ async def chat_send(body: ChatMessage, user: dict = Depends(get_current_user)):
                 response_text = await _agent_timeout_fallback_response(
                     content=body.content,
                     model=requested_agent_model,
+                    provider_default_model=primary_provider.get("default_model"),
                     session_model=session.get("model"),
                     temperature=float(temperature),
                     allow_commercial_fallback_once=body.allow_commercial_fallback_once,
