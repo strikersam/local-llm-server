@@ -519,7 +519,7 @@ async def lifespan(app: FastAPI):
                     ],
                     "model": os.environ.get(
                         "AGENT_PLANNER_MODEL",
-                        "qwen/qwen2.5-coder-32b-instruct" if _nim_key else "gemma4:latest",
+                        "qwen/qwen2.5-coder-32b-instruct" if _nim_key else "nemotron-3-super-120b-a12b",
                     ),
                 },
             }

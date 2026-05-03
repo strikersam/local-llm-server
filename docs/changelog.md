@@ -2,6 +2,28 @@
 
 ## [Unreleased]
 
+### Changed
+- `README.md` — refined the human-first README again to improve page traction: replaced the potentially friction-heavy “5-year-old” phrasing, added clearer value framing, a simple benefits table, and more team/adoption-oriented positioning for non-technical readers.
+- `README.md` — rewrote the README again with a human-first, screenshot-rich product story aimed at non-technical readers: simpler language, clearer use cases, visual tour, friendlier setup path, and links out to technical docs instead of front-loading route details.
+- `docs/api-surfaces.md` — added a separate technical route map so API and surface details live outside the README.
+- `README.md` — rewrote the top-level documentation to reflect the current product surface: corrected startup and port guidance, documented the built-in admin/web UI and separate dashboard deployment modes, and added an end-to-end feature inventory covering proxy compatibility, routing, agents, workflows, schedules, GitHub, secrets, sync, observability, and operations.
+- `frontend/package.json` / `frontend/package-lock.json` — restored `react-scripts` so the GitHub Pages dashboard can run `npm test` and `npm run build` in CI again.
+- `.github/workflows/deploy-frontend.yml` — switched the Pages build install step from `npm ci` to `npm install` so GitHub Pages deployments are not blocked by npm lockfile strictness on the hosted runner image.
+
+### Fixed
+- `backend/server.py` / `tests/test_chat_mode_regressions.py` — direct chat now refuses to fabricate repo-specific multi-file edit plans when Agent Mode is off. For repository-bound requests it returns a deterministic boundary message asking the user to enable Agent Mode or paste the relevant files instead of hallucinating framework/file details.
+- `backend/server.py` — explicit Agent Mode requests now time out early enough for hosted deployments and fall back to a substantive direct recovery answer instead of returning a generic timeout banner or upstream 502 page; the recovery path also retries with the provider default model when an explicit requested model is unavailable and keeps recovery pinned to the same provider chain instead of drifting back to a broken active-provider default.
+- `backend/server.py` / `tests/test_chat_mode_regressions.py` — agent-mode chat now seeds the hosted agent loop with the selected provider's default model when the user does not specify one, avoiding invalid planner/executor model selection on deployed cloud providers.
+- `tasks/service.py` / `tests/test_tasks_workflow.py` — task execution now has a hard timeout and fails cleanly instead of remaining stuck in `in_progress` forever when a runtime hangs.
+- `backend/server.py` / `tests/test_chat_mode_regressions.py` — direct chat now respects the Agent Mode toggle strictly, so complex coding prompts stay on the fast LLM path unless the caller explicitly enables agent orchestration. This prevents default chat from failing behind agent-only provider/runtime issues.
+- `Dockerfile.backend` — copy the `schedules/` package into the hosted backend image so `backend.server:app` can import `schedules_router` on Render instead of crashing with `ModuleNotFoundError: No module named 'schedules'` during deploy.
+- `backend/server.py` — wired the hosted `backend.server:app` deployment to expose authenticated schedule routes (`/api/schedules/*`) and legacy schedule compatibility routes (`/agent/scheduler/jobs*`), and initialised the shared scheduler so hosted schedule creation no longer returns 404.
+- `backend/server.py` — added `/api/observability/savings` and `/api/observability/usage` on the hosted backend, plus activity response aliases, so the Control Plane logs/metrics views have the data contracts expected by the GitHub Pages frontend.
+- `agents/store.py` / `agents/api.py` — agent profiles now persist Control Plane fields such as `role`, `preferred_runtime`, `fallback_runtimes`, `task_specializations`, and `requires_approval` while staying backward-compatible with `runtime_id` / `task_types`.
+- `frontend/src/api.js` / `frontend/src/pages/SchedulesPage.js` — the Schedules UI now uses `/api/schedules/*`, defaults assigned agents correctly, and removes misleading hardcoded “Recent Runs” sample data when there is no real schedule history.
+- `frontend/src/pages/LogsPage.js` — the logs dashboard now reads both hosted backend activity payloads (`logs`) and observability summaries (`summary` / `time_series`) instead of silently rendering empty activity or zeroed metrics.
+- `frontend/src/pages/DashboardLayout.js` — corrected a broken `NavItem` className ternary that prevented production React builds from compiling.
+
 ### Fixed
 - `tests/test_iteration_7_features.py` — corrected the placement of the temporary skip decorator on `test_anthropic_universal_provider_exists` so Python 3.13 CI syntax checks pass on pull request builds.
 - `tests/conftest.py` — restored a shared `client` fixture alias to `wiki_client` so `tests/test_v3_auth.py` can run under the full Python 3.13 CI suite.

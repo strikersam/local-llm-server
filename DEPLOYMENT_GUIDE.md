@@ -77,7 +77,7 @@ curl -X POST https://your-tunnel-url/v1/chat/completions \
   -H "Authorization: Bearer sk-qwen-9Ob7nJSX4vxkr4AbYlXNB0Z-FVO6MitnOZGLZwRhGps" \
   -H "Content-Type: application/json" \
   -d '{
-    "model": "gemma4:latest",
+    "model": "nemotron-3-super-120b-a12b",
     "messages": [{"role": "user", "content": "Say hello"}],
     "max_tokens": 100
   }'
@@ -126,7 +126,7 @@ Or in VS Code extension settings:
 
 - ✅ Proxy: Running on `http://localhost:8000`
 - ✅ Ollama: Running on `http://localhost:11434`
-- ✅ Models: `gemma4:latest`, `tinyllama:latest`
+- ✅ Models: `nemotron-3-super-120b-a12b`, `tinyllama:latest`
 - ⏳ Public tunnel: *Ready to configure above*
 
 ---

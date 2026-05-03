@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import logging
+import os
 import time
+import asyncio
 from typing import Any
 
 from agents.store import AgentDefinition, AgentStore, get_agent_store
@@ -320,12 +322,16 @@ class TaskExecutionCoordinator:
         agent_store: AgentStore | None = None,
         runtime_manager: RuntimeManager | None = None,
         workspace_root: str = ".",
+        execution_timeout_s: float | None = None,
     ) -> None:
         self.store = store or get_task_store()
         self.workflow = workflow or TaskWorkflowService(store=self.store)
         self.agent_store = agent_store or get_agent_store()
         self.runtime_manager = runtime_manager or get_runtime_manager()
         self.workspace_root = workspace_root
+        self.execution_timeout_s = execution_timeout_s or float(
+            os.environ.get("TASK_EXECUTION_TIMEOUT_SEC", "150")
+        )
 
     async def execute(self, task_id: str) -> Task:
         task = await self.store.get(task_id)
@@ -358,7 +364,10 @@ class TaskExecutionCoordinator:
 
         try:
             spec = self._build_spec(task, agent)
-            result, decision = await self.runtime_manager.execute(spec)
+            result, decision = await asyncio.wait_for(
+                self.runtime_manager.execute(spec),
+                timeout=self.execution_timeout_s,
+            )
 
             task.last_runtime_id = decision.selected_runtime_id
             task.last_model_used = result.model_used or decision.model_used
@@ -381,6 +390,18 @@ class TaskExecutionCoordinator:
             )
 
             await self._apply_result(task, agent, result)
+        except asyncio.TimeoutError:
+            message = (
+                f"Execution timed out after {self.execution_timeout_s:.0f}s"
+            )
+            log.error("Task %s %s", task.task_id, message)
+            task.error_message = message
+            self.workflow.transition(
+                task,
+                TaskStatus.FAILED,
+                actor="system:coordinator",
+                message=message,
+            )
         except Exception as exc:
             log.error("Error executing task %s: %s", task.task_id, exc, exc_info=True)
             task.error_message = str(exc)

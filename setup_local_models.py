@@ -117,7 +117,7 @@ class LocalLLMSetup:
         print("   (Planner, Executor, Verifier roles)")
         print()
 
-        default_model = "gemma4:latest"
+        default_model = "nemotron-3-super-120b-a12b"
         model_choice = input(
             f"Model to use [{default_model}]: "
         ).strip()

@@ -171,6 +171,7 @@ async def create_agent(request: Request, body: AgentCreateRequest):
         owner_id=uid,
         **body.model_dump(),
     )
+    agent.sync_compat_fields()
     store = get_agent_store()
     await store.create(agent)
 
@@ -226,6 +227,7 @@ async def update_agent(agent_id: str, request: Request, body: AgentUpdateRequest
     update_data = body.model_dump(exclude_unset=True)
     for k, v in update_data.items():
         setattr(agent, k, v)
+    agent.sync_compat_fields()
 
     await store.update(agent)
     audit("agent.update", user, resource="agent", resource_id=agent_id)
