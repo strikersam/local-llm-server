@@ -1,486 +1,801 @@
-/**
- * ControlPlanePage — v3.1 unified post-login landing.
- *
- * Design: lifted directly from the Control Plane design bundle.
- * Colors: #0F0F13 base / #141418 surface / #0D0D11 sidebar
- * Text:   #F2F2F6 primary / #B2B2C4 secondary / #808094 tertiary / #565666 muted
- */
-import React, { useEffect, useState, useCallback } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
-  Activity, AlertTriangle, Bot, CheckCircle, Clock,
-  DollarSign, Layers, PlayCircle, RefreshCw, Server,
-  Zap, XCircle, Calendar, ArrowUpRight, Cpu, TrendingUp,
-  Database, BarChart3,
+  Activity,
+  AlertTriangle,
+  ArrowRight,
+  Bot,
+  BrainCircuit,
+  Calendar,
+  Cpu,
+  Database,
+  FolderGit2,
+  Layers,
+  RefreshCw,
+  Rocket,
+  ShieldCheck,
+  Sparkles,
+  TrendingUp,
 } from 'lucide-react';
 import {
-  getStats, healthCheck, listRuntimes, listTasks,
-  getDueSoonTasks, getDecisionLog, fmtErr,
+  fmtErr,
+  getDecisionLog,
+  getDueSoonTasks,
+  getSavings,
+  getStats,
+  getUsage,
+  healthCheck,
+  listAgents,
+  listProviders,
+  listRuntimes,
+  listSchedules,
+  listTasks,
 } from '../api';
 
-// ── Tiny helpers ───────────────────────────────────────────────────────────────
+const C = {
+  surface: 'var(--bg-surface)',
+  border: 'var(--border)',
+  primary: 'var(--text-primary)',
+  secondary: 'var(--text-secondary)',
+  tertiary: 'var(--text-tertiary)',
+  muted: 'var(--text-muted)',
+  accent: 'var(--accent)',
+};
 
-function cls(...parts) { return parts.filter(Boolean).join(' '); }
-
-function relTime(ts) {
-  if (!ts) return '—';
-  const diff = (Date.now() / 1000) - ts;
-  if (diff < 60) return `${Math.round(diff)}s ago`;
-  if (diff < 3600) return `${Math.round(diff / 60)}m ago`;
-  if (diff < 86400) return `${Math.round(diff / 3600)}h ago`;
-  return `${Math.round(diff / 86400)}d ago`;
+function cls(...parts) {
+  return parts.filter(Boolean).join(' ');
 }
 
-// ── Design tokens (match design bundle) ───────────────────────────────────────
+function toMillis(value) {
+  if (value == null) return 0;
+  if (typeof value === 'number') {
+    return value > 1e12 ? value : value * 1000;
+  }
+  const parsed = new Date(value).getTime();
+  return Number.isNaN(parsed) ? 0 : parsed;
+}
 
+function relTime(value) {
+  const timestamp = toMillis(value);
+  if (!timestamp) return '—';
+  const diff = Date.now() - timestamp;
+  if (diff < 60_000) return `${Math.max(1, Math.round(diff / 1000))}s ago`;
+  if (diff < 3_600_000) return `${Math.round(diff / 60_000)}m ago`;
+  if (diff < 86_400_000) return `${Math.round(diff / 3_600_000)}h ago`;
+  return `${Math.round(diff / 86_400_000)}d ago`;
+}
 
-const C = {
-  bg:      "var(--bg-base)",
-  surface: "var(--bg-surface)",
-  border:  "var(--border)",
-  primary: "var(--text-primary)",
-  secondary: "var(--text-secondary)",
-  tertiary: "var(--text-tertiary)",
-  muted:    "var(--text-muted)",
-  accent:   "var(--accent)",
-};
+function formatMoney(value) {
+  if (value == null || Number.isNaN(Number(value))) return '—';
+  return `$${Number(value).toFixed(2)}`;
+}
 
-const STATUS_DOT = {
-  todo:        '#6E6E80',
-  in_progress: '#10B981',
-  in_review:   '#F59E0B',
-  blocked:     '#EF4444',
-  done:        '#3B82F6',
-  running:     '#10B981',
-  idle:        '#6E6E80',
-  error:       '#EF4444',
-  offline:     '#565666',
-  online:      '#10B981',
-};
+function formatCount(value) {
+  if (value == null || Number.isNaN(Number(value))) return '—';
+  return Number(value).toLocaleString();
+}
 
-// ── Stat card ─────────────────────────────────────────────────────────────────
+function formatCompactTokens(value) {
+  if (value == null || Number.isNaN(Number(value))) return '—';
+  const total = Number(value);
+  if (total >= 1_000_000) return `${(total / 1_000_000).toFixed(1)}M`;
+  if (total >= 1_000) return `${(total / 1_000).toFixed(1)}k`;
+  return `${total}`;
+}
 
-function StatCard({ label, value, sub, accent = C.accent, to }) {
-  const nav = useNavigate();
+function formatPercent(value) {
+  if (value == null || Number.isNaN(Number(value))) return '—';
+  return `${Math.round(Number(value) * 100)}%`;
+}
+
+function formatStatusLabel(value) {
+  if (!value) return 'Unknown';
+  return String(value)
+    .replace(/_/g, ' ')
+    .replace(/\b\w/g, (char) => char.toUpperCase());
+}
+
+function sortByUpdated(items) {
+  return [...items].sort((left, right) => toMillis(right.updated_at || right.updatedAt || right.last_run) - toMillis(left.updated_at || left.updatedAt || left.last_run));
+}
+
+function statusColor(status) {
+  const value = String(status || '').toLowerCase();
+  if (value === 'running' || value === 'active' || value === 'online' || value === 'completed') {
+    return '#10B981';
+  }
+  if (value === 'in_progress' || value === 'provisioning' || value === 'in_review') {
+    return '#F59E0B';
+  }
+  if (value === 'blocked' || value === 'failed' || value === 'error' || value === 'offline') {
+    return '#EF4444';
+  }
+  return C.muted;
+}
+
+function PageCard({ title, description, actionLabel, onAction, children, className = '' }) {
   return (
-    <button
-      onClick={to ? () => nav(to) : undefined}
-      className="group text-left transition-all duration-200"
-      style={{
-        background: C.surface,
-        border: `1px solid ${C.border}`,
-        borderRadius: '12px',
-        padding: '16px',
-        cursor: to ? 'pointer' : 'default',
-      }}
-      onMouseEnter={e => { if (to) { e.currentTarget.style.borderColor = 'rgba(255,255,255,0.12)'; e.currentTarget.style.background = '#18181D'; }}}
-      onMouseLeave={e => { e.currentTarget.style.borderColor = C.border; e.currentTarget.style.background = C.surface; }}
-      data-testid={`stat-${label.toLowerCase().replace(/\s/g,'-')}`}
+    <section
+      className={cls('overflow-hidden rounded-2xl border', className)}
+      style={{ background: C.surface, borderColor: C.border }}
     >
-      <div className="text-[28px] font-bold tracking-tight leading-none mb-1"
-        style={{ fontFamily: 'var(--font-main)', color: accent }}>{value ?? '—'}</div>
-      <div className="text-[11px] font-medium" style={{ color: C.secondary }}>{label}</div>
-      {sub && <div className="text-[9px] font-mono mt-0.5" style={{ color: C.muted }}>{sub}</div>}
-    </button>
+      <div className="flex items-start justify-between gap-3 border-b px-4 py-4 sm:px-5" style={{ borderColor: 'rgba(255,255,255,0.06)' }}>
+        <div className="min-w-0">
+          <h2 className="text-sm font-semibold text-white">{title}</h2>
+          {description ? (
+            <p className="mt-1 text-xs leading-relaxed" style={{ color: C.tertiary }}>{description}</p>
+          ) : null}
+        </div>
+        {onAction ? (
+          <button
+            onClick={onAction}
+            className="shrink-0 text-[10px] font-mono uppercase tracking-[0.18em] transition-colors"
+            style={{ color: C.muted }}
+            onMouseEnter={(event) => { event.currentTarget.style.color = C.secondary; }}
+            onMouseLeave={(event) => { event.currentTarget.style.color = C.muted; }}
+          >
+            {actionLabel || 'Open'}
+          </button>
+        ) : null}
+      </div>
+      <div className="p-4 sm:p-5">{children}</div>
+    </section>
   );
 }
 
-// ── Runtime row ────────────────────────────────────────────────────────────────
-
-function RuntimeRow({ runtime }) {
-  const h = runtime.health || {};
-  const available = h.available;
-  const circuitOpen = runtime.circuit_open;
-  const status = circuitOpen ? 'circuit-open' : available ? 'online' : 'offline';
-  const dotColor = { online: '#10B981', offline: '#565666', 'circuit-open': '#F59E0B' }[status] || '#565666';
+function MetricTile({ label, value, supportingText, accent = C.accent }) {
   return (
-    <div className="flex items-center justify-between py-2.5 border-b last:border-0"
-      style={{ borderColor: 'rgba(255,255,255,0.05)' }}>
-      <div className="flex items-center gap-2.5">
-        <div className="w-2 h-2 rounded-full shrink-0" style={{ background: dotColor }} />
-        <div>
-          <div className="text-[12px] font-medium" style={{ color: C.secondary }}>{runtime.display_name}</div>
-          <div className="text-[10px] font-mono" style={{ color: C.muted }}>{runtime.tier?.replace('_', ' ')}</div>
-        </div>
-      </div>
-      <div className="text-right">
-        <div className="text-[10px] font-mono" style={{ color: available && !circuitOpen ? '#10B981' : C.muted }}>
-          {circuitOpen ? 'circuit open' : available ? 'online' : available === null ? 'checking' : 'offline'}
-        </div>
-        {h.latency_ms != null && (
-          <div className="text-[9px] font-mono" style={{ color: C.muted }}>{Math.round(h.latency_ms)}ms</div>
-        )}
-      </div>
+    <div className="rounded-xl border px-4 py-4" style={{ borderColor: 'rgba(255,255,255,0.08)', background: 'rgba(255,255,255,0.02)' }}>
+      <div className="text-[10px] font-mono uppercase tracking-[0.18em]" style={{ color: C.muted }}>{label}</div>
+      <div className="mt-2 text-2xl font-semibold tracking-tight" style={{ color: accent }}>{value}</div>
+      {supportingText ? (
+        <div className="mt-2 text-xs leading-relaxed" style={{ color: C.tertiary }}>{supportingText}</div>
+      ) : null}
     </div>
   );
 }
 
-// ── Task row ───────────────────────────────────────────────────────────────────
+function HealthPill({ label, ok }) {
+  return (
+    <div
+      className="inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-[11px]"
+      style={{
+        borderColor: ok ? 'rgba(16,185,129,0.18)' : 'rgba(255,255,255,0.08)',
+        background: ok ? 'rgba(16,185,129,0.08)' : 'rgba(255,255,255,0.03)',
+        color: ok ? '#10B981' : C.tertiary,
+      }}
+    >
+      <span className="h-1.5 w-1.5 rounded-full" style={{ background: ok ? '#10B981' : C.muted }} />
+      {label}
+    </div>
+  );
+}
 
-function TaskRow({ task, onClick }) {
-  const dot = STATUS_DOT[task.status] || C.muted;
-  const statusLabel = task.status?.replace('_', ' ') || 'todo';
+function QuickAction({ icon: Icon, label, description, onClick }) {
   return (
     <button
       onClick={onClick}
-      className="w-full flex items-start gap-2.5 py-2.5 px-3 rounded-lg text-left transition-colors"
-      style={{ '--tw-bg': 'transparent' }}
-      onMouseEnter={e => e.currentTarget.style.background = 'rgba(255,255,255,0.015)'}
-      onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
+      className="group flex w-full items-start gap-3 rounded-xl border px-4 py-3 text-left transition-all duration-150"
+      style={{ background: 'rgba(255,255,255,0.02)', borderColor: 'rgba(255,255,255,0.08)' }}
+      onMouseEnter={(event) => {
+        event.currentTarget.style.borderColor = 'rgba(255,255,255,0.14)';
+        event.currentTarget.style.background = 'rgba(255,255,255,0.04)';
+      }}
+      onMouseLeave={(event) => {
+        event.currentTarget.style.borderColor = 'rgba(255,255,255,0.08)';
+        event.currentTarget.style.background = 'rgba(255,255,255,0.02)';
+      }}
     >
-      <div className="w-1.5 h-1.5 rounded-full mt-1.5 shrink-0" style={{ background: dot }} />
-      <div className="flex-1 min-w-0">
-        <div className="flex items-center gap-2 mb-0.5">
-          <span className="text-[12px] font-medium truncate" style={{ color: C.secondary }}>{task.title}</span>
-          {task.priority === 'urgent' && (
-            <span className="text-[9px] font-mono uppercase" style={{ color: '#EF4444' }}>URGENT</span>
-          )}
+      <div className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border" style={{ borderColor: 'rgba(0,47,167,0.25)', background: 'rgba(0,47,167,0.12)' }}>
+        <Icon size={16} className="text-[#7FA1FF]" />
+      </div>
+      <div className="min-w-0 flex-1">
+        <div className="flex items-center justify-between gap-3">
+          <span className="text-sm font-medium text-white">{label}</span>
+          <ArrowRight size={14} className="shrink-0 text-[#5E6B87] transition-transform duration-150 group-hover:translate-x-0.5 group-hover:text-white" />
         </div>
-        <div className="flex items-center gap-2 flex-wrap">
-          <span className="text-[9px] font-mono capitalize" style={{ color: C.tertiary }}>{statusLabel}</span>
-          {task.agent_id && (
-            <span className="text-[9px] font-mono" style={{ color: C.muted }}>@{task.agent_id}</span>
-          )}
-          <span className="text-[9px]" style={{ color: C.muted }}>{relTime(task.updated_at)}</span>
+        <p className="mt-1 text-xs leading-relaxed" style={{ color: C.tertiary }}>{description}</p>
+      </div>
+    </button>
+  );
+}
+
+function EmptyState({ title, description }) {
+  return (
+    <div className="rounded-xl border border-dashed px-4 py-10 text-center" style={{ borderColor: 'rgba(255,255,255,0.10)', background: 'rgba(255,255,255,0.02)' }}>
+      <p className="text-sm font-medium text-white">{title}</p>
+      <p className="mt-2 text-xs leading-relaxed" style={{ color: C.tertiary }}>{description}</p>
+    </div>
+  );
+}
+
+function TaskPreviewRow({ task, onClick }) {
+  return (
+    <button
+      onClick={onClick}
+      className="flex w-full items-start gap-3 rounded-xl border px-4 py-3 text-left transition-colors"
+      style={{ borderColor: 'rgba(255,255,255,0.06)', background: 'rgba(255,255,255,0.02)' }}
+      onMouseEnter={(event) => { event.currentTarget.style.background = 'rgba(255,255,255,0.04)'; }}
+      onMouseLeave={(event) => { event.currentTarget.style.background = 'rgba(255,255,255,0.02)'; }}
+    >
+      <span className="mt-1.5 h-2 w-2 shrink-0 rounded-full" style={{ background: statusColor(task.status) }} />
+      <div className="min-w-0 flex-1">
+        <div className="flex items-center gap-2">
+          <p className="truncate text-sm font-medium text-white">{task.title || task.name}</p>
+          {task.priority === 'urgent' ? (
+            <span className="rounded-full border px-2 py-0.5 text-[9px] font-mono uppercase tracking-[0.18em] text-red-300" style={{ borderColor: 'rgba(239,68,68,0.25)', background: 'rgba(239,68,68,0.10)' }}>
+              Urgent
+            </span>
+          ) : null}
+        </div>
+        <div className="mt-1 flex flex-wrap items-center gap-2 text-[11px]" style={{ color: C.tertiary }}>
+          <span>{formatStatusLabel(task.status)}</span>
+          {task.agent_id ? <span>• @{task.agent_id}</span> : null}
+          <span>• {relTime(task.updated_at || task.updatedAt)}</span>
         </div>
       </div>
     </button>
   );
 }
 
-// ── Execution row (live feed) ──────────────────────────────────────────────────
-
-function ExecRow({ decision }) {
-  const dot = decision.escalated ? '#F59E0B' : '#10B981';
+function DecisionPreviewRow({ decision }) {
   return (
-    <div className="flex items-start gap-3 px-4 py-3 border-b last:border-0"
-      style={{ borderColor: 'rgba(255,255,255,0.04)' }}>
-      <div className="mt-1 shrink-0 w-2 h-2 rounded-full" style={{ background: dot }} />
-      <div className="flex-1 min-w-0">
-        <div className="flex items-center gap-2 mb-0.5">
-          <span className="text-[12px] font-medium truncate" style={{ color: '#D8D8E8' }}>{decision.task_id}</span>
-          {decision.escalated && (
-            <span className="shrink-0 px-1.5 py-px text-[8px] font-mono uppercase border"
-              style={{ borderColor: 'rgba(245,158,11,0.25)', background: 'rgba(245,158,11,0.08)', color: '#F59E0B' }}>
-              escalated
-            </span>
-          )}
-        </div>
-        <div className="flex items-center gap-3 text-[10px] font-mono" style={{ color: C.muted }}>
-          <span>{decision.selected_runtime_id}</span>
-          <span style={{ color: '#3A3A4A' }}>·</span>
-          <span style={{ color: decision.provider_used === 'ollama' ? '#10B981' : C.tertiary }}>
-            {decision.model_used || decision.task_type}
-          </span>
-          {decision.escalation_reason && (
-            <>
-              <span style={{ color: '#3A3A4A' }}>·</span>
-              <span className="truncate max-w-[150px]" style={{ color: 'rgba(245,158,11,0.8)' }}>
-                {decision.escalation_reason}
+    <div className="rounded-xl border px-4 py-3" style={{ borderColor: 'rgba(255,255,255,0.06)', background: 'rgba(255,255,255,0.02)' }}>
+      <div className="flex items-start gap-3">
+        <span className="mt-1.5 h-2 w-2 shrink-0 rounded-full" style={{ background: decision.escalated ? '#F59E0B' : '#10B981' }} />
+        <div className="min-w-0 flex-1">
+          <div className="flex items-center gap-2">
+            <p className="truncate text-sm font-medium text-white">{decision.task_id || decision.id || 'Runtime decision'}</p>
+            {decision.escalated ? (
+              <span className="rounded-full border px-2 py-0.5 text-[9px] font-mono uppercase tracking-[0.18em] text-amber-300" style={{ borderColor: 'rgba(245,158,11,0.25)', background: 'rgba(245,158,11,0.10)' }}>
+                Escalated
               </span>
-            </>
-          )}
+            ) : null}
+          </div>
+          <div className="mt-1 flex flex-wrap items-center gap-2 text-[11px]" style={{ color: C.tertiary }}>
+            {decision.selected_runtime_id ? <span>{decision.selected_runtime_id}</span> : null}
+            {decision.model_used || decision.task_type ? <span>• {decision.model_used || decision.task_type}</span> : null}
+            <span>• {relTime(decision.timestamp)}</span>
+          </div>
+          {decision.escalation_reason ? (
+            <p className="mt-2 text-xs leading-relaxed text-amber-300/90">{decision.escalation_reason}</p>
+          ) : null}
         </div>
       </div>
-      <div className="text-[9px] font-mono shrink-0 mt-0.5" style={{ color: C.muted }}>
-        {relTime(decision.timestamp)}
+    </div>
+  );
+}
+
+function AgentPreviewRow({ agent }) {
+  return (
+    <div className="flex items-center justify-between gap-3 rounded-xl border px-4 py-3" style={{ borderColor: 'rgba(255,255,255,0.06)', background: 'rgba(255,255,255,0.02)' }}>
+      <div className="min-w-0">
+        <p className="truncate text-sm font-medium text-white">{agent.name}</p>
+        <p className="mt-1 truncate text-[11px]" style={{ color: C.tertiary }}>
+          {agent.role || 'General agent'}
+          {agent.preferred_runtime ? ` • ${agent.preferred_runtime}` : ''}
+        </p>
+      </div>
+      <span className="shrink-0 rounded-full border px-2 py-1 text-[10px] font-mono uppercase tracking-[0.18em]" style={{ borderColor: `${statusColor(agent.status)}33`, color: statusColor(agent.status), background: `${statusColor(agent.status)}12` }}>
+        {formatStatusLabel(agent.status || 'idle')}
+      </span>
+    </div>
+  );
+}
+
+function ProviderPreviewRow({ provider }) {
+  const isPriority = provider.provider_id === 'nvidia-nim';
+  return (
+    <div className="rounded-xl border px-4 py-3" style={{ borderColor: isPriority ? 'rgba(0,47,167,0.24)' : 'rgba(255,255,255,0.06)', background: isPriority ? 'rgba(0,47,167,0.10)' : 'rgba(255,255,255,0.02)' }}>
+      <div className="flex items-center justify-between gap-3">
+        <div className="min-w-0">
+          <div className="flex flex-wrap items-center gap-2">
+            <p className="truncate text-sm font-medium text-white">{provider.name}</p>
+            {isPriority ? (
+              <span className="rounded-full border px-2 py-0.5 text-[9px] font-mono uppercase tracking-[0.18em] text-[#BBD0FF]" style={{ borderColor: 'rgba(127,161,255,0.25)', background: 'rgba(127,161,255,0.12)' }}>
+                Priority
+              </span>
+            ) : null}
+            {provider.is_default ? (
+              <span className="rounded-full border px-2 py-0.5 text-[9px] font-mono uppercase tracking-[0.18em] text-emerald-300" style={{ borderColor: 'rgba(16,185,129,0.25)', background: 'rgba(16,185,129,0.10)' }}>
+                Default
+              </span>
+            ) : null}
+          </div>
+          <p className="mt-1 truncate text-[11px]" style={{ color: C.tertiary }}>
+            {provider.default_model || provider.type}
+          </p>
+        </div>
+        <span className="shrink-0 text-[10px] font-mono uppercase tracking-[0.18em]" style={{ color: provider.status === 'configured' ? '#10B981' : C.muted }}>
+          {provider.status === 'configured' ? 'Ready' : 'Setup'}
+        </span>
       </div>
     </div>
   );
 }
 
-// ── Section header ─────────────────────────────────────────────────────────────
-
-function SectionHeader({ title, to, count, loading, onRefresh }) {
-  const nav = useNavigate();
+function SchedulePreviewRow({ schedule }) {
   return (
-    <div className="flex items-center justify-between px-4 py-3 border-b"
-      style={{ borderColor: 'rgba(255,255,255,0.06)' }}>
-      <div className="flex items-center gap-2">
-        <span className="text-[11px] font-semibold tracking-wide uppercase font-mono"
-          style={{ color: C.tertiary }}>{title}</span>
-        {count != null && (
-          <span className="text-[9px] font-mono px-1.5 py-0.5 rounded"
-            style={{ background: 'rgba(255,255,255,0.05)', color: C.muted }}>{count}</span>
-        )}
-      </div>
-      <div className="flex items-center gap-2">
-        {onRefresh && (
-          <button onClick={onRefresh} disabled={loading}
-            className="transition-colors disabled:opacity-40"
-            style={{ color: C.muted }}
-            onMouseEnter={e => e.currentTarget.style.color = C.secondary}
-            onMouseLeave={e => e.currentTarget.style.color = C.muted}>
-            <RefreshCw size={11} className={loading ? 'animate-spin' : ''} />
-          </button>
-        )}
-        {to && (
-          <button onClick={() => nav(to)}
-            className="text-[10px] font-mono transition-colors"
-            style={{ color: C.muted }}
-            onMouseEnter={e => e.currentTarget.style.color = C.secondary}
-            onMouseLeave={e => e.currentTarget.style.color = C.muted}>
-            View all →
-          </button>
-        )}
+    <div className="rounded-xl border px-4 py-3" style={{ borderColor: 'rgba(255,255,255,0.06)', background: 'rgba(255,255,255,0.02)' }}>
+      <div className="flex items-center justify-between gap-3">
+        <div className="min-w-0">
+          <p className="truncate text-sm font-medium text-white">{schedule.name}</p>
+          <p className="mt-1 truncate text-[11px]" style={{ color: C.tertiary }}>
+            {schedule.cron || schedule.schedule || 'Manual trigger'}
+          </p>
+        </div>
+        <span className="shrink-0 rounded-full border px-2 py-1 text-[10px] font-mono uppercase tracking-[0.18em]" style={{ borderColor: `${statusColor(schedule.status)}33`, color: statusColor(schedule.status), background: `${statusColor(schedule.status)}12` }}>
+          {formatStatusLabel(schedule.status || 'active')}
+        </span>
       </div>
     </div>
   );
 }
 
-// ── Card wrapper ───────────────────────────────────────────────────────────────
-
-function Card({ children, className = '' }) {
+function RuntimePreviewRow({ runtime }) {
+  const available = runtime.health?.available;
+  const tone = runtime.circuit_open ? '#F59E0B' : available ? '#10B981' : '#EF4444';
   return (
-    <div className={`overflow-hidden ${className}`}
-      style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: '12px' }}>
-      {children}
+    <div className="rounded-xl border px-4 py-3" style={{ borderColor: 'rgba(255,255,255,0.06)', background: 'rgba(255,255,255,0.02)' }}>
+      <div className="flex items-center justify-between gap-3">
+        <div className="min-w-0">
+          <p className="truncate text-sm font-medium text-white">{runtime.display_name}</p>
+          <p className="mt-1 truncate text-[11px]" style={{ color: C.tertiary }}>
+            {runtime.tier ? runtime.tier.replace(/_/g, ' ') : 'runtime'}
+            {runtime.health?.latency_ms != null ? ` • ${Math.round(runtime.health.latency_ms)}ms` : ''}
+          </p>
+        </div>
+        <span className="shrink-0 rounded-full border px-2 py-1 text-[10px] font-mono uppercase tracking-[0.18em]" style={{ borderColor: `${tone}33`, color: tone, background: `${tone}12` }}>
+          {runtime.circuit_open ? 'Circuit open' : available ? 'Online' : available === null ? 'Checking' : 'Offline'}
+        </span>
+      </div>
     </div>
   );
 }
 
-// ── Infrastructure health row ──────────────────────────────────────────────────
-
-function InfraItem({ label, ok, icon: Icon }) {
+function RecentPageRow({ page, onClick }) {
   return (
-    <div className="flex items-center gap-2 px-3 py-2.5 rounded-lg border"
-      style={{
-        borderColor: ok ? 'rgba(16,185,129,0.15)' : 'rgba(255,255,255,0.05)',
-        background: ok ? 'rgba(16,185,129,0.05)' : 'rgba(255,255,255,0.02)',
-      }}>
-      <div className="w-1.5 h-1.5 rounded-full shrink-0"
-        style={{ background: ok ? '#10B981' : C.muted }} />
-      <span className="text-[11px] font-medium"
-        style={{ color: ok ? '#10B981' : C.muted }}>{label}</span>
-    </div>
+    <button
+      onClick={onClick}
+      className="flex w-full items-start justify-between gap-3 rounded-xl border px-4 py-3 text-left transition-colors"
+      style={{ borderColor: 'rgba(255,255,255,0.06)', background: 'rgba(255,255,255,0.02)' }}
+      onMouseEnter={(event) => { event.currentTarget.style.background = 'rgba(255,255,255,0.04)'; }}
+      onMouseLeave={(event) => { event.currentTarget.style.background = 'rgba(255,255,255,0.02)'; }}
+    >
+      <div className="min-w-0">
+        <p className="truncate text-sm font-medium text-white">{page.title}</p>
+        <p className="mt-1 truncate text-[11px]" style={{ color: C.tertiary }}>/{page.slug}</p>
+      </div>
+      <span className="shrink-0 text-[11px]" style={{ color: C.muted }}>{relTime(page.updated_at)}</span>
+    </button>
   );
 }
-
-// ── Main page ──────────────────────────────────────────────────────────────────
 
 export default function ControlPlanePage() {
-  const nav = useNavigate();
+  const navigate = useNavigate();
   const [loading, setLoading] = useState(true);
-  const [rLoading, setRLoading] = useState(false);
-  const [tLoading, setTLoading] = useState(false);
-
-  const [health, setHealth]       = useState(null);
-  const [stats, setStats]         = useState(null);
-  const [runtimes, setRuntimes]   = useState([]);
-  const [tasks, setTasks]         = useState([]);
-  const [dueSoon, setDueSoon]     = useState([]);
+  const [refreshing, setRefreshing] = useState(false);
+  const [error, setError] = useState('');
+  const [health, setHealth] = useState(null);
+  const [stats, setStats] = useState(null);
+  const [usage, setUsage] = useState(null);
+  const [savings, setSavings] = useState(null);
+  const [runtimes, setRuntimes] = useState([]);
+  const [tasks, setTasks] = useState([]);
+  const [dueSoon, setDueSoon] = useState([]);
   const [decisions, setDecisions] = useState([]);
-  const [alertDismissed, setAlertDismissed] = useState(false);
-  const [error, setError]         = useState('');
+  const [agents, setAgents] = useState([]);
+  const [providers, setProviders] = useState([]);
+  const [schedules, setSchedules] = useState([]);
 
-  const loadAll = useCallback(async () => {
-    setLoading(true);
-    setError('');
-    try {
-      await Promise.allSettled([
-        healthCheck().then(r => setHealth(r.data)),
-        getStats().then(r => setStats(r.data)),
-        listRuntimes().then(r => setRuntimes(r.data.runtimes || [])),
-        listTasks({ limit: 10 }).then(r => setTasks(r.data.tasks || [])),
-        getDueSoonTasks(24).then(r => setDueSoon(r.data.tasks || [])),
-        getDecisionLog(20).then(r => setDecisions(r.data.decisions || [])),
-      ]);
-    } catch {
-      setError('Some data sources unavailable — check backend connectivity.');
-    } finally {
-      setLoading(false);
+  const loadAll = useCallback(async ({ isRefresh = false } = {}) => {
+    if (isRefresh) {
+      setRefreshing(true);
+    } else {
+      setLoading(true);
     }
+    setError('');
+
+    const results = await Promise.allSettled([
+      healthCheck(),
+      getStats(),
+      getUsage('month'),
+      getSavings('month', 'day'),
+      listRuntimes(),
+      listTasks({ limit: 12 }),
+      getDueSoonTasks(24),
+      getDecisionLog(12),
+      listAgents(),
+      listProviders(),
+      listSchedules(),
+    ]);
+
+    const failures = [];
+    const [
+      healthResult,
+      statsResult,
+      usageResult,
+      savingsResult,
+      runtimesResult,
+      tasksResult,
+      dueSoonResult,
+      decisionsResult,
+      agentsResult,
+      providersResult,
+      schedulesResult,
+    ] = results;
+
+    if (healthResult.status === 'fulfilled') setHealth(healthResult.value.data);
+    else failures.push(healthResult.reason);
+
+    if (statsResult.status === 'fulfilled') setStats(statsResult.value.data);
+    else failures.push(statsResult.reason);
+
+    if (usageResult.status === 'fulfilled') setUsage(usageResult.value.data);
+    else failures.push(usageResult.reason);
+
+    if (savingsResult.status === 'fulfilled') setSavings(savingsResult.value.data);
+    else failures.push(savingsResult.reason);
+
+    if (runtimesResult.status === 'fulfilled') setRuntimes(runtimesResult.value.data.runtimes || []);
+    else failures.push(runtimesResult.reason);
+
+    if (tasksResult.status === 'fulfilled') setTasks(tasksResult.value.data.tasks || []);
+    else failures.push(tasksResult.reason);
+
+    if (dueSoonResult.status === 'fulfilled') setDueSoon(dueSoonResult.value.data.tasks || []);
+    else failures.push(dueSoonResult.reason);
+
+    if (decisionsResult.status === 'fulfilled') setDecisions(decisionsResult.value.data.decisions || []);
+    else failures.push(decisionsResult.reason);
+
+    if (agentsResult.status === 'fulfilled') setAgents(agentsResult.value.data.agents || []);
+    else failures.push(agentsResult.reason);
+
+    if (providersResult.status === 'fulfilled') setProviders(providersResult.value.data.providers || []);
+    else failures.push(providersResult.reason);
+
+    if (schedulesResult.status === 'fulfilled') setSchedules(schedulesResult.value.data.schedules || []);
+    else failures.push(schedulesResult.reason);
+
+    if (failures.length > 0) {
+      setError(`Some dashboard data could not be loaded. ${fmtErr(failures[0])}`);
+    }
+
+    setLoading(false);
+    setRefreshing(false);
   }, []);
 
-  useEffect(() => { loadAll(); }, [loadAll]);
+  useEffect(() => {
+    loadAll();
+  }, [loadAll]);
 
-  const reloadRuntimes = async () => {
-    setRLoading(true);
-    try { const r = await listRuntimes(); setRuntimes(r.data.runtimes || []); } finally { setRLoading(false); }
-  };
-  const reloadTasks = async () => {
-    setTLoading(true);
-    try { const r = await listTasks({ limit: 10 }); setTasks(r.data.tasks || []); } finally { setTLoading(false); }
-  };
+  const taskList = useMemo(() => sortByUpdated(tasks), [tasks]);
+  const activeTasks = useMemo(() => taskList.filter((task) => ['todo', 'in_progress', 'in_review', 'blocked'].includes(task.status)), [taskList]);
+  const activeSchedules = useMemo(() => sortByUpdated(schedules).filter((schedule) => schedule.status !== 'completed').slice(0, 4), [schedules]);
+  const preferredProviders = useMemo(() => {
+    return [...providers].sort((left, right) => {
+      if (left.provider_id === 'nvidia-nim') return -1;
+      if (right.provider_id === 'nvidia-nim') return 1;
+      if (left.is_default) return -1;
+      if (right.is_default) return 1;
+      return String(left.name || '').localeCompare(String(right.name || ''));
+    });
+  }, [providers]);
+  const preferredAgents = useMemo(() => sortByUpdated(agents).slice(0, 4), [agents]);
+  const preferredRuntimes = useMemo(() => sortByUpdated(runtimes).slice(0, 4), [runtimes]);
+  const recentPages = stats?.recent_pages || [];
 
+  const monthlySummary = savings?.summary || {};
+  const monthlySaved = savings?.period_saved_usd ?? monthlySummary.total_savings_usd ?? 0;
+  const requestCount = usage?.total_requests ?? monthlySummary.total_requests ?? 0;
+  const totalTokens = usage?.total_tokens ?? monthlySummary.total_tokens ?? 0;
+  const localRatio = usage?.local_ratio ?? stats?.local_ratio ?? null;
+  const activeProvider = preferredProviders[0] || null;
+  const nvidiaProvider = preferredProviders.find((provider) => provider.provider_id === 'nvidia-nim') || null;
+  const runningRuntimes = runtimes.filter((runtime) => runtime.health?.available && !runtime.circuit_open).length;
+  const onlineAgents = agents.filter((agent) => ['running', 'idle', 'done'].includes(String(agent.status || '').toLowerCase())).length;
+  const blockedCount = activeTasks.filter((task) => task.status === 'blocked').length;
+  const reviewCount = activeTasks.filter((task) => task.status === 'in_review').length;
   const isHealthy = health?.status === 'ok';
-  const blockedTasks    = tasks.filter(t => t.status === 'blocked');
-  const inReviewTasks   = tasks.filter(t => t.status === 'in_review');
-  const activeTasks     = tasks.filter(t => t.status === 'in_progress');
-  const queuedTasks     = tasks.filter(t => t.status === 'todo');
-  const offlineRuntimes = runtimes.filter(r => r.circuit_open);
-  const showAlert = !alertDismissed && (blockedTasks.length > 0 || inReviewTasks.length > 0 || offlineRuntimes.length > 0);
-
-  const costSaved  = stats?.cost_saved_usd != null ? `$${stats.cost_saved_usd.toFixed(2)}` : '—';
-  const tokenUsed  = stats?.total_tokens   != null ? `${(stats.total_tokens / 1000).toFixed(1)}k` : '—';
-  const localRatio = stats?.local_ratio    != null ? `${Math.round(stats.local_ratio * 100)}%` : '—';
-
   const today = new Date().toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' });
 
   return (
-    <div className="h-full overflow-y-auto p-5 lg:p-6 space-y-5 animate-fade-in"
-      data-testid="control-plane-page">
+    <div className="h-full overflow-y-auto p-4 sm:p-5 lg:p-6" data-testid="control-plane-page">
+      <div className="mx-auto flex max-w-7xl flex-col gap-5">
+        <header className="rounded-3xl border px-5 py-5 sm:px-6" style={{ background: 'linear-gradient(135deg, rgba(0,47,167,0.18), rgba(20,20,24,0.96) 45%, rgba(20,20,24,0.96) 100%)', borderColor: 'rgba(255,255,255,0.08)' }}>
+          <div className="flex flex-col gap-5 xl:flex-row xl:items-start xl:justify-between">
+            <div className="max-w-3xl">
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="inline-flex items-center gap-2 rounded-full border px-3 py-1 text-[11px] font-mono uppercase tracking-[0.18em]" style={{ borderColor: isHealthy ? 'rgba(16,185,129,0.18)' : 'rgba(245,158,11,0.18)', background: isHealthy ? 'rgba(16,185,129,0.10)' : 'rgba(245,158,11,0.10)', color: isHealthy ? '#A7F3D0' : '#FCD34D' }}>
+                  <span className="h-1.5 w-1.5 rounded-full" style={{ background: isHealthy ? '#10B981' : '#F59E0B' }} />
+                  {loading ? 'Loading dashboard' : isHealthy ? 'System healthy' : 'Attention needed'}
+                </span>
+                <span className="text-[11px] font-mono uppercase tracking-[0.18em]" style={{ color: C.muted }}>{today}</span>
+              </div>
 
-      {/* ── Header ── */}
-      <div className="flex items-start justify-between">
-        <div>
-          <div className="flex items-center gap-2 mb-1">
-            <div className={`w-1.5 h-1.5 rounded-full ${loading ? 'bg-amber-400' : isHealthy ? 'bg-emerald-500 animate-pulse' : 'bg-amber-400'}`} />
-            <span className="text-[10px] font-mono tracking-[0.18em] uppercase" style={{ color: C.muted }}>
-              {loading ? 'Loading…' : isHealthy ? 'All systems operational' : 'Partial outage detected'}
-            </span>
-          </div>
-          <h1 className="text-2xl font-bold tracking-tight" style={{ fontFamily: 'var(--font-main)', color: C.primary }}>
-            Control Plane
-          </h1>
-          <p className="text-[12px] mt-0.5" style={{ color: C.tertiary }}>{today} · LLM Relay v3.1</p>
-        </div>
-        <button onClick={loadAll} disabled={loading}
-          className="flex items-center gap-2 px-3 py-2 text-[11px] font-mono uppercase tracking-wider border rounded-lg transition-colors disabled:opacity-40"
-          style={{ borderColor: 'rgba(255,255,255,0.1)', color: C.tertiary }}
-          onMouseEnter={e => { e.currentTarget.style.color = C.primary; e.currentTarget.style.borderColor = 'rgba(255,255,255,0.2)'; }}
-          onMouseLeave={e => { e.currentTarget.style.color = C.tertiary; e.currentTarget.style.borderColor = 'rgba(255,255,255,0.1)'; }}>
-          <RefreshCw size={11} className={loading ? 'animate-spin' : ''} />
-          Refresh
-        </button>
-      </div>
+              <h1 className="mt-4 text-3xl font-semibold tracking-[-0.04em] text-white sm:text-4xl">Dashboard</h1>
+              <p className="mt-3 max-w-2xl text-sm leading-relaxed sm:text-[15px]" style={{ color: C.secondary }}>
+                CompanyHelm-style workspace command center for LLM Relay. Monitor agent work, keep NVIDIA-first routing visible, and move between tasks, chats, and infrastructure without leaving the root dashboard.
+              </p>
 
-      {/* ── Alert bar ── */}
-      {showAlert && (
-        <div className="flex items-center gap-3 px-4 py-3 rounded-lg border"
-          style={{ background: 'rgba(245,158,11,0.08)', borderColor: 'rgba(245,158,11,0.2)' }}>
-          <AlertTriangle size={13} className="text-amber-400 shrink-0" />
-          <div className="flex-1 text-[11px] font-mono text-amber-300">
-            {blockedTasks.length > 0 && (
-              <span className="mr-3">
-                <strong>{blockedTasks.length} task{blockedTasks.length > 1 ? 's' : ''} blocked</strong> — needs attention
-              </span>
-            )}
-            {inReviewTasks.length > 0 && (
-              <span className="mr-3">
-                <strong>{inReviewTasks.length} task{inReviewTasks.length > 1 ? 's' : ''} in review</strong> — awaiting approval
-              </span>
-            )}
-            {offlineRuntimes.length > 0 && (
-              <span>
-                <strong>{offlineRuntimes.map(r => r.display_name).join(', ')}</strong> — circuit open
-              </span>
-            )}
-          </div>
-          <button onClick={() => setAlertDismissed(true)}
-            style={{ color: C.tertiary }}
-            onMouseEnter={e => e.currentTarget.style.color = C.primary}
-            onMouseLeave={e => e.currentTarget.style.color = C.tertiary}>
-            <XCircle size={13} />
-          </button>
-        </div>
-      )}
-
-      {error && (
-        <div className="flex items-center gap-2 px-4 py-3 rounded-lg border text-[12px] text-amber-400"
-          style={{ background: 'rgba(245,158,11,0.06)', borderColor: 'rgba(245,158,11,0.15)' }}>
-          <AlertTriangle size={13} /> {error}
-        </div>
-      )}
-
-      {/* ── Stat row ── */}
-      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
-        <StatCard label="Active Agents" value={activeTasks.length} sub={`${runtimes.filter(r=>r.health?.available).length} runtimes`} accent="#10B981" to="/agents" />
-        <StatCard label="Open Tasks"    value={queuedTasks.length + activeTasks.length} sub={`${activeTasks.length} running`} accent={C.accent} to="/tasks" />
-        <StatCard label="In Review"     value={inReviewTasks.length} sub="awaiting approval" accent="#F59E0B" to="/tasks" />
-        <StatCard label="Cost Saved"    value={costSaved} sub="vs cloud APIs" accent="#10B981" />
-        <StatCard label="Local Ratio"   value={localRatio} sub="requests on-device" accent="#8B5CF6" to="/observability" />
-      </div>
-
-      {/* ── Main grid ── */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-
-        {/* Live execution feed (2-col) */}
-        <Card className="lg:col-span-2">
-          <SectionHeader title="Live Execution Feed" to="/observability" />
-          {decisions.length === 0 ? (
-            <div className="py-10 text-center text-[11px] font-mono" style={{ color: C.muted }}>
-              No routing decisions yet — submit a task to see live activity
+              <div className="mt-4 flex flex-wrap items-center gap-2">
+                <HealthPill label={`${formatCount(activeTasks.length)} open tasks`} ok={activeTasks.length > 0} />
+                <HealthPill label={`${formatCount(onlineAgents)} configured agents`} ok={agents.length > 0} />
+                <HealthPill label={`${formatCount(runningRuntimes)} runtimes online`} ok={runningRuntimes > 0} />
+                <HealthPill label={nvidiaProvider ? 'NVIDIA priority active' : 'NVIDIA not configured'} ok={Boolean(nvidiaProvider)} />
+              </div>
             </div>
-          ) : (
-            <div>
-              {decisions.slice(0, 8).map((d, i) => <ExecRow key={i} decision={d} />)}
+
+            <div className="flex flex-col items-stretch gap-3 xl:min-w-[270px]">
+              <button
+                onClick={() => loadAll({ isRefresh: true })}
+                disabled={loading || refreshing}
+                className="inline-flex items-center justify-center gap-2 rounded-xl border px-4 py-3 text-[11px] font-mono uppercase tracking-[0.18em] transition-colors disabled:opacity-50"
+                style={{ borderColor: 'rgba(255,255,255,0.12)', color: C.secondary }}
+              >
+                <RefreshCw size={13} className={refreshing ? 'animate-spin' : ''} />
+                {refreshing ? 'Refreshing' : 'Refresh dashboard'}
+              </button>
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-1">
+                <QuickAction icon={Rocket} label="Open tasks" description="Review blocked work, move tickets forward, and keep delivery status current." onClick={() => navigate('/tasks')} />
+                <QuickAction icon={Sparkles} label="Start a chat" description="Jump into direct chat or the agent workflow without hunting through navigation." onClick={() => navigate('/chat')} />
+              </div>
             </div>
-          )}
-        </Card>
+          </div>
+        </header>
 
-        {/* Right column */}
-        <div className="space-y-4">
+        {error ? (
+          <div className="flex items-start gap-3 rounded-2xl border px-4 py-3 text-sm" style={{ borderColor: 'rgba(245,158,11,0.20)', background: 'rgba(245,158,11,0.10)', color: '#FDE68A' }}>
+            <AlertTriangle size={16} className="mt-0.5 shrink-0" />
+            <span>{error}</span>
+          </div>
+        ) : null}
 
-          {/* Agents */}
-          <Card>
-            <SectionHeader title="Runtimes" to="/runtimes" onRefresh={reloadRuntimes} loading={rLoading} />
-            {runtimes.length === 0 ? (
-              <div className="py-6 text-center text-[11px] font-mono px-4" style={{ color: C.muted }}>
-                No runtimes configured
-              </div>
-            ) : (
-              <div className="px-4">
-                {runtimes.map(r => <RuntimeRow key={r.runtime_id} runtime={r} />)}
-              </div>
-            )}
-          </Card>
+        <PageCard
+          title="Usage and routing priorities"
+          description="A compact view of spend, workload volume, and the provider posture your hosted dashboard is running with."
+          actionLabel="Open logs"
+          onAction={() => navigate('/logs')}
+        >
+          <div className="grid gap-3 lg:grid-cols-[minmax(0,2fr)_minmax(0,1fr)]">
+            <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+              <MetricTile label="Monthly savings" value={formatMoney(monthlySaved)} supportingText="Calculated from observability savings against commercial equivalents." accent="#10B981" />
+              <MetricTile label="Requests" value={formatCount(requestCount)} supportingText="Observed during the selected monthly window." accent="#7FA1FF" />
+              <MetricTile label="Tokens" value={formatCompactTokens(totalTokens)} supportingText="Total input and output token volume." accent="#C4B5FD" />
+              <MetricTile label="Local ratio" value={formatPercent(localRatio)} supportingText="How often the system stayed on-device or free-tier first." accent="#F59E0B" />
+            </div>
 
-          {/* Task queue */}
-          <Card>
-            <SectionHeader title="Task Queue" to="/tasks" count={tasks.length} onRefresh={reloadTasks} loading={tLoading} />
-            {tasks.length === 0 ? (
-              <div className="py-6 text-center text-[11px] font-mono px-4" style={{ color: C.muted }}>
-                No tasks yet
+            <div className="rounded-2xl border p-4" style={{ borderColor: 'rgba(255,255,255,0.08)', background: 'rgba(255,255,255,0.02)' }}>
+              <div className="flex items-center gap-2">
+                <BrainCircuit size={16} className="text-[#7FA1FF]" />
+                <h3 className="text-sm font-medium text-white">Provider priority</h3>
               </div>
-            ) : (
-              <div>
-                {activeTasks.slice(0, 3).map(t => (
-                  <TaskRow key={t.task_id} task={t} onClick={() => nav('/tasks')} />
-                ))}
-                {queuedTasks.slice(0, 3).map(t => (
-                  <TaskRow key={t.task_id} task={t} onClick={() => nav('/tasks')} />
-                ))}
-              </div>
-            )}
-          </Card>
-        </div>
-      </div>
-
-      {/* ── Upcoming schedules / due soon ── */}
-      {dueSoon.length > 0 && (
-        <Card>
-          <SectionHeader title="Due Soon" count={dueSoon.length} to="/activity" />
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 divide-y sm:divide-y-0 sm:divide-x"
-            style={{ '--tw-divide-color': 'rgba(255,255,255,0.05)' }}>
-            {dueSoon.slice(0, 3).map(t => {
-              const now = Date.now() / 1000;
-              const hoursLeft = t.due_date ? Math.max(0, (t.due_date - now) / 3600) : null;
-              return (
-                <div key={t.task_id} className="px-4 py-3">
-                  <div className="text-[12px] font-medium mb-0.5" style={{ color: C.secondary }}>{t.title}</div>
-                  <div className="text-[9px] font-mono" style={{ color: C.muted }}>
-                    {t.agent_id ? `@${t.agent_id} · ` : ''}
-                    {hoursLeft != null ? `Due in ${hoursLeft < 1 ? `${Math.round(hoursLeft * 60)}m` : `${Math.round(hoursLeft)}h`}` : 'Due soon'}
+              {activeProvider ? (
+                <div className="mt-4 space-y-3">
+                  <ProviderPreviewRow provider={activeProvider} />
+                  <div className="rounded-xl border px-4 py-3 text-xs leading-relaxed" style={{ borderColor: 'rgba(255,255,255,0.06)', color: C.tertiary, background: 'rgba(255,255,255,0.02)' }}>
+                    {nvidiaProvider
+                      ? `NVIDIA stays at the front of the queue, with ${nvidiaProvider.default_model || 'its configured default model'} prioritized for hosted work.`
+                      : 'Configure NVIDIA NIM in Setup to make free hosted inference the default before paid fallbacks.'}
                   </div>
                 </div>
-              );
-            })}
+              ) : (
+                <EmptyState title="No providers configured" description="Open Setup or Providers to connect NVIDIA NIM, Ollama, or your preferred hosted APIs." />
+              )}
+            </div>
           </div>
-        </Card>
-      )}
+        </PageCard>
 
-      {/* ── Infrastructure health ── */}
-      <Card>
-        <SectionHeader title="Infrastructure" to="/providers" />
-        <div className="p-4 grid grid-cols-2 sm:grid-cols-4 gap-3">
-          <InfraItem label="MongoDB"   ok={health?.mongo}                icon={Database} />
-          <InfraItem label="Ollama"    ok={health?.ollama}               icon={Cpu} />
-          <InfraItem label="Langfuse"  ok={stats?.langfuse_configured}   icon={BarChart3} />
-          <InfraItem label="Scheduler" ok={health?.scheduler}            icon={Calendar} />
+        <div className="grid gap-5 xl:grid-cols-[minmax(0,1.35fr)_minmax(0,1fr)]">
+          <PageCard
+            title="Work in motion"
+            description="The same root-dashboard job CompanyHelm handles: highlight what is active, what is blocked, and what needs attention next."
+            actionLabel="Open tasks"
+            onAction={() => navigate('/tasks')}
+          >
+            <div className="grid gap-3 sm:grid-cols-3">
+              <MetricTile label="Blocked" value={formatCount(blockedCount)} supportingText="Tasks that need intervention before they can move." accent="#EF4444" />
+              <MetricTile label="In review" value={formatCount(reviewCount)} supportingText="Items waiting on approval or a final pass." accent="#F59E0B" />
+              <MetricTile label="Due soon" value={formatCount(dueSoon.length)} supportingText="Tasks with due dates inside the next 24 hours." accent="#7FA1FF" />
+            </div>
+
+            <div className="mt-4 space-y-3">
+              {activeTasks.length === 0 ? (
+                <EmptyState title="No active tasks" description="Create or import work to make the dashboard light up with operational detail." />
+              ) : (
+                activeTasks.slice(0, 5).map((task) => (
+                  <TaskPreviewRow key={task.task_id || task.id} task={task} onClick={() => navigate('/tasks')} />
+                ))
+              )}
+            </div>
+          </PageCard>
+
+          <PageCard
+            title="Recent agent decisions"
+            description="A simplified activity rail so you can confirm which runtime and model the relay actually chose."
+            actionLabel="Open logs"
+            onAction={() => navigate('/logs')}
+          >
+            <div className="space-y-3">
+              {decisions.length === 0 ? (
+                <EmptyState title="No routing decisions yet" description="Submit a task or chat request to populate the live execution feed." />
+              ) : (
+                decisions.slice(0, 5).map((decision, index) => (
+                  <DecisionPreviewRow key={decision.id || decision.task_id || index} decision={decision} />
+                ))
+              )}
+            </div>
+          </PageCard>
         </div>
-      </Card>
 
+        <div className="grid gap-5 xl:grid-cols-3">
+          <PageCard
+            title="Agents"
+            description="Top agent profiles and their runtime preferences, mirroring the agent inventory emphasis from CompanyHelm."
+            actionLabel="Open agents"
+            onAction={() => navigate('/agents')}
+          >
+            <div className="space-y-3">
+              {preferredAgents.length === 0 ? (
+                <EmptyState title="No agents configured" description="Create an agent profile to assign work, store prompts, and choose a runtime." />
+              ) : (
+                preferredAgents.map((agent) => <AgentPreviewRow key={agent.agent_id || agent.id} agent={agent} />)
+              )}
+            </div>
+          </PageCard>
+
+          <PageCard
+            title="Providers"
+            description="The current model stack, with NVIDIA pinned first whenever it is available."
+            actionLabel="Open providers"
+            onAction={() => navigate('/providers')}
+          >
+            <div className="space-y-3">
+              {preferredProviders.length === 0 ? (
+                <EmptyState title="No providers configured" description="Open Setup to add NVIDIA NIM, Ollama, or other OpenAI-compatible providers." />
+              ) : (
+                preferredProviders.slice(0, 4).map((provider) => <ProviderPreviewRow key={provider.provider_id} provider={provider} />)
+              )}
+            </div>
+          </PageCard>
+
+          <PageCard
+            title="Runtimes & schedules"
+            description="Hosted agent execution health alongside the automations that keep your workspace moving."
+            actionLabel="Open runtimes"
+            onAction={() => navigate('/runtimes')}
+          >
+            <div className="space-y-4">
+              <div>
+                <div className="mb-2 flex items-center gap-2 text-[11px] font-mono uppercase tracking-[0.18em]" style={{ color: C.muted }}>
+                  <Cpu size={12} /> Runtimes
+                </div>
+                <div className="space-y-3">
+                  {preferredRuntimes.length === 0 ? (
+                    <EmptyState title="No runtimes configured" description="Enable Hermes, OpenCode, Aider, or other execution backends in Setup." />
+                  ) : (
+                    preferredRuntimes.map((runtime) => <RuntimePreviewRow key={runtime.runtime_id} runtime={runtime} />)
+                  )}
+                </div>
+              </div>
+
+              <div>
+                <div className="mb-2 flex items-center gap-2 text-[11px] font-mono uppercase tracking-[0.18em]" style={{ color: C.muted }}>
+                  <Calendar size={12} /> Schedules
+                </div>
+                <div className="space-y-3">
+                  {activeSchedules.length === 0 ? (
+                    <EmptyState title="No schedules yet" description="Create recurring work to give the dashboard the same automation heartbeat as CompanyHelm." />
+                  ) : (
+                    activeSchedules.map((schedule) => <SchedulePreviewRow key={schedule.id || schedule.job_id || schedule.name} schedule={schedule} />)
+                  )}
+                </div>
+              </div>
+            </div>
+          </PageCard>
+        </div>
+
+        <div className="grid gap-5 xl:grid-cols-[minmax(0,1.1fr)_minmax(0,0.9fr)]">
+          <PageCard
+            title="Knowledge and source memory"
+            description="Recent wiki pages plus a fast path back into your repo-aware knowledge surface."
+            actionLabel="Open knowledge"
+            onAction={() => navigate('/knowledge')}
+          >
+            <div className="grid gap-3 md:grid-cols-[minmax(0,1.2fr)_minmax(0,0.8fr)]">
+              <div className="space-y-3">
+                {recentPages.length === 0 ? (
+                  <EmptyState title="No wiki pages yet" description="Add docs, source digests, and repo notes so your agents have shared memory to work from." />
+                ) : (
+                  recentPages.map((page) => (
+                    <RecentPageRow key={page.slug} page={page} onClick={() => navigate('/knowledge')} />
+                  ))
+                )}
+              </div>
+
+              <div className="rounded-2xl border p-4" style={{ borderColor: 'rgba(255,255,255,0.08)', background: 'rgba(255,255,255,0.02)' }}>
+                <div className="flex items-center gap-2">
+                  <FolderGit2 size={16} className="text-[#7FA1FF]" />
+                  <h3 className="text-sm font-medium text-white">Workspace snapshot</h3>
+                </div>
+                <div className="mt-4 space-y-3 text-sm">
+                  <div className="flex items-start justify-between gap-3">
+                    <span style={{ color: C.tertiary }}>Wiki pages</span>
+                    <span className="font-medium text-white">{formatCount(stats?.wiki_pages || 0)}</span>
+                  </div>
+                  <div className="flex items-start justify-between gap-3">
+                    <span style={{ color: C.tertiary }}>Sources</span>
+                    <span className="font-medium text-white">{formatCount(stats?.sources || 0)}</span>
+                  </div>
+                  <div className="flex items-start justify-between gap-3">
+                    <span style={{ color: C.tertiary }}>Chat sessions</span>
+                    <span className="font-medium text-white">{formatCount(stats?.chat_sessions || 0)}</span>
+                  </div>
+                  <div className="flex items-start justify-between gap-3">
+                    <span style={{ color: C.tertiary }}>Activity events</span>
+                    <span className="font-medium text-white">{formatCount(stats?.activity_entries || 0)}</span>
+                  </div>
+                  <button
+                    onClick={() => navigate('/knowledge')}
+                    className="mt-2 inline-flex items-center gap-2 text-[11px] font-mono uppercase tracking-[0.18em] text-[#AFC4FF]"
+                  >
+                    Open workspace memory <ArrowRight size={12} />
+                  </button>
+                </div>
+              </div>
+            </div>
+          </PageCard>
+
+          <PageCard
+            title="Infrastructure health"
+            description="Keep the core dependencies visible from the top of the workspace, especially on mobile."
+            actionLabel="Open settings"
+            onAction={() => navigate('/settings')}
+          >
+            <div className="grid gap-3 sm:grid-cols-2">
+              <div className="rounded-xl border px-4 py-4" style={{ borderColor: 'rgba(255,255,255,0.08)', background: 'rgba(255,255,255,0.02)' }}>
+                <div className="mb-3 flex items-center gap-2 text-sm font-medium text-white"><ShieldCheck size={16} className="text-[#7FA1FF]" /> Core services</div>
+                <div className="flex flex-wrap gap-2">
+                  <HealthPill label="MongoDB" ok={Boolean(health?.mongo)} />
+                  <HealthPill label="Ollama" ok={Boolean(health?.ollama)} />
+                  <HealthPill label="Langfuse" ok={Boolean(stats?.langfuse_configured)} />
+                  <HealthPill label="Scheduler" ok={Boolean(health?.scheduler)} />
+                </div>
+              </div>
+
+              <div className="rounded-xl border px-4 py-4" style={{ borderColor: 'rgba(255,255,255,0.08)', background: 'rgba(255,255,255,0.02)' }}>
+                <div className="mb-3 flex items-center gap-2 text-sm font-medium text-white"><TrendingUp size={16} className="text-[#7FA1FF]" /> Priority signals</div>
+                <div className="space-y-3 text-sm">
+                  <div className="flex items-center justify-between gap-3">
+                    <span style={{ color: C.tertiary }}>Default provider</span>
+                    <span className="text-right font-medium text-white">{activeProvider?.name || stats?.llm_provider || 'None'}</span>
+                  </div>
+                  <div className="flex items-center justify-between gap-3">
+                    <span style={{ color: C.tertiary }}>Running runtimes</span>
+                    <span className="font-medium text-white">{formatCount(runningRuntimes)}</span>
+                  </div>
+                  <div className="flex items-center justify-between gap-3">
+                    <span style={{ color: C.tertiary }}>Queued automations</span>
+                    <span className="font-medium text-white">{formatCount(schedules.length)}</span>
+                  </div>
+                  <div className="flex items-center justify-between gap-3">
+                    <span style={{ color: C.tertiary }}>Decision feed entries</span>
+                    <span className="font-medium text-white">{formatCount(decisions.length)}</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </PageCard>
+        </div>
+
+        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+          <QuickAction icon={Bot} label="Agents" description="Edit agent profiles, runtime preferences, and approval rules." onClick={() => navigate('/agents')} />
+          <QuickAction icon={Layers} label="Providers" description="Manage NVIDIA, Ollama, and commercial failover providers." onClick={() => navigate('/providers')} />
+          <QuickAction icon={Activity} label="Logs" description="Inspect activity, routing decisions, and usage metrics in one place." onClick={() => navigate('/logs')} />
+          <QuickAction icon={Database} label="Setup" description="Return to the guided setup flow and keep hosted defaults in sync." onClick={() => navigate('/setup')} />
+        </div>
+      </div>
     </div>
   );
 }

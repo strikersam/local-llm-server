@@ -106,7 +106,7 @@ def main() -> None:
         api_key=api_key,
     )
     response = client.chat.completions.create(
-        model="meta/llama-3.3-70b-instruct",
+        model="nvidia/nemotron-3-super-120b-a12b",
         max_tokens=2048,
         messages=[{"role": "user", "content": prompt}],
     )

@@ -39,7 +39,7 @@ export default function AuthCallback() {
       sessionStorage.setItem('access_token', socialToken);
       setProvider(socialProv || 'oauth');
       setStatus('success');
-      checkAuth().then(() => navigate('/control-plane', { replace: true }));
+      checkAuth().then(() => navigate('/', { replace: true }));
     } else if (accessToken && refreshToken) {
       // Legacy flow
       localStorage.setItem('access_token', accessToken);
