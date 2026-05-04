@@ -43,7 +43,7 @@ LLM Relay tries to bring the important pieces together in one product:
 That means less setup pain, less tool sprawl, and fewer "wait, where did that answer come from?" moments.
 
 <p align="center">
-  <img src="docs/screenshots/v3-control-plane.png" alt="LLM Relay control plane" width="100%"/>
+  <img src="docs/screenshots/readme/v3-control-plane.png" alt="LLM Relay control plane" width="100%"/>
   <br/>
   <sub><em>The main control plane: one screen for chat, tasks, agents, models, knowledge, and system health.</em></sub>
 </p>
@@ -139,84 +139,109 @@ This one is easy to explain:
 
 ## See the product
 
+Run `make ui-docs` after built-in web UI changes to refresh the captured `/app` and `/admin/app` screenshots and rewrite this gallery block automatically.
+
+<!-- README_UI_GALLERY:START -->
 ### 🛬 Login
 
 People can sign in through a simple starting page instead of touching raw config files.
 
-<p align="center"><img src="docs/screenshots/v3-login.png" width="92%" alt="LLM Relay login"/></p>
+<p align="center"><img src="docs/screenshots/readme/v3-login.png" width="92%" alt="LLM Relay login"/></p>
 
 ### 🧙 Setup Wizard
 
 The wizard helps you choose providers, models, runtimes, a default agent, and a cost policy.
-This is the best path for non-technical users.
 
-<p align="center"><img src="docs/screenshots/v3-setup-wizard.png" width="92%" alt="Setup Wizard"/></p>
+<p align="center"><img src="docs/screenshots/readme/v3-setup-wizard.png" width="92%" alt="Setup Wizard"/></p>
 
 ### 💬 Chat
 
 This is where people talk to AI directly, using the providers and rules you set up.
 
-<p align="center"><img src="docs/screenshots/v3-chat.png" width="92%" alt="Direct Chat"/></p>
+<p align="center"><img src="docs/screenshots/readme/v3-chat.png" width="92%" alt="Direct Chat"/></p>
 
 ### 🗂 Task Board
 
-This makes AI work visible.
-You can see what is waiting, running, blocked, in review, or done.
+This makes AI work visible. You can see what is waiting, running, blocked, in review, or done.
 
-<p align="center"><img src="docs/screenshots/v3-tasks-kanban.png" width="92%" alt="Kanban Task Board"/></p>
+<p align="center"><img src="docs/screenshots/readme/v3-tasks-kanban.png" width="92%" alt="Kanban Task Board"/></p>
 
 ### 🤖 Agent Roster
 
-This is your cast of AI helpers.
-Each agent can have its own model, runtime, specialty, and rules.
+This is your cast of AI helpers. Each agent can have its own model, runtime, specialty, and rules.
 
-<p align="center"><img src="docs/screenshots/v3-agents.png" width="92%" alt="Agent Roster"/></p>
+<p align="center"><img src="docs/screenshots/readme/v3-agents.png" width="92%" alt="Agent Roster"/></p>
 
 ### ⚙️ Runtimes
 
 This shows the engines behind the scenes that actually run your AI work.
 
-<p align="center"><img src="docs/screenshots/v3-runtimes.png" width="92%" alt="Agent Runtimes"/></p>
+<p align="center"><img src="docs/screenshots/readme/v3-runtimes.png" width="92%" alt="Agent Runtimes"/></p>
 
 ### 🛣 Routing Policy
 
 This is where you decide how smart, cheap, fast, or private the system should be when picking a model.
 
-<p align="center"><img src="docs/screenshots/v3-routing.png" width="92%" alt="Routing Policy"/></p>
+<p align="center"><img src="docs/screenshots/readme/v3-routing.png" width="92%" alt="Routing Policy"/></p>
 
 ### 🔌 Providers and Models
 
 This is where you connect local and cloud AI sources and decide what models are available.
 
 <p align="center">
-  <img src="docs/screenshots/v3-providers.png" width="48%" alt="Providers"/>
+  <img src="docs/screenshots/readme/v3-providers.png" width="48%" alt="Providers"/>
   &nbsp;
-  <img src="docs/screenshots/v3-models.png" width="48%" alt="Models"/>
+  <img src="docs/screenshots/readme/v3-models.png" width="48%" alt="Models"/>
 </p>
 
 ### 📚 Knowledge
 
 This is your team's memory: wiki pages, source material, and reusable context.
 
-<p align="center"><img src="docs/screenshots/v3-knowledge.png" width="92%" alt="Knowledge and Wiki"/></p>
+<p align="center"><img src="docs/screenshots/readme/v3-knowledge.png" width="92%" alt="Knowledge and Wiki"/></p>
 
 ### 🔭 Logs and activity
 
-This helps you answer, “what just happened?”
+This helps you answer, ‘what just happened?’
 
-<p align="center"><img src="docs/screenshots/v3-logs.png" width="92%" alt="Logs"/></p>
+<p align="center"><img src="docs/screenshots/readme/v3-logs.png" width="92%" alt="Logs"/></p>
 
 ### 🗓 Schedules
 
 This is how you make AI jobs run later or run again automatically.
 
-<p align="center"><img src="docs/screenshots/v3-schedules.png" width="92%" alt="Schedules"/></p>
+<p align="center"><img src="docs/screenshots/readme/v3-schedules.png" width="92%" alt="Schedules"/></p>
+
+### 🧭 Settings and guardrails
+
+Central settings keep defaults, policies, and integrations in one place instead of scattered config files.
+
+<p align="center"><img src="docs/screenshots/readme/v3-settings.png" width="92%" alt="Settings"/></p>
 
 ### 🛡 Admin portal
 
 This gives admins a simpler place to manage access, controls, and system behavior.
 
-<p align="center"><img src="docs/screenshots/v3-admin.png" width="92%" alt="Admin Portal"/></p>
+<p align="center"><img src="docs/screenshots/readme/v3-admin.png" width="92%" alt="Admin Portal"/></p>
+
+### 🖥 Built-in web UI
+
+The proxy also ships a lightweight built-in app at `/app`, so you can ship a useful UI without the separate hosted dashboard.
+
+<p align="center"><img src="docs/screenshots/webui/webui-app.png" width="92%" alt="Built-in Web UI"/></p>
+
+### 🔐 Built-in admin login
+
+The built-in admin surface has a dedicated login gate before exposing sensitive controls.
+
+<p align="center"><img src="docs/screenshots/webui/webui-admin-login.png" width="92%" alt="Built-in admin login"/></p>
+
+### 🧰 Built-in admin workspace
+
+Once authenticated, admins can manage providers, workspaces, and runtime metadata from the in-proxy UI.
+
+<p align="center"><img src="docs/screenshots/webui/webui-admin.png" width="92%" alt="Built-in admin workspace"/></p>
+<!-- README_UI_GALLERY:END -->
 
 ---
 
@@ -374,6 +399,7 @@ If you want the deep technical breakdown, jump to the docs below.
 
 For engineers and advanced admins:
 
+- [Documentation index](docs/README.md)
 - [Feature guide](docs/features.md)
 - [API surfaces and route map](docs/api-surfaces.md)
 - [Configuration reference](docs/configuration-reference.md)

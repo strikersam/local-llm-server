@@ -38,10 +38,10 @@ Update `.github/CODEOWNERS` to replace `@your-github-username` with actual GitHu
 
 ```
 # Example:
-*                          @swami
-admin_auth.py              @swami
-key_store.py               @swami
-agent/tools.py             @swami
+*                          @repo-owner
+admin_auth.py              @repo-owner
+key_store.py               @repo-owner
+agent/tools.py             @repo-owner
 ```
 
 ## Enabling via GitHub CLI

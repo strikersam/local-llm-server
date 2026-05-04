@@ -169,8 +169,9 @@ Next steps:
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 Documentation:
-  • Quick Start:     ./CLAUDE-CODE-QUICKSTART.md
+  • Quick Start:     ./README.md#quick-start
   • Full Guide:      ./docs/claude-code-setup.md
+  • Docs Index:      ./docs/README.md
   • Architecture:    ./docs/architecture/overview.md
-  • Troubleshooting: ./CLAUDE-CODE-QUICKSTART.md#troubleshooting
+  • Troubleshooting: ./docs/troubleshooting.md
 EOF

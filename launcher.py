@@ -111,8 +111,8 @@ class ServiceManager:
 
             # Read output to get public URL
             time.sleep(2)
-            public_url = os.getenv("NGROK_PUBLIC_URL", "https://incalculably-unswaggering-kora.ngrok-free.dev")
-            self.status["public_url"] = public_url
+            public_url = os.getenv("NGROK_PUBLIC_URL", "").strip()
+            self.status["public_url"] = public_url or "pending-ngrok-url"
             self.status["tunnel"] = "running"
 
             return True

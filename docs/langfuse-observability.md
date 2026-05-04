@@ -295,7 +295,7 @@ Model storage costs (`INFRA_MODEL_STORAGE_GB`, `INFRA_STORAGE_USD_GB_MO`) are co
 
 ### Traces list view
 
-![Langfuse traces list](screenshots/langfuse-traces-list.png)
+![Langfuse traces list](screenshots/langfuse/langfuse-traces-list.png)
 
 The traces list shows every authenticated chat request. Columns: user email, department tag, model, token counts (input/output), latency, commercial-equivalent cost (what it would have cost on the reference cloud API), and savings. The `dept:engineering` filter tag is active in this view.
 
@@ -308,7 +308,7 @@ The traces list shows every authenticated chat request. Columns: user email, dep
 
 ### Trace detail — metadata view
 
-![Langfuse trace detail](screenshots/langfuse-trace-detail.png)
+![Langfuse trace detail](screenshots/langfuse/langfuse-trace-detail.png)
 
 Clicking a trace shows the full Generation record. The right panel shows all metadata fields: department, model, `latency_ms`, `ttft_ms` (time-to-first-token), `tokens_per_sec`, `estimated_commercial_equivalent_usd`, `estimated_savings_vs_commercial_usd`, `infra_electricity_usd`, `infra_hardware_usd`, and `infra_energy_kwh`.
 
@@ -318,7 +318,7 @@ The left panel shows the input messages (truncated at 48KB) and the model's outp
 
 ### Cost analysis dashboard
 
-![Langfuse cost dashboard](screenshots/langfuse-cost-dashboard.png)
+![Langfuse cost dashboard](screenshots/langfuse/langfuse-cost-dashboard.png)
 
 The cost dashboard aggregates commercial-equivalent savings over time. Top metrics: total equivalent API cost, actual infrastructure cost, total savings (and savings rate), and total request count.
 

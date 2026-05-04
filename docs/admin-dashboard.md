@@ -35,7 +35,7 @@ The login form has two fields: **Username** and **Password**.
 
 **Optional allow-list:**
 
-If `ADMIN_WINDOWS_ALLOWED_USERS` is set (e.g. `HOSTNAME\swami,swami`), only those Windows usernames can log in via Windows auth. Empty = all Windows users on this machine are allowed.
+If `ADMIN_WINDOWS_ALLOWED_USERS` is set (e.g. `HOSTNAME\alice,alice`), only those Windows usernames can log in via Windows auth. Empty = all Windows users on this machine are allowed.
 
 Sessions last 12 hours and are tracked in memory. Restarting the proxy invalidates all sessions.
 
@@ -262,7 +262,7 @@ You can also use `X-Admin-Secret: <ADMIN_SECRET>` as a stateless alternative to 
 
 ### Login page
 
-![Admin login page](screenshots/admin-login.png)
+![Admin login page](screenshots/admin/admin-login.png)
 
 The login form accepts Windows credentials (`ADMIN_WINDOWS_AUTH=true`) or the `ADMIN_SECRET` value as the password. The left panel explains the three feature areas the dashboard covers.
 
@@ -270,7 +270,7 @@ The login form accepts Windows credentials (`ADMIN_WINDOWS_AUTH=true`) or the `A
 
 ### Dashboard — healthy state
 
-![Admin dashboard healthy](screenshots/admin-dashboard-healthy.png)
+![Admin dashboard healthy](screenshots/admin/admin-dashboard-healthy.png)
 
 All services green. The **Public URL** section shows the active Cloudflare tunnel URL. The **Departments** chip shows the current seat allocation. The **Existing keys** section lists all provisioned users.
 
@@ -278,7 +278,7 @@ All services green. The **Public URL** section shows the active Cloudflare tunne
 
 ### Dashboard — key created (one-time token flash)
 
-![Admin key created](screenshots/admin-key-created.png)
+![Admin key created](screenshots/admin/admin-key-created.png)
 
 After clicking **Create API key**, a flash banner appears at the top with the new bearer token. This is the **only time the token is shown** — copy it immediately. The key record (email, department, key_id) is added to the Existing keys section.
 
@@ -286,7 +286,7 @@ After clicking **Create API key**, a flash banner appears at the top with the ne
 
 ### Dashboard — Langfuse diagnostic
 
-![Admin Langfuse diagnostic](screenshots/admin-langfuse-diagnostic.png)
+![Admin Langfuse diagnostic](screenshots/admin/admin-langfuse-diagnostic.png)
 
 After clicking **Run connection test**, the result appears below the button. The green message confirms the Langfuse credentials are valid and the endpoint is reachable. A red message indicates a connection failure with the HTTP error code.
 

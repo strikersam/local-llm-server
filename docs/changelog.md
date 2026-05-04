@@ -3,6 +3,17 @@
 ## [Unreleased]
 
 ### Changed
+- `README.md` / `scripts/sync_readme_gallery.py` / `scripts/gen_webui_screenshots.py` — the README UI tour is now generated from a structured screenshot inventory, built-in web UI captures are grouped under `docs/screenshots/webui/`, and `make ui-docs` refreshes the screenshots, README gallery block, and screenshot manifest together.
+- `docs/README.md` / `docs/screenshots/` — documentation is now grouped under a canonical docs index, screenshots are organized by area (`readme/`, `webui/`, `admin/`, `langfuse/`, `telegram/`), and setup scripts now point to the maintained docs instead of one-off root guides.
+
+### Fixed
+- `.gitignore` / tracked repo artifacts — removed stale backup files, generated logs, historical test reports, and redundant root-level setup transcripts that were making the repository hard to navigate and easy to desynchronize.
+- `launcher.py` / `remote-admin/*.html` / `github-pages-*.html` / docs examples — replaced hardcoded tunnel URLs, personal filesystem paths, and user-specific placeholder names with generic defaults so the repo no longer leaks machine-specific setup details.
+
+### Security
+- `QUICK_START.md` / `DEPLOYMENT_GUIDE.md` and related generated root notes — removed outdated setup transcripts that embedded environment-specific API keys, tunnel URLs, and local machine details from versioned top-level docs.
+
+### Changed
 - `frontend/src/pages/ControlPlanePage.js` / `frontend/src/pages/DashboardLayout.js` — replaced the root hosted dashboard with a more CompanyHelm-style mobile-first workspace overview: usage and provider priority live at the top, task/routing/agent/provider/runtime/schedule sections are grouped into clearer operational cards, and the primary sidebar entry is now simply **Dashboard**. Legacy `/dashboard`, `/control-plane`, and `/llmrelay` URLs now funnel back to the root dashboard instead of leaving stale entry points behind.
 - `frontend/src/pages/SetupWizardPage.js` / `backend/server.py` / `provider_router.py` / `.github/scripts/implement_agent.py` / `.github/scripts/review_agent.py` — NVIDIA defaults now prioritize `nvidia/nemotron-3-super-120b-a12b` wherever the repo chooses a hosted default model, while still keeping the coder-specific Qwen path available for code-heavy execution.
 

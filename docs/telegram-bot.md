@@ -360,7 +360,7 @@ sudo systemctl enable --now qwen-telegram
 
 ### What to expect in Telegram
 
-![Telegram bot command exchange](screenshots/telegram-bot-commands.png)
+![Telegram bot command exchange](screenshots/telegram/telegram-bot-commands.png)
 
 The screenshot above shows a full command exchange:
 
