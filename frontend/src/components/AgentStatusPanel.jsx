@@ -1,24 +1,7 @@
 import React, { useEffect, useState } from "react";
 import { getBackendUrl } from "../api";
 
-export interface AgentStatus {
-  id: string;
-  name: string;
-  role: string;
-  status: "idle" | "running" | "waiting" | "error" | "done";
-  current_task?: string;
-  last_active?: string;
-  tools_used?: string[];
-  messages_sent?: number;
-}
-
-interface AgentStatusPanelProps {
-  sessionId?: string;
-  pollInterval?: number;
-  className?: string;
-}
-
-const STATUS_STYLES: Record<string, string> = {
+const STATUS_STYLES = {
   idle: "bg-gray-500/20 text-gray-400 border-gray-500/30",
   running: "bg-green-500/20 text-green-400 border-green-500/30 animate-pulse",
   waiting: "bg-yellow-500/20 text-yellow-400 border-yellow-500/30",
@@ -26,7 +9,7 @@ const STATUS_STYLES: Record<string, string> = {
   done: "bg-blue-500/20 text-blue-400 border-blue-500/30",
 };
 
-const STATUS_DOTS: Record<string, string> = {
+const STATUS_DOTS = {
   idle: "bg-gray-500",
   running: "bg-green-400 animate-pulse",
   waiting: "bg-yellow-400",
@@ -34,7 +17,7 @@ const STATUS_DOTS: Record<string, string> = {
   done: "bg-blue-400",
 };
 
-const ROLE_ICONS: Record<string, string> = {
+const ROLE_ICONS = {
   planner: "🗺️",
   implementer: "⚡",
   reviewer: "🔍",
@@ -43,23 +26,20 @@ const ROLE_ICONS: Record<string, string> = {
   coordinator: "🎯",
 };
 
-export const AgentStatusPanel: React.FC<AgentStatusPanelProps> = ({
-  sessionId,
-  pollInterval = 2000,
-  className = "",
-}) => {
-  const [agents, setAgents] = useState<AgentStatus[]>([]);
+export default function AgentStatusPanel({ sessionId, pollInterval = 2000, className = "" }) {
+  const [agents, setAgents] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState(null);
 
   useEffect(() => {
     let cancelled = false;
 
     const fetchStatus = async () => {
       try {
+        const base = (getBackendUrl() || "").replace(/\/$/, "");
         const url = sessionId
-          ? `${(getBackendUrl() || "").replace(/\/$/, "")}/api/agent/status?session_id=${encodeURIComponent(sessionId)}`
-          : `${(getBackendUrl() || "").replace(/\/$/, "")}/api/agent/status`;
+          ? `${base}/api/agent/status?session_id=${encodeURIComponent(sessionId)}`
+          : `${base}/api/agent/status`;
         const res = await fetch(url);
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         const data = await res.json();
@@ -89,7 +69,6 @@ export const AgentStatusPanel: React.FC<AgentStatusPanelProps> = ({
 
   return (
     <div className={`bg-gray-950 rounded-xl border border-gray-800 overflow-hidden ${className}`}>
-      {/* Header */}
       <div className="flex items-center justify-between px-4 py-3 border-b border-gray-800 bg-gray-900">
         <div className="flex items-center gap-2">
           <span className="text-sm font-semibold text-gray-200">Agent Status</span>
@@ -98,32 +77,15 @@ export const AgentStatusPanel: React.FC<AgentStatusPanelProps> = ({
           )}
         </div>
         <div className="flex items-center gap-3 text-xs text-gray-500">
-          {activeCount > 0 && (
-            <span className="text-green-400">
-              {activeCount} running
-            </span>
-          )}
-          {waitingCount > 0 && (
-            <span className="text-yellow-400">
-              {waitingCount} waiting
-            </span>
-          )}
+          {activeCount > 0 && <span className="text-green-400">{activeCount} running</span>}
+          {waitingCount > 0 && <span className="text-yellow-400">{waitingCount} waiting</span>}
           <span>{agents.length} agents</span>
         </div>
       </div>
 
-      {/* Content */}
       <div className="p-3">
-        {loading && (
-          <div className="flex items-center justify-center py-8 text-gray-600 text-sm">
-            Loading agents…
-          </div>
-        )}
-        {error && (
-          <div className="flex items-center justify-center py-8 text-red-500 text-sm">
-            {error}
-          </div>
-        )}
+        {loading && <div className="flex items-center justify-center py-8 text-gray-600 text-sm">Loading agents…</div>}
+        {error && <div className="flex items-center justify-center py-8 text-red-500 text-sm">{error}</div>}
         {!loading && !error && agents.length === 0 && (
           <div className="flex flex-col items-center justify-center py-8 text-gray-600 gap-2">
             <span className="text-2xl">🤖</span>
@@ -131,16 +93,14 @@ export const AgentStatusPanel: React.FC<AgentStatusPanelProps> = ({
           </div>
         )}
         <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-          {agents.map((agent) => (
-            <AgentCard key={agent.id} agent={agent} />
-          ))}
+          {agents.map((agent) => <AgentCard key={agent.id} agent={agent} />)}
         </div>
       </div>
     </div>
   );
-};
+}
 
-const AgentCard: React.FC<{ agent: AgentStatus }> = ({ agent }) => {
+function AgentCard({ agent }) {
   const statusStyle = STATUS_STYLES[agent.status] ?? STATUS_STYLES.idle;
   const dotStyle = STATUS_DOTS[agent.status] ?? STATUS_DOTS.idle;
   const icon = ROLE_ICONS[agent.role?.toLowerCase()] ?? "🤖";
@@ -161,30 +121,17 @@ const AgentCard: React.FC<{ agent: AgentStatus }> = ({ agent }) => {
         </span>
       </div>
 
-      {agent.current_task && (
-        <div className="mb-2 p-1.5 bg-black/20 rounded text-[11px] leading-relaxed">
-          {agent.current_task}
-        </div>
-      )}
+      {agent.current_task && <div className="mb-2 p-1.5 bg-black/20 rounded text-[11px] leading-relaxed">{agent.current_task}</div>}
 
       <div className="flex items-center justify-between opacity-60">
-        {agent.last_active && (
-          <span>
-            {formatRelative(agent.last_active)}
-          </span>
-        )}
-        {agent.messages_sent !== undefined && (
-          <span>{agent.messages_sent} msgs</span>
-        )}
+        {agent.last_active && <span>{formatRelative(agent.last_active)}</span>}
+        {agent.messages_sent !== undefined && <span>{agent.messages_sent} msgs</span>}
       </div>
 
       {agent.tools_used && agent.tools_used.length > 0 && (
         <div className="mt-2 flex flex-wrap gap-1">
           {agent.tools_used.slice(-4).map((tool) => (
-            <span
-              key={tool}
-              className="px-1.5 py-0.5 rounded bg-black/20 text-[10px] font-mono"
-            >
+            <span key={tool} className="px-1.5 py-0.5 rounded bg-black/20 text-[10px] font-mono">
               {tool}
             </span>
           ))}
@@ -192,9 +139,9 @@ const AgentCard: React.FC<{ agent: AgentStatus }> = ({ agent }) => {
       )}
     </div>
   );
-};
+}
 
-function formatRelative(isoString: string): string {
+function formatRelative(isoString) {
   try {
     const diff = Date.now() - new Date(isoString).getTime();
     if (diff < 5000) return "just now";
@@ -205,5 +152,3 @@ function formatRelative(isoString: string): string {
     return isoString;
   }
 }
-
-export default AgentStatusPanel;

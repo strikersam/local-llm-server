@@ -217,13 +217,55 @@ describe('Prefill from saved wizard state', () => {
     await screen.findByDisplayValue('Coder Bot');
   });
 
-  test('calls onComplete callback when setup is already completed', async () => {
+  test('reopens a completed setup for editing instead of exiting immediately', async () => {
     mockHealthyBackend();
-    api.getSetupState.mockResolvedValue({ data: { completed: true } });
+    api.getSetupState.mockResolvedValue({
+      data: {
+        completed: true,
+        current_step: 5,
+        step1_providers: {},
+        step2_model: {},
+        step3_runtimes: {},
+        step4_agent: {},
+        step5_policy: { enable_langfuse: true, langfuse_host: 'https://telemetry.example.com' },
+      },
+    });
     const onComplete = jest.fn();
     renderWizard({ onComplete });
 
-    await waitFor(() => expect(onComplete).toHaveBeenCalled(), { timeout: 3000 });
+    expect(await screen.findByText(/saved setup loaded/i)).toBeInTheDocument();
+    expect(screen.getByDisplayValue('https://telemetry.example.com')).toBeInTheDocument();
+    expect(onComplete).not.toHaveBeenCalled();
+  });
+
+  test('uses the backend-provided Langfuse host as the default setup value', async () => {
+    api.getBackendUrl.mockReturnValue('http://localhost:8000');
+    api.getSetupState.mockResolvedValue({
+      data: {
+        completed: false,
+        current_step: 5,
+        step1_providers: {},
+        step2_model: {},
+        step3_runtimes: {},
+        step4_agent: {},
+        step5_policy: { enable_langfuse: true },
+      },
+    });
+    global.fetch = jest.fn(async (url) => {
+      if (url.includes('/api/health')) return { ok: true, status: 200 };
+      if (url.includes('/api/setup/detect/providers')) {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({ langfuse: { configured: true, host: 'https://trace.example.com' } }),
+        };
+      }
+      return { ok: false, status: 404, json: async () => ({}) };
+    });
+
+    renderWizard();
+
+    expect(await screen.findByDisplayValue('https://trace.example.com')).toBeInTheDocument();
   });
 });
 
@@ -330,13 +372,13 @@ describe('Backend connection banner', () => {
 // ─── Done screen ──────────────────────────────────────────────────────────────
 
 describe('Done screen', () => {
-  test('renders done screen when setup is already completed', async () => {
+  test('shows the editable saved-setup banner when setup is already completed', async () => {
     mockHealthyBackend();
-    api.getSetupState.mockResolvedValue({ data: { completed: true } });
+    api.getSetupState.mockResolvedValue({ data: { completed: true, current_step: 5 } });
 
     renderWizard();
 
-    await screen.findByText(/you're all set/i, {}, { timeout: 3000 });
-    expect(screen.getByText(/open control plane/i)).toBeInTheDocument();
+    await screen.findByText(/saved setup loaded/i, {}, { timeout: 3000 });
+    expect(screen.getByText(/update your saved setup anytime/i)).toBeInTheDocument();
   });
 });

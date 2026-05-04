@@ -172,8 +172,27 @@ export default function SettingsPage() {
       </div>
 
       <div className="grid gap-3">
-        {/* Health */}
         <div className="border border-white/10 bg-[#141414] stagger-1">
+          <div className="px-4 py-2.5 border-b border-white/10 flex items-center gap-2">
+            <Settings size={13} className="text-[#A0A0A0]" />
+            <span className="text-[10px] tracking-[0.15em] uppercase text-[#A0A0A0] font-mono font-bold">Setup Wizard</span>
+          </div>
+          <div className="p-4 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+            <div>
+              <div className="text-[11px] text-white font-bold">Re-open onboarding and saved setup</div>
+              <div className="text-[10px] text-[#737373] mt-1 leading-relaxed">Review or update providers, runtimes, Langfuse, and policy settings without resetting your account.</div>
+            </div>
+            <Link
+              to="/setup"
+              className="inline-flex items-center justify-center gap-2 bg-[#002FA7] hover:bg-[#002585] text-white px-4 py-2 text-[10px] tracking-wider uppercase font-mono transition-colors"
+            >
+              <Settings size={11} /> Open Setup Wizard
+            </Link>
+          </div>
+        </div>
+
+        {/* Health */}
+        <div className="border border-white/10 bg-[#141414] stagger-2">
           <div className="px-4 py-2.5 border-b border-white/10"><span className="text-[10px] tracking-[0.15em] uppercase text-[#A0A0A0] font-mono font-bold">System Health</span></div>
           <div className="p-4 grid grid-cols-3 gap-4">
             <S ok={health?.status === 'ok'} label="System" />

@@ -187,6 +187,7 @@ def _build_default_manager() -> RuntimeManager:
     from runtimes.adapters.internal_agent import InternalAgentAdapter
     from runtimes.adapters.opencode import OpenCodeAdapter
     from runtimes.adapters.openhands import OpenHandsAdapter
+    from runtimes.adapters.task_harness import TaskHarnessAdapter
 
     policy = RoutingPolicy(
         never_use_paid_providers=os.environ.get("RUNTIME_NEVER_PAID", "false").lower()
@@ -222,6 +223,7 @@ def _build_default_manager() -> RuntimeManager:
     mgr.register(HermesAdapter())
     mgr.register(OpenCodeAdapter())
     mgr.register(GooseAdapter())
+    mgr.register(TaskHarnessAdapter())
 
     # OpenHands is opt-in (experimental, requires Docker)
     if os.environ.get("OPENHANDS_ENABLED", "false").lower() == "true":

@@ -61,7 +61,6 @@ function AppRoutes() {
 
       {/* Pre-auth setup wizard — configure backend URL before logging in */}
       <Route path="/bootstrap" element={<SetupWizardPage />} />
-      <Route path="/companyhelm" element={<Navigate to="/login" replace />} />
 
       {/* Protected dashboard (includes /setup as a nested route) */}
       <Route
