@@ -11,6 +11,7 @@ import secrets
 import sys
 import uuid
 from contextlib import asynccontextmanager
+from copy import deepcopy
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -28,7 +29,7 @@ if str(BACKEND_DIR) not in sys.path:
 from bson import ObjectId
 from fastapi import Depends, FastAPI, File, Form, HTTPException, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from llm_providers import (
     LlmProviderConfig,
@@ -45,6 +46,8 @@ from starlette.middleware.sessions import SessionMiddleware
 from agents.api import agent_router
 from agents.store import AgentStore, set_agent_store
 from agent.scheduler import AgentScheduler, get_scheduler, set_scheduler
+from agent.skills import SkillLibrary
+from agent.state import AgentSessionStore
 from provider_router import (
     CommercialFallbackRequiredError,
     ProviderConfig,
@@ -86,6 +89,550 @@ OLLAMA_BASE = (
     or "http://localhost:11434"
 )
 OLLAMA_MODEL = os.environ.get("OLLAMA_MODEL", "qwen3-coder:30b")
+_LIMITED_CHAT_SESSIONS: dict[str, dict[str, object]] = {}
+
+
+def _safe_object_id(value: str | None) -> ObjectId | None:
+    if not value:
+        return None
+    try:
+        return ObjectId(value)
+    except Exception:
+        return None
+
+
+def _get_limited_chat_session(session_id: str, user_id: str) -> dict[str, object] | None:
+    session = _LIMITED_CHAT_SESSIONS.get(session_id)
+    if not session or session.get("user_id") != user_id:
+        return None
+    return deepcopy(session)
+
+
+def _save_limited_chat_session(session_id: str, session: dict[str, object]) -> None:
+    _LIMITED_CHAT_SESSIONS[session_id] = deepcopy(session)
+
+
+def _delete_limited_chat_session(session_id: str, user_id: str) -> bool:
+    session = _LIMITED_CHAT_SESSIONS.get(session_id)
+    if not session or session.get("user_id") != user_id:
+        return False
+    _LIMITED_CHAT_SESSIONS.pop(session_id, None)
+    return True
+
+
+def _list_limited_chat_sessions(user_id: str) -> list[dict[str, object]]:
+    sessions = []
+    for session_id, session in _LIMITED_CHAT_SESSIONS.items():
+        if session.get("user_id") != user_id:
+            continue
+        item = deepcopy(session)
+        item.setdefault("_id", session_id)
+        item.pop("messages", None)
+        sessions.append(item)
+    sessions.sort(key=lambda item: str(item.get("updated_at") or ""), reverse=True)
+    return sessions
+
+
+def _new_chat_session_record(
+    *,
+    session_id: str,
+    user_id: str,
+    title: str,
+    provider_id: str | None,
+    model: str | None,
+    temperature: float | None,
+    messages: list[dict] | None = None,
+) -> dict[str, object]:
+    now = datetime.now(timezone.utc).isoformat()
+    return {
+        "_id": session_id,
+        "user_id": user_id,
+        "title": title,
+        "provider_id": provider_id,
+        "model": model,
+        "temperature": temperature,
+        "messages": messages or [],
+        "created_at": now,
+        "updated_at": now,
+    }
+
+
+async def _persist_chat_session(
+    *,
+    session_id: str,
+    user_id: str,
+    storage_mode: str,
+    db_session_id: ObjectId | None,
+    title: str,
+    provider_id: str | None,
+    model: str | None,
+    temperature: float | None,
+    messages: list[dict],
+    created_at: str | None,
+) -> None:
+    updated_at = datetime.now(timezone.utc).isoformat()
+    if storage_mode == "db" and db_session_id is not None:
+        await db.chat_sessions.update_one(
+            {"_id": db_session_id, "user_id": user_id},
+            {
+                "$set": {
+                    "title": title,
+                    "messages": messages,
+                    "provider_id": provider_id,
+                    "model": model,
+                    "temperature": temperature,
+                    "updated_at": updated_at,
+                }
+            },
+        )
+        return
+
+    record = {
+        "_id": session_id,
+        "user_id": user_id,
+        "title": title,
+        "provider_id": provider_id,
+        "model": model,
+        "temperature": temperature,
+        "messages": messages,
+        "created_at": created_at or updated_at,
+        "updated_at": updated_at,
+    }
+    _save_limited_chat_session(session_id, record)
+
+
+class AgentStatusEntry(BaseModel):
+    id: str
+    name: str
+    role: str
+    status: str
+    current_task: str | None = None
+    last_active: str | None = None
+    tools_used: list[str] = Field(default_factory=list)
+    messages_sent: int | None = None
+
+
+class AgentToolCallEntry(BaseModel):
+    id: str
+    tool_name: str
+    agent: str
+    status: str
+    input: dict[str, object] | None = None
+    output: str | None = None
+    error: str | None = None
+    started_at: str | None = None
+    completed_at: str | None = None
+    duration_ms: int | None = None
+
+
+class AgentStatusResponse(BaseModel):
+    session_id: str | None = None
+    has_events: bool = False
+    agents: list[AgentStatusEntry] = Field(default_factory=list)
+    tool_calls: list[AgentToolCallEntry] = Field(default_factory=list)
+    latest_summary: str | None = None
+    latest_error: str | None = None
+    updated_at: str | None = None
+
+
+def _get_agent_session_for_user(session_id: str, user_id: str):
+    session = AGENT_EVENT_STORE.get(session_id)
+    if session and session.owner_id and session.owner_id != user_id:
+        raise HTTPException(status_code=403, detail="Forbidden")
+    return session
+
+
+def _ensure_agent_session_exists(*, session_id: str, user_id: str, title: str) -> None:
+    session = _get_agent_session_for_user(session_id, user_id)
+    if session is None:
+        AGENT_EVENT_STORE.create_with_id(
+            session_id=session_id,
+            title=title or "Agent Session",
+            owner_id=user_id,
+        )
+
+
+def _append_agent_session_message(session_id: str, role: str, content: str) -> None:
+    try:
+        AGENT_EVENT_STORE.append_message(session_id, role, content)
+    except Exception:
+        log.debug("agent session message append failed", exc_info=True)
+
+
+def _truncate_agent_text(value: object, limit: int = 500) -> str:
+    text = str(value or "").strip()
+    if len(text) <= limit:
+        return text
+    return text[: limit - 1].rstrip() + "…"
+
+
+def _extract_agent_tool_calls(session_id: str) -> list[AgentToolCallEntry]:
+    session = AGENT_EVENT_STORE.get(session_id)
+    if session is None:
+        return []
+    events = AGENT_EVENT_STORE.get_events(session_id, from_position=0, limit=max(session.event_count, 1) + 25)
+    calls: dict[str, AgentToolCallEntry] = {}
+    started_at_map: dict[str, datetime] = {}
+
+    for event in events:
+        payload = event.payload or {}
+        if event.event_type == "tool_call":
+            call_id = str(payload.get("call_id") or f"{session_id}:{event.position}")
+            calls[call_id] = AgentToolCallEntry(
+                id=call_id,
+                tool_name=str(payload.get("tool_name") or "tool"),
+                agent="implementer",
+                status="running",
+                input=payload.get("args") if isinstance(payload.get("args"), dict) else None,
+                started_at=event.timestamp,
+            )
+            try:
+                started_at_map[call_id] = datetime.fromisoformat(event.timestamp.replace("Z", "+00:00"))
+            except Exception:
+                pass
+            continue
+
+        if event.event_type != "tool_result":
+            continue
+
+        call_id = str(payload.get("call_id") or f"{session_id}:{event.position}")
+        entry = calls.get(call_id)
+        if entry is None:
+            entry = AgentToolCallEntry(
+                id=call_id,
+                tool_name=str(payload.get("tool_name") or "tool"),
+                agent="implementer",
+                status="running",
+            )
+            calls[call_id] = entry
+
+        outcome = str(payload.get("status") or "success")
+        entry.status = "error" if outcome == "error" else "success"
+        entry.completed_at = event.timestamp
+        output = _truncate_agent_text(payload.get("output") or "")
+        if entry.status == "error":
+            entry.error = output or "Tool call failed"
+        else:
+            entry.output = output
+
+        started_at = started_at_map.get(call_id)
+        if started_at is not None:
+            try:
+                ended_at = datetime.fromisoformat(event.timestamp.replace("Z", "+00:00"))
+                entry.duration_ms = max(int((ended_at - started_at).total_seconds() * 1000), 0)
+            except Exception:
+                pass
+
+    return list(calls.values())
+
+
+def _build_agent_status_snapshot(session_id: str) -> AgentStatusResponse:
+    session = AGENT_EVENT_STORE.get(session_id)
+    if session is None:
+        return AgentStatusResponse(session_id=session_id)
+
+    events = AGENT_EVENT_STORE.get_events(session_id, from_position=0, limit=max(session.event_count, 1) + 25)
+    if not events:
+        return AgentStatusResponse(
+            session_id=session_id,
+            has_events=False,
+            updated_at=session.updated_at,
+        )
+
+    tool_calls = _extract_agent_tool_calls(session_id)
+    running_tools = [call for call in tool_calls if call.status == "running"]
+    tool_names = list(dict.fromkeys(call.tool_name for call in tool_calls if call.tool_name))[-4:]
+
+    plan_event = next((event for event in events if event.event_type == "step_start" and "goal" in (event.payload or {})), None)
+    current_step_event = None
+    completed_steps = 0
+    latest_summary = None
+    latest_error = None
+    judge_event = None
+
+    for event in events:
+        payload = event.payload or {}
+        if event.event_type == "step_start" and payload.get("step_id") is not None:
+            current_step_event = event
+        elif event.event_type == "step_complete":
+            completed_steps += 1
+            current_step_event = None
+            if str(payload.get("status") or "") == "failed":
+                latest_error = _truncate_agent_text(payload.get("reason") or payload.get("issues") or "Step failed")
+        elif event.event_type == "assistant_message":
+            if payload.get("summary"):
+                latest_summary = _truncate_agent_text(payload.get("summary"))
+            if payload.get("judge"):
+                judge_event = event
+                judge_notes = payload.get("judge") or {}
+                if isinstance(judge_notes, dict) and judge_notes.get("verdict") == "BLOCKED":
+                    latest_error = _truncate_agent_text(judge_notes.get("notes") or "Judge blocked the run")
+        elif event.event_type == "tool_result" and payload.get("status") == "error":
+            latest_error = _truncate_agent_text(payload.get("output") or "Tool call failed")
+
+    updated_at = events[-1].timestamp
+    planner_status = "done" if plan_event else "idle"
+    executor_status = "idle"
+    if latest_error:
+        executor_status = "error"
+    elif current_step_event or running_tools:
+        executor_status = "running"
+    elif completed_steps > 0:
+        executor_status = "done"
+    elif plan_event:
+        executor_status = "waiting"
+
+    coordinator_status = "running"
+    if latest_error:
+        coordinator_status = "error"
+    elif latest_summary:
+        coordinator_status = "done"
+
+    judge_status = "waiting" if latest_summary else "idle"
+    if judge_event is not None:
+        judge_payload = judge_event.payload.get("judge") if isinstance(judge_event.payload, dict) else {}
+        judge_status = "error" if isinstance(judge_payload, dict) and judge_payload.get("verdict") == "BLOCKED" else "done"
+
+    agents = [
+        AgentStatusEntry(
+            id=f"{session_id}:planner",
+            name="Planner",
+            role="planner",
+            status=planner_status,
+            current_task=(
+                f"Planned {int((plan_event.payload or {}).get('steps') or 0)} steps"
+                if plan_event is not None
+                else None
+            ),
+            last_active=plan_event.timestamp if plan_event is not None else updated_at,
+            messages_sent=1 if plan_event is not None else 0,
+        ),
+        AgentStatusEntry(
+            id=f"{session_id}:executor",
+            name="Executor",
+            role="implementer",
+            status=executor_status,
+            current_task=(
+                str((current_step_event.payload or {}).get("description") or "Running tool calls")
+                if current_step_event is not None or running_tools
+                else (latest_summary or latest_error)
+            ),
+            last_active=updated_at,
+            tools_used=tool_names,
+            messages_sent=completed_steps,
+        ),
+        AgentStatusEntry(
+            id=f"{session_id}:coordinator",
+            name="Coordinator",
+            role="coordinator",
+            status=coordinator_status,
+            current_task=latest_summary or latest_error or "Coordinating agent run",
+            last_active=updated_at,
+            tools_used=tool_names,
+            messages_sent=sum(1 for event in events if event.event_type == "assistant_message"),
+        ),
+        AgentStatusEntry(
+            id=f"{session_id}:judge",
+            name="Judge",
+            role="judge",
+            status=judge_status,
+            current_task=(
+                _truncate_agent_text((judge_event.payload.get("judge") or {}).get("notes") or "Reviewing output")
+                if judge_event is not None and isinstance(judge_event.payload, dict)
+                else ("Waiting for execution to finish" if latest_summary is None else "Reviewing output")
+            ),
+            last_active=judge_event.timestamp if judge_event is not None else updated_at,
+            messages_sent=1 if judge_event is not None else 0,
+        ),
+    ]
+
+    return AgentStatusResponse(
+        session_id=session_id,
+        has_events=True,
+        agents=agents,
+        tool_calls=tool_calls,
+        latest_summary=latest_summary,
+        latest_error=latest_error,
+        updated_at=updated_at,
+    )
+
+
+def _build_agent_stream_event(
+    session_id: str,
+    position: int,
+    timestamp: str,
+    agent: str,
+    event_type: str,
+    content: str,
+    metadata: dict[str, object] | None = None,
+) -> dict[str, object]:
+    return {
+        "id": f"{session_id}:{position}",
+        "timestamp": timestamp,
+        "agent": agent,
+        "type": event_type,
+        "content": content,
+        "metadata": metadata or {},
+    }
+
+
+def _normalize_agent_stream_event(session_id: str, event) -> dict[str, object]:
+    payload = event.payload or {}
+    if event.event_type == "tool_call":
+        return _build_agent_stream_event(
+            session_id,
+            event.position,
+            event.timestamp,
+            "implementer",
+            "tool_call",
+            f"Started {payload.get('tool_name') or 'tool'}",
+            {
+                "call_id": payload.get("call_id"),
+                "tool_name": payload.get("tool_name"),
+                "args": payload.get("args"),
+                "status": payload.get("status"),
+                "step_id": payload.get("step_id"),
+            },
+        )
+    if event.event_type == "tool_result":
+        status = "error" if payload.get("status") == "error" else "result"
+        return _build_agent_stream_event(
+            session_id,
+            event.position,
+            event.timestamp,
+            "implementer",
+            status,
+            f"{payload.get('tool_name') or 'Tool'} {payload.get('status') or 'completed'}",
+            {
+                "call_id": payload.get("call_id"),
+                "tool_name": payload.get("tool_name"),
+                "status": payload.get("status"),
+                "output": _truncate_agent_text(payload.get("output") or "", 800),
+                "step_id": payload.get("step_id"),
+            },
+        )
+    if event.event_type == "step_start":
+        if payload.get("goal"):
+            return _build_agent_stream_event(
+                session_id,
+                event.position,
+                event.timestamp,
+                "planner",
+                "status",
+                f"Planned {payload.get('steps') or 0} steps for {payload.get('goal')}",
+                payload,
+            )
+        return _build_agent_stream_event(
+            session_id,
+            event.position,
+            event.timestamp,
+            "implementer",
+            "status",
+            str(payload.get("description") or "Started a new step"),
+            payload,
+        )
+    if event.event_type == "step_complete":
+        status = "error" if payload.get("status") == "failed" else "result"
+        detail = payload.get("description") or payload.get("status") or "Completed step"
+        return _build_agent_stream_event(
+            session_id,
+            event.position,
+            event.timestamp,
+            "implementer",
+            status,
+            str(detail),
+            payload,
+        )
+    if event.event_type == "assistant_message":
+        if isinstance(payload.get("judge"), dict):
+            judge = payload["judge"]
+            return _build_agent_stream_event(
+                session_id,
+                event.position,
+                event.timestamp,
+                "judge",
+                "status",
+                f"{judge.get('verdict') or 'Judge'} — {judge.get('notes') or ''}".strip(" —"),
+                judge,
+            )
+        if payload.get("summary"):
+            return _build_agent_stream_event(
+                session_id,
+                event.position,
+                event.timestamp,
+                "coordinator",
+                "result",
+                _truncate_agent_text(payload.get("summary"), 800),
+                payload,
+            )
+    if event.event_type == "user_message":
+        return _build_agent_stream_event(
+            session_id,
+            event.position,
+            event.timestamp,
+            "system",
+            "message",
+            _truncate_agent_text(payload.get("instruction") or "New request", 300),
+            payload,
+        )
+    return _build_agent_stream_event(
+        session_id,
+        event.position,
+        event.timestamp,
+        "system",
+        "status",
+        _truncate_agent_text(payload or event.event_type, 300),
+        payload if isinstance(payload, dict) else {"value": payload},
+    )
+
+
+def _select_auto_skills(content: str, *, limit: int = 5) -> list[dict[str, str]]:
+    lower = content.lower()
+    queries = ["implementation", "planner", "review"]
+
+    if any(token in lower for token in ("test", "regression", "verify", "failing")):
+        queries.extend(["test", "verification"])
+    if any(token in lower for token in ("security", "auth", "token", "secret", "permission")):
+        queries.extend(["security", "risky", "hardening"])
+    if any(token in lower for token in ("docs", "adr", "decision", "readme", "changelog")):
+        queries.extend(["docs", "changelog"])
+    if any(token in lower for token in ("frontend", "mobile", "ui", "layout", "responsive")):
+        queries.extend(["frontend", "design", "performance"])
+    if any(token in lower for token in ("commit", "branch", "pull request", "pr")):
+        queries.extend(["git", "commit", "review"])
+
+    matches: dict[str, dict[str, str]] = {}
+    for query in queries:
+        try:
+            results = AUTO_SKILL_LIBRARY.search(query)
+        except Exception:
+            continue
+        for skill in results:
+            matches.setdefault(
+                skill.skill_id,
+                {
+                    "name": skill.name,
+                    "description": skill.description,
+                },
+            )
+            if len(matches) >= limit:
+                return list(matches.values())[:limit]
+    return list(matches.values())[:limit]
+
+
+def _build_auto_skill_guidance(content: str) -> tuple[str, list[dict[str, str]]]:
+    skills = _select_auto_skills(content)
+    if not skills:
+        return "", []
+
+    lines = [
+        "AUTO-SELECTED SKILLS AND WORKFLOWS:",
+        "- Apply these proactively when they improve speed, quality, or safety. The user should not need to request them explicitly.",
+        "- For larger tasks, follow the CRISPY working style: scout the context, plan the change, implement narrowly, review the result, and verify with concrete evidence.",
+    ]
+    for skill in skills:
+        lines.append(f"- {skill['name']}: {skill['description']}")
+    return "\n".join(lines), skills
 
 
 def _resolve_ollama_url(url: str | None) -> str:
@@ -122,7 +669,13 @@ EMERGENT_ANTHROPIC_MODEL = os.environ.get(
 LLM_PROVIDER = os.environ.get("LLM_PROVIDER", "deepseek")
 LANGFUSE_PK = os.environ.get("LANGFUSE_PUBLIC_KEY", "")
 LANGFUSE_SK = os.environ.get("LANGFUSE_SECRET_KEY", "")
-LANGFUSE_BASE = os.environ.get("LANGFUSE_BASE_URL", "https://cloud.langfuse.com")
+LANGFUSE_BASE = (
+    os.environ.get("LANGFUSE_BASE_URL")
+    or os.environ.get("LANGFUSE_HOST")
+    or "https://cloud.langfuse.com"
+)
+AGENT_EVENT_STORE = AgentSessionStore()
+AUTO_SKILL_LIBRARY = SkillLibrary()
 ADMIN_SECRET = os.environ.get("ADMIN_SECRET", "")
 NGROK_DOMAIN = os.environ.get("NGROK_DOMAIN", "")
 NGROK_TOKEN = os.environ.get("NGROK_AUTH_TOKEN", "") or os.environ.get("NGROK_AUTHTOKEN", "")
@@ -1612,6 +2165,81 @@ _DIRECT_CHAT_REPO_ACTION_KEYWORDS = {
     "production app",
     "regressions",
 }
+_DIRECT_CHAT_GITHUB_ACTION_KEYWORDS = {
+    "github",
+    "pull request",
+    "open pr",
+    "open a pr",
+    "branch",
+    "commit changes",
+    "push",
+    "clone",
+}
+_DIRECT_CHAT_WORKSPACE_ACTION_KEYWORDS = {
+    "repository",
+    "repo",
+    "workspace",
+    "codebase",
+    "multi-file",
+    "multiple files",
+    "edit code",
+    "edit file",
+    "exact file edits",
+    "tests to add",
+    "merge strategy",
+}
+_DIRECT_CHAT_RUNTIME_ACTION_KEYWORDS = {
+    "docker",
+    "dockerfile",
+    "container",
+    "runtime",
+    "run tests",
+    "build image",
+    "install dependency",
+    "copy package",
+    "start server",
+}
+_DIRECT_CHAT_EXPLANATION_PREFIXES = (
+    "explain",
+    "why",
+    "how do",
+    "how does",
+    "what is",
+    "what are",
+    "walk me through",
+    "help me understand",
+)
+_DIRECT_CHAT_EXECUTION_SIGNALS = (
+    "fix ",
+    "edit ",
+    "update ",
+    "change the code",
+    "apply the fix",
+    "make the fix",
+    "run tests",
+    "run the tests",
+    "commit the changes",
+    "push the",
+    "merge the",
+    "add a regression test",
+    "add tests",
+)
+_DIRECT_CHAT_RECURRING_KEYWORDS = (
+    "every day",
+    "daily",
+    "every morning",
+    "every night",
+    "every week",
+    "weekly",
+    "every month",
+    "monthly",
+    "every hour",
+    "hourly",
+    "cron",
+    "schedule this",
+    "scheduled",
+    "automatically",
+)
 
 
 def _classify_complexity(content: str) -> str:
@@ -1642,6 +2270,175 @@ def _requires_agent_mode_for_safe_repo_help(content: str) -> bool:
     return hits >= 2 or (hits >= 1 and requests_edits)
 
 
+def _direct_chat_agent_handoff(
+    content: str, *, github_connected: bool
+) -> dict[str, object] | None:
+    lower = content.lower()
+    stripped = lower.strip()
+    reason_codes: list[str] = []
+    reasons: list[str] = []
+
+    if any(keyword in lower for keyword in _DIRECT_CHAT_GITHUB_ACTION_KEYWORDS):
+        reason_codes.append("github")
+        reasons.append("GitHub branch / PR actions")
+
+    if any(keyword in lower for keyword in _DIRECT_CHAT_WORKSPACE_ACTION_KEYWORDS):
+        reason_codes.append("workspace")
+        reasons.append("repository / file changes")
+
+    if any(keyword in lower for keyword in _DIRECT_CHAT_RUNTIME_ACTION_KEYWORDS):
+        reason_codes.append("runtime")
+        reasons.append("workspace or container execution")
+
+    asks_for_concrete_changes = any(
+        phrase in lower
+        for phrase in (
+            "exact file edits",
+            "tests to add",
+            "commit message",
+            "apply the fix",
+            "make the fix",
+            "change the code",
+            "open a pr",
+            "open pr",
+            "run tests",
+            "merge strategy",
+        )
+    )
+    asks_for_explanation = any(
+        stripped.startswith(prefix) for prefix in _DIRECT_CHAT_EXPLANATION_PREFIXES
+    )
+    has_execution_signal = any(signal in lower for signal in _DIRECT_CHAT_EXECUTION_SIGNALS)
+
+    if not reason_codes:
+        return None
+
+    if asks_for_explanation and not has_execution_signal:
+        return None
+
+    if len(reason_codes) == 1 and not asks_for_concrete_changes:
+        return None
+
+    workflow_suggestions = [_build_direct_chat_task_suggestion(content, reason_codes)]
+    schedule_suggestion = _build_direct_chat_schedule_suggestion(content, reason_codes)
+    if schedule_suggestion is not None:
+        workflow_suggestions.append(schedule_suggestion)
+
+    return {
+        "type": "agent_handoff",
+        "recommended_mode": "agent",
+        "reason_codes": reason_codes,
+        "reasons": reasons,
+        "retryable_prompt": content,
+        "workflow_suggestions": workflow_suggestions,
+        "github_connected": github_connected,
+        "settings_route": (
+            "/settings"
+            if ("github" in reason_codes and not github_connected)
+            else None
+        ),
+    }
+
+
+def _derive_work_item_title(content: str, *, fallback: str) -> str:
+    text = re.sub(r"\s+", " ", content).strip()
+    for delimiter in ("\n", ".", "?", "!"):
+        if delimiter in text:
+            text = text.split(delimiter, 1)[0].strip()
+            break
+    if not text:
+        return fallback
+    if len(text) > 72:
+        trimmed = text[:72].rsplit(" ", 1)[0].strip()
+        text = f"{trimmed or text[:72].strip()}…"
+    return text[0].upper() + text[1:]
+
+
+def _infer_task_priority(content: str) -> str:
+    lower = content.lower()
+    if any(keyword in lower for keyword in ("urgent", "sev1", "critical", "outage")):
+        return "urgent"
+    if any(keyword in lower for keyword in ("production", "regression", "broken", "fix")):
+        return "high"
+    return "medium"
+
+
+def _infer_schedule_cron(content: str) -> tuple[str, str]:
+    lower = content.lower()
+    if "every hour" in lower or "hourly" in lower:
+        return "0 * * * *", "Hourly"
+    if "every week" in lower or "weekly" in lower:
+        return "0 9 * * 1", "Weekly"
+    if "every month" in lower or "monthly" in lower:
+        return "0 9 1 * *", "Monthly"
+    return "0 9 * * *", "Daily"
+
+
+def _looks_like_recurring_automation(content: str) -> bool:
+    lower = content.lower()
+    return any(keyword in lower for keyword in _DIRECT_CHAT_RECURRING_KEYWORDS)
+
+
+def _build_direct_chat_tags(reason_codes: list[str]) -> list[str]:
+    tags: list[str] = []
+    mapping = {
+        "github": "github",
+        "workspace": "workspace",
+        "runtime": "runtime",
+    }
+    for code in reason_codes:
+        tag = mapping.get(code)
+        if tag and tag not in tags:
+            tags.append(tag)
+    return tags
+
+
+def _build_direct_chat_task_suggestion(
+    content: str, reason_codes: list[str]
+) -> dict[str, object]:
+    title = _derive_work_item_title(content, fallback="Follow up on direct chat request")
+    task_type = "general"
+    if "github" in reason_codes or "workspace" in reason_codes:
+        task_type = "repository_change"
+    elif "runtime" in reason_codes:
+        task_type = "runtime_change"
+    return {
+        "kind": "task",
+        "label": "Create Task",
+        "route": "/tasks",
+        "payload": {
+            "title": title,
+            "description": "Created from a Direct Chat handoff so the work can be tracked in the task board.",
+            "prompt": content,
+            "priority": _infer_task_priority(content),
+            "task_type": task_type,
+            "requires_approval": "github" in reason_codes,
+            "tags": _build_direct_chat_tags(reason_codes),
+        },
+    }
+
+
+def _build_direct_chat_schedule_suggestion(
+    content: str, reason_codes: list[str]
+) -> dict[str, object] | None:
+    if not _looks_like_recurring_automation(content):
+        return None
+    cron, cadence = _infer_schedule_cron(content)
+    title = _derive_work_item_title(content, fallback="Recurring agent workflow")
+    return {
+        "kind": "schedule",
+        "label": "Create Schedule",
+        "route": "/schedules",
+        "payload": {
+            "name": f"{cadence}: {title}",
+            "cron": cron,
+            "instruction": content,
+            "approval_gate": "github" in reason_codes,
+            "tags": _build_direct_chat_tags(reason_codes),
+        },
+    }
+
+
 def _mask_observations(messages: list[dict], max_chars: int = 300) -> list[dict]:
     """Truncate tool/observation content in older messages to prevent context bloat."""
     result = []
@@ -1652,6 +2449,21 @@ def _mask_observations(messages: list[dict], max_chars: int = 300) -> list[dict]
                 m = {**m, "content": content[:max_chars] + " … [truncated]"}
         result.append(m)
     return result
+
+
+def _sanitize_chat_messages(messages: list[dict]) -> list[dict[str, str]]:
+    sanitized: list[dict[str, str]] = []
+    for message in messages:
+        role = str(message.get("role") or "").strip()
+        content = message.get("content")
+        if not role or content is None:
+            continue
+        normalized: dict[str, str] = {"role": role, "content": str(content)}
+        name = message.get("name")
+        if name:
+            normalized["name"] = str(name)
+        sanitized.append(normalized)
+    return sanitized
 
 
 async def _compact_context(
@@ -1704,6 +2516,7 @@ async def _run_agent_loop(
     session_messages: list[dict],
     wiki_index: str,
     provider: dict,
+    session_id: str | None = None,
     requested_model: str | None = None,
     github_token: str | None = None,
     provider_chain: list[ProviderConfig] | None = None,
@@ -1739,6 +2552,7 @@ async def _run_agent_loop(
         provider_chain=provider_chain,
         allow_commercial_fallback=allow_commercial_fallback,
         provider_temperature=0.3,  # default for agent
+        session_store=AGENT_EVENT_STORE,
         github_token=github_token,
     )
 
@@ -1748,6 +2562,16 @@ async def _run_agent_loop(
         if github_token
         else "GitHub not connected — if the user asks for GitHub operations, tell them to add a token at Settings → GitHub."
     )
+    auto_skill_guidance, auto_skills = _build_auto_skill_guidance(instruction)
+    if session_id and auto_skills:
+        try:
+            AGENT_EVENT_STORE.append_event(
+                session_id,
+                "skill_context",
+                {"skills": auto_skills},
+            )
+        except Exception:
+            log.debug("skill guidance event append failed", exc_info=True)
 
     agent_instruction = (
         "CONTEXT: You are a powerful AI coding agent with multi-step reasoning and full tool access.\n\n"
@@ -1757,11 +2581,14 @@ async def _run_agent_loop(
         "- Save and recall user preferences across sessions\n"
         "- Access the wiki knowledge base and create/edit wiki pages\n\n"
         f"GITHUB STATUS: {github_status}\n\n"
-        f"WIKI INDEX (current pages):\n{wiki_index}\n\n"
-        f"TASK: {instruction}"
+        + (f"{auto_skill_guidance}\n\n" if auto_skill_guidance else "")
+        + f"WIKI INDEX (current pages):\n{wiki_index}\n\n"
+        + f"TASK: {instruction}"
     )
 
     try:
+        if session_id:
+            _append_agent_session_message(session_id, "user", instruction)
         result = await runner.run(
             instruction=agent_instruction,
             history=session_messages,
@@ -1769,7 +2596,15 @@ async def _run_agent_loop(
             auto_commit=True,
             max_steps=8,
             memory_store=UserMemoryStore(),
+            session_id=session_id,
         )
+        if session_id:
+            AGENT_EVENT_STORE.update_result(
+                session_id,
+                result.get("plan") or {"goal": instruction, "steps": []},
+                result,
+            )
+            _append_agent_session_message(session_id, "assistant", str(result.get("summary") or ""))
         return result["summary"]
     except CommercialFallbackRequiredError:
         raise
@@ -2145,6 +2980,8 @@ async def chat_send(body: ChatMessage, user: dict = Depends(get_current_user)):
     uid = user["_id"]
     sid = body.session_id
     _db_limited = False
+    session_storage = "db"
+    db_session_id = _safe_object_id(sid)
     if not sid:
         try:
             active = await get_active_provider()
@@ -2164,19 +3001,46 @@ async def chat_send(body: ChatMessage, user: dict = Depends(get_current_user)):
                 }
             )
             sid = str(result.inserted_id)
+            db_session_id = _safe_object_id(sid)
         except Exception:
             sid = str(uuid.uuid4())
             _db_limited = True
+            session_storage = "fallback"
+            db_session_id = None
     try:
-        session = await db.chat_sessions.find_one({"_id": ObjectId(sid)}) if not _db_limited else None
+        session = (
+            await db.chat_sessions.find_one({"_id": db_session_id, "user_id": uid})
+            if (not _db_limited and db_session_id is not None)
+            else None
+        )
     except Exception:
         session = None
         _db_limited = True
+        session_storage = "fallback"
+    if not session:
+        fallback_session = _get_limited_chat_session(sid, uid) if sid else None
+        if fallback_session is not None:
+            session = fallback_session
+            session_storage = "fallback"
+        elif not _db_limited and db_session_id is not None:
+            raise HTTPException(status_code=404, detail="Session not found")
+        else:
+            session_storage = "fallback"
+            session = _new_chat_session_record(
+                session_id=sid,
+                user_id=uid,
+                title=body.content[:60],
+                provider_id=body.provider_id,
+                model=body.model,
+                temperature=body.temperature,
+                messages=[],
+            )
     if not session and not _db_limited:
         raise HTTPException(status_code=404, detail="Session not found")
     session = session or {}
     messages = session.get("messages", [])
     messages.append({"role": "user", "content": body.content})
+    model_messages = _sanitize_chat_messages(messages)
 
     wiki_pages = []
     try:
@@ -2193,6 +3057,7 @@ async def chat_send(body: ChatMessage, user: dict = Depends(get_current_user)):
         if body.temperature is not None
         else (session.get("temperature") or 0.3)
     )
+    assistant_meta: dict[str, object] | None = None
 
     # Respect the chat toggle strictly: direct chat stays on the fast LLM path
     # unless the caller explicitly enables Agent Mode.
@@ -2203,6 +3068,11 @@ async def chat_send(body: ChatMessage, user: dict = Depends(get_current_user)):
     _LLM_TIMEOUT_SEC = 120  # 2 minutes for simple LLM calls
 
     if use_agent:
+        _ensure_agent_session_exists(
+            session_id=sid,
+            user_id=str(uid),
+            title=str(session.get("title") or body.content[:60]),
+        )
         try:
             provider = (
                 await db.providers.find_one({"provider_id": provider_hint_id})
@@ -2226,11 +3096,12 @@ async def chat_send(body: ChatMessage, user: dict = Depends(get_current_user)):
             response_text = await asyncio.wait_for(
                 _run_agent_loop(
                     instruction=body.content,
-                    session_messages=messages[
+                    session_messages=model_messages[
                         :-1
                     ],  # exclude the just-appended user msg
                     wiki_index=wiki_index,
                     provider=primary_provider,
+                    session_id=sid,
                     requested_model=requested_agent_model,
                     github_token=user.get("github_repo_token"),
                     provider_chain=router.providers[1:],
@@ -2274,6 +3145,15 @@ async def chat_send(body: ChatMessage, user: dict = Depends(get_current_user)):
                     f"⚠️ The agent took too long to respond (exceeded {_AGENT_TIMEOUT_SEC} seconds). "
                     "Try a simpler query or switch to a faster model."
                 )
+            try:
+                AGENT_EVENT_STORE.append_event(
+                    sid,
+                    "assistant_message",
+                    {"summary": response_text, "timeout": True},
+                )
+                _append_agent_session_message(sid, "assistant", response_text)
+            except Exception:
+                log.debug("agent timeout event append failed", exc_info=True)
             use_agent = True  # mark handled — skip simple LLM fallback
         except Exception as exc:
             log.error("Agent loop failed: %s", exc, exc_info=True)
@@ -2285,39 +3165,66 @@ async def chat_send(body: ChatMessage, user: dict = Depends(get_current_user)):
                 "• If using Ollama in Docker, ensure OLLAMA_BASE_URL points to the container hostname (e.g. http://ollama:11434).\n"
                 "• For GitHub operations, verify a token is connected at Settings → GitHub and Agent Mode (⚡) is ON."
             )
+            try:
+                AGENT_EVENT_STORE.append_event(
+                    sid,
+                    "assistant_message",
+                    {"summary": response_text, "error": f"{type(exc).__name__}: {exc}"},
+                )
+                _append_agent_session_message(sid, "assistant", response_text)
+            except Exception:
+                log.debug("agent failure event append failed", exc_info=True)
             use_agent = True  # mark handled — skip the silent LLM fallback
 
     if not use_agent:
-        if _requires_agent_mode_for_safe_repo_help(body.content):
-            response_text = (
-                "This request needs Agent Mode or the actual source files. In direct chat, "
-                "I can explain likely causes and patterns, but I should not invent repo-specific "
-                "file edits, test changes, or merge steps without code access. Please enable Agent "
-                "Mode (⚡) or paste the relevant files, and I can help safely."
+        github_connected = bool(user.get("github_repo_token"))
+        assistant_meta = _direct_chat_agent_handoff(
+            body.content,
+            github_connected=github_connected,
+        )
+        if assistant_meta is not None:
+            reason_text = ", ".join(assistant_meta.get("reasons", []))
+            settings_hint = (
+                " Connect GitHub in Settings first if you want repo access there."
+                if assistant_meta.get("settings_route")
+                else ""
             )
-            messages.append({"role": "assistant", "content": response_text})
+            response_text = (
+                "This request needs Agent Mode because it involves "
+                f"{reason_text}. In direct chat, I can explain patterns, but I should not "
+                "invent repo-specific edits, GitHub actions, or workspace/container steps "
+                "without tool access. Toggle Agent Mode (⚡) and retry this same prompt, "
+                f"or paste the relevant files instead.{settings_hint}"
+            )
+            messages.append(
+                {
+                    "role": "assistant",
+                    "content": response_text,
+                    "assistant_meta": assistant_meta,
+                }
+            )
             try:
-                await db.chat_sessions.update_one(
-                    {"_id": ObjectId(sid)},
-                    {
-                        "$set": {
-                            "messages": messages,
-                            "provider_id": provider_id,
-                            "model": body.model or session.get("model"),
-                            "temperature": temperature,
-                            "updated_at": datetime.now(timezone.utc).isoformat(),
-                        }
-                    },
+                await _persist_chat_session(
+                    session_id=sid,
+                    user_id=uid,
+                    storage_mode=session_storage,
+                    db_session_id=db_session_id,
+                    title=str(session.get("title") or body.content[:60]),
+                    provider_id=provider_id,
+                    model=body.model or session.get("model"),
+                    temperature=temperature,
+                    messages=messages,
+                    created_at=session.get("created_at"),
                 )
             except Exception:
                 pass
             return {
                 "session_id": sid,
                 "response": response_text,
+                "assistant_meta": assistant_meta,
                 "message_count": len(messages),
             }
 
-        github_connected = bool(user.get("github_repo_token"))
         github_hint = (
             " You also have GitHub repository access via the connected token — "
             "to perform repo operations (read files, commit, open PRs), the user must enable Agent Mode (the ⚡ toggle)."
@@ -2336,7 +3243,7 @@ async def chat_send(body: ChatMessage, user: dict = Depends(get_current_user)):
             ),
         }
         # Compact context if history is long.
-        history_for_llm = messages[-20:]
+        history_for_llm = model_messages[-20:]
         if len(messages) > _COMPACT_THRESHOLD:
             provider = (
                 await db.providers.find_one({"provider_id": provider_id})
@@ -2355,7 +3262,7 @@ async def chat_send(body: ChatMessage, user: dict = Depends(get_current_user)):
                     ),
                 )
                 history_for_llm = await _compact_context(
-                    messages, cfg, body.model or session.get("model")
+                    model_messages, cfg, body.model or session.get("model")
                 )
         llm_messages = [system_msg] + history_for_llm
         try:
@@ -2386,19 +3293,22 @@ async def chat_send(body: ChatMessage, user: dict = Depends(get_current_user)):
                 "It may still be generating in the background. Please try again or select a faster model."
             )
 
-    messages.append({"role": "assistant", "content": response_text})
+    assistant_message = {"role": "assistant", "content": response_text}
+    if assistant_meta is not None:
+        assistant_message["assistant_meta"] = assistant_meta
+    messages.append(assistant_message)
     try:
-        await db.chat_sessions.update_one(
-            {"_id": ObjectId(sid)},
-            {
-                "$set": {
-                    "messages": messages,
-                    "provider_id": provider_id,
-                    "model": body.model or session.get("model"),
-                    "temperature": temperature,
-                    "updated_at": datetime.now(timezone.utc).isoformat(),
-                }
-            },
+        await _persist_chat_session(
+            session_id=sid,
+            user_id=uid,
+            storage_mode=session_storage,
+            db_session_id=db_session_id,
+            title=str(session.get("title") or body.content[:60]),
+            provider_id=provider_id,
+            model=body.model or session.get("model"),
+            temperature=temperature,
+            messages=messages,
+            created_at=session.get("created_at"),
         )
         await log_activity(
             "chat", f"Chat in session {sid[:8]}...", user_id=uid, meta={"session_id": sid}
@@ -2408,6 +3318,7 @@ async def chat_send(body: ChatMessage, user: dict = Depends(get_current_user)):
     return {
         "session_id": sid,
         "response": response_text,
+        "assistant_meta": assistant_meta,
         "message_count": len(messages),
     }
 
@@ -2415,29 +3326,118 @@ async def chat_send(body: ChatMessage, user: dict = Depends(get_current_user)):
 @app.get("/api/chat/sessions")
 async def list_sessions(user: dict = Depends(get_current_user)):
     sessions = []
-    async for s in (
-        db.chat_sessions.find({"user_id": user["_id"]}, {"messages": 0})
-        .sort("updated_at", -1)
-        .limit(50)
-    ):
-        s["_id"] = str(s["_id"])
-        sessions.append(s)
+    try:
+        async for s in (
+            db.chat_sessions.find({"user_id": user["_id"]}, {"messages": 0})
+            .sort("updated_at", -1)
+            .limit(50)
+        ):
+            s["_id"] = str(s["_id"])
+            sessions.append(s)
+    except Exception:
+        pass
+    sessions.extend(_list_limited_chat_sessions(user["_id"]))
+    sessions.sort(key=lambda item: str(item.get("updated_at") or ""), reverse=True)
+    sessions = sessions[:50]
     return {"sessions": sessions}
 
 
 @app.get("/api/chat/sessions/{session_id}")
 async def get_session(session_id: str, user: dict = Depends(get_current_user)):
-    session = await db.chat_sessions.find_one({"_id": ObjectId(session_id)})
+    db_session_id = _safe_object_id(session_id)
+    session = None
+    if db_session_id is not None:
+        try:
+            session = await db.chat_sessions.find_one(
+                {"_id": db_session_id, "user_id": user["_id"]}
+            )
+        except Exception:
+            session = None
+    if not session:
+        session = _get_limited_chat_session(session_id, user["_id"])
     if not session:
         raise HTTPException(status_code=404, detail="Session not found")
-    session["_id"] = str(session["_id"])
+    session["_id"] = str(session.get("_id") or session_id)
     return session
 
 
 @app.delete("/api/chat/sessions/{session_id}")
 async def delete_session(session_id: str, user: dict = Depends(get_current_user)):
-    await db.chat_sessions.delete_one({"_id": ObjectId(session_id)})
+    db_session_id = _safe_object_id(session_id)
+    deleted = False
+    if db_session_id is not None:
+        try:
+            result = await db.chat_sessions.delete_one(
+                {"_id": db_session_id, "user_id": user["_id"]}
+            )
+            deleted = result.deleted_count > 0
+        except Exception:
+            deleted = False
+    if _delete_limited_chat_session(session_id, user["_id"]):
+        deleted = True
+    if not deleted:
+        raise HTTPException(status_code=404, detail="Session not found")
     return {"ok": True}
+
+
+@app.get("/api/agent/status", response_model=AgentStatusResponse)
+async def get_agent_status(
+    session_id: str | None = None,
+    user: dict = Depends(get_current_user),
+):
+    if not session_id:
+        return AgentStatusResponse()
+
+    _get_agent_session_for_user(session_id, str(user["_id"]))
+    return _build_agent_status_snapshot(session_id)
+
+
+@app.get("/api/agent/stream")
+async def stream_agent_activity(
+    session_id: str | None = None,
+    user: dict = Depends(get_current_user),
+):
+    if session_id:
+        _get_agent_session_for_user(session_id, str(user["_id"]))
+
+    async def event_stream():
+        cursor = 0
+        while True:
+            if not session_id:
+                yield ": waiting\n\n"
+                await asyncio.sleep(1.0)
+                continue
+
+            session = AGENT_EVENT_STORE.get(session_id)
+            if session is None:
+                yield ": pending\n\n"
+                await asyncio.sleep(1.0)
+                continue
+
+            events = AGENT_EVENT_STORE.get_events(
+                session_id,
+                from_position=cursor,
+                limit=100,
+            )
+            if events:
+                for event in events:
+                    cursor = event.position + 1
+                    payload = json.dumps(_normalize_agent_stream_event(session_id, event))
+                    yield f"data: {payload}\n\n"
+                continue
+
+            yield ": keepalive\n\n"
+            await asyncio.sleep(1.0)
+
+    return StreamingResponse(
+        event_stream(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        },
+    )
 
 
 # ─── Wiki Pages ─────────────────────────────────────────────────────────────────

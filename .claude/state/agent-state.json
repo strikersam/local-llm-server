@@ -1,22 +1,22 @@
 {
   "schema_version": "1",
-  "session_id": "companyhelm-dashboard-refresh-2026-05-04",
+  "session_id": "agent-workspace-mobile-streaming-2026-05-04",
   "status": "in_progress",
-  "last_updated": "2026-05-04T14:35:00Z",
-  "next_step": "Commit the dashboard refresh branch, push it, open a PR, wait for CI, and merge when green.",
+  "last_updated": "2026-05-04T21:52:44Z",
+  "next_step": "Commit, push the branch, and open a PR to master after the mobile-first agent workspace, task-harness rename, setup editing flow, and auto-skill guidance changes.",
   "completed_steps": [
-    "audit-companyhelm-reference-dashboard",
-    "rebuild-root-hosted-dashboard",
-    "restore-legacy-dashboard-routes",
-    "fix-auth-callback-root-redirect",
-    "prioritize-nvidia-nemotron-defaults",
-    "add-dashboard-and-auth-regression-tests",
-    "add-frontend-ci-build-gate",
-    "run-python-and-frontend-verification"
+    "rename-upstream-branded-terms-to-generic-product-language",
+    "add-live-agent-status-and-stream-endpoints",
+    "surface-mobile-first-live-agent-workspace-in-chat",
+    "persist-editable-setup-wizard-state-and-settings-shortcut",
+    "wire-langfuse-default-host-from-environment",
+    "auto-apply-relevant-crispy-skill-guidance-for-complex-agent-tasks",
+    "replace-external-harness-branding-with-task-harness",
+    "run-python-frontend-and-build-verification"
   ],
   "tests_run": [
-    "pytest -x — PASS (738 passed, 15 skipped)",
-    "CI=true npm test -- --watch=false (frontend/) — PASS (54 passed)",
-    "PUBLIC_URL=/local-llm-server REACT_APP_BACKEND_URL=https://relay.example.com npm run build (frontend/) — PASS"
+    "pytest -x \u2014 PASS (752 passed, 15 skipped)",
+    "CI=1 npm test -- --runInBand --watch=false (frontend/) \u2014 PASS (63 passed)",
+    "PUBLIC_URL=/local-llm-server REACT_APP_BACKEND_URL=https://relay.example.com npm run build (frontend/) \u2014 PASS"
   ]
 }

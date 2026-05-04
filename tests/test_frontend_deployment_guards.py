@@ -104,7 +104,7 @@ def test_setup_wizard_renders_checkbox_inputs_for_all_providers() -> None:
 def test_setup_wizard_step3_renders_runtime_checkboxes() -> None:
     """Step 3 runtime config must render checkboxes for each runtime."""
     wizard = _read("frontend/src/pages/SetupWizardPage.js")
-    for runtime_var in ["enableHermes", "enableOpenCode", "enableAider"]:
+    for runtime_var in ["enableHermes", "enableOpenCode", "enableTaskHarness", "enableAider"]:
         assert runtime_var in wizard, (
             f"Setup Wizard Step 3 is missing runtime variable {runtime_var}; "
             f"that runtime's checkbox will not render."

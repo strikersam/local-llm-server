@@ -34,13 +34,13 @@
 - All task/scheduler tests pass
 - Core API tests pass
 
-### How This Aligns with CompanyHelm:
+### How This Aligns with the Hosted Control Plane:
 The enhanced direct_chat.py now provides:
-- Persistent chat sessions like CompanyHelm's direct chat
+- Persistent chat sessions for long-running work
 - Integration with the provider routing system for model selection
 - Proper agent mode execution with workspace isolation
 - Session management capabilities
-- JWT-based authentication (matching CompanyHelm's auth system)
+- JWT-based authentication for the hosted control plane
 - GitHub token integration for agent operations
 
-This brings the local-llm-server's direct chat functionality much closer to CompanyHelm's implementation while maintaining the existing codebase structure and dependencies.
+This brings the local-llm-server's direct chat functionality much closer to the hosted control-plane experience while maintaining the existing codebase structure and dependencies.

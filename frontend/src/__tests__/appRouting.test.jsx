@@ -28,9 +28,9 @@ jest.mock('../api', () => {
 });
 
 describe('GitHub Pages app routing', () => {
-  test('companyhelm deep link falls back to the login page without crashing', async () => {
+  test('unknown deep link falls back to the login page without crashing', async () => {
     render(
-      <MemoryRouter basename="/local-llm-server" initialEntries={['/local-llm-server/companyhelm']}>
+      <MemoryRouter basename="/local-llm-server" initialEntries={['/local-llm-server/workspace-mobile']}>
         <App />
       </MemoryRouter>
     );

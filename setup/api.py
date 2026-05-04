@@ -9,7 +9,7 @@ Five-step wizard:
 
 After completion:
   - Settings are persisted per-user in the WizardState store.
-  - The wizard is NOT shown again to users who have completed it.
+  - The wizard stops auto-blocking login once complete, but can be reopened later for edits.
   - Admins can reset any user's wizard state.
 
 Routes:
@@ -38,6 +38,12 @@ from rbac import UserRole, audit, get_user_role, require_admin
 from secrets_store import get_secrets_store, SecretRecord
 
 log = logging.getLogger("qwen-proxy")
+
+DEFAULT_LANGFUSE_HOST = (
+    os.environ.get("LANGFUSE_BASE_URL")
+    or os.environ.get("LANGFUSE_HOST")
+    or "https://cloud.langfuse.com"
+)
 
 setup_router = APIRouter(prefix="/api/setup", tags=["setup"])
 
@@ -101,6 +107,7 @@ class Step3Request(BaseModel):
     enable_opencode:   bool = False
     enable_goose:      bool = False
     enable_openhands:  bool = False
+    enable_task_harness: bool = False
     enable_aider:      bool = False
     hermes_base_url:   str  = "http://localhost:4444"
 
@@ -122,7 +129,7 @@ class Step5Request(BaseModel):
     enable_langfuse:                 bool = False
     langfuse_public_key_secret_id:   str | None = None
     langfuse_secret_key_secret_id:   str | None = None
-    langfuse_host:                   str  = "https://cloud.langfuse.com"
+    langfuse_host:                   str  = DEFAULT_LANGFUSE_HOST
     send_anonymous_telemetry:        bool = False
 
 
@@ -225,6 +232,8 @@ async def detect_configured_providers():
         os.environ.get("OPENAI_API_KEY") or os.environ.get("OPENAI_COMPAT_API_KEY") or ""
     ).strip()
     anthropic_key = (os.environ.get("ANTHROPIC_API_KEY") or "").strip()
+    langfuse_pk = (os.environ.get("LANGFUSE_PUBLIC_KEY") or "").strip()
+    langfuse_sk = (os.environ.get("LANGFUSE_SECRET_KEY") or "").strip()
 
     return {
         "nvidia_nim": {
@@ -234,6 +243,10 @@ async def detect_configured_providers():
         },
         "openai": {"configured": bool(openai_key)},
         "anthropic": {"configured": bool(anthropic_key)},
+        "langfuse": {
+            "configured": bool(langfuse_pk and langfuse_sk),
+            "host": DEFAULT_LANGFUSE_HOST,
+        },
     }
 
 
