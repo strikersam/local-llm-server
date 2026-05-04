@@ -5,7 +5,6 @@ import LoginPage from './pages/LoginPage';
 import AuthCallback from './pages/AuthCallback';
 import DashboardLayout from './pages/DashboardLayout';
 import SetupWizardPage from './pages/SetupWizardPage';
-import CompanyHelmClone from './pages/CompanyHelmClone';
 import { getSetupState, getBackendUrl } from './api';
 
 function LoadingScreen({ message }) {
@@ -62,7 +61,7 @@ function AppRoutes() {
 
       {/* Pre-auth setup wizard — configure backend URL before logging in */}
       <Route path="/bootstrap" element={<SetupWizardPage />} />
-      <Route path="/companyhelm" element={<CompanyHelmClone />} />
+      <Route path="/companyhelm" element={<Navigate to="/login" replace />} />
 
       {/* Protected dashboard (includes /setup as a nested route) */}
       <Route

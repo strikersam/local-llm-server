@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useAuth } from '../AuthContext';
 import { fmtErr, getBackendUrl } from '../api';
-import { Lock, ArrowRight, AlertCircle, Github } from 'lucide-react';
+import { Lock, ArrowRight, AlertCircle, Github, CheckCircle, Bot, Database } from 'lucide-react';
 
 const GoogleIcon = () => (
   <svg viewBox="0 0 24 24" width="15" height="15" fill="none">
