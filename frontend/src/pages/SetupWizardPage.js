@@ -58,9 +58,9 @@ const STEPS = [
 // Nvidia NIM free models
 const NVIDIA_MODELS = {
   executor: 'qwen/qwen2.5-coder-32b-instruct',
-  planner:  'nvidia/llama-3.1-nemotron-ultra-253b-v1',
-  verifier: 'deepseek-ai/deepseek-r1',
-  default:  'meta/llama-3.3-70b-instruct',
+  planner:  'nvidia/nemotron-3-super-120b-a12b',
+  verifier: 'nvidia/nemotron-3-super-120b-a12b',
+  default:  'nvidia/nemotron-3-super-120b-a12b',
 };
 const LOCAL_MODELS = {
   executor: 'qwen3-coder:30b',
@@ -112,7 +112,7 @@ export default function SetupWizardPage({ onComplete }) {
   const [copilotSecretId, setCopilotSecretId] = useState(null);
 
   // Step 2 — Models (defaults set to Nvidia NIM; adjusted when state loads)
-  const [defaultModel, setDefaultModel] = useState(NVIDIA_MODELS.executor);
+  const [defaultModel, setDefaultModel] = useState(NVIDIA_MODELS.default);
   const [reviewerModel, setReviewerModel] = useState(NVIDIA_MODELS.verifier);
   const [repoPath, setRepoPath] = useState('');
   const [modelsPath, setModelsPath] = useState('');
@@ -128,7 +128,7 @@ export default function SetupWizardPage({ onComplete }) {
 
   // Step 4 — Agent
   const [agentName, setAgentName] = useState('My Agent');
-  const [agentModel, setAgentModel] = useState(NVIDIA_MODELS.executor);
+  const [agentModel, setAgentModel] = useState(NVIDIA_MODELS.default);
   const [costPolicy, setCostPolicy] = useState('free_only');
 
   // Step 5 — Policy
@@ -168,7 +168,7 @@ export default function SetupWizardPage({ onComplete }) {
     if (Object.keys(m).length) {
       const nvidia = p.use_nvidia_nim ?? true;
       const models = nvidia ? NVIDIA_MODELS : LOCAL_MODELS;
-      setDefaultModel(m.default_model || models.executor);
+      setDefaultModel(m.default_model || models.default);
       setReviewerModel(m.reviewer_model || models.verifier);
     }
     if (Object.keys(rt).length) {
@@ -178,7 +178,7 @@ export default function SetupWizardPage({ onComplete }) {
     }
     if (Object.keys(a).length) {
       setAgentName(a.agent_name || 'My Agent');
-      setAgentModel(a.agent_model || NVIDIA_MODELS.executor);
+      setAgentModel(a.agent_model || NVIDIA_MODELS.default);
       setCostPolicy(a.cost_policy || 'free_only');
     }
     if (Object.keys(pol).length) {
@@ -693,9 +693,9 @@ export default function SetupWizardPage({ onComplete }) {
                     <input type="checkbox" checked={useNvidiaNim} onChange={e => {
                       setUseNvidiaNim(e.target.checked);
                       if (e.target.checked) {
-                        setDefaultModel(NVIDIA_MODELS.executor);
+                        setDefaultModel(NVIDIA_MODELS.default);
                         setReviewerModel(NVIDIA_MODELS.verifier);
-                        setAgentModel(NVIDIA_MODELS.executor);
+                        setAgentModel(NVIDIA_MODELS.default);
                         setCostPolicy('free_only');
                       }
                     }} className="w-4 h-4" />

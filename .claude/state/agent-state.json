@@ -1,22 +1,22 @@
 {
   "schema_version": "1",
-  "session_id": "github-pages-bug-sweep-2026-04-25",
-  "status": "completed",
-  "last_updated": "2026-04-25T00:40:00Z",
-  "next_step": "Deploy the updated build and verify the live GitHub Pages auth/bootstrap flow.",
+  "session_id": "companyhelm-dashboard-refresh-2026-05-04",
+  "status": "in_progress",
+  "last_updated": "2026-05-04T14:35:00Z",
+  "next_step": "Commit the dashboard refresh branch, push it, open a PR, wait for CI, and merge when green.",
   "completed_steps": [
-    "reproduce-router-and-deployment-bugs",
-    "fix-router-model-map-fallback",
-    "fix-prelogin-bootstrap-route",
-    "fix-frontend-backend-resolution",
-    "fix-oauth-origin-checks",
-    "stabilize-router-and-v3-auth-tests",
-    "browser-verify-bootstrap-and-login",
-    "changelog-update"
+    "audit-companyhelm-reference-dashboard",
+    "rebuild-root-hosted-dashboard",
+    "restore-legacy-dashboard-routes",
+    "fix-auth-callback-root-redirect",
+    "prioritize-nvidia-nemotron-defaults",
+    "add-dashboard-and-auth-regression-tests",
+    "add-frontend-ci-build-gate",
+    "run-python-and-frontend-verification"
   ],
   "tests_run": [
-    "./.venv/bin/pytest -x tests/test_model_router.py tests/test_frontend_deployment_guards.py — PASS",
-    "npm run build (frontend/) — PASS",
-    "./.venv/bin/pytest -x — PASS (613 passed)"
+    "pytest -x — PASS (733 passed, 15 skipped)",
+    "CI=true npm test -- --watch=false (frontend/) — PASS (52 passed)",
+    "PUBLIC_URL=/local-llm-server REACT_APP_BACKEND_URL=https://relay.example.com npm run build (frontend/) — PASS"
   ]
 }

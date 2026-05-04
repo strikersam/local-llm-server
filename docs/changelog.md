@@ -3,6 +3,17 @@
 ## [Unreleased]
 
 ### Changed
+- `frontend/src/pages/ControlPlanePage.js` / `frontend/src/pages/DashboardLayout.js` — replaced the root hosted dashboard with a more CompanyHelm-style mobile-first workspace overview: usage and provider priority live at the top, task/routing/agent/provider/runtime/schedule sections are grouped into clearer operational cards, and the primary sidebar entry is now simply **Dashboard**. Legacy `/dashboard`, `/control-plane`, and `/llmrelay` URLs now funnel back to the root dashboard instead of leaving stale entry points behind.
+- `frontend/src/pages/SetupWizardPage.js` / `backend/server.py` / `provider_router.py` / `.github/scripts/implement_agent.py` / `.github/scripts/review_agent.py` — NVIDIA defaults now prioritize `nvidia/nemotron-3-super-120b-a12b` wherever the repo chooses a hosted default model, while still keeping the coder-specific Qwen path available for code-heavy execution.
+
+### Fixed
+- `frontend/src/pages/AuthCallback.js` — both social-login callbacks and legacy token callbacks now return users to the root dashboard after auth state sync, avoiding the stale `/control-plane` destination.
+- `.github/workflows/ci.yml` — CI now runs the GitHub Pages frontend test suite and production build in addition to the Python suite, so mobile/dashboard regressions and auth UI regressions are caught before merge.
+
+### Added
+- `frontend/src/__tests__/controlPlanePage.test.js` / `frontend/src/__tests__/loginPage.test.js` / `frontend/src/__tests__/authCallback.test.js` / `tests/test_provider_router.py` — added regression coverage for the new dashboard summary, preserved GitHub/Google social login affordances, callback redirects, and the new NVIDIA Nemotron default-provider priority.
+
+### Changed
 - `README.md` — refined the human-first README again to improve page traction: replaced the potentially friction-heavy “5-year-old” phrasing, added clearer value framing, a simple benefits table, and more team/adoption-oriented positioning for non-technical readers.
 - `README.md` — rewrote the README again with a human-first, screenshot-rich product story aimed at non-technical readers: simpler language, clearer use cases, visual tour, friendlier setup path, and links out to technical docs instead of front-loading route details.
 - `docs/api-surfaces.md` — added a separate technical route map so API and surface details live outside the README.

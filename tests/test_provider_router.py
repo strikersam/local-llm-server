@@ -84,6 +84,16 @@ def test_provider_router_treats_emergent_anthropic_as_commercial():
     assert is_commercial_provider(provider) is True
 
 
+def test_provider_router_from_env_prioritizes_nvidia_nemotron_default(monkeypatch):
+    monkeypatch.setenv("NVIDIA_API_KEY", "nv-test-key")
+    monkeypatch.delenv("NVIDIA_DEFAULT_MODEL", raising=False)
+
+    router = ProviderRouter.from_env()
+
+    assert router.providers[0].provider_id == "nvidia-nim"
+    assert router.providers[0].default_model == "nvidia/nemotron-3-super-120b-a12b"
+
+
 @pytest.mark.anyio
 async def test_provider_router_prefers_local_then_remote_then_free_cloud(monkeypatch):
     calls: list[str] = []

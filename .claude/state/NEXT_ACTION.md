@@ -1,6 +1,6 @@
-# NEXT ACTION — Hosted Control Plane Regression Follow-up
+# NEXT ACTION — CompanyHelm Dashboard Refresh
 
-**Session:** `hosted-control-plane-regressions` (2026-05-02)
+**Session:** `companyhelm-dashboard-refresh` (2026-05-04)
 **Resume command:** `python scripts/ai_runner.py resume`
 **Status file:** `.claude/state/agent-state.json`
 **Checkpoint log:** `.claude/state/checkpoint.jsonl`
@@ -9,36 +9,35 @@
 
 ## Current Objective
 
-The hosted Control Plane regressions are fixed locally. The next meaningful step is to
-merge the branch, let Render/GitHub Pages deploy, and re-run hosted browser QA
-including direct-chat code-edit scenarios.
+The hosted dashboard refresh is implemented locally. The next meaningful step is to
+push the branch, open a PR, let CI and GitHub Pages run, and merge once the pipeline is green.
 
 ---
 
 ## Completed Steps
 
-- [x] Reproduced hosted schedule creation 404s, missing observability endpoints, and agent profile schema drift
-- [x] Added backend schedule + observability coverage for `backend.server:app`
-- [x] Restored frontend build/test tooling by re-adding `react-scripts`
-- [x] Fixed frontend schedules/logs data handling and removed fake recent-run samples
-- [x] Added regression coverage for hosted schedules, observability, and agent profile persistence
-- [x] Ran `python3 -m pytest -x` successfully (`729 passed, 15 skipped`)
-- [x] Ran frontend test suite successfully (`46 passed`)
+- [x] Audited the local hosted dashboard against the public CompanyHelm marketing site and repo dashboard structure
+- [x] Rebuilt the root hosted dashboard into a more CompanyHelm-style mobile-first overview
+- [x] Added legacy route recovery for `/dashboard`, `/control-plane`, and `/llmrelay`
+- [x] Preserved and regression-tested GitHub + Google social-login affordances
+- [x] Fixed auth callback redirects so successful login lands on `/`
+- [x] Prioritized `nvidia/nemotron-3-super-120b-a12b` for hosted NVIDIA defaults across setup/provider selection paths
+- [x] Added frontend CI coverage (test + production build)
+- [x] Ran `pytest -x` successfully (`733 passed, 15 skipped`)
+- [x] Ran frontend test suite successfully (`52 passed`)
 - [x] Verified `npm run build` succeeds for the GitHub Pages frontend
 
 ## Next Step
 
-- [ ] Push the branch and merge it to `master`
-- [ ] Wait for Render + GitHub Pages to finish deploying
-- [ ] Verify the live hosted site:
-  - schedules can be created from the UI without 404s
-  - logs/activity/metrics tabs show real data instead of empty or fake states
-  - Engineer agent profiles retain role/runtime/task metadata
-  - direct chat handles complex code-edit / commit-oriented prompts acceptably
+- [ ] Commit the branch and push `feat/companyhelm-dashboard-refresh`
+- [ ] Open a PR against `master`
+- [ ] Wait for CI / GitHub Pages checks to finish green
+- [ ] Merge to `master`
+- [ ] Re-run a quick live smoke check on the deployed GitHub Pages dashboard
 
 ## If Interrupted
 
-1. Read `.claude/state/agent-state.json` for full plan state
-2. Read `.claude/state/checkpoint.jsonl` for last successful checkpoint
-3. Run `python scripts/ai_runner.py status` to see current state
-4. Run `python scripts/ai_runner.py resume` to continue from last checkpoint
+1. Read `.claude/state/agent-state.json` for full status
+2. Read `.claude/state/checkpoint.jsonl` for the last persisted milestone
+3. Run `git status --short` to confirm the staged diff
+4. Resume with PR creation and hosted verification
