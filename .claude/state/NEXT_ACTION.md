@@ -1,30 +1,42 @@
-# NEXT ACTION — Frontend Login + GitHub Pages Follow-up
+# NEXT ACTION — CompanyHelm Dashboard Refresh
 
-**Session:** `frontend-login-companyhelm-regression` (2026-05-04)
-**Branch:** `fix/login-companyhelm`
+**Session:** `companyhelm-dashboard-refresh` (2026-05-04)
+**Resume command:** `python scripts/ai_runner.py resume`
+**Status file:** `.claude/state/agent-state.json`
+**Checkpoint log:** `.claude/state/checkpoint.jsonl`
 
 ---
 
 ## Current Objective
 
-The GitHub Pages frontend regression is fixed locally and ready to ship.
-The next meaningful step is to push the branch, open a PR, merge to `master`,
-and verify the live GitHub Pages deployment.
+The hosted dashboard refresh is implemented locally. The next meaningful step is to
+push the branch, open a PR, let CI and GitHub Pages run, and merge once the pipeline is green.
+
+---
 
 ## Completed Steps
 
-- [x] Reproduced the live `/login` blank-screen failure in Firefox and captured the runtime error (`ReferenceError: CheckCircle is not defined`)
-- [x] Confirmed the new `/companyhelm` route hijacked deep links away from the standard auth flow
-- [x] Added regression coverage for actual login-page rendering and GitHub Pages deep-link routing
-- [x] Fixed the missing icon imports in `frontend/src/pages/LoginPage.js`
-- [x] Redirected `/companyhelm` back to `/login` in `frontend/src/App.js`
-- [x] Ran `pytest -x` successfully (`737 passed, 15 skipped`)
-- [x] Ran the full frontend test suite successfully (`48 passed`)
-- [x] Verified a GitHub Pages-style local build manually in Firefox for both `/local-llm-server/login` and `/local-llm-server/companyhelm`
+- [x] Audited the local hosted dashboard against the public CompanyHelm marketing site and repo dashboard structure
+- [x] Rebuilt the root hosted dashboard into a more CompanyHelm-style mobile-first overview
+- [x] Added legacy route recovery for `/dashboard`, `/control-plane`, and `/llmrelay`
+- [x] Preserved and regression-tested GitHub + Google social-login affordances
+- [x] Fixed auth callback redirects so successful login lands on `/`
+- [x] Prioritized `nvidia/nemotron-3-super-120b-a12b` for hosted NVIDIA defaults across setup/provider selection paths
+- [x] Added frontend CI coverage (test + production build)
+- [x] Ran `pytest -x` successfully (`738 passed, 15 skipped`)
+- [x] Ran frontend test suite successfully (`54 passed`)
+- [x] Verified `npm run build` succeeds for the GitHub Pages frontend
 
 ## Next Step
 
-- [ ] Push `fix/login-companyhelm`
-- [ ] Open PR against `master`
-- [ ] Merge once checks are green
-- [ ] Verify `https://strikersam.github.io/local-llm-server/login` and `/companyhelm` live
+- [ ] Re-push the rebased `feat/companyhelm-dashboard-refresh` branch
+- [ ] Wait for CI / GitHub Pages checks to finish green
+- [ ] Merge to `master`
+- [ ] Re-run a quick live smoke check on the deployed GitHub Pages dashboard
+
+## If Interrupted
+
+1. Read `.claude/state/agent-state.json` for full status
+2. Read `.claude/state/checkpoint.jsonl` for the last persisted milestone
+3. Run `git status --short` to confirm the rebased diff
+4. Resume with CI polling and merge

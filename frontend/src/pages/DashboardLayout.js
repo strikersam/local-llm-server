@@ -8,7 +8,6 @@ import {
   Zap, Lock, Calendar, TrendingUp,
 } from 'lucide-react';
 import ControlPlanePage from './ControlPlanePage';
-import DashboardHome from './DashboardHome';
 import ChatPage from './ChatPage';
 import WikiPage from './WikiPage';
 import SourcesPage from './SourcesPage';
@@ -43,7 +42,7 @@ function buildNavSections(isAdmin, isPowerUser) {
     {
       label: 'WORKSPACE',
       items: [
-        { to: '/', icon: LayoutDashboard, label: 'Control Plane', end: true },
+        { to: '/', icon: LayoutDashboard, label: 'Dashboard', end: true },
         { to: '/tasks', icon: CheckSquare, label: 'Tasks' },
       ],
     },
@@ -259,9 +258,11 @@ export default function DashboardLayout() {
       <main className="flex-1 min-w-0 flex flex-col overflow-hidden" style={{ paddingTop: '0' }}>
         <div className="flex-1 overflow-hidden pt-[16px] lg:pt-0">
           <Routes>
-            {/* Control Plane home */}
+            {/* Dashboard home */}
             <Route path="/" element={<div className="h-full overflow-y-auto"><ControlPlanePage /></div>} />
-            <Route path="/dashboard" element={<div className="h-full overflow-y-auto"><DashboardHome /></div>} />
+            <Route path="/dashboard" element={<Navigate to="/" replace />} />
+            <Route path="/control-plane" element={<Navigate to="/" replace />} />
+            <Route path="/llmrelay" element={<Navigate to="/" replace />} />
 
             {/* Workspace */}
             <Route path="/tasks" element={<div className="h-full overflow-y-auto"><TasksPage /></div>} />

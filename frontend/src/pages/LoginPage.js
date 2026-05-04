@@ -183,6 +183,54 @@ export default function LoginPage() {
             </button>
           </form>
 
+          <div className="space-y-4">
+            <div className="relative">
+              <div className="absolute inset-0 flex items-center">
+                <div className="w-full border-t border-[var(--border)]" />
+              </div>
+              <div className="relative flex justify-center">
+                <span className="bg-[var(--bg-base)] px-3 text-[0.7rem] font-mono uppercase tracking-[0.18em] text-[var(--text-muted)]">or continue with</span>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 gap-3">
+              <a
+                href={hasBackendConfig ? `${backendUrl}/api/auth/github/login` : undefined}
+                aria-disabled={!hasBackendConfig}
+                onClick={(event) => {
+                  if (!hasBackendConfig) event.preventDefault();
+                }}
+                className="flex items-center justify-center gap-2 rounded-xl border px-4 py-3 text-[0.9rem] font-medium transition-all duration-200"
+                style={{
+                  borderColor: 'rgba(255,255,255,0.08)',
+                  background: 'rgba(255,255,255,0.02)',
+                  color: 'var(--text-secondary)',
+                  opacity: hasBackendConfig ? 1 : 0.6,
+                }}
+              >
+                <Github size={16} />
+                <span>GitHub</span>
+              </a>
+              <a
+                href={hasBackendConfig ? `${backendUrl}/api/auth/google/login` : undefined}
+                aria-disabled={!hasBackendConfig}
+                onClick={(event) => {
+                  if (!hasBackendConfig) event.preventDefault();
+                }}
+                className="flex items-center justify-center gap-2 rounded-xl border px-4 py-3 text-[0.9rem] font-medium transition-all duration-200"
+                style={{
+                  borderColor: 'rgba(255,255,255,0.08)',
+                  background: 'rgba(255,255,255,0.02)',
+                  color: 'var(--text-secondary)',
+                  opacity: hasBackendConfig ? 1 : 0.6,
+                }}
+              >
+                <GoogleIcon />
+                <span>Google</span>
+              </a>
+            </div>
+          </div>
+
           {!hasBackendConfig && (
             <p className="text-[0.85rem] text-[var(--text-tertiary)] leading-relaxed text-center">
               Need to connect a backend first?{' '}
