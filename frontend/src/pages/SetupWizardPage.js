@@ -68,6 +68,7 @@ const LOCAL_MODELS = {
   verifier: 'deepseek-r1:32b',
   default:  'qwen3-coder:30b',
 };
+const DEFAULT_LANGFUSE_HOST = process.env.REACT_APP_LANGFUSE_BASE_URL || process.env.REACT_APP_LANGFUSE_HOST || 'https://cloud.langfuse.com';
 
 const pill = (label, color = 'green') =>
   `inline-block px-2 py-0.5 rounded text-xs font-semibold bg-${color}-100 text-${color}-800`;
@@ -81,6 +82,8 @@ export default function SetupWizardPage({ onComplete }) {
   const [hardware, setHardware] = useState(null);
   const [models, setModels] = useState([]);
   const [done, setDone] = useState(false);
+  const [setupAlreadyCompleted, setSetupAlreadyCompleted] = useState(false);
+  const [saveNotice, setSaveNotice] = useState('');
   const [loadingState, setLoadingState] = useState(false);
 
   // Backend connection
@@ -124,6 +127,7 @@ export default function SetupWizardPage({ onComplete }) {
   // Step 3 — Runtimes
   const [enableHermes, setEnableHermes] = useState(true);
   const [enableOpenCode, setEnableOpenCode] = useState(false);
+  const [enableTaskHarness, setEnableTaskHarness] = useState(false);
   const [enableAider, setEnableAider] = useState(false);
 
   // Step 4 — Agent
@@ -135,7 +139,7 @@ export default function SetupWizardPage({ onComplete }) {
   const [neverPaid, setNeverPaid] = useState(true);
   const [requireApproval, setRequireApproval] = useState(true);
   const [enableLangfuse, setEnableLangfuse] = useState(false);
-  const [langfuseHost, setLangfuseHost] = useState('https://cloud.langfuse.com');
+  const [langfuseHost, setLangfuseHost] = useState(DEFAULT_LANGFUSE_HOST);
 
   // ─── State population helpers ───────────────────────────────────────────────
 
@@ -174,6 +178,7 @@ export default function SetupWizardPage({ onComplete }) {
     if (Object.keys(rt).length) {
       setEnableHermes(rt.enable_hermes ?? true);
       setEnableOpenCode(rt.enable_opencode ?? false);
+      setEnableTaskHarness(rt.enable_task_harness ?? false);
       setEnableAider(rt.enable_aider ?? false);
     }
     if (Object.keys(a).length) {
@@ -185,7 +190,7 @@ export default function SetupWizardPage({ onComplete }) {
       setNeverPaid(pol.never_use_paid_providers ?? true);
       setRequireApproval(pol.require_approval_before_paid ?? true);
       setEnableLangfuse(pol.enable_langfuse ?? false);
-      setLangfuseHost(pol.langfuse_host || 'https://cloud.langfuse.com');
+      setLangfuseHost(current => pol.langfuse_host || current || DEFAULT_LANGFUSE_HOST);
     }
   }, []);
 
@@ -218,6 +223,7 @@ export default function SetupWizardPage({ onComplete }) {
 
     if (rt.enableHermes   !== undefined) setEnableHermes(rt.enableHermes);
     if (rt.enableOpenCode !== undefined) setEnableOpenCode(rt.enableOpenCode);
+    if (rt.enableTaskHarness   !== undefined) setEnableTaskHarness(rt.enableTaskHarness);
     if (rt.enableAider    !== undefined) setEnableAider(rt.enableAider);
 
     if (a.agentName)                   setAgentName(a.agentName);
@@ -236,11 +242,10 @@ export default function SetupWizardPage({ onComplete }) {
       const r = await getSetupState();
       const state = r.data;
       if (state.completed) {
-        setDone(true);
-        if (onComplete) onComplete();
-        return;
+        setSetupAlreadyCompleted(true);
       }
-      setStep(state.current_step || 1);
+      setDone(false);
+      setStep(state.current_step || (state.completed ? 5 : 1));
       applyWizardState(state);
     } catch {
       // Backend unavailable — fall back to localStorage draft
@@ -301,6 +306,9 @@ export default function SetupWizardPage({ onComplete }) {
             if (data.nvidia_nim?.configured) {
               setNvidiaKeyConfigured(true);
               setUseNvidiaNim(true);
+            }
+            if (data.langfuse?.host) {
+              setLangfuseHost(data.langfuse.host);
             }
           }
         } catch {}
@@ -466,16 +474,17 @@ export default function SetupWizardPage({ onComplete }) {
       currentStep,
       step1: { useNvidiaNim, useOllama, ollamaUrl, repoPath, modelsPath, useOpenAI, openaiSecretId, useAnthropic, anthropicSecretId, useGoogle, googleSecretId, useAzure, azureSecretId, useCopilot, copilotSecretId },
       step2: { defaultModel, reviewerModel },
-      step3: { enableHermes, enableOpenCode, enableAider },
+      step3: { enableHermes, enableOpenCode, enableTaskHarness, enableAider },
       step4: { agentName, agentModel, costPolicy },
       step5: { neverPaid, requireApproval, enableLangfuse, langfuseHost },
     });
-  }, [useNvidiaNim, useOllama, ollamaUrl, repoPath, modelsPath, useOpenAI, openaiSecretId, useAnthropic, anthropicSecretId, useGoogle, googleSecretId, useAzure, azureSecretId, useCopilot, copilotSecretId, defaultModel, reviewerModel, enableHermes, enableOpenCode, enableAider, agentName, agentModel, costPolicy, neverPaid, requireApproval, enableLangfuse, langfuseHost]);
+  }, [useNvidiaNim, useOllama, ollamaUrl, repoPath, modelsPath, useOpenAI, openaiSecretId, useAnthropic, anthropicSecretId, useGoogle, googleSecretId, useAzure, azureSecretId, useCopilot, copilotSecretId, defaultModel, reviewerModel, enableHermes, enableOpenCode, enableTaskHarness, enableAider, agentName, agentModel, costPolicy, neverPaid, requireApproval, enableLangfuse, langfuseHost]);
 
   // ─── Save step ──────────────────────────────────────────────────────────────
 
   const handleSave = async () => {
     setSaving(true);
+    setSaveNotice('');
     try {
       let newOpenaiSecretId = openaiSecretId;
       let newAnthropicSecretId = anthropicSecretId;
@@ -507,7 +516,7 @@ export default function SetupWizardPage({ onComplete }) {
       const payloads = {
         1: { use_nvidia_nim: useNvidiaNim, use_ollama: useOllama, ollama_base_url: ollamaUrl, repo_path: repoPath, models_path: modelsPath, use_openai: useOpenAI, use_anthropic: useAnthropic, use_google: useGoogle, use_azure: useAzure, openai_secret_id: newOpenaiSecretId, anthropic_secret_id: newAnthropicSecretId, google_secret_id: newGoogleSecretId, azure_secret_id: newAzureSecretId, copilot_secret_id: newCopilotSecretId },
         2: { default_model: defaultModel, coder_model: defaultModel, reviewer_model: reviewerModel },
-        3: { enable_hermes: enableHermes, enable_opencode: enableOpenCode, enable_aider: enableAider },
+        3: { enable_hermes: enableHermes, enable_opencode: enableOpenCode, enable_task_harness: enableTaskHarness, enable_aider: enableAider },
         4: { agent_name: agentName, agent_model: agentModel, cost_policy: costPolicy },
         5: { never_use_paid_providers: neverPaid, require_approval_before_paid: requireApproval, enable_langfuse: enableLangfuse, langfuse_host: langfuseHost },
       };
@@ -523,10 +532,15 @@ export default function SetupWizardPage({ onComplete }) {
         setStep(s => s + 1);
       } else {
         if (backendConnected) await completeSetup();
+        setSetupAlreadyCompleted(true);
         // Clear draft on completion
         try { localStorage.removeItem(SETUP_DRAFT_KEY); } catch {}
-        setDone(true);
-        if (onComplete) onComplete();
+        if (setupAlreadyCompleted) {
+          setSaveNotice('Saved your setup changes. They will be used the next time you run the control plane.');
+        } else {
+          setDone(true);
+          if (onComplete) onComplete();
+        }
       }
     } catch (error) {
       console.error(`[SetupWizard] Error saving Step ${step}:`, error);
@@ -576,7 +590,7 @@ export default function SetupWizardPage({ onComplete }) {
       <div className="w-64 bg-indigo-900 text-white p-6 flex flex-col">
         <div className="mb-8">
           <div className="text-lg font-bold">🧠 Setup Wizard</div>
-          <div className="text-indigo-300 text-sm mt-1">Let's get you started</div>
+          <div className="text-indigo-300 text-sm mt-1">{setupAlreadyCompleted ? 'Update your saved setup anytime' : "Let's get you started"}</div>
         </div>
         <nav className="space-y-1 flex-1">
           {STEPS.map(s => (
@@ -662,6 +676,21 @@ export default function SetupWizardPage({ onComplete }) {
             <div className="mb-4 flex items-center gap-2 text-sm text-indigo-600">
               <div className="w-4 h-4 border-2 border-indigo-600 border-t-transparent rounded-full animate-spin" />
               Loading your saved configuration…
+            </div>
+          )}
+
+          {setupAlreadyCompleted && !done && (
+            <div className="mb-4 rounded-2xl border border-indigo-200 bg-indigo-50 px-4 py-3 text-sm text-indigo-900">
+              <div className="font-semibold">Saved setup loaded</div>
+              <p className="mt-1 text-xs leading-relaxed text-indigo-800">
+                You can change providers, runtimes, and policy settings here at any time. Save the final step again to persist your updates.
+              </p>
+            </div>
+          )}
+
+          {saveNotice && (
+            <div className="mb-4 rounded-2xl border border-green-200 bg-green-50 px-4 py-3 text-sm text-green-800">
+              {saveNotice}
             </div>
           )}
 
@@ -996,6 +1025,7 @@ export default function SetupWizardPage({ onComplete }) {
                   {[
                     { key: 'hermes',   label: 'Hermes',   desc: 'Local LLM relay (built-in) — First Class', val: enableHermes,   set: setEnableHermes,   badge: 'Recommended' },
                     { key: 'opencode', label: 'OpenCode', desc: 'VS Code-style agent runtime',              val: enableOpenCode, set: setEnableOpenCode },
+                    { key: 'task-harness', label: 'Task Harness', desc: 'Compatible external harness for long-running, multi-file agent work', val: enableTaskHarness, set: setEnableTaskHarness },
                     { key: 'aider',    label: 'Aider',    desc: 'Git-native coding agent',                  val: enableAider,    set: setEnableAider },
                   ].map(r => (
                     <label key={r.key} className="flex items-center gap-3 p-4 border rounded-xl cursor-pointer hover:border-indigo-300 transition-colors">

@@ -178,7 +178,14 @@ class AgentRunner:
         for step in plan.steps[:max_steps]:
             step_data = step.model_dump()
             self._log_event(session_id, "step_start", {"step_id": step_data["id"], "description": step_data["description"]})
-            result = await self._execute_step(plan.goal, step_data, requested_model, user_id, memory_store)
+            result = await self._execute_step(
+                plan.goal,
+                step_data,
+                requested_model,
+                user_id,
+                memory_store,
+                session_id=session_id,
+            )
             # Sub-agent condensed summary: trim step results before storing so
             # the orchestrator's context stays lean.  (1-2k token budget.)
             condensed = ContextManager.condense_step_result(result)
@@ -296,6 +303,7 @@ class AgentRunner:
         requested_model: str | None,
         user_id: str | None = None,
         memory_store: UserMemoryStore | None = None,
+        session_id: str | None = None,
     ) -> dict[str, Any]:
         observations: list[dict[str, Any]] = []
         context_items: list[dict[str, Any]] = []
@@ -349,7 +357,32 @@ class AgentRunner:
             if call.tool == "finish":
                 observations.append({"tool": "finish", "result": call.args.get("reason", "done inspecting")})
                 break
+            call_id = f"step-{step['id']}-tool-{16 - remaining}"
+            self._log_event(
+                session_id,
+                "tool_call",
+                {
+                    "call_id": call_id,
+                    "tool_name": call.tool,
+                    "args": call.args,
+                    "step_id": step["id"],
+                    "status": "running",
+                },
+            )
             result = await self._run_tool(call.tool, call.args, user_id=user_id, memory_store=memory_store)
+            tool_failed = isinstance(result, str) and result.startswith("[tool error:")
+            self._log_event(
+                session_id,
+                "tool_result",
+                {
+                    "call_id": call_id,
+                    "tool_name": call.tool,
+                    "args": call.args,
+                    "step_id": step["id"],
+                    "status": "error" if tool_failed else "success",
+                    "output": str(result)[:4000],
+                },
+            )
             observations.append({"tool": call.tool, "args": call.args, "result": result})
             context_items.append({"tool": call.tool, "result": result})
 
