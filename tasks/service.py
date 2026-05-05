@@ -6,6 +6,7 @@ import logging
 import os
 import time
 import asyncio
+from threading import Lock
 from typing import Any
 
 from agents.store import AgentDefinition, AgentStore, get_agent_store
@@ -43,7 +44,7 @@ class TaskWorkflowService:
         # Always queue for execution when the task is runnable — even when no
         # specific agent is assigned.  The coordinator will use the internal_agent
         # runtime (which routes through Nvidia NIM) as the universal fallback.
-        if task.status in {TaskStatus.TODO, TaskStatus.IN_PROGRESS}:
+        if self.should_queue_for_execution(task.status):
             task.pending_agent_run = True
         task.add_log(
             f"Task created by {actor}",
@@ -66,6 +67,10 @@ class TaskWorkflowService:
             )
         await self.store.create(task)
         return task
+
+    @staticmethod
+    def should_queue_for_execution(status: TaskStatus) -> bool:
+        return status in {TaskStatus.TODO, TaskStatus.IN_PROGRESS}
 
     async def save(self, task: Task) -> Task:
         await self.store.update(task)
@@ -97,7 +102,7 @@ class TaskWorkflowService:
             if task.started_at is None:
                 task.started_at = time.time()
             if pending_agent_run is None:
-                task.pending_agent_run = bool(task.agent_id)
+                task.pending_agent_run = True
             else:
                 task.pending_agent_run = pending_agent_run
         elif status in {TaskStatus.IN_REVIEW, TaskStatus.BLOCKED, TaskStatus.DONE, TaskStatus.FAILED}:
@@ -124,7 +129,7 @@ class TaskWorkflowService:
     def assign_agent(self, task: Task, agent_id: str | None, *, actor: str) -> Task:
         previous = task.agent_id
         task.agent_id = agent_id
-        if agent_id and task.status in {TaskStatus.TODO, TaskStatus.IN_PROGRESS}:
+        if agent_id and self.should_queue_for_execution(task.status):
             task.pending_agent_run = True
         task.add_log(
             f"Agent assignment updated by {actor}",
@@ -157,7 +162,7 @@ class TaskWorkflowService:
         )
 
         is_agent = author.startswith("agent:")
-        if not is_agent and task.agent_id and task.status is TaskStatus.IN_REVIEW:
+        if not is_agent and task.status is TaskStatus.IN_REVIEW:
             self.transition(
                 task,
                 TaskStatus.IN_PROGRESS,
@@ -207,7 +212,7 @@ class TaskWorkflowService:
                 TaskStatus.IN_PROGRESS,
                 actor=actor,
                 message=f"Checkpoint rejected by {actor}; task returned to execution",
-                pending_agent_run=bool(task.agent_id),
+                pending_agent_run=True,
             )
 
         task.add_log(
@@ -314,6 +319,9 @@ class TaskWorkflowService:
 class TaskExecutionCoordinator:
     """Executes tasks through the runtime layer using agent definitions."""
 
+    _active_task_ids: set[str] = set()
+    _active_task_ids_guard = Lock()
+
     def __init__(
         self,
         *,
@@ -334,35 +342,44 @@ class TaskExecutionCoordinator:
         )
 
     async def execute(self, task_id: str) -> Task:
+        if not self._claim_task(task_id):
+            log.info("Task %s is already executing; skipping duplicate run request", task_id)
+            existing = await self.store.get(task_id)
+            if existing is None:
+                raise ValueError(f"Task not found: {task_id}")
+            return existing
+
         task = await self.store.get(task_id)
         if task is None:
+            self._release_task(task_id)
             raise ValueError(f"Task not found: {task_id}")
         if not task.pending_agent_run:
+            self._release_task(task_id)
             return task
 
-        agent = await self._resolve_agent(task)
-
-        self.workflow.transition(
-            task,
-            TaskStatus.IN_PROGRESS,
-            actor=f"agent:{agent.agent_id}" if agent else "system:dispatcher",
-            message=f"Execution started for task {task.task_id}",
-            pending_agent_run=False,
-        )
-        task.add_log(
-            "Resolved execution context",
-            event_type="execution_context",
-            actor=f"agent:{agent.agent_id}" if agent else "system:dispatcher",
-            task_status=task.status,
-            metadata={
-                "agent_id": agent.agent_id if agent else None,
-                "runtime_id": task.runtime_id or (agent.runtime_id if agent else None),
-                "model": task.model_preference or (agent.model if agent else None),
-            },
-        )
-        await self.store.update(task)
-
         try:
+            agent = await self._resolve_agent(task)
+
+            self.workflow.transition(
+                task,
+                TaskStatus.IN_PROGRESS,
+                actor=f"agent:{agent.agent_id}" if agent else "system:dispatcher",
+                message=f"Execution started for task {task.task_id}",
+                pending_agent_run=False,
+            )
+            task.add_log(
+                "Resolved execution context",
+                event_type="execution_context",
+                actor=f"agent:{agent.agent_id}" if agent else "system:dispatcher",
+                task_status=task.status,
+                metadata={
+                    "agent_id": agent.agent_id if agent else None,
+                    "runtime_id": task.runtime_id or (agent.runtime_id if agent else None),
+                    "model": task.model_preference or (agent.model if agent else None),
+                },
+            )
+            await self.store.update(task)
+
             spec = self._build_spec(task, agent)
             result, decision = await asyncio.wait_for(
                 self.runtime_manager.execute(spec),
@@ -413,7 +430,21 @@ class TaskExecutionCoordinator:
             )
         finally:
             await self.store.update(task)
+            self._release_task(task_id)
         return task
+
+    @classmethod
+    def _claim_task(cls, task_id: str) -> bool:
+        with cls._active_task_ids_guard:
+            if task_id in cls._active_task_ids:
+                return False
+            cls._active_task_ids.add(task_id)
+            return True
+
+    @classmethod
+    def _release_task(cls, task_id: str) -> None:
+        with cls._active_task_ids_guard:
+            cls._active_task_ids.discard(task_id)
 
     async def _resolve_agent(self, task: Task) -> AgentDefinition | None:
         if task.agent_id:

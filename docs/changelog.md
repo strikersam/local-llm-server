@@ -10,9 +10,11 @@
 - `backend/server.py` / `provider_router.py` / `tests/test_chat_mode_regressions.py` / `tests/test_provider_router.py` / `tests/test_provider_failover_integration.py` — direct chat now uses bounded per-provider timeouts, retries healthy fallbacks without keeping a broken model pin, and returns a stable in-chat recovery/diagnostic message instead of bubbling raw 502/503 failures when the first provider stalls or goes down.
 - `frontend/src/pages/AuthCallback.js` — both social-login callbacks and legacy token callbacks now return users to the root dashboard after auth state sync, avoiding the stale `/control-plane` destination.
 - `.github/workflows/ci.yml` — CI now runs the GitHub Pages frontend test suite and production build in addition to the Python suite, so mobile/dashboard regressions and auth UI regressions are caught before merge.
+- `tasks/service.py` / `tasks/api.py` / `frontend/src/pages/TasksPage.js` — task execution is now much less flaky in the Multica board: moving a task back to `in_progress` always requeues execution even without a manually assigned agent, duplicate overlapping runs are ignored safely, the API exposes an immediate `run` action, and the Tasks UI now lets users choose an agent/runtime/prompt and trigger `Create & run` / `Run now` flows without waiting on the background poller.
 
 ### Added
 - `frontend/src/__tests__/controlPlanePage.test.js` / `frontend/src/__tests__/loginPage.test.js` / `frontend/src/__tests__/authCallback.test.js` / `tests/test_provider_router.py` — added regression coverage for the new dashboard summary, preserved GitHub/Google social login affordances, callback redirects, and the new NVIDIA Nemotron default-provider priority.
+- `frontend/src/__tests__/tasksPage.test.jsx` / `tests/test_tasks_workflow.py` — added regression coverage for immediate task execution from the Multica task board, no-agent requeue behavior, and duplicate-run suppression.
 
 ### Changed
 - `README.md` — refined the human-first README again to improve page traction: replaced the potentially friction-heavy “5-year-old” phrasing, added clearer value framing, a simple benefits table, and more team/adoption-oriented positioning for non-technical readers.
