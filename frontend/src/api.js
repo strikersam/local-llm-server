@@ -14,6 +14,15 @@ export function getBackendUrl() {
   return localStorage.getItem('backend_url') || getDefaultBackendUrl();
 }
 
+export function getAccessToken() {
+  return localStorage.getItem('access_token') || '';
+}
+
+export function getAuthHeaders() {
+  const token = getAccessToken();
+  return token ? { Authorization: `Bearer ${token}` } : {};
+}
+
 export function getPublicPath(path = '') {
   const base = (process.env.PUBLIC_URL || '').replace(/\/$/, '');
   if (!path) return base || '/';

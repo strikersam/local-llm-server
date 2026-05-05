@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from "react";
-import { getBackendUrl } from "../api";
+import { getAuthHeaders, getBackendUrl } from "../api";
 
 export interface AgentStatus {
   id: string;
@@ -60,7 +60,7 @@ export const AgentStatusPanel: React.FC<AgentStatusPanelProps> = ({
         const url = sessionId
           ? `${(getBackendUrl() || "").replace(/\/$/, "")}/api/agent/status?session_id=${encodeURIComponent(sessionId)}`
           : `${(getBackendUrl() || "").replace(/\/$/, "")}/api/agent/status`;
-        const res = await fetch(url);
+        const res = await fetch(url, { headers: getAuthHeaders() });
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         const data = await res.json();
         if (!cancelled) {

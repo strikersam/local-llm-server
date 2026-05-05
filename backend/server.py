@@ -1111,6 +1111,8 @@ async def get_current_user(request: Request) -> dict:
         token = auth[7:]
     elif x_api_key:
         token = x_api_key
+    elif request.url.path in {"/api/agent/status", "/api/agent/stream"}:
+        token = request.query_params.get("access_token")
     if not token:
         token = request.cookies.get("access_token")
     if not token:

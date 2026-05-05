@@ -3,6 +3,7 @@
 ## [Unreleased]
 
 ### Fixed
+- `frontend/src/pages/ChatPage.js` / `frontend/src/components/AgentStatusPanel.jsx` / `frontend/src/components/AgentActivityFeed.jsx` / `backend/server.py` / `frontend/src/__tests__/agentWorkspaceAuth.test.jsx` / `frontend/src/__tests__/chatPage.test.jsx` / `tests/test_chat_mode_regressions.py` — Direct Chat live agent workspace polling and streaming now authenticate correctly, fixing the `HTTP 401` agent-status / activity panes that appeared after login in hosted chat sessions.
 - `setup/api.py` / `tests/test_setup_api.py` — the setup wizard now persists through the hosted MongoDB path when available instead of relying only on local files, so admin setup survives Render restarts/redeploys and can be reopened for edits later.
 - `backend/server.py` / `langfuse_obs.py` / `tests/test_chat_mode_regressions.py` — hosted direct chat now emits Langfuse observations with token counts and latency metadata, and Langfuse URL detection now accepts `LANGFUSE_URL` alongside the existing host/base env names.
 - `tasks/store.py` / `tasks/service.py` / `tasks/dispatcher.py` / `agents/api.py` / `tests/test_task_dispatcher.py` / `tests/test_tasks_workflow.py` / `tests/test_agents_api.py` — task execution now fans out concurrently, auto-assignment prefers less-busy matching agents, and the Agents API reports running/open-task status so the roster no longer leaves free agents looking idle while work is queued.

@@ -27,6 +27,8 @@ jest.mock('../api', () => ({
   createTask: jest.fn(),
   deleteSession: jest.fn(),
   fmtErr: (value) => value?.message || String(value),
+  getAccessToken: jest.fn(() => 'token-123'),
+  getAuthHeaders: jest.fn(() => ({ Authorization: 'Bearer token-123' })),
   getBackendUrl: jest.fn(() => ''),
   getGithubStatus: jest.fn(),
   getSession: jest.fn(),
@@ -41,6 +43,8 @@ const {
   chatSend,
   createSchedule,
   createTask,
+  getAccessToken,
+  getAuthHeaders,
   getGithubStatus,
   getSession,
   listProviderModels,
@@ -52,6 +56,8 @@ beforeEach(() => {
   jest.clearAllMocks();
   mockParams = {};
   localStorage.clear();
+  getAccessToken.mockReturnValue('token-123');
+  getAuthHeaders.mockReturnValue({ Authorization: 'Bearer token-123' });
   window.HTMLElement.prototype.scrollIntoView = jest.fn();
   global.fetch = jest.fn().mockResolvedValue({
     ok: true,
@@ -279,4 +285,8 @@ test('renders the live agent workspace when session telemetry exists', async () 
   expect(await screen.findByTestId('agent-console')).toBeInTheDocument();
   expect(screen.getByText(/live agent workspace/i)).toBeInTheDocument();
   expect(screen.getByText(/tracked the full agent run/i)).toBeInTheDocument();
+  expect(global.fetch).toHaveBeenCalledWith(
+    '/api/agent/status?session_id=session-live',
+    { headers: { Authorization: 'Bearer token-123' } },
+  );
 });

@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import { chatSend, listSessions, getSession, deleteSession, listProviders, listProviderModels, getGithubStatus, createTask, createSchedule, fmtErr, getBackendUrl } from '../api';
+import { chatSend, listSessions, getSession, deleteSession, listProviders, listProviderModels, getGithubStatus, createTask, createSchedule, fmtErr, getAuthHeaders, getBackendUrl } from '../api';
 import { Send, Plus, Trash2, MessageSquare, Bot, User, Loader2, Zap, Clock, Settings, X, ChevronDown } from 'lucide-react';
 import AgentStatusPanel from '../components/AgentStatusPanel.jsx';
 import AgentActivityFeed from '../components/AgentActivityFeed.jsx';
@@ -424,7 +424,9 @@ export default function ChatPage() {
     const loadAgentSnapshot = async () => {
       try {
         const base = (getBackendUrl() || '').replace(/\/$/, '');
-        const response = await fetch(`${base}/api/agent/status?session_id=${encodeURIComponent(sessionId)}`);
+        const response = await fetch(`${base}/api/agent/status?session_id=${encodeURIComponent(sessionId)}`, {
+          headers: getAuthHeaders(),
+        });
         if (!response.ok) {
           if (!cancelled) setAgentSnapshot(emptyAgentSnapshot());
           return;

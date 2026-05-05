@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from "react";
-import { getBackendUrl } from "../api";
+import { getAuthHeaders, getBackendUrl } from "../api";
 
 const STATUS_STYLES = {
   idle: "bg-gray-500/20 text-gray-400 border-gray-500/30",
@@ -40,7 +40,7 @@ export default function AgentStatusPanel({ sessionId, pollInterval = 2000, class
         const url = sessionId
           ? `${base}/api/agent/status?session_id=${encodeURIComponent(sessionId)}`
           : `${base}/api/agent/status`;
-        const res = await fetch(url);
+        const res = await fetch(url, { headers: getAuthHeaders() });
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         const data = await res.json();
         if (!cancelled) {

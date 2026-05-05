@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from "react";
-import { getBackendUrl } from "../api";
+import { getAccessToken, getBackendUrl } from "../api";
 
 const AGENT_COLORS = {
   planner: "text-blue-400 bg-blue-400/10 border-blue-400/20",
@@ -52,7 +52,10 @@ export default function AgentActivityFeed({ sessionId, maxEvents = 100, classNam
     }
 
     const base = (getBackendUrl() || "").replace(/\/$/, "");
-    const url = `${base}/api/agent/stream?session_id=${encodeURIComponent(sessionId)}`;
+    const params = new URLSearchParams({ session_id: sessionId });
+    const accessToken = getAccessToken();
+    if (accessToken) params.set("access_token", accessToken);
+    const url = `${base}/api/agent/stream?${params.toString()}`;
     const es = new EventSource(url);
 
     es.onopen = () => setConnected(true);

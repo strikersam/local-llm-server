@@ -162,6 +162,20 @@ def test_agent_stream_endpoint_emits_server_sent_events(client) -> None:
     assert "Started read_file" in first_chunk
 
 
+def test_agent_status_endpoint_accepts_access_token_query_param(client) -> None:
+    login = client.post(
+        "/api/auth/login",
+        json={"email": "admin@llmrelay.local", "password": "WikiAdmin2026!"},
+    )
+    assert login.status_code == 200, login.text
+    token = login.json()["access_token"]
+
+    response = client.get(f"/api/agent/status?access_token={token}")
+
+    assert response.status_code == 200, response.text
+    assert response.json()["has_events"] is False
+
+
 def test_chat_send_returns_safe_boundary_for_repo_editing_requests_when_agent_mode_is_off(
     client, monkeypatch
 ) -> None:
