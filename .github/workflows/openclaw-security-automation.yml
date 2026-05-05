@@ -13,7 +13,8 @@ on:
 permissions:
   contents: read
   issues: write
-  vulnerability-alerts: read
+  vuln-alerts: read
+  security-events: read
 
 jobs:
   security-automation:
