@@ -2,6 +2,16 @@
 
 ## [Unreleased]
 
+### Fixed
+- `setup/api.py` / `tests/test_setup_api.py` — the setup wizard now persists through the hosted MongoDB path when available instead of relying only on local files, so admin setup survives Render restarts/redeploys and can be reopened for edits later.
+- `backend/server.py` / `langfuse_obs.py` / `tests/test_chat_mode_regressions.py` — hosted direct chat now emits Langfuse observations with token counts and latency metadata, and Langfuse URL detection now accepts `LANGFUSE_URL` alongside the existing host/base env names.
+- `tasks/store.py` / `tasks/service.py` / `tasks/dispatcher.py` / `agents/api.py` / `tests/test_task_dispatcher.py` / `tests/test_tasks_workflow.py` / `tests/test_agents_api.py` — task execution now fans out concurrently, auto-assignment prefers less-busy matching agents, and the Agents API reports running/open-task status so the roster no longer leaves free agents looking idle while work is queued.
+- `backend/server.py` / `frontend/src/pages/LogsPage.js` / `tests/test_activity_logs.py` — the activity/logs surface now includes recent in-process error logs and renders timestamps from `created_at`, making backend failures visible in the dashboard instead of disappearing silently.
+- `frontend/src/pages/SetupWizardPage.js` / `frontend/src/__tests__/setupWizard.test.js` — the setup wizard now has a mobile step toggle, stacked controls, and responsive navigation/action layouts so onboarding remains usable on narrow screens.
+
+### Security
+- `backend/server.py` — refreshed JWT access/refresh tokens now include unique `iat`/`jti` claims so a refresh always yields a distinct token even when requests land in the same second.
+
 ### Changed
 - `frontend/src/pages/ControlPlanePage.js` / `frontend/src/pages/DashboardLayout.js` — replaced the root hosted dashboard with a more CompanyHelm-style mobile-first workspace overview: usage and provider priority live at the top, task/routing/agent/provider/runtime/schedule sections are grouped into clearer operational cards, and the primary sidebar entry is now simply **Dashboard**. Legacy `/dashboard`, `/control-plane`, and `/llmrelay` URLs now funnel back to the root dashboard instead of leaving stale entry points behind.
 - `frontend/src/pages/SetupWizardPage.js` / `backend/server.py` / `provider_router.py` / `.github/scripts/implement_agent.py` / `.github/scripts/review_agent.py` — NVIDIA defaults now prioritize `nvidia/nemotron-3-super-120b-a12b` wherever the repo chooses a hosted default model, while still keeping the coder-specific Qwen path available for code-heavy execution.

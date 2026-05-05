@@ -34,6 +34,11 @@ import httpx
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, Field
 
+try:
+    from motor.motor_asyncio import AsyncIOMotorClient
+except ImportError:  # pragma: no cover - optional in some minimal environments
+    AsyncIOMotorClient = None
+
 from rbac import UserRole, audit, get_user_role, require_admin
 from secrets_store import get_secrets_store, SecretRecord
 
@@ -42,6 +47,7 @@ log = logging.getLogger("qwen-proxy")
 DEFAULT_LANGFUSE_HOST = (
     os.environ.get("LANGFUSE_BASE_URL")
     or os.environ.get("LANGFUSE_HOST")
+    or os.environ.get("LANGFUSE_URL")
     or "https://cloud.langfuse.com"
 )
 
@@ -139,6 +145,45 @@ _WIZARD_STATE_DIR = Path.home() / ".local-llm-server" / "wizard-states"
 _WIZARD_STATE_DIR.mkdir(parents=True, exist_ok=True)
 
 _wizard_states: dict[str, WizardState] = {}
+_wizard_state_collection: Any | None = None
+_wizard_state_collection_configured = False
+_wizard_state_client: Any | None = None
+
+
+def set_wizard_state_collection(collection: Any | None) -> None:
+    """Override the persistence collection used for wizard state.
+
+    Tests and hosted backends can inject a Mongo-style collection here. Pass
+    ``None`` to fall back to auto-detection (or disk persistence when no DB is
+    configured).
+    """
+    global _wizard_state_collection, _wizard_state_collection_configured
+    _wizard_state_collection = collection
+    _wizard_state_collection_configured = collection is not None
+
+
+def clear_wizard_state_cache() -> None:
+    """Clear the in-memory wizard-state cache."""
+    _wizard_states.clear()
+
+
+def _get_wizard_state_collection() -> Any | None:
+    global _wizard_state_client, _wizard_state_collection
+    if _wizard_state_collection_configured:
+        return _wizard_state_collection
+    if _wizard_state_collection is not None:
+        return _wizard_state_collection
+    mongo_url = (os.environ.get("MONGO_URL") or "").strip()
+    if not mongo_url or AsyncIOMotorClient is None:
+        return None
+    try:
+        db_name = (os.environ.get("DB_NAME") or "llm_wiki_dashboard").strip() or "llm_wiki_dashboard"
+        _wizard_state_client = _wizard_state_client or AsyncIOMotorClient(mongo_url)
+        _wizard_state_collection = _wizard_state_client[db_name]["wizard_states"]
+    except Exception as exc:  # pragma: no cover - defensive fallback
+        log.warning("Wizard state DB unavailable; falling back to disk: %s", exc)
+        _wizard_state_collection = None
+    return _wizard_state_collection
 
 
 def _get_state_file(user_id: str) -> Path:
@@ -147,8 +192,17 @@ def _get_state_file(user_id: str) -> Path:
     return _WIZARD_STATE_DIR / f"{safe_id}.json"
 
 
-def _load_wizard_state(user_id: str) -> WizardState:
+async def _load_wizard_state(user_id: str) -> WizardState:
     """Load wizard state from disk, or create a new one if not found."""
+    collection = _get_wizard_state_collection()
+    if collection is not None:
+        try:
+            data = await collection.find_one({"user_id": user_id}, {"_id": 0})
+            if data:
+                return WizardState(**data)
+        except Exception as e:
+            log.warning("Failed to load wizard state for %s from DB: %s", user_id, e)
+
     state_file = _get_state_file(user_id)
     if state_file.exists():
         try:
@@ -160,8 +214,20 @@ def _load_wizard_state(user_id: str) -> WizardState:
     return WizardState(user_id=user_id)
 
 
-def _save_wizard_state(state: WizardState) -> None:
+async def _save_wizard_state(state: WizardState) -> None:
     """Persist wizard state to disk."""
+    collection = _get_wizard_state_collection()
+    if collection is not None:
+        try:
+            await collection.replace_one(
+                {"user_id": state.user_id},
+                state.as_dict(),
+                upsert=True,
+            )
+            return
+        except Exception as e:
+            log.error("Failed to save wizard state for %s to DB: %s", state.user_id, e)
+
     state_file = _get_state_file(state.user_id)
     try:
         with open(state_file, 'w') as f:
@@ -170,10 +236,25 @@ def _save_wizard_state(state: WizardState) -> None:
         log.error("Failed to save wizard state for %s: %s", state.user_id, e)
 
 
-def get_wizard_state(user_id: str) -> WizardState:
+async def _delete_wizard_state(user_id: str) -> None:
+    collection = _get_wizard_state_collection()
+    if collection is not None:
+        try:
+            await collection.delete_one({"user_id": user_id})
+        except Exception as e:
+            log.warning("Failed to delete wizard state for %s from DB: %s", user_id, e)
+    state_file = _get_state_file(user_id)
+    try:
+        if state_file.exists():
+            state_file.unlink()
+    except Exception as e:
+        log.warning("Failed to delete wizard state file for %s: %s", user_id, e)
+
+
+async def get_wizard_state(user_id: str) -> WizardState:
     """Get wizard state, loading from disk if not already in memory."""
     if user_id not in _wizard_states:
-        _wizard_states[user_id] = _load_wizard_state(user_id)
+        _wizard_states[user_id] = await _load_wizard_state(user_id)
     return _wizard_states[user_id]
 
 
@@ -213,7 +294,7 @@ async def _detect_ollama_models(base_url: str = "http://localhost:11434") -> lis
 async def get_setup_state(request: Request):
     """Return the current wizard state for this user."""
     uid   = _uid(request)
-    state = get_wizard_state(uid)
+    state = await get_wizard_state(uid)
     return state.as_dict()
 
 
@@ -270,10 +351,10 @@ async def detect_models_for_wizard(ollama_url: str = "http://localhost:11434"):
 async def save_step1(request: Request, body: Step1Request):
     """Save Step 1: Provider setup."""
     uid   = _uid(request)
-    state = get_wizard_state(uid)
+    state = await get_wizard_state(uid)
     state.step1_providers = body.model_dump()
     state.current_step    = max(state.current_step, 2)
-    _save_wizard_state(state)
+    await _save_wizard_state(state)
     audit("setup.step1", getattr(request.state, "user", {}), resource="setup")
     return {"step": 1, "saved": True, "next_step": 2}
 
@@ -282,10 +363,10 @@ async def save_step1(request: Request, body: Step1Request):
 async def save_step2(request: Request, body: Step2Request):
     """Save Step 2: Model selection."""
     uid   = _uid(request)
-    state = get_wizard_state(uid)
+    state = await get_wizard_state(uid)
     state.step2_model  = body.model_dump()
     state.current_step = max(state.current_step, 3)
-    _save_wizard_state(state)
+    await _save_wizard_state(state)
     audit("setup.step2", getattr(request.state, "user", {}), resource="setup")
     return {"step": 2, "saved": True, "next_step": 3}
 
@@ -294,10 +375,10 @@ async def save_step2(request: Request, body: Step2Request):
 async def save_step3(request: Request, body: Step3Request):
     """Save Step 3: Runtime configuration."""
     uid   = _uid(request)
-    state = get_wizard_state(uid)
+    state = await get_wizard_state(uid)
     state.step3_runtimes = body.model_dump()
     state.current_step   = max(state.current_step, 4)
-    _save_wizard_state(state)
+    await _save_wizard_state(state)
     audit("setup.step3", getattr(request.state, "user", {}), resource="setup")
     return {"step": 3, "saved": True, "next_step": 4}
 
@@ -306,10 +387,10 @@ async def save_step3(request: Request, body: Step3Request):
 async def save_step4(request: Request, body: Step4Request):
     """Save Step 4: Default agent."""
     uid   = _uid(request)
-    state = get_wizard_state(uid)
+    state = await get_wizard_state(uid)
     state.step4_agent  = body.model_dump()
     state.current_step = max(state.current_step, 5)
-    _save_wizard_state(state)
+    await _save_wizard_state(state)
     audit("setup.step4", getattr(request.state, "user", {}), resource="setup")
     return {"step": 4, "saved": True, "next_step": 5}
 
@@ -318,10 +399,10 @@ async def save_step4(request: Request, body: Step4Request):
 async def save_step5(request: Request, body: Step5Request):
     """Save Step 5: Policy preferences."""
     uid   = _uid(request)
-    state = get_wizard_state(uid)
+    state = await get_wizard_state(uid)
     state.step5_policy = body.model_dump()
     state.current_step = 5
-    _save_wizard_state(state)
+    await _save_wizard_state(state)
     audit("setup.step5", getattr(request.state, "user", {}), resource="setup")
     return {"step": 5, "saved": True, "next_step": "complete"}
 
@@ -330,10 +411,10 @@ async def save_step5(request: Request, body: Step5Request):
 async def complete_wizard(request: Request):
     """Mark wizard as complete.  Will not be shown again on next login."""
     uid   = _uid(request)
-    state = get_wizard_state(uid)
+    state = await get_wizard_state(uid)
     state.completed    = True
     state.completed_at = time.time()
-    _save_wizard_state(state)
+    await _save_wizard_state(state)
     audit("setup.complete", getattr(request.state, "user", {}), resource="setup", outcome="success")
     log.info("Setup wizard completed for user %s", uid)
     return {"completed": True, "user_id": uid}
@@ -346,6 +427,7 @@ async def reset_wizard(request: Request):
     target_uid = (await request.json()).get("user_id", _uid(request))
     if target_uid in _wizard_states:
         del _wizard_states[target_uid]
+    await _delete_wizard_state(target_uid)
     audit("setup.reset", getattr(request.state, "user", {}), resource="setup", resource_id=target_uid)
     return {"reset": True, "user_id": target_uid}
 

@@ -42,7 +42,7 @@ def _langfuse_enabled() -> bool:
 
 
 def _base_url() -> str:
-    host = _env_val("LANGFUSE_BASE_URL") or _env_val("LANGFUSE_HOST")
+    host = _env_val("LANGFUSE_BASE_URL") or _env_val("LANGFUSE_HOST") or _env_val("LANGFUSE_URL")
     if not host:
         host = "https://cloud.langfuse.com"
     return host.rstrip("/")

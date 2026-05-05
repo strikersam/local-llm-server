@@ -160,6 +160,55 @@ async def test_create_task_auto_assigns_best_available_agent(
 
 
 @pytest.mark.asyncio
+async def test_create_task_prefers_least_busy_matching_agent(
+    workflow: TaskWorkflowService,
+    agent_store: AgentStore,
+    task_store: TaskStore,
+):
+    await agent_store.create(
+        AgentDefinition(
+            owner_id="owner@example.com",
+            agent_id="agent_busy",
+            name="Busy Code Agent",
+            model="qwen3-coder:30b",
+            task_types=["code_generation"],
+            is_public=True,
+        )
+    )
+    await agent_store.create(
+        AgentDefinition(
+            owner_id="owner@example.com",
+            agent_id="agent_free",
+            name="Free Code Agent",
+            model="qwen3-coder:30b",
+            task_types=["code_generation"],
+            is_public=True,
+        )
+    )
+    await task_store.create(
+        Task(
+            owner_id="owner@example.com",
+            title="Already running",
+            agent_id="agent_busy",
+            task_type="code_generation",
+            status=TaskStatus.IN_PROGRESS,
+            pending_agent_run=True,
+        )
+    )
+
+    task = Task(
+        owner_id="owner@example.com",
+        title="Generate endpoint",
+        description="Create the missing endpoint.",
+        task_type="code_generation",
+    )
+
+    await workflow.create_task(task, actor="owner@example.com")
+
+    assert task.agent_id == "agent_free"
+
+
+@pytest.mark.asyncio
 async def test_rejecting_checkpoint_requeues_task(workflow: TaskWorkflowService):
     task = Task(
         owner_id="owner@example.com",

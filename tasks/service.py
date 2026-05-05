@@ -277,6 +277,19 @@ class TaskWorkflowService:
         candidates = await agent_store.list_for_user(task.owner_id, include_public=True)
         if not candidates:
             return None
+        open_counts = await self.store.count_by_agent(
+            owner_id=task.owner_id,
+            statuses={
+                TaskStatus.TODO,
+                TaskStatus.IN_PROGRESS,
+                TaskStatus.IN_REVIEW,
+                TaskStatus.BLOCKED,
+            },
+        )
+        active_counts = await self.store.count_by_agent(
+            owner_id=task.owner_id,
+            statuses={TaskStatus.IN_PROGRESS},
+        )
 
         def _score(agent: AgentDefinition) -> tuple[int, int, float]:
             score = 0
@@ -305,6 +318,9 @@ class TaskWorkflowService:
 
             if any(tag.startswith("crispy:") for tag in agent.tags):
                 score += 3
+
+            score -= open_counts.get(agent.agent_id, 0) * 12
+            score -= active_counts.get(agent.agent_id, 0) * 25
 
             return (score, -agent.use_count, -agent.created_at)
 

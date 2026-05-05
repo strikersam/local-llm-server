@@ -10,6 +10,7 @@ import re
 import secrets
 import sys
 import uuid
+from collections import deque
 from contextlib import asynccontextmanager
 from copy import deepcopy
 from datetime import datetime, timedelta, timezone
@@ -55,6 +56,7 @@ from provider_router import (
     ProviderRouter,
     extract_openai_text,
 )
+from langfuse_obs import emit_chat_observation
 from runtimes.api import runtime_router
 from runtimes.manager import get_runtime_manager
 from schedules import schedules_router
@@ -69,6 +71,40 @@ logging.basicConfig(
     level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s"
 )
 log = logging.getLogger("llm-wiki")
+
+
+_ERROR_LOG_BUFFER: deque[dict[str, object]] = deque(maxlen=250)
+
+
+class _InMemoryErrorLogHandler(logging.Handler):
+    def emit(self, record: logging.LogRecord) -> None:
+        if record.levelno < logging.ERROR:
+            return
+        _ERROR_LOG_BUFFER.appendleft(
+            {
+                "category": "error",
+                "level": record.levelname.lower(),
+                "message": record.getMessage(),
+                "logger": record.name,
+                "created_at": datetime.now(timezone.utc).isoformat(),
+            }
+        )
+
+
+def _ensure_error_log_capture() -> None:
+    root_logger = logging.getLogger()
+    if any(getattr(handler, "_companyhelm_error_buffer", False) for handler in root_logger.handlers):
+        return
+    handler = _InMemoryErrorLogHandler(level=logging.ERROR)
+    handler._companyhelm_error_buffer = True  # type: ignore[attr-defined]
+    root_logger.addHandler(handler)
+
+
+def clear_error_log_buffer() -> None:
+    _ERROR_LOG_BUFFER.clear()
+
+
+_ensure_error_log_capture()
 
 SCHEDULER = AgentScheduler()
 set_scheduler(SCHEDULER)
@@ -672,12 +708,25 @@ LANGFUSE_SK = os.environ.get("LANGFUSE_SECRET_KEY", "")
 LANGFUSE_BASE = (
     os.environ.get("LANGFUSE_BASE_URL")
     or os.environ.get("LANGFUSE_HOST")
+    or os.environ.get("LANGFUSE_URL")
     or "https://cloud.langfuse.com"
 )
 AGENT_EVENT_STORE = AgentSessionStore()
 AUTO_SKILL_LIBRARY = SkillLibrary()
 ADMIN_SECRET = os.environ.get("ADMIN_SECRET", "")
 NGROK_DOMAIN = os.environ.get("NGROK_DOMAIN", "")
+
+
+def _langfuse_credentials() -> tuple[str, str, str]:
+    public_key = (os.environ.get("LANGFUSE_PUBLIC_KEY") or "").strip()
+    secret_key = (os.environ.get("LANGFUSE_SECRET_KEY") or "").strip()
+    base_url = (
+        os.environ.get("LANGFUSE_BASE_URL")
+        or os.environ.get("LANGFUSE_HOST")
+        or os.environ.get("LANGFUSE_URL")
+        or "https://cloud.langfuse.com"
+    ).strip().rstrip("/")
+    return public_key, secret_key, base_url
 NGROK_TOKEN = os.environ.get("NGROK_AUTH_TOKEN", "") or os.environ.get("NGROK_AUTHTOKEN", "")
 
 OPENROUTER_API_KEY = os.environ.get("OPENROUTER_API_KEY", "")
@@ -1030,7 +1079,9 @@ def create_access_token(user_id: str, email: str) -> str:
         {
             "sub": user_id,
             "email": email,
+            "iat": datetime.now(timezone.utc),
             "exp": datetime.now(timezone.utc) + timedelta(hours=24),
+            "jti": uuid.uuid4().hex,
             "type": "access",
         },
         JWT_SECRET,
@@ -1042,7 +1093,9 @@ def create_refresh_token(user_id: str) -> str:
     return jwt.encode(
         {
             "sub": user_id,
+            "iat": datetime.now(timezone.utc),
             "exp": datetime.now(timezone.utc) + timedelta(days=7),
+            "jti": uuid.uuid4().hex,
             "type": "refresh",
         },
         JWT_SECRET,
@@ -2844,6 +2897,7 @@ async def call_llm(
     allow_commercial_fallback_once: bool = False,
     max_retries: int = 2,
     provider_timeout_sec: float = 300.0,
+    observation: dict[str, object] | None = None,
 ) -> str:
     provider = (
         await db.providers.find_one({"provider_id": provider_id})
@@ -2853,6 +2907,7 @@ async def call_llm(
     if not provider:
         provider = _fallback_local_provider_record()
     provider_type = str(provider.get("type") or "openai-compatible")
+    started_at = datetime.now(timezone.utc)
     try:
         router, policy, primary_provider = await _build_provider_router(
             primary_provider_id=str(provider.get("provider_id") or "") or None,
@@ -2872,7 +2927,32 @@ async def call_llm(
             provider_timeout_sec=provider_timeout_sec,
             allow_commercial_fallback=policy["allow_commercial_fallback"],
         )
-        return extract_openai_text(result.response.json())
+        response_payload = result.response.json()
+        response_text = extract_openai_text(response_payload)
+        if observation:
+            try:
+                usage = response_payload.get("usage") if isinstance(response_payload, dict) else {}
+                usage = usage if isinstance(usage, dict) else {}
+                emit_chat_observation(
+                    email=str(observation.get("email") or "unknown"),
+                    department=str(observation.get("department") or "general"),
+                    key_id=str(observation.get("key_id")) if observation.get("key_id") else None,
+                    model=result.model or response_payload.get("model") or model or OLLAMA_MODEL,
+                    messages=messages,
+                    output_text=response_text,
+                    prompt_tokens=int(usage.get("prompt_tokens") or 0),
+                    completion_tokens=int(usage.get("completion_tokens") or 0),
+                    latency_ms=max(0, int((datetime.now(timezone.utc) - started_at).total_seconds() * 1000)),
+                    routing_meta={
+                        "provider_id": result.provider.provider_id,
+                        "provider_type": result.provider.type,
+                        "attempt_count": len(result.attempts),
+                    },
+                    task_name=str(observation.get("task_name") or "chat completion"),
+                )
+            except Exception as exc:
+                log.warning("Langfuse emit failed for hosted chat: %s", exc)
+        return response_text
     except CommercialFallbackRequiredError as exc:
         raise HTTPException(
             status_code=409,
@@ -2934,6 +3014,7 @@ async def _agent_timeout_fallback_response(
     temperature: float,
     session_model: str | None,
     allow_commercial_fallback_once: bool,
+    observation: dict[str, object] | None = None,
 ) -> str:
     fallback_messages = [
         {
@@ -2964,6 +3045,7 @@ async def _agent_timeout_fallback_response(
                     temperature=temperature,
                     provider_id=provider_id,
                     allow_commercial_fallback_once=allow_commercial_fallback_once,
+                    observation=observation,
                 ),
                 timeout=15,
             )
@@ -3020,6 +3102,7 @@ async def _recover_direct_chat_response(
     temperature: float,
     allow_commercial_fallback_once: bool,
     failure_detail: str,
+    observation: dict[str, object] | None = None,
 ) -> str:
     recovery_model = requested_model or session_model
     log.warning("Direct chat primary attempt failed: %s", failure_detail)
@@ -3042,6 +3125,7 @@ async def _recover_direct_chat_response(
                 allow_commercial_fallback_once=allow_commercial_fallback_once,
                 max_retries=_DIRECT_CHAT_MAX_RETRIES,
                 provider_timeout_sec=_DIRECT_CHAT_PROVIDER_TIMEOUT_SEC,
+                observation=observation,
             )
             return (
                 "⚠️ The selected provider or model did not answer reliably, so I "
@@ -3159,6 +3243,12 @@ async def chat_send(body: ChatMessage, user: dict = Depends(get_current_user)):
         else (session.get("temperature") or 0.3)
     )
     assistant_meta: dict[str, object] | None = None
+    observation_payload = {
+        "email": user.get("email") or ADMIN_EMAIL,
+        "department": user.get("department") or "general",
+        "key_id": user.get("key_id"),
+        "task_name": "direct chat",
+    }
 
     # Respect the chat toggle strictly: direct chat stays on the fast LLM path
     # unless the caller explicitly enables Agent Mode.
@@ -3237,6 +3327,7 @@ async def chat_send(body: ChatMessage, user: dict = Depends(get_current_user)):
                     session_model=session.get("model"),
                     temperature=float(temperature),
                     allow_commercial_fallback_once=body.allow_commercial_fallback_once,
+                    observation=observation_payload,
                 )
             except Exception as fallback_exc:
                 log.error(
@@ -3376,6 +3467,7 @@ async def chat_send(body: ChatMessage, user: dict = Depends(get_current_user)):
                     allow_commercial_fallback_once=body.allow_commercial_fallback_once,
                     max_retries=_DIRECT_CHAT_MAX_RETRIES,
                     provider_timeout_sec=_DIRECT_CHAT_PROVIDER_TIMEOUT_SEC,
+                    observation=observation_payload,
                 ),
                 timeout=_LLM_TIMEOUT_SEC,
             )
@@ -3397,6 +3489,7 @@ async def chat_send(body: ChatMessage, user: dict = Depends(get_current_user)):
                     temperature=float(temperature),
                     allow_commercial_fallback_once=body.allow_commercial_fallback_once,
                     failure_detail=_chat_error_detail_text(exc.detail),
+                    observation=observation_payload,
                 )
             except HTTPException as recovery_exc:
                 if (
@@ -3421,6 +3514,7 @@ async def chat_send(body: ChatMessage, user: dict = Depends(get_current_user)):
                     failure_detail=(
                         f"The initial direct-chat request exceeded {_LLM_TIMEOUT_SEC} seconds."
                     ),
+                    observation=observation_payload,
                 )
             except HTTPException as recovery_exc:
                 if (
@@ -3817,9 +3911,21 @@ async def delete_source(source_id: str, user: dict = Depends(get_current_user)):
 @app.get("/api/activity")
 async def get_activity(limit: int = 50, user: dict = Depends(get_current_user)):
     logs = []
-    async for entry in db.activity_log.find({}).sort("created_at", -1).limit(limit):
-        entry["_id"] = str(entry["_id"])
-        logs.append(entry)
+    try:
+        async for entry in db.activity_log.find({}).sort("created_at", -1).limit(limit):
+            entry["_id"] = str(entry["_id"])
+            logs.append(entry)
+    except Exception as exc:
+        log.debug("Activity query unavailable: %s", exc)
+    if _ERROR_LOG_BUFFER:
+        logs.extend(list(_ERROR_LOG_BUFFER)[:limit])
+    logs.sort(
+        key=lambda entry: str(
+            entry.get("created_at") or entry.get("timestamp") or entry.get("time") or ""
+        ),
+        reverse=True,
+    )
+    logs = logs[:limit]
     return {"logs": logs, "events": logs, "activity": logs}
 
 
@@ -4327,18 +4433,19 @@ async def observability_usage(period: str = "month", user: dict = Depends(get_cu
 
 @app.get("/api/observability/status")
 async def observability_status(user: dict = Depends(get_current_user)):
-    configured = bool(LANGFUSE_PK and LANGFUSE_SK)
+    langfuse_pk, langfuse_sk, langfuse_base = _langfuse_credentials()
+    configured = bool(langfuse_pk and langfuse_sk)
     status = {
         "configured": configured,
-        "base_url": LANGFUSE_BASE,
-        "public_key_prefix": LANGFUSE_PK[:12] + "..." if LANGFUSE_PK else "",
+        "base_url": langfuse_base,
+        "public_key_prefix": langfuse_pk[:12] + "..." if langfuse_pk else "",
     }
     if configured:
         try:
             async with httpx.AsyncClient(timeout=10) as c:
                 r = await c.get(
-                    f"{LANGFUSE_BASE}/api/public/health",
-                    auth=(LANGFUSE_PK, LANGFUSE_SK),
+                    f"{langfuse_base}/api/public/health",
+                    auth=(langfuse_pk, langfuse_sk),
                 )
                 if r.status_code == 200:
                     status["connected"] = True
@@ -4359,7 +4466,8 @@ async def observability_status(user: dict = Depends(get_current_user)):
 
 @app.get("/api/observability/dashboard-url")
 async def observability_dashboard(user: dict = Depends(get_current_user)):
-    return {"url": LANGFUSE_BASE, "configured": bool(LANGFUSE_PK)}
+    langfuse_pk, _, langfuse_base = _langfuse_credentials()
+    return {"url": langfuse_base, "configured": bool(langfuse_pk)}
 
 
 @app.get("/api/observability/metrics")
