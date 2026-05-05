@@ -142,7 +142,9 @@ def fix_one_dependabot_alert() -> bool:
         return False
     
     alert = alerts[0]  # Fix the first alert
-    print(f"Processing Dependabot alert #{alert['number']}: {alert['security_advisory']['advisory']['id']}")
+    # Use .get() to avoid KeyError if the structure is unexpected
+    advisory_id = alert.get('security_advisory', {}).get('id', 'unknown')
+    print(f"Processing Dependabot alert #{alert['number']}: {advisory_id}")
     
     # Extract dependency information
     dep = alert["dependency"]
@@ -150,7 +152,7 @@ def fix_one_dependabot_alert() -> bool:
     current_version = dep["version"]
     vulnerable_version_range = dep["vulnerable_version_range"]
     # The advisory should contain information about patched versions
-    advisory = alert["security_advisory"]
+    advisory = alert.get("security_advisory", {})
     # We'll try to update to the latest version (this is simplistic)
     # In practice, we should check what versions are available and not vulnerable
     
@@ -198,8 +200,8 @@ def fix_one_dependabot_alert() -> bool:
                 commit_message,
                 f"Automated fix for Dependabot alert #{alert['number']}\n\n"
                 f"This PR updates `{package_name}` to address the security vulnerability.\n"
-                f"- Advisory: {advisory['html_url']}\n"
-                f"- Alert: {alert['html_url']}\n"
+                f"- Advisory: {advisory.get('html_url', 'N/A')}\n"
+                f"- Alert: {alert.get('html_url', 'N/A')}\n"
             )
             if pr_url:
                 print(f"Created PR: {pr_url}")
