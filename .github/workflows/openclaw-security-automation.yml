@@ -15,8 +15,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     permissions:
-      contents: read
-      issues: write
+      vulnerability-alerts: read
       security-events: read
     env:
       GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
