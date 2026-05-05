@@ -14,12 +14,13 @@ permissions:
   contents: read
   issues: write
   security-events: read
-  dependabot: read
 
 jobs:
   security-automation:
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    permissions:
+      dependabot-alerts: read
     env:
       GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       GITHUB_REPOSITORY: ${{ github.repository }}
