@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import { chatSend, listSessions, getSession, deleteSession, listProviders, listProviderModels, getGithubStatus, createTask, createSchedule, fmtErr, getBackendUrl } from '../api';
+import { chatSend, listSessions, getSession, deleteSession, listProviders, listProviderModels, getAgentChatJob, cancelAgentChatJob, getGithubStatus, createTask, createSchedule, fmtErr, getBackendUrl } from '../api';
 import { Send, Plus, Trash2, MessageSquare, Bot, User, Loader2, Zap, Clock, Settings, X, ChevronDown } from 'lucide-react';
 import AgentStatusPanel from '../components/AgentStatusPanel.jsx';
 import AgentActivityFeed from '../components/AgentActivityFeed.jsx';
@@ -395,6 +395,14 @@ export default function ChatPage() {
   const [agentMode,  setAgentMode]  = useState(localStorage.getItem('llmrelay_agent_mode') === 'true');
   const [showPicker, setShowPicker] = useState(false);
   const [approvalPrompt, setApprovalPrompt] = useState(null);
+  const [agentJob, setAgentJob] = useState(null);
+  const [githubStatus, setGithubStatus] = useState({ connected: false, login: '' });
+  const [workflowAction, setWorkflowAction] = useState('');
+  const [agentSnapshot, setAgentSnapshot] = useState(emptyAgentSnapshot);
+  const [agentConsoleTab, setAgentConsoleTab] = useState('progress');
+  const [agentWorkspaceState, setAgentWorkspaceState] = useState('idle');
+  const [agentWorkspaceError, setAgentWorkspaceError] = useState('');
+  const [agentJob, setAgentJob] = useState(null);
   const [githubStatus, setGithubStatus] = useState({ connected: false, login: '' });
   const [workflowAction, setWorkflowAction] = useState('');
   const [agentSnapshot, setAgentSnapshot] = useState(emptyAgentSnapshot);
@@ -405,6 +413,7 @@ export default function ChatPage() {
   const messagesEndRef = useRef(null);
   const inputRef       = useRef(null);
   const elapsedTimerRef = useRef(null);
+  const jobPollRef = useRef(null);
 
   // Persist
   useEffect(() => { localStorage.setItem(LS_PROVIDER_ID, providerId); }, [providerId]);
@@ -416,6 +425,34 @@ export default function ChatPage() {
   useEffect(() => { loadSessions(); loadProviders(); loadGithubAccess(); }, []); // eslint-disable-line
   useEffect(() => { if (paramSid) loadSession(paramSid); }, [paramSid]); // eslint-disable-line
   useEffect(() => { messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' }); }, [messages]);
+  useEffect(() => () => jobPollRef.current && clearInterval(jobPollRef.current), []);
+
+  const startJobPolling = (jobId) => {
+    if (jobPollRef.current) clearInterval(jobPollRef.current);
+    jobPollRef.current = setInterval(async () => {
+      try {
+        const { data } = await getAgentChatJob(jobId);
+        setAgentJob(data);
+        if (['succeeded', 'failed', 'cancelled'].includes(data.status)) {
+          clearInterval(jobPollRef.current);
+          jobPollRef.current = null;
+          if (data.status === 'succeeded' && data.result?.response) {
+            setMessages(prev => [...prev, { role: 'assistant', content: data.result.response }]);
+            loadSessions();
+          } else if (data.status !== 'succeeded') {
+            setMessages(prev => [...prev, {
+              role: 'assistant',
+              content: `Agent job ${data.status}: ${data.error?.message || 'Execution stopped.'}`,
+            }]);
+          }
+        }
+      } catch {
+        clearInterval(jobPollRef.current);
+        jobPollRef.current = null;
+      }
+    }, 1500);
+  };
+
   useEffect(() => {
     if (!sessionId) {
       setAgentSnapshot(emptyAgentSnapshot());
@@ -520,11 +557,16 @@ export default function ChatPage() {
         allowCommercialFallbackOnce,
       );
       setSessionId(data.session_id);
-      setMessages(prev => [...prev, {
-        role: 'assistant',
-        content: data.response,
-        agentHandoff: data.assistant_meta || null,
-      }]);
+      if (data.job_id) {
+        setAgentJob(data);
+        startJobPolling(data.job_id);
+      } else {
+        setMessages(prev => [...prev, {
+          role: 'assistant',
+          content: data.response,
+          agentHandoff: data.assistant_meta || null,
+        }]);
+      }
       if (!nextSessionId) navigate(`/chat/${data.session_id}`, { replace: true });
       setApprovalPrompt(null);
       loadSessions();
@@ -646,6 +688,18 @@ export default function ChatPage() {
     await deleteSession(sid);
     if (sessionId === sid) startNew();
     loadSessions();
+  };
+
+  const handleCancelAgentJob = async () => {
+    if (!agentJob?.job_id) return;
+    try {
+      const { data } = await cancelAgentChatJob(agentJob.job_id);
+      setAgentJob(data);
+      if (jobPollRef.current) {
+        clearInterval(jobPollRef.current);
+        jobPollRef.current = null;
+      }
+    } catch {}
   };
 
   const handleKeyDown = (e) => {
@@ -812,6 +866,28 @@ export default function ChatPage() {
           </div>
         </div>
 
+        {agentJob && (
+          <div className="px-4 md:px-6 py-3 border-b border-white/10 bg-[#101318]">
+            <div className="rounded-2xl border border-[#002FA7]/25 bg-[#002FA7]/8 p-3 md:p-4 flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
+              <div className="min-w-0">
+                <div className="text-[10px] font-mono uppercase tracking-[0.18em] text-[#AFC4FF]">Agent job</div>
+                <div className="mt-1 text-sm text-white">{agentJob.status} · {agentJob.phase}</div>
+                <div className="mt-1 text-[11px] text-[#A0A0A0] leading-relaxed">
+                  {(agentJob.progress_events || []).slice(-1)[0]?.message || 'Waiting for progress...'}
+                </div>
+              </div>
+              {['queued', 'running'].includes(agentJob.status) && (
+                <button
+                  onClick={handleCancelAgentJob}
+                  className="self-start md:self-auto px-3 py-2 rounded-xl border border-white/10 text-[11px] font-mono uppercase tracking-wider text-[#A0A0A0] hover:text-white hover:border-white/20 transition-colors"
+                >
+                  Cancel
+                </button>
+              )}
+            </div>
+          </div>
+        )}
+
         {showAgentConsole && (
           <div className="px-3 pt-3 md:px-6 md:pt-4">
             <div className="rounded-[28px] border border-white/10 bg-[#11151D]/90 shadow-[0_16px_50px_rgba(0,0,0,0.28)] backdrop-blur-xl overflow-hidden" data-testid="agent-console">
@@ -894,6 +970,9 @@ export default function ChatPage() {
                   </div>
                 </div>
               </div>
+            </div>
+          </div>
+        )}
             </div>
           </div>
         )}

@@ -15,6 +15,7 @@ from contextlib import asynccontextmanager
 from copy import deepcopy
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from typing import Any
 
 import bcrypt
 import httpx
@@ -1075,13 +1076,14 @@ def verify_password(plain: str, hashed: str) -> bool:
 
 
 def create_access_token(user_id: str, email: str) -> str:
+    now = datetime.now(timezone.utc)
     return jwt.encode(
         {
             "sub": user_id,
             "email": email,
-            "iat": datetime.now(timezone.utc),
-            "exp": datetime.now(timezone.utc) + timedelta(hours=24),
-            "jti": uuid.uuid4().hex,
+            "iat": now,
+            "jti": secrets.token_hex(8),
+            "exp": now + timedelta(hours=24),
             "type": "access",
         },
         JWT_SECRET,
@@ -1090,17 +1092,32 @@ def create_access_token(user_id: str, email: str) -> str:
 
 
 def create_refresh_token(user_id: str) -> str:
+    now = datetime.now(timezone.utc)
     return jwt.encode(
         {
             "sub": user_id,
-            "iat": datetime.now(timezone.utc),
-            "exp": datetime.now(timezone.utc) + timedelta(days=7),
-            "jti": uuid.uuid4().hex,
+            "iat": now,
+            "jti": secrets.token_hex(8),
+            "exp": now + timedelta(days=7),
             "type": "refresh",
         },
         JWT_SECRET,
         algorithm=JWT_ALGORITHM,
     )
+
+
+def _token_response(*, uid: str, email: str, name: str, role: str, access: str, refresh: str) -> dict[str, Any]:
+    return {
+        "_id": uid,
+        "id": uid,
+        "email": email,
+        "name": name,
+        "role": role,
+        "access_token": access,
+        "refresh_token": refresh,
+        "token_type": "bearer",
+        "expires_in": 24 * 60 * 60,
+    }
 
 
 async def get_current_user(request: Request) -> dict:
@@ -2713,14 +2730,14 @@ async def login(body: LoginBody):
             uid = "admin_user_001"
             access = create_access_token(uid, ADMIN_EMAIL)
             refresh = create_refresh_token(uid)
-            return {
-                "_id": uid,
-                "email": ADMIN_EMAIL,
-                "name": "Admin",
-                "role": "admin",
-                "access_token": access,
-                "refresh_token": refresh,
-            }
+            return _token_response(
+                uid=uid,
+                email=ADMIN_EMAIL,
+                name="Admin",
+                role="admin",
+                access=access,
+                refresh=refresh,
+            )
         raise HTTPException(status_code=401, detail="Invalid credentials")
 
     if not user or not verify_password(body.password, user["password_hash"]):
@@ -2732,19 +2749,23 @@ async def login(body: LoginBody):
         await log_activity("auth", f"User {email} logged in", user_id=uid)
     except Exception:
         pass  # Ignore activity log failures in limited mode
-    return {
-        "_id": uid,
-        "email": user["email"],
-        "name": user.get("name", ""),
-        "role": user.get("role", "user"),
-        "access_token": access,
-        "refresh_token": refresh,
-    }
+    return _token_response(
+        uid=uid,
+        email=user["email"],
+        name=user.get("name", ""),
+        role=user.get("role", "user"),
+        access=access,
+        refresh=refresh,
+    )
 
 
 @app.post("/api/auth/logout")
-async def logout():
-    response = JSONResponse({"ok": True})
+async def logout(user: dict = Depends(get_current_user)):
+    response = JSONResponse({
+        "ok": True,
+        "status": "logged out",
+        "email": user.get("email", ""),
+    })
     response.delete_cookie("access_token", path="/")
     response.delete_cookie("refresh_token", path="/")
     return response
@@ -2752,7 +2773,10 @@ async def logout():
 
 @app.get("/api/auth/me")
 async def me(user: dict = Depends(get_current_user)):
-    return user
+    result = dict(user)
+    if "id" not in result and result.get("_id"):
+        result["id"] = result["_id"]
+    return result
 
 
 @app.post("/api/auth/refresh")
@@ -2765,7 +2789,16 @@ async def refresh_token(request: Request):
         payload = jwt.decode(token, JWT_SECRET, algorithms=[JWT_ALGORITHM])
         if payload.get("type") != "refresh":
             raise HTTPException(status_code=401, detail="Invalid token type")
-        user = await db.users.find_one({"_id": ObjectId(payload["sub"])})
+        try:
+            user = await db.users.find_one({"_id": ObjectId(payload["sub"])})
+        except Exception:
+            if payload.get("sub") == "admin_user_001":
+                user = {
+                    "_id": "admin_user_001",
+                    "email": ADMIN_EMAIL,
+                }
+            else:
+                user = None
         if not user:
             raise HTTPException(status_code=401, detail="User not found")
         uid = str(user["_id"])

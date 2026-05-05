@@ -17,6 +17,7 @@ from runtimes.base import (
     IntegrationMode,
     RuntimeAdapter,
     RuntimeCapability,
+    RuntimeDependency,
     RuntimeExecutionError,
     RuntimeHealth,
     RuntimeTier,
@@ -84,6 +85,20 @@ class InternalAgentAdapter(RuntimeAdapter):
             (config or {}).get("workspace_root")
             or str(Path(__file__).resolve().parents[2])
         )
+        self._task_harness_required = str(
+            (config or {}).get("task_harness_required", os.environ.get("TASK_HARNESS_REQUIRED", "false"))
+        ).lower() == "true"
+
+    def required_dependencies(self) -> list[RuntimeDependency]:
+        if not self._task_harness_required:
+            return []
+        return [
+            RuntimeDependency(
+                name="task-harness",
+                config_var="TASK_HARNESS_BIN",
+                install_hint="Install a compatible harness and point TASK_HARNESS_BIN at it.",
+            )
+        ]
 
     async def health_check(self) -> RuntimeHealth:
         nvidia_key = (
@@ -117,6 +132,10 @@ class InternalAgentAdapter(RuntimeAdapter):
             ollama_base=primary_base,
             workspace_root=spec.workspace_path or self._workspace_root,
             provider_chain=extra_chain,
+            github_token=spec.context.get("github_token"),
+            email=spec.context.get("user_email"),
+            department=spec.context.get("department"),
+            key_id=spec.context.get("key_id"),
         )
 
         started = time.perf_counter()
@@ -137,6 +156,9 @@ class InternalAgentAdapter(RuntimeAdapter):
                 auto_commit=auto_commit,
                 max_steps=int(spec.context.get("max_steps", 8)),
                 user_id=str(spec.context.get("owner_id") or ""),
+                department=spec.context.get("department"),
+                key_id=spec.context.get("key_id"),
+                session_id=spec.context.get("session_id"),
             )
         except Exception as exc:
             raise RuntimeExecutionError(self.RUNTIME_ID, str(exc), spec.task_id) from exc

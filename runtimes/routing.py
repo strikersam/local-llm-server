@@ -27,6 +27,7 @@ from typing import Any, TYPE_CHECKING
 from runtimes.base import (
     RuntimeAdapter,
     RuntimeCapability,
+    RuntimePreflightError,
     RuntimeUnavailableError,
     RuntimeExecutionError,
     TaskResult,
@@ -196,11 +197,14 @@ class RuntimeRoutingPolicyEngine:
         """Try primary runtime; fall back to alternatives on failure."""
         last_exec_error: str = ""
         try:
+            report = await primary_runtime.readiness_check(spec)
+            if not report.ready:
+                raise RuntimePreflightError(primary_runtime.RUNTIME_ID, report)
             result = await primary_runtime.execute(spec)
             decision.model_used = result.model_used
             decision.provider_used = result.provider_used
             return result
-        except (RuntimeUnavailableError, RuntimeExecutionError) as exc:
+        except (RuntimeUnavailableError, RuntimeExecutionError, RuntimePreflightError) as exc:
             last_exec_error = str(exc)
             log.warning("Primary runtime %s failed: %s — attempting fallback",
                         primary_runtime.RUNTIME_ID, exc)
@@ -213,6 +217,9 @@ class RuntimeRoutingPolicyEngine:
             fb_runtime = self._registry.get(fid)
             if fb_runtime and self._health.is_available(fid):
                 try:
+                    report = await fb_runtime.readiness_check(spec)
+                    if not report.ready:
+                        raise RuntimePreflightError(fid, report)
                     result = await fb_runtime.execute(spec)
                     decision.fallback_attempted = True
                     decision.fallback_runtime_id = fid
@@ -220,7 +227,7 @@ class RuntimeRoutingPolicyEngine:
                     decision.model_used = result.model_used
                     decision.provider_used = result.provider_used
                     return result
-                except Exception as fb_exc:
+                except (RuntimeUnavailableError, RuntimeExecutionError, RuntimePreflightError) as fb_exc:
                     last_exec_error = str(fb_exc)
                     log.warning("Fallback runtime %s also failed: %s", fid, fb_exc)
 

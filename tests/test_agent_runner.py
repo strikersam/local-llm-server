@@ -1,7 +1,9 @@
 import asyncio
 from pathlib import Path
 
-from agent.loop import AgentRunner
+import pytest
+
+from agent.loop import AgentPhaseError, AgentRunner
 from agent.state import AgentSessionStore
 
 
@@ -235,6 +237,106 @@ def test_agent_runner_fails_unsafe_jwt_change(tmp_path: Path):
 
     assert result["steps"][0]["status"] == "failed"
     assert any("secret_key" in issue.lower() for issue in result["steps"][0]["issues"])
+
+
+def test_agent_runner_surfaces_structured_planner_failure(tmp_path: Path):
+    root = tmp_path / "repo"
+    root.mkdir()
+
+    runner = AgentRunner(ollama_base="http://localhost:11434", workspace_root=root)
+    responses = iter(["not-json"])
+
+    async def fake_chat_text(model: str, messages: list[dict[str, str]]) -> str:
+        return next(responses)
+
+    runner._chat_text = fake_chat_text  # type: ignore[method-assign]
+
+    with pytest.raises(AgentPhaseError, match="planning"):
+        asyncio.run(
+            runner.run(
+                instruction="Plan this work",
+                history=[],
+                requested_model=None,
+                auto_commit=False,
+                max_steps=3,
+            )
+        )
+
+
+def test_agent_runner_surfaces_structured_verifier_failure(tmp_path: Path):
+    root = tmp_path / "repo"
+    root.mkdir()
+    target = root / "notes.txt"
+    target.write_text("old text\n", encoding="utf-8")
+
+    runner = AgentRunner(ollama_base="http://localhost:11434", workspace_root=root)
+    responses = iter(
+        [
+            '{"goal":"Update notes","steps":[{"id":1,"description":"Replace notes content","files":["notes.txt"],"type":"edit"}]}',
+            '{"tool":"finish","args":{"reason":"done"}}',
+            'FILE: notes.txt\nACTION: replace\n```text\nnew text\n```',
+            'not-json',
+            'still not json',
+            'still not json',
+        ]
+    )
+
+    async def fake_chat_text(model: str, messages: list[dict[str, str]]) -> str:
+        return next(responses)
+
+    runner._chat_text = fake_chat_text  # type: ignore[method-assign]
+
+    result = asyncio.run(
+        runner.run(
+            instruction="Update notes",
+            history=[],
+            requested_model=None,
+            auto_commit=False,
+            max_steps=3,
+        )
+    )
+
+    assert result["steps"][0]["status"] == "failed"
+    assert result["steps"][0]["failure_phase"] == "verification"
+    assert "verifier_output_invalid" in result["steps"][0]["issues"][0]
+
+
+def test_agent_runner_blocks_when_judge_output_invalid(tmp_path: Path):
+    root = tmp_path / "repo"
+    root.mkdir()
+    target = root / "notes.txt"
+    target.write_text("old text\n", encoding="utf-8")
+
+    runner = AgentRunner(ollama_base="http://localhost:11434", workspace_root=root)
+    responses = iter(
+        [
+            '{"goal":"Update notes","steps":[{"id":1,"description":"Replace notes content","files":["notes.txt"],"type":"edit"}]}',
+            '{"tool":"finish","args":{"reason":"Enough context gathered"}}',
+            'FILE: notes.txt\nACTION: replace\n```text\nnew text\n```',
+            '{"status":"pass","issues":[]}',
+            'not-json',
+            'still not json',
+            'still not json',
+        ]
+    )
+
+    async def fake_chat_text(model: str, messages: list[dict[str, str]]) -> str:
+        return next(responses)
+
+    runner._chat_text = fake_chat_text  # type: ignore[method-assign]
+
+    result = asyncio.run(
+        runner.run(
+            instruction="Update notes",
+            history=[],
+            requested_model=None,
+            auto_commit=False,
+            max_steps=3,
+        )
+    )
+
+    assert result["judge"]["verdict"] == "BLOCKED"
+    assert result["judge"]["failure_phase"] == "judge"
 
 
 # ── _normalize_plan_response unit tests ──────────────────────────────────────

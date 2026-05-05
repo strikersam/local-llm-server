@@ -2,6 +2,28 @@
 
 ## [Unreleased]
 
+### Added
+- `agent/job_manager.py` — async direct-chat agent job lifecycle with queued/running/succeeded/failed/cancelled states, heartbeat timestamps, and progress events.
+- `docs/architecture/runtime-model.md`, `docs/architecture/agent-job-lifecycle.md`, `docs/architecture/feature-maturity-matrix.md`, and `docs/runbooks/runtime-troubleshooting.md` — documented runtime preflight, async agent jobs, maturity tiers, and troubleshooting.
+
+### Changed
+- `direct_chat.py` — split direct chat from async agent workflows; `agent_mode=true` now returns `202 Accepted` plus a pollable job id instead of blocking the request until the full tool loop completes.
+- `frontend/src/pages/ChatPage.js` — added a mobile-friendly agent job status card and polling flow for async agent runs.
+- `runtimes/base.py`, `runtimes/api.py`, and `runtimes/routing.py` — added runtime readiness/preflight validation so tasks fail early with structured diagnostics.
+
+### Fixed
+- runtime execution now surfaces actionable missing-binary errors, including `task-harness` configuration guidance, instead of late raw PATH failures.
+- planner/verifier/judge failures now surface phase-specific structured errors and BLOCKED fallback behavior instead of ambiguous downstream failures.
+- `tests/test_iteration_7_features.py` — fixed an accidental indentation error on a skipped test so CI syntax checks and CodeQL can parse the test suite again.
+- `tests/conftest.py` — restored a generic `client` fixture alias so `tests/test_v3_auth.py` can run under the shared test harness.
+- `tests/conftest.py` — set `V3_ADMIN_PASSWORD` in the shared test env so v3 auth tests use the same seeded admin credentials as the mocked backend.
+- `backend/server.py` — `/api/auth/login` now returns `token_type`, `expires_in`, and `id` alongside the tokens, restoring the response contract expected by the v3 auth tests.
+- `backend/server.py` — `/api/auth/me` now includes `id` as an alias of `_id`, matching the v3 auth API contract used by the tests and frontend.
+- `backend/server.py` — auth tokens now include `iat` and `jti`, so refreshing produces a distinct access token even when requests happen in the same second.
+- `backend/server.py` — `/api/auth/logout` now returns `status: "logged out"`, matching the v3 auth test and client expectations.
+- `backend/server.py` — `/api/auth/logout` now also returns the authenticated email, preserving the v3 auth response contract.
+- `backend/server.py` — `/api/auth/refresh` now falls back cleanly for the limited-mode admin user instead of crashing on a non-ObjectId test user id.
+- `Dockerfile.backend` — now copies `commercial_equivalent.py` into the backend image so `langfuse_obs.py` can import it in production; this fixes Render boot failure `ModuleNotFoundError: No module named 'commercial_equivalent'`.
 ### Fixed
 - `frontend/src/pages/ChatPage.js` / `frontend/src/components/AgentStatusPanel.jsx` / `frontend/src/components/AgentActivityFeed.jsx` / `backend/server.py` / `frontend/src/__tests__/agentWorkspaceTransport.test.js` / `frontend/src/__tests__/chatPage.test.jsx` / `tests/test_chat_mode_regressions.py` — Direct Chat live agent workspace polling and streaming now authenticate correctly, fixing the `HTTP 401` agent-status / activity panes that appeared after login in hosted chat sessions.
 - `frontend/src/utils/agentWorkspaceTransport.js` / `frontend/src/pages/ChatPage.js` / `frontend/src/components/AgentStatusPanel.jsx` / `frontend/src/components/AgentActivityFeed.jsx` / `frontend/src/__tests__/agentWorkspaceTransport.test.js` / `frontend/src/__tests__/agentWorkspaceConsole.test.jsx` — the Direct Chat live workspace now uses a single CompanyHelm-style transport path for snapshot polling and event streaming, eliminates duplicate status polling, and shows reconnect / auth-expired banners instead of leaving operators with a silent dead workspace.
