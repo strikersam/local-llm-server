@@ -33,9 +33,9 @@ MAX_TURNS = 40
 # Model preference: heavy reasoning model first, reliable fallbacks after.
 # All are free-tier NVIDIA NIM models.
 CANDIDATE_MODELS = [
-    ("nvidia/llama-3.1-nemotron-ultra-253b-v1", "reasoning (Nemotron Ultra 253B)"),
-    ("meta/llama-3.3-70b-instruct",             "coding (Llama 3.3 70B)"),
+    ("nvidia/nemotron-3-super-120b-a12b",       "reasoning (Nemotron 3 Super 120B)"),
     ("qwen/qwen2.5-coder-32b-instruct",         "coding (Qwen2.5 Coder 32B)"),
+    ("nvidia/llama-3.1-nemotron-ultra-253b-v1", "reasoning (Nemotron Ultra 253B)"),
 ]
 
 

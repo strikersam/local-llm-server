@@ -256,7 +256,7 @@ async def get_activity(
             {
                 "timestamp": "2026-04-24T14:40:00Z",
                 "action": "model_loaded",
-                "model": "gemma4:latest",
+                "model": "nemotron-3-super-120b-a12b",
                 "user": "admin",
             },
         ],

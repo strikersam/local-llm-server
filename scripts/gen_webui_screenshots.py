@@ -18,9 +18,11 @@ from pathlib import Path
 import httpx
 from dotenv import load_dotenv
 
+from scripts.sync_readme_gallery import sync_readme_gallery, write_manifest
+
 
 def _out_dir() -> Path:
-    out = Path("docs/screenshots").resolve()
+    out = Path("docs/screenshots/webui").resolve()
     out.mkdir(parents=True, exist_ok=True)
     return out
 
@@ -80,6 +82,10 @@ async def main() -> None:
     print(f"Saved: {out / 'webui-app.png'}")
     print(f"Saved: {out / 'webui-admin-login.png'}")
     print(f"Saved: {out / 'webui-admin.png'}")
+    sync_readme_gallery(Path("README.md"))
+    write_manifest(Path("docs/screenshots/manifest.json"))
+    print("Updated: README.md")
+    print("Updated: docs/screenshots/manifest.json")
 
 
 if __name__ == "__main__":

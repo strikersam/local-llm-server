@@ -52,7 +52,7 @@ function StatusBadge({ status }) {
 
 function NewScheduleForm({ agents, onCancel, onCreate }) {
   const [name, setName] = useState('');
-  const [agentId, setAgentId] = useState(agents[0]?.id || '');
+  const [agentId, setAgentId] = useState(agents[0]?.id || agents[0]?.agent_id || '');
   const [freq, setFreq] = useState('daily');
   const [approval, setApproval] = useState(false);
   const [submitting, setSubmitting] = useState(false);
@@ -130,14 +130,6 @@ function NewScheduleForm({ agents, onCancel, onCreate }) {
   );
 }
 
-const RECENT_RUNS = [
-  { name: 'Hourly Provider Health Check', time: '14:00', status: 'completed', duration: '8s',    model: 'mistral:7b' },
-  { name: 'Daily Log Digest',              time: '08:00', status: 'completed', duration: '1m 12s', model: 'llama3.2:3b' },
-  { name: 'Weekly Security Scan',          time: 'Mon 02:00', status: 'completed', duration: '4m 51s', model: 'qwen2.5:7b' },
-  { name: 'Hourly Provider Health Check', time: '13:00', status: 'completed', duration: '7s',    model: 'mistral:7b' },
-  { name: 'Wiki Sync & Cleanup',           time: 'Sun 00:00', status: 'failed',    duration: '1m 3s',  model: 'claude-3-haiku' },
-];
-
 export default function SchedulesPage() {
   const [schedules, setSchedules] = useState([]);
   const [agents, setAgents]       = useState([]);
@@ -151,7 +143,7 @@ export default function SchedulesPage() {
     setError('');
     try {
       const r = await listSchedules();
-      setSchedules(Array.isArray(r.data) ? r.data : r.data?.jobs || []);
+      setSchedules(Array.isArray(r.data) ? r.data : r.data?.schedules || r.data?.jobs || []);
     } catch (e) {
       if (e?.response?.status !== 404) setError(fmtErr(e));
     } finally {
@@ -198,6 +190,11 @@ export default function SchedulesPage() {
   const active = schedules.filter(s => s.status === 'active').length;
   const failures = schedules.reduce((n, s) => n + (s.failures || s.fail_count || 0), 0);
   const withGate = schedules.filter(s => s.approval_gate).length;
+  const recentRuns = schedules
+    .filter(s => s.last_run)
+    .slice()
+    .sort((a, b) => new Date(b.last_run).getTime() - new Date(a.last_run).getTime())
+    .slice(0, 10);
 
   return (
     <div className="h-full overflow-y-auto">
@@ -312,25 +309,30 @@ export default function SchedulesPage() {
           )}
         </div>
 
-        {/* Recent runs (static sample) */}
+        {/* Recent runs */}
         <div className="rounded-xl overflow-hidden" style={{ background: C.surface, border: `1px solid ${C.border}` }}>
           <div className="px-4 py-3 border-b" style={{ borderColor: C.border }}>
             <span className="text-[10px] font-mono font-bold uppercase tracking-wider" style={{ color: C.tertiary }}>Recent Runs</span>
           </div>
-          <div className="divide-y" style={{ '--tw-divide-color': 'rgba(255,255,255,0.05)' }}>
-            {RECENT_RUNS.map((r, i) => {
-              const dotColor = r.status === 'completed' ? '#10B981' : r.status === 'failed' ? '#EF4444' : C.muted;
-              return (
-                <div key={i} className="flex items-center gap-3 px-4 py-2.5">
-                  <div className="w-2 h-2 rounded-full shrink-0" style={{ background: dotColor }} />
-                  <span className="flex-1 text-[11px] truncate" style={{ color: C.secondary }}>{r.name}</span>
-                  <span className="text-[9px] font-mono shrink-0" style={{ color: C.muted }}>{r.model}</span>
-                  <span className="text-[9px] font-mono shrink-0" style={{ color: C.muted }}>{r.duration}</span>
-                  <span className="text-[9px] font-mono shrink-0" style={{ color: '#565666' }}>{r.time}</span>
-                </div>
-              );
-            })}
-          </div>
+          {recentRuns.length === 0 ? (
+            <div className="px-4 py-10 text-center text-[11px] font-mono" style={{ color: C.muted }}>
+              No recent runs yet.
+            </div>
+          ) : (
+            <div className="divide-y" style={{ '--tw-divide-color': 'rgba(255,255,255,0.05)' }}>
+              {recentRuns.map((r) => {
+                const dotColor = (r.fail_count || r.failures || 0) > 0 ? '#EF4444' : '#10B981';
+                return (
+                  <div key={r.id || r.job_id} className="flex items-center gap-3 px-4 py-2.5">
+                    <div className="w-2 h-2 rounded-full shrink-0" style={{ background: dotColor }} />
+                    <span className="flex-1 text-[11px] truncate" style={{ color: C.secondary }}>{r.name}</span>
+                    <span className="text-[9px] font-mono shrink-0" style={{ color: C.muted }}>{r.model || '—'}</span>
+                    <span className="text-[9px] font-mono shrink-0" style={{ color: '#565666' }}>{r.last_run}</span>
+                  </div>
+                );
+              })}
+            </div>
+          )}
         </div>
       </div>
     </div>

@@ -14,6 +14,15 @@ export function getBackendUrl() {
   return localStorage.getItem('backend_url') || getDefaultBackendUrl();
 }
 
+export function getAccessToken() {
+  return localStorage.getItem('access_token') || '';
+}
+
+export function getAuthHeaders() {
+  const token = getAccessToken();
+  return token ? { Authorization: `Bearer ${token}` } : {};
+}
+
 export function getPublicPath(path = '') {
   const base = (process.env.PUBLIC_URL || '').replace(/\/$/, '');
   if (!path) return base || '/';
@@ -214,6 +223,7 @@ export const updateTask = (id, data) => API.patch(`/api/tasks/${id}`, data);
 export const deleteTask = (id) => API.delete(`/api/tasks/${id}`);
 export const retryTask = (id) => API.post(`/api/tasks/${id}/retry`);
 export const escalateTask = (id) => API.post(`/api/tasks/${id}/escalate`);
+export const runTask = (id) => API.post(`/api/tasks/${id}/run`);
 export const addTaskComment = (id, data) => API.post(`/api/tasks/${id}/comments`, data);
 export const approveTaskCheckpoint = (id, data) => API.post(`/api/tasks/${id}/approve`, data);
 export const getTaskCounts = () => API.get('/api/tasks/counts');
@@ -282,14 +292,14 @@ export const getWorkspaceDiff = (owner, repo) =>
 export const commitWorkspace = (owner, repo, data) =>
   API.post(`/api/github/repos/${owner}/${repo}/workspace/commit`, data);
 
-// ── Schedules (agent/scheduler) ───────────────────────────────────────────────
-export const listSchedules = () => API.get('/agent/scheduler/jobs');
-export const createSchedule = (data) => API.post('/agent/scheduler/jobs', data);
-export const getSchedule = (id) => API.get(`/agent/scheduler/jobs/${id}`);
-export const triggerSchedule = (id) => API.post(`/agent/scheduler/jobs/${id}/trigger`);
-export const deleteSchedule = (id) => API.delete(`/agent/scheduler/jobs/${id}`);
-export const pauseSchedule = (id) => API.patch(`/agent/scheduler/jobs/${id}`, { status: 'paused' });
-export const resumeSchedule = (id) => API.patch(`/agent/scheduler/jobs/${id}`, { status: 'active' });
+// ── Schedules (Control Plane) ────────────────────────────────────────────────
+export const listSchedules = () => API.get('/api/schedules/');
+export const createSchedule = (data) => API.post('/api/schedules/', data);
+export const getSchedule = (id) => API.get(`/api/schedules/${id}`);
+export const triggerSchedule = (id) => API.post(`/api/schedules/${id}/run`);
+export const deleteSchedule = (id) => API.delete(`/api/schedules/${id}`);
+export const pauseSchedule = (id) => API.patch(`/api/schedules/${id}`, { status: 'paused' });
+export const resumeSchedule = (id) => API.patch(`/api/schedules/${id}`, { status: 'active' });
 
 // ── Workspace sync (v3.1) ─────────────────────────────────────────────────────
 export const getSyncStatus = () => API.get('/api/sync/status');

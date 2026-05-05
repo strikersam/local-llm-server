@@ -2,13 +2,23 @@ import React, { useState, useEffect, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import { chatSend, listSessions, getSession, deleteSession, listProviders, listProviderModels, getAgentChatJob, cancelAgentChatJob, fmtErr } from '../api';
+import { chatSend, listSessions, getSession, deleteSession, listProviders, listProviderModels, getAgentChatJob, cancelAgentChatJob, getGithubStatus, createTask, createSchedule, fmtErr, getBackendUrl } from '../api';
 import { Send, Plus, Trash2, MessageSquare, Bot, User, Loader2, Zap, Clock, Settings, X, ChevronDown } from 'lucide-react';
+import AgentStatusPanel from '../components/AgentStatusPanel.jsx';
+import AgentActivityFeed from '../components/AgentActivityFeed.jsx';
+import ToolCallViewer from '../components/ToolCallViewer.jsx';
+import { fetchAgentWorkspaceSnapshot } from '../utils/agentWorkspaceTransport';
 
 const LS_PROVIDER_ID = 'llmrelay_provider_id';
 const LS_MODEL       = 'llmrelay_model';
 const LS_TEMPERATURE = 'llmrelay_temperature';
 const LS_MODE        = 'llmrelay_mode'; // 'auto' | 'manual'
+const DIRECT_CHAT_GITHUB_KEYWORDS = ['github', 'pull request', 'open pr', 'open a pr', 'branch', 'commit changes', 'push', 'clone'];
+const DIRECT_CHAT_WORKSPACE_KEYWORDS = ['repository', 'repo', 'workspace', 'codebase', 'multi-file', 'multiple files', 'edit code', 'edit file', 'exact file edits', 'tests to add', 'merge strategy'];
+const DIRECT_CHAT_RUNTIME_KEYWORDS = ['docker', 'dockerfile', 'container', 'runtime', 'run tests', 'build image', 'install dependency', 'copy package', 'start server'];
+const DIRECT_CHAT_EXPLANATION_PREFIXES = ['explain', 'why', 'how do', 'how does', 'what is', 'what are', 'walk me through', 'help me understand'];
+const DIRECT_CHAT_EXECUTION_SIGNALS = ['fix ', 'edit ', 'update ', 'change the code', 'apply the fix', 'make the fix', 'run tests', 'run the tests', 'commit the changes', 'push the', 'merge the', 'add a regression test', 'add tests'];
+const DIRECT_CHAT_RECURRING_KEYWORDS = ['every day', 'daily', 'every morning', 'every night', 'every week', 'weekly', 'every month', 'monthly', 'every hour', 'hourly', 'cron', 'schedule this', 'scheduled', 'automatically'];
 
 // ── helpers ───────────────────────────────────────────────────────────────────
 function modelType(name = '') {
@@ -25,9 +35,134 @@ function modelTypeBadge(name) {
 function short(s = '', max = 28) {
   return s.length <= max ? s : s.slice(0, max - 1) + '…';
 }
+function normalizeSessionMessages(messages = []) {
+  return messages.map((message) => ({
+    ...message,
+    agentHandoff: message.agentHandoff || message.assistant_meta || null,
+  }));
+}
+function deriveWorkItemTitle(content = '', fallback = 'Follow up on direct chat request') {
+  let text = content.replace(/\s+/g, ' ').trim();
+  ['\n', '.', '?', '!'].some((delimiter) => {
+    if (!text.includes(delimiter)) return false;
+    text = text.split(delimiter, 1)[0].trim();
+    return true;
+  });
+  if (!text) return fallback;
+  if (text.length > 72) {
+    const trimmed = text.slice(0, 72).replace(/\s+\S*$/, '').trim();
+    text = `${trimmed || text.slice(0, 72).trim()}…`;
+  }
+  return text.charAt(0).toUpperCase() + text.slice(1);
+}
+function inferTaskPriority(content = '') {
+  const lower = content.toLowerCase();
+  if (['urgent', 'sev1', 'critical', 'outage'].some((keyword) => lower.includes(keyword))) return 'urgent';
+  if (['production', 'regression', 'broken', 'fix'].some((keyword) => lower.includes(keyword))) return 'high';
+  return 'medium';
+}
+function inferSchedulePreset(content = '') {
+  const lower = content.toLowerCase();
+  if (lower.includes('every hour') || lower.includes('hourly')) return { cron: '0 * * * *', cadence: 'Hourly' };
+  if (lower.includes('every week') || lower.includes('weekly')) return { cron: '0 9 * * 1', cadence: 'Weekly' };
+  if (lower.includes('every month') || lower.includes('monthly')) return { cron: '0 9 1 * *', cadence: 'Monthly' };
+  return { cron: '0 9 * * *', cadence: 'Daily' };
+}
+function buildDirectChatTags(reasonCodes = []) {
+  return reasonCodes.filter((code) => ['github', 'workspace', 'runtime'].includes(code));
+}
+function buildWorkflowSuggestions(content = '', reasonCodes = []) {
+  const title = deriveWorkItemTitle(content);
+  const taskType = reasonCodes.includes('github') || reasonCodes.includes('workspace')
+    ? 'repository_change'
+    : reasonCodes.includes('runtime')
+      ? 'runtime_change'
+      : 'general';
+
+  const suggestions = [{
+    kind: 'task',
+    label: 'Create Task',
+    route: '/tasks',
+    payload: {
+      title,
+      description: 'Created from a Direct Chat handoff so the work can be tracked in the task board.',
+      prompt: content,
+      priority: inferTaskPriority(content),
+      task_type: taskType,
+      requires_approval: reasonCodes.includes('github'),
+      tags: buildDirectChatTags(reasonCodes),
+    },
+  }];
+
+  const lower = content.toLowerCase();
+  if (DIRECT_CHAT_RECURRING_KEYWORDS.some((keyword) => lower.includes(keyword))) {
+    const { cron, cadence } = inferSchedulePreset(content);
+    suggestions.push({
+      kind: 'schedule',
+      label: 'Create Schedule',
+      route: '/schedules',
+      payload: {
+        name: `${cadence}: ${title}`,
+        cron,
+        instruction: content,
+        approval_gate: reasonCodes.includes('github'),
+        tags: buildDirectChatTags(reasonCodes),
+      },
+    });
+  }
+
+  return suggestions;
+}
+function detectAgentModeRecommendation(content = '', githubConnected = false) {
+  const lower = content.toLowerCase().trim();
+  if (!lower) return null;
+
+  const reasonCodes = [];
+  const reasons = [];
+
+  if (DIRECT_CHAT_GITHUB_KEYWORDS.some((keyword) => lower.includes(keyword))) {
+    reasonCodes.push('github');
+    reasons.push('GitHub branch / PR actions');
+  }
+  if (DIRECT_CHAT_WORKSPACE_KEYWORDS.some((keyword) => lower.includes(keyword))) {
+    reasonCodes.push('workspace');
+    reasons.push('repository / file changes');
+  }
+  if (DIRECT_CHAT_RUNTIME_KEYWORDS.some((keyword) => lower.includes(keyword))) {
+    reasonCodes.push('runtime');
+    reasons.push('workspace or container execution');
+  }
+
+  const asksForConcreteChanges = ['exact file edits', 'tests to add', 'commit message', 'apply the fix', 'make the fix', 'change the code', 'open a pr', 'open pr', 'run tests', 'merge strategy']
+    .some((phrase) => lower.includes(phrase));
+  const asksForExplanation = DIRECT_CHAT_EXPLANATION_PREFIXES.some((prefix) => lower.startsWith(prefix));
+  const hasExecutionSignal = DIRECT_CHAT_EXECUTION_SIGNALS.some((signal) => lower.includes(signal));
+
+  if (!reasonCodes.length) return null;
+  if (asksForExplanation && !hasExecutionSignal) return null;
+  if (reasonCodes.length === 1 && !asksForConcreteChanges) return null;
+
+  return {
+    recommended_mode: 'agent',
+    reason_codes: reasonCodes,
+    reasons,
+    workflow_suggestions: buildWorkflowSuggestions(content, reasonCodes),
+    settings_route: reasonCodes.includes('github') && !githubConnected ? '/settings' : null,
+  };
+}
+
+function emptyAgentSnapshot() {
+  return {
+    has_events: false,
+    agents: [],
+    tool_calls: [],
+    latest_summary: '',
+    latest_error: '',
+  };
+}
 
 // ── ThinkingBubble ────────────────────────────────────────────────────────────
-function ThinkingBubble({ elapsed }) {
+function ThinkingBubble({ elapsed, agentMode }) {
   return (
     <div className="flex gap-3 animate-fade-in">
       <div className="w-7 h-7 bg-[#002FA7] flex items-center justify-center shrink-0">
@@ -35,7 +170,9 @@ function ThinkingBubble({ elapsed }) {
       </div>
       <div className="bg-[#1A1A1A] border border-white/10 px-4 py-3 flex flex-col gap-1.5">
         <div className="flex items-center gap-2">
-          <span className="text-[10px] text-[#737373] font-mono uppercase tracking-wider">Thinking</span>
+          <span className="text-[10px] text-[#737373] font-mono uppercase tracking-wider">
+            {agentMode ? 'Agent running' : 'Thinking'}
+          </span>
           <span className="flex gap-1">
             {[0, 1, 2].map(i => (
               <span
@@ -49,7 +186,20 @@ function ThinkingBubble({ elapsed }) {
         {elapsed >= 10 && (
           <div className="flex items-center gap-1.5 text-[9px] text-[#737373] font-mono">
             <Clock size={9} />
-            <span>{elapsed}s — model may be reasoning deeply, please wait…</span>
+            <span>
+              {agentMode
+                ? `${elapsed}s — Plan → Execute → Verify may take up to 45s`
+                : `${elapsed}s — model may be reasoning deeply, please wait…`}
+            </span>
+          </div>
+        )}
+        {agentMode && (
+          <div className="flex flex-wrap gap-1.5 pt-1">
+            {['Plan', 'Execute', 'Verify'].map((step) => (
+              <span key={step} className="border border-white/10 px-1.5 py-0.5 text-[9px] font-mono uppercase tracking-wider text-[#737373]">
+                {step}
+              </span>
+            ))}
           </div>
         )}
       </div>
@@ -246,6 +396,19 @@ export default function ChatPage() {
   const [showPicker, setShowPicker] = useState(false);
   const [approvalPrompt, setApprovalPrompt] = useState(null);
   const [agentJob, setAgentJob] = useState(null);
+  const [githubStatus, setGithubStatus] = useState({ connected: false, login: '' });
+  const [workflowAction, setWorkflowAction] = useState('');
+  const [agentSnapshot, setAgentSnapshot] = useState(emptyAgentSnapshot);
+  const [agentConsoleTab, setAgentConsoleTab] = useState('progress');
+  const [agentWorkspaceState, setAgentWorkspaceState] = useState('idle');
+  const [agentWorkspaceError, setAgentWorkspaceError] = useState('');
+  const [agentJob, setAgentJob] = useState(null);
+  const [githubStatus, setGithubStatus] = useState({ connected: false, login: '' });
+  const [workflowAction, setWorkflowAction] = useState('');
+  const [agentSnapshot, setAgentSnapshot] = useState(emptyAgentSnapshot);
+  const [agentConsoleTab, setAgentConsoleTab] = useState('progress');
+  const [agentWorkspaceState, setAgentWorkspaceState] = useState('idle');
+  const [agentWorkspaceError, setAgentWorkspaceError] = useState('');
 
   const messagesEndRef = useRef(null);
   const inputRef       = useRef(null);
@@ -259,7 +422,7 @@ export default function ChatPage() {
   useEffect(() => { localStorage.setItem(LS_MODE, mode); }, [mode]);
   useEffect(() => { localStorage.setItem('llmrelay_agent_mode', String(agentMode)); }, [agentMode]);
 
-  useEffect(() => { loadSessions(); loadProviders(); }, []); // eslint-disable-line
+  useEffect(() => { loadSessions(); loadProviders(); loadGithubAccess(); }, []); // eslint-disable-line
   useEffect(() => { if (paramSid) loadSession(paramSid); }, [paramSid]); // eslint-disable-line
   useEffect(() => { messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' }); }, [messages]);
   useEffect(() => () => jobPollRef.current && clearInterval(jobPollRef.current), []);
@@ -290,6 +453,39 @@ export default function ChatPage() {
     }, 1500);
   };
 
+  useEffect(() => {
+    if (!sessionId) {
+      setAgentSnapshot(emptyAgentSnapshot());
+      return undefined;
+    }
+
+    let cancelled = false;
+
+    const loadAgentSnapshot = async () => {
+      try {
+        const data = await fetchAgentWorkspaceSnapshot(sessionId);
+        if (!cancelled) {
+          setAgentSnapshot(data);
+          setAgentWorkspaceState('connected');
+          setAgentWorkspaceError('');
+        }
+      } catch (error) {
+        if (!cancelled) {
+          setAgentSnapshot(emptyAgentSnapshot());
+          setAgentWorkspaceState(error?.code === 'auth' ? 'auth_error' : 'reconnecting');
+          setAgentWorkspaceError(error instanceof Error ? error.message : 'Live agent workspace is reconnecting.');
+        }
+      }
+    };
+
+    loadAgentSnapshot();
+    const timer = setInterval(loadAgentSnapshot, 2000);
+    return () => {
+      cancelled = true;
+      clearInterval(timer);
+    };
+  }, [sessionId]);
+
   const loadSessions = async () => {
     try { const { data } = await listSessions(); setSessions(data.sessions || []); } catch {}
   };
@@ -306,12 +502,21 @@ export default function ChatPage() {
     } catch {}
   };
 
+  const loadGithubAccess = async () => {
+    try {
+      const { data } = await getGithubStatus();
+      setGithubStatus({ connected: Boolean(data.connected), login: data.github_login || data.login || '' });
+    } catch {
+      setGithubStatus({ connected: false, login: '' });
+    }
+  };
+
   const loadSession = async (sid) => {
     try {
       const { data } = await getSession(sid);
       setSessionId(sid);
       setCurrentSession(data);
-      setMessages(data.messages || []);
+      setMessages(normalizeSessionMessages(data.messages || []));
       if (data.provider_id) setProviderId(data.provider_id);
       if (data.model)       setModel(data.model);
       if (data.temperature != null) setTemperature(Number(data.temperature));
@@ -326,18 +531,18 @@ export default function ChatPage() {
     inputRef.current?.focus();
   };
 
-  const sendMessage = async ({ content, nextSessionId = sessionId, allowCommercialFallbackOnce = false, appendUserBubble = true }) => {
+  const sendMessage = async ({ content, nextSessionId = sessionId, allowCommercialFallbackOnce = false, appendUserBubble = true, agentModeOverride = agentMode }) => {
     if (!content.trim() || sending) return;
     setSending(true);
+    if (agentModeOverride) setAgentConsoleTab('activity');
     setThinkingElapsed(0);
     elapsedTimerRef.current = setInterval(() => setThinkingElapsed(p => p + 1), 1000);
     if (appendUserBubble) {
       setMessages(prev => [...prev, { role: 'user', content }]);
     }
 
-    // Auto mode: pass null model+provider → backend router classifies & picks best model.
-    // Agent mode is controlled by the toggle; when off the backend uses _classify_complexity
-    // to decide whether to invoke the agent pipeline (complex tasks) or direct LLM (chat).
+    // Auto mode: pass null model+provider so the backend router can pick a model.
+    // Agent orchestration is controlled strictly by the Agent Mode toggle.
     const sendModel      = mode === 'auto' ? null : (model || null);
     const sendProviderId = mode === 'auto' ? null : (providerId || null);
 
@@ -348,7 +553,7 @@ export default function ChatPage() {
         sendModel,
         sendProviderId,
         temperature,
-        agentMode,
+        agentModeOverride,
         allowCommercialFallbackOnce,
       );
       setSessionId(data.session_id);
@@ -356,7 +561,11 @@ export default function ChatPage() {
         setAgentJob(data);
         startJobPolling(data.job_id);
       } else {
-        setMessages(prev => [...prev, { role: 'assistant', content: data.response }]);
+        setMessages(prev => [...prev, {
+          role: 'assistant',
+          content: data.response,
+          agentHandoff: data.assistant_meta || null,
+        }]);
       }
       if (!nextSessionId) navigate(`/chat/${data.session_id}`, { replace: true });
       setApprovalPrompt(null);
@@ -414,6 +623,66 @@ export default function ChatPage() {
     }]);
   };
 
+  const handleRetryWithAgentMode = async (meta) => {
+    const retryablePrompt = meta?.retryable_prompt;
+    if (!retryablePrompt || sending) return;
+    setAgentMode(true);
+    await sendMessage({
+      content: retryablePrompt,
+      nextSessionId: sessionId,
+      appendUserBubble: false,
+      agentModeOverride: true,
+    });
+  };
+
+  const handleOpenSettings = () => {
+    navigate('/settings');
+  };
+
+  const handleCreateTaskFromSuggestion = async (suggestion) => {
+    const payload = suggestion?.payload;
+    if (!payload || workflowAction) return;
+    setWorkflowAction('task');
+    try {
+      const { data } = await createTask(payload);
+      const createdTask = data?.task || data;
+      setMessages(prev => [...prev, {
+        role: 'assistant',
+        content: `Created task **${createdTask?.title || payload.title}**. Opening Tasks so you can track it.`,
+      }]);
+      navigate('/tasks');
+    } catch (err) {
+      setMessages(prev => [...prev, {
+        role: 'assistant',
+        content: `Error creating task: ${fmtErr(err?.response?.data?.detail) || err?.message || 'Please try again from Tasks.'}`,
+      }]);
+    } finally {
+      setWorkflowAction('');
+    }
+  };
+
+  const handleCreateScheduleFromSuggestion = async (suggestion) => {
+    const payload = suggestion?.payload;
+    if (!payload || workflowAction) return;
+    setWorkflowAction('schedule');
+    try {
+      const { data } = await createSchedule(payload);
+      const createdSchedule = data?.schedule || data;
+      setMessages(prev => [...prev, {
+        role: 'assistant',
+        content: `Created schedule **${createdSchedule?.name || payload.name}**. Opening Schedules so you can manage it.`,
+      }]);
+      navigate('/schedules');
+    } catch (err) {
+      setMessages(prev => [...prev, {
+        role: 'assistant',
+        content: `Error creating schedule: ${fmtErr(err?.response?.data?.detail) || err?.message || 'Please try again from Schedules.'}`,
+      }]);
+    } finally {
+      setWorkflowAction('');
+    }
+  };
+
   const handleDelete = async (sid, e) => {
     e.stopPropagation();
     await deleteSession(sid);
@@ -438,9 +707,27 @@ export default function ChatPage() {
   };
 
   const providerName = providers.find(p => p.provider_id === providerId)?.name || '';
+  const composerRecommendation = !agentMode
+    ? detectAgentModeRecommendation(input, githubStatus.connected)
+    : null;
+  const composerTaskSuggestion = composerRecommendation?.workflow_suggestions?.find((suggestion) => suggestion.kind === 'task');
+  const composerScheduleSuggestion = composerRecommendation?.workflow_suggestions?.find((suggestion) => suggestion.kind === 'schedule');
+  const showAgentConsole = Boolean(
+    sessionId && (
+      sending ||
+      agentMode ||
+      agentWorkspaceState === 'reconnecting' ||
+      agentWorkspaceState === 'auth_error' ||
+      agentSnapshot.has_events ||
+      agentSnapshot.agents.length ||
+      agentSnapshot.tool_calls.length ||
+      agentSnapshot.latest_summary ||
+      agentSnapshot.latest_error
+    )
+  );
 
   return (
-    <div className="h-full flex" data-testid="chat-page">
+    <div className="h-full min-h-0 flex bg-[#0B0D12]" data-testid="chat-page">
       <CommercialApprovalModal
         approval={approvalPrompt}
         onApprove={handleApproveCommercialFallback}
@@ -499,13 +786,13 @@ export default function ChatPage() {
       </div>
 
       {/* Chat area */}
-      <div className="flex-1 flex flex-col min-w-0">
+      <div className="flex-1 flex flex-col min-w-0 min-h-0">
 
         {/* ── Header ── */}
-        <div className="px-4 md:px-6 py-3 border-b border-white/10 flex items-center gap-3 flex-wrap">
+        <div className="sticky top-0 z-20 px-4 md:px-6 py-3 border-b border-white/10 flex items-center gap-3 flex-wrap bg-[#0B0D12]/95 backdrop-blur supports-[backdrop-filter]:bg-[#0B0D12]/80">
           <Bot size={16} className="text-[#002FA7] shrink-0" />
           <span className="text-xs tracking-[0.15em] uppercase text-[#A0A0A0] font-mono font-bold truncate">
-            {currentSession ? currentSession.title?.slice(0, 40) : 'New Agent Session'}
+            {currentSession ? currentSession.title?.slice(0, 40) : 'New Chat Session'}
           </span>
 
           {/* ── Mode toggle ── */}
@@ -559,6 +846,10 @@ export default function ChatPage() {
 
           {/* Agent mode toggle */}
           <div className="ml-auto flex items-center gap-2 shrink-0">
+            <div className="hidden lg:flex items-center gap-2 text-[9px] font-mono uppercase tracking-[0.18em] text-[#737373]">
+              <span className={`w-1.5 h-1.5 rounded-full ${githubStatus.connected ? 'bg-green-500' : 'bg-[#737373]'}`} />
+              <span>{githubStatus.connected ? `GitHub ready${githubStatus.login ? ` · ${githubStatus.login}` : ''}` : 'GitHub not connected'}</span>
+            </div>
             <button
               onClick={() => setAgentMode(m => !m)}
               title={agentMode ? 'Agent mode ON — complex tasks use Plan→Execute→Verify. Click to disable.' : 'Agent mode OFF — direct LLM chat. Click to enable for code/GitHub tasks.'}
@@ -597,8 +888,97 @@ export default function ChatPage() {
           </div>
         )}
 
+        {showAgentConsole && (
+          <div className="px-3 pt-3 md:px-6 md:pt-4">
+            <div className="rounded-[28px] border border-white/10 bg-[#11151D]/90 shadow-[0_16px_50px_rgba(0,0,0,0.28)] backdrop-blur-xl overflow-hidden" data-testid="agent-console">
+              <div className="flex items-center justify-between gap-3 px-4 py-3 border-b border-white/10 bg-white/[0.03]">
+                <div>
+                  <div className="text-[10px] font-mono uppercase tracking-[0.2em] text-[#AFC4FF]">Live agent workspace</div>
+                  <div className="text-xs text-white mt-1">
+                    {agentWorkspaceError
+                      ? agentWorkspaceError
+                      : agentSnapshot.latest_error
+                      ? agentSnapshot.latest_error
+                      : agentSnapshot.latest_summary || 'Track planning, tool use, and verification in real time.'}
+                  </div>
+                </div>
+                <div className="hidden md:flex items-center gap-2 text-[10px] font-mono text-[#737373]">
+                  <span className="border border-white/10 px-2 py-1 rounded-full">{agentSnapshot.agents.length} agents</span>
+                  <span className="border border-white/10 px-2 py-1 rounded-full">{agentSnapshot.tool_calls.length} tools</span>
+                </div>
+              </div>
+
+              <div className="md:hidden px-3 pt-3 flex gap-2 overflow-x-auto scrollbar-hide">
+                {[
+                  ['progress', 'Progress'],
+                  ['activity', 'Activity'],
+                  ['tools', 'Tools'],
+                ].map(([value, label]) => (
+                  <button
+                    key={value}
+                    onClick={() => setAgentConsoleTab(value)}
+                    className={`px-3 py-1.5 rounded-full border text-[10px] font-mono uppercase tracking-[0.18em] whitespace-nowrap transition-colors ${
+                      agentConsoleTab === value
+                        ? 'border-[#002FA7]/60 bg-[#002FA7]/20 text-white'
+                        : 'border-white/10 text-[#737373]'
+                    }`}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
+
+              {agentWorkspaceState === 'reconnecting' && (
+                <div className="mx-4 mt-3 rounded-md border border-amber-400/20 bg-amber-400/10 px-3 py-2 text-[11px] text-amber-200" data-testid="agent-workspace-reconnect-banner">
+                  Reconnecting live agent updates…
+                </div>
+              )}
+
+              {agentWorkspaceState === 'auth_error' && (
+                <div className="mx-4 mt-3 rounded-md border border-red-500/20 bg-red-500/10 px-3 py-2 text-[11px] text-red-200" data-testid="agent-workspace-auth-banner">
+                  Agent workspace session expired. Sign in again to restore live agent updates.
+                </div>
+              )}
+
+              <div className="p-3 md:p-4 md:grid md:grid-cols-2 md:gap-4 space-y-3 md:space-y-0">
+                <div className={`${agentConsoleTab !== 'progress' ? 'hidden md:block' : ''}`}>
+                  <AgentStatusPanel
+                    sessionId={sessionId}
+                    agents={agentSnapshot.agents}
+                    loading={agentWorkspaceState === 'idle'}
+                    error={agentWorkspaceState === 'auth_error' ? agentWorkspaceError : null}
+                    className="h-full min-h-[220px]"
+                  />
+                </div>
+                <div className={`${agentConsoleTab !== 'tools' ? 'hidden md:block' : ''}`}>
+                  <ToolCallViewer toolCalls={agentSnapshot.tool_calls} className="h-full min-h-[220px]" />
+                </div>
+                <div className={`${agentConsoleTab !== 'activity' ? 'hidden md:block' : ''} md:col-span-2`}>
+                  <div className="h-[320px] md:h-[360px]">
+                    <AgentActivityFeed
+                      sessionId={sessionId}
+                      className="h-full"
+                      onConnectionChange={(state) => {
+                        if (state === 'connected') {
+                          setAgentWorkspaceState('connected');
+                          setAgentWorkspaceError('');
+                        } else if (state === 'reconnecting') {
+                          setAgentWorkspaceState((current) => current === 'auth_error' ? current : 'reconnecting');
+                        }
+                      }}
+                    />
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+            </div>
+          </div>
+        )}
+
         {/* ── Messages ── */}
-        <div className="flex-1 overflow-y-auto p-4 md:p-6 space-y-4">
+        <div className="flex-1 overflow-y-auto px-4 pb-32 pt-4 md:px-6 md:pb-40 md:pt-6 space-y-4">
           {messages.length === 0 && (
             <div className="h-full flex flex-col items-center justify-center text-center animate-fade-in px-4">
               <Bot size={40} className="text-[#002FA7] mb-4" />
@@ -645,9 +1025,54 @@ export default function ChatPage() {
                   : 'bg-[#1A1A1A] border border-white/10'
               } px-4 py-3`}>
                 {m.role === 'assistant' ? (
-                  <div className="wiki-content text-xs text-[#A0A0A0]">
-                    <ReactMarkdown remarkPlugins={[remarkGfm]}>{m.content}</ReactMarkdown>
-                  </div>
+                  <>
+                    <div className="wiki-content text-xs text-[#A0A0A0]">
+                      <ReactMarkdown remarkPlugins={[remarkGfm]}>{m.content}</ReactMarkdown>
+                    </div>
+                    {m.agentHandoff?.recommended_mode === 'agent' && (
+                      <div className="mt-3 border-t border-white/10 pt-3 space-y-2" data-testid="agent-handoff-actions">
+                        <div className="text-[10px] font-mono uppercase tracking-[0.18em] text-[#737373]">
+                          Recommended next step
+                        </div>
+                        <div className="flex flex-wrap gap-2">
+                          <button
+                            onClick={() => handleRetryWithAgentMode(m.agentHandoff)}
+                            className="px-3 py-2 bg-[#002FA7] hover:bg-[#002585] text-white text-[10px] font-mono uppercase tracking-wider transition-colors"
+                            data-testid="retry-with-agent-mode-button"
+                          >
+                            Retry with Agent Mode
+                          </button>
+                          {m.agentHandoff?.workflow_suggestions?.some((suggestion) => suggestion.kind === 'task') && (
+                            <button
+                              onClick={() => handleCreateTaskFromSuggestion(m.agentHandoff.workflow_suggestions.find((suggestion) => suggestion.kind === 'task'))}
+                              className="px-3 py-2 border border-white/10 hover:border-white/20 text-[#A0A0A0] hover:text-white text-[10px] font-mono uppercase tracking-wider transition-colors"
+                              data-testid="agent-handoff-create-task-button"
+                            >
+                              {workflowAction === 'task' ? 'Creating Task…' : 'Create Task'}
+                            </button>
+                          )}
+                          {m.agentHandoff?.workflow_suggestions?.some((suggestion) => suggestion.kind === 'schedule') && (
+                            <button
+                              onClick={() => handleCreateScheduleFromSuggestion(m.agentHandoff.workflow_suggestions.find((suggestion) => suggestion.kind === 'schedule'))}
+                              className="px-3 py-2 border border-white/10 hover:border-white/20 text-[#A0A0A0] hover:text-white text-[10px] font-mono uppercase tracking-wider transition-colors"
+                              data-testid="agent-handoff-create-schedule-button"
+                            >
+                              {workflowAction === 'schedule' ? 'Creating Schedule…' : 'Create Schedule'}
+                            </button>
+                          )}
+                          {m.agentHandoff?.settings_route && (
+                            <button
+                              onClick={handleOpenSettings}
+                              className="px-3 py-2 border border-white/10 hover:border-white/20 text-[#A0A0A0] hover:text-white text-[10px] font-mono uppercase tracking-wider transition-colors"
+                              data-testid="agent-handoff-settings-button"
+                            >
+                              Open Settings
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                    )}
+                  </>
                 ) : (
                   <p className="text-xs text-white whitespace-pre-wrap">{m.content}</p>
                 )}
@@ -660,12 +1085,68 @@ export default function ChatPage() {
             </div>
           ))}
 
-          {sending && <ThinkingBubble elapsed={thinkingElapsed} />}
+          {sending && <ThinkingBubble elapsed={thinkingElapsed} agentMode={agentMode} />}
           <div ref={messagesEndRef} />
         </div>
 
         {/* ── Composer ── */}
-        <div className="border-t border-white/10 p-3 md:p-4">
+        <div className="sticky bottom-0 z-20 border-t border-white/10 p-3 md:p-4 bg-[#0B0D12]/95 backdrop-blur supports-[backdrop-filter]:bg-[#0B0D12]/80 pb-[calc(env(safe-area-inset-bottom,0px)+0.75rem)]">
+          {composerRecommendation && (
+            <div className="mb-3 border border-[#002FA7]/30 bg-[#002FA7]/10 px-3 py-3" data-testid="agent-mode-preflight-banner">
+              <div className="flex flex-wrap items-start justify-between gap-3">
+                <div className="space-y-1">
+                  <div className="text-[10px] font-mono uppercase tracking-[0.18em] text-[#AFC4FF]">
+                    Agent Mode recommended before send
+                  </div>
+                  <div className="text-xs text-white leading-relaxed">
+                    This looks like a request for {composerRecommendation.reasons.join(', ')}.
+                    Direct chat can explain patterns, but Agent Mode is safer for real repo, GitHub, or runtime actions.
+                  </div>
+                  <div className="flex flex-wrap gap-2 text-[10px] font-mono uppercase tracking-[0.18em] text-[#737373]">
+                    <span className="border border-white/10 px-2 py-1">GitHub {githubStatus.connected ? 'connected' : 'not connected'}</span>
+                    <span className="border border-white/10 px-2 py-1">{mode === 'auto' ? 'Auto routing' : 'Manual model selection'}</span>
+                  </div>
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  <button
+                    onClick={() => setAgentMode(true)}
+                    className="px-3 py-2 bg-[#002FA7] hover:bg-[#002585] text-white text-[10px] font-mono uppercase tracking-wider transition-colors"
+                    data-testid="preflight-enable-agent-mode-button"
+                  >
+                    Enable Agent Mode
+                  </button>
+                  {composerTaskSuggestion && (
+                    <button
+                      onClick={() => handleCreateTaskFromSuggestion(composerTaskSuggestion)}
+                      className="px-3 py-2 border border-white/10 hover:border-white/20 text-[#A0A0A0] hover:text-white text-[10px] font-mono uppercase tracking-wider transition-colors"
+                      data-testid="preflight-create-task-button"
+                    >
+                      {workflowAction === 'task' ? 'Creating Task…' : 'Create Task'}
+                    </button>
+                  )}
+                  {composerScheduleSuggestion && (
+                    <button
+                      onClick={() => handleCreateScheduleFromSuggestion(composerScheduleSuggestion)}
+                      className="px-3 py-2 border border-white/10 hover:border-white/20 text-[#A0A0A0] hover:text-white text-[10px] font-mono uppercase tracking-wider transition-colors"
+                      data-testid="preflight-create-schedule-button"
+                    >
+                      {workflowAction === 'schedule' ? 'Creating Schedule…' : 'Create Schedule'}
+                    </button>
+                  )}
+                  {composerRecommendation.settings_route && (
+                    <button
+                      onClick={handleOpenSettings}
+                      className="px-3 py-2 border border-white/10 hover:border-white/20 text-[#A0A0A0] hover:text-white text-[10px] font-mono uppercase tracking-wider transition-colors"
+                      data-testid="preflight-open-settings-button"
+                    >
+                      Connect GitHub
+                    </button>
+                  )}
+                </div>
+              </div>
+            </div>
+          )}
+
           {/* Mobile: show current mode / selection above composer */}
           <div className="flex items-center gap-2 mb-2 md:hidden">
             {mode === 'auto' ? (

@@ -143,13 +143,12 @@ async def _handle_regular_chat(
         history = []
     _ensure_session(session_id, user)
 
-    # Build the payload for the provider router
+    # Build OpenAI-compatible request
     payload = {
         "messages": history + [{"role": "user", "content": req.content}],
+        "model": req.model or "nemotron-3-super-120b-a12b",
         "stream": False,
     }
-    if req.model:
-        payload["model"] = req.model
     if req.temperature is not None:
         payload["temperature"] = req.temperature
 
@@ -195,8 +194,8 @@ async def _handle_regular_chat(
             "response": assistant_message,
         })
     except Exception as e:
-        log.error(f"Chat error: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        log.error(f"Failed to get provider response: {e}")
+        raise HTTPException(status_code=500, detail="Failed to get provider response")
 
 async def _handle_agent_mode(
     req: ChatSendRequest,

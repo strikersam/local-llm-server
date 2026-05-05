@@ -2,566 +2,446 @@
 
 # LLM Relay
 
-### The self‑hosted control plane for your AI stack.
+### Your own AI control room.
 
-**Route, run, and govern every LLM request — local‑first, OpenAI‑compatible, zero vendor lock‑in.**
+**One place to run local AI, connect your tools, manage agents, and keep your data close to home.**
 
 [![Stars](https://img.shields.io/github/stars/strikersam/local-llm-server?style=for-the-badge&color=FFD43B&logo=github)](https://github.com/strikersam/local-llm-server/stargazers)
 [![Forks](https://img.shields.io/github/forks/strikersam/local-llm-server?style=for-the-badge&color=4D8CFF&logo=git)](https://github.com/strikersam/local-llm-server/network)
 [![License](https://img.shields.io/badge/license-Open%20Source-22C55E?style=for-the-badge)](LICENSE)
-[![Version](https://img.shields.io/badge/v3.1-control%20plane-002FA7?style=for-the-badge)](#whats-new-in-v31)
 
-[![Python 3.11+](https://img.shields.io/badge/Python-3.11+-3776AB?style=flat-square&logo=python&logoColor=white)](https://www.python.org/)
-[![FastAPI](https://img.shields.io/badge/FastAPI-009688?style=flat-square&logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com/)
-[![React 18](https://img.shields.io/badge/React-18-61DAFB?style=flat-square&logo=react&logoColor=black)](https://react.dev/)
-[![Tailwind](https://img.shields.io/badge/Tailwind-CSS-38BDF8?style=flat-square&logo=tailwindcss&logoColor=white)](https://tailwindcss.com/)
-[![MongoDB](https://img.shields.io/badge/MongoDB-7-47A248?style=flat-square&logo=mongodb&logoColor=white)](https://www.mongodb.com/)
-[![Ollama](https://img.shields.io/badge/Ollama-local%20LLMs-000000?style=flat-square)](https://ollama.com/)
-[![Docker Compose](https://img.shields.io/badge/Docker-Compose-2496ED?style=flat-square&logo=docker&logoColor=white)](https://docs.docker.com/compose/)
-[![Langfuse](https://img.shields.io/badge/Langfuse-traces-FF7A1A?style=flat-square)](https://langfuse.com/)
-
-<sub>Drop‑in OpenAI‑compatible proxy. Point Cursor, Claude Code, Aider, Continue, or any SDK at it — everything just works.</sub>
-
-[**Quick start →**](#-quick-start)  ·  [**Live tour →**](#-the-control-plane-in-pictures)  ·  [**Connect your IDE →**](#-connect-your-tools-in-30-seconds)  ·  [**API reference →**](#-api-reference)
+[**Quick start**](#quick-start) · [**See the product**](#see-the-product) · [**What it can do**](#what-it-can-do) · [**Technical docs**](#technical-docs)
 
 </div>
 
 ---
 
-## ⚡ The 60‑second pitch
+## What is LLM Relay?
 
-You hit the same wall every serious AI builder hits: **API bills compound, models you actually want to run can't be hosted, and your tools don't talk to each other**.
+If someone brand new to AI asked, I would say:
 
-LLM Relay collapses that mess into a single self‑hosted platform — your hardware, your data, **one URL** that every tool already knows how to talk to.
+> **LLM Relay is a smart front desk for your AI helpers.**
+> It knows who is allowed in, which helper should do the job, what it costs, and where everything should go.
 
-> **Real production numbers.** DeepSeek‑R1 671B locally costs **\$0.19 / day** in electricity.
-> The cloud equivalent across the same 1,842 requests: **\$12.84**.
-> That's a **96.7 % reduction** — measured, not estimated.
+In normal people words:
+
+- you can run **AI on your own computer or server**
+- you can connect **Cursor, Claude Code, Aider, Continue, scripts, and dashboards** to one place
+- you can give your team a **simple web app** to chat, create tasks, manage agents, and watch what is happening
+- you can keep control of **costs, access, secrets, and data**
+
+### Why this feels different
+
+Many AI tools solve only one piece of the puzzle.
+LLM Relay tries to bring the important pieces together in one product:
+
+- **one place to connect tools** instead of many separate configs
+- **one dashboard for people** instead of making everyone live in terminals
+- **one set of rules** for cost, access, routing, and safety
+- **one shared memory** for chats, tasks, sources, and team knowledge
+
+That means less setup pain, less tool sprawl, and fewer "wait, where did that answer come from?" moments.
 
 <p align="center">
-  <img src="docs/screenshots/v3-control-plane.png" alt="LLM Relay v3.1 Control Plane" width="100%"/>
+  <img src="docs/screenshots/readme/v3-control-plane.png" alt="LLM Relay control plane" width="100%"/>
   <br/>
-  <sub><em>The v3.1 Control Plane — every agent, runtime, task, and routing decision in one screen.</em></sub>
+  <sub><em>The main control plane: one screen for chat, tasks, agents, models, knowledge, and system health.</em></sub>
 </p>
 
 ---
 
-## ✨ What's new in v3.1
+## Why people use it
 
-v3.1 is a complete rebuild around a single idea: this should feel like an **AI agent control plane**, not a proxy with a settings page bolted on.
+Most teams hit the same problems:
 
-| Pillar | Highlights |
+- AI tools are scattered across too many tabs and services
+- cloud AI bills grow fast
+- local models are powerful, but harder for normal people to use
+- one person knows the setup, everyone else is confused
+- nobody knows which model, agent, or tool did what
+
+LLM Relay turns that mess into **one home for your AI work**.
+
+### In one glance
+
+| If you want... | LLM Relay gives you... |
 |---|---|
-| 🎛 **Control Plane UI** | New `#0F0F13` dark surface, Geist‑driven typography, `rounded‑xl` cards. 5 panes: WORKSPACE · AGENTS · KNOWLEDGE · INFRASTRUCTURE · SYSTEM |
-| 🗂 **Kanban Task Board** | Full swim‑lane workflow — TODO → IN PROGRESS → IN REVIEW → BLOCKED → DONE → FAILED — with slide‑in detail, comments, approvals & retries |
-| 🤖 **Agent Roster** | Define agents with model, runtime, task types, cost policy, and visibility. Public agents are workspace‑shared, private ones stay yours |
-| ⚙️ **Agent Runtimes** | Hermes · OpenCode · Goose · OpenHands · Aider — start, stop, restart, and route each from one panel |
-| 🛣 **Routing Policy** | 8‑step engine: local → free cloud → paid escalation, with explicit user approval gates before any commercial call |
-| 🔐 **RBAC v3** | Three‑tier roles (Admin / Power User / User), 27 permission flags, signed audit trail on every mutation |
-| 🔑 **Social Login** | GitHub + Google OAuth with HMAC‑HS256 JWTs and CSRF state protection |
-| 🗝 **User‑scoped Secrets** | AES‑256‑GCM at rest, scoped USER / WORKSPACE / GLOBAL — no API key ever lands in the repo |
-| 🖥 **Hardware Detection** | CPU, RAM, NVIDIA, AMD, Apple Silicon, Intel Arc — every model card surfaces compatibility upfront |
-| 🧙 **Setup Wizard** | 5 steps: Provider → Models → Runtimes → Default Agent → Cost Policy. Resumable, idempotent, never blocks the dashboard |
-| 💸 **Cost Insights** | Live $ saved vs cloud, per‑user breakdowns, time‑series charts, attribution by department |
-| 🔄 **Peer Sync** | Syncthing‑style HMAC‑authenticated workspace sync with conflict surfacing |
-| 🌐 **GitHub Workspace** | Clone, diff, commit, push, open PRs — all async, never `shell=True` |
+| one simple way to use local AI | one URL your tools can all talk to |
+| lower cloud spend | local-first and cost-aware routing |
+| a team-friendly AI product | chat, tasks, agents, schedules, and knowledge in one place |
+| more trust and control | logins, roles, audit trails, secrets, and activity history |
+| something that can start small | a setup that works for solo use and grows into a team control plane |
 
 ---
 
-## 🎬 The control plane in pictures
+## What it can do
 
-### 🛬 The way in
+### 🧠 1. Run AI from one simple address
 
-A login that sets the tone — local or single‑click GitHub / Google.
+Instead of teaching every app a different setup, you point them all at one URL.
+That means Cursor, Claude Code, Aider, Continue, scripts, and internal tools can all use the same front door.
 
-<p align="center"><img src="docs/screenshots/v3-login.png" width="92%" alt="Login"/></p>
+### 💸 2. Help you spend less
 
-### 🧙 5‑step Setup Wizard
+LLM Relay can prefer **local models first**, then try **free providers**, and only use paid services when needed.
+That makes it easier to keep costs under control without asking every user to think about pricing all day.
 
-You go from `git clone` to first chat without ever opening a config file.
+### 🤖 3. Give you agents, not just chat
 
-<p align="center"><img src="docs/screenshots/v3-setup-wizard.png" width="92%" alt="Setup Wizard"/></p>
+You can create agents with different roles.
+For example:
 
-### 🗂 Kanban that actually moves work forward
+- a coding helper
+- a reviewer
+- a research agent
+- a scheduled worker that runs later
 
-Every agent run, every approval, every comment — in one board. Tasks auto‑assign to the best available agent based on `task_type`, fall back gracefully, and never crash a flow.
+### 🗂 4. Turn AI work into visible tasks
 
-<p align="center"><img src="docs/screenshots/v3-tasks-kanban.png" width="92%" alt="Kanban Task Board"/></p>
+Instead of losing everything inside chat messages, you can create tasks, move them across a board, add comments, approve work, retry runs, and see what is blocked.
+
+### 📚 5. Keep team knowledge in one place
+
+LLM Relay includes a wiki and source library so your team can save useful information, project notes, links, and imported material.
+
+### 🛡 6. Control who can do what
+
+It supports API keys, admin login, dashboard login, roles, social login, audit trails, encrypted secrets, and safer shared access for teams.
+
+### 🔭 7. Show you what is happening
+
+You can see activity, routing decisions, usage, savings, logs, health, and observability data instead of guessing whether the system is working.
+
+### 🧰 8. Grow with you
+
+You can start small and still have room for bigger workflows later:
+
+- local models with Ollama
+- remote providers like Hugging Face, OpenRouter, DeepSeek, Anthropic, or NVIDIA NIM
+- GitHub integration
+- schedules and automations
+- browser automation
+- voice transcription
+- Telegram control
+- peer sync between machines
+
+### ❤️ Why this can create traction inside a team
+
+Good internal AI tools spread when they are easy to explain.
+This one is easy to explain:
+
+- **for leaders:** better visibility and cost control
+- **for operators:** better permissions, logs, and safer access
+- **for builders:** better model flexibility and automation
+- **for everyone else:** a simpler place to just use AI without learning five different systems
+
+---
+
+## See the product
+
+Run `make ui-docs` after built-in web UI changes to refresh the captured `/app` and `/admin/app` screenshots and rewrite this gallery block automatically.
+
+<!-- README_UI_GALLERY:START -->
+### 🛬 Login
+
+People can sign in through a simple starting page instead of touching raw config files.
+
+<p align="center"><img src="docs/screenshots/readme/v3-login.png" width="92%" alt="LLM Relay login"/></p>
+
+### 🧙 Setup Wizard
+
+The wizard helps you choose providers, models, runtimes, a default agent, and a cost policy.
+
+<p align="center"><img src="docs/screenshots/readme/v3-setup-wizard.png" width="92%" alt="Setup Wizard"/></p>
+
+### 💬 Chat
+
+This is where people talk to AI directly, using the providers and rules you set up.
+
+<p align="center"><img src="docs/screenshots/readme/v3-chat.png" width="92%" alt="Direct Chat"/></p>
+
+### 🗂 Task Board
+
+This makes AI work visible. You can see what is waiting, running, blocked, in review, or done.
+
+<p align="center"><img src="docs/screenshots/readme/v3-tasks-kanban.png" width="92%" alt="Kanban Task Board"/></p>
 
 ### 🤖 Agent Roster
 
-Compose an agent in one screen — pick a model, a runtime, a cost policy, and decide who else in the workspace can see it.
+This is your cast of AI helpers. Each agent can have its own model, runtime, specialty, and rules.
 
-<p align="center"><img src="docs/screenshots/v3-agents.png" width="92%" alt="Agent Roster"/></p>
+<p align="center"><img src="docs/screenshots/readme/v3-agents.png" width="92%" alt="Agent Roster"/></p>
 
-### ⚙️ Agent Runtimes
+### ⚙️ Runtimes
 
-Hermes, OpenCode, Goose, OpenHands, Aider — start them, stop them, hand them tasks. No SSH, no `docker exec`.
+This shows the engines behind the scenes that actually run your AI work.
 
-<p align="center"><img src="docs/screenshots/v3-runtimes.png" width="92%" alt="Agent Runtimes"/></p>
+<p align="center"><img src="docs/screenshots/readme/v3-runtimes.png" width="92%" alt="Agent Runtimes"/></p>
 
 ### 🛣 Routing Policy
 
-Local‑first, free‑cloud middle, paid only with explicit consent. The escalation modal pops **before** any commercial call ever fires.
+This is where you decide how smart, cheap, fast, or private the system should be when picking a model.
 
-<p align="center"><img src="docs/screenshots/v3-routing.png" width="92%" alt="Routing Policy"/></p>
+<p align="center"><img src="docs/screenshots/readme/v3-routing.png" width="92%" alt="Routing Policy"/></p>
 
-### 🔌 Providers & Models
+### 🔌 Providers and Models
 
-Every OpenAI‑compatible endpoint you point at — Ollama, HuggingFace, OpenRouter, a remote box on your LAN, an Anthropic key — shows up here, gets one‑click tested, and is ready to route.
+This is where you connect local and cloud AI sources and decide what models are available.
 
 <p align="center">
-  <img src="docs/screenshots/v3-providers.png" width="48%" alt="Providers"/>
+  <img src="docs/screenshots/readme/v3-providers.png" width="48%" alt="Providers"/>
   &nbsp;
-  <img src="docs/screenshots/v3-models.png" width="48%" alt="Models"/>
+  <img src="docs/screenshots/readme/v3-models.png" width="48%" alt="Models"/>
 </p>
 
-### 📚 Knowledge — Wiki, Sources, GitHub
+### 📚 Knowledge
 
-A markdown wiki the agent reads from and writes to. Sources (URLs, files, raw text) auto‑summarise into structured pages. Knowledge **compounds** across sessions — it doesn't evaporate when the chat closes.
+This is your team's memory: wiki pages, source material, and reusable context.
 
-<p align="center"><img src="docs/screenshots/v3-knowledge.png" width="92%" alt="Knowledge & Wiki"/></p>
+<p align="center"><img src="docs/screenshots/readme/v3-knowledge.png" width="92%" alt="Knowledge and Wiki"/></p>
 
-### 💬 Direct Chat with persistent memory
+### 🔭 Logs and activity
 
-A persistent‑session chat with full wiki context injection, every configured provider, and a commercial‑escalation gate that respects your routing policy.
+This helps you answer, ‘what just happened?’
 
-<p align="center"><img src="docs/screenshots/v3-chat.png" width="92%" alt="Direct Chat"/></p>
-
-### 🔭 Logs & Live Activity
-
-Every routing decision, every agent action, every approval — streamed and searchable. Plug Langfuse on top for $‑per‑request tracing.
-
-<p align="center"><img src="docs/screenshots/v3-logs.png" width="92%" alt="Logs"/></p>
-
-### 🛡 Admin Portal — RBAC v3
-
-Three roles, 27 permission flags, an audit trail you can take to a security review.
-
-<p align="center"><img src="docs/screenshots/v3-admin.png" width="92%" alt="Admin Portal"/></p>
+<p align="center"><img src="docs/screenshots/readme/v3-logs.png" width="92%" alt="Logs"/></p>
 
 ### 🗓 Schedules
 
-Cron‑driven agent runs, webhooks for ad‑hoc triggers, and watchdogs for "fire when this URL changes."
+This is how you make AI jobs run later or run again automatically.
 
-<p align="center"><img src="docs/screenshots/v3-schedules.png" width="92%" alt="Schedules"/></p>
+<p align="center"><img src="docs/screenshots/readme/v3-schedules.png" width="92%" alt="Schedules"/></p>
 
-### ⚙️ Settings
+### 🧭 Settings and guardrails
 
-System health, public access (ngrok / Cloudflare), GitHub OAuth, version & build info.
+Central settings keep defaults, policies, and integrations in one place instead of scattered config files.
 
-<p align="center"><img src="docs/screenshots/v3-settings.png" width="92%" alt="Settings"/></p>
+<p align="center"><img src="docs/screenshots/readme/v3-settings.png" width="92%" alt="Settings"/></p>
 
----
+### 🛡 Admin portal
 
-## 📊 LLM Relay vs the alternatives
+This gives admins a simpler place to manage access, controls, and system behavior.
 
-|  | **LLM Relay v3.1** | Bare Ollama | Paid API |
-|---|:---:|:---:|:---:|
-| OpenAI / Anthropic‑compatible API | ✅ | ✅ | ✅ |
-| Unified web control plane | ✅ | ❌ | ❌ |
-| Kanban task board with approvals | ✅ | ❌ | ❌ |
-| Multi‑agent swarms | ✅ | ❌ | ❌ |
-| Agent runtimes (Hermes, OpenCode, Goose…) | ✅ | ❌ | partial |
-| Local + free + paid routing tiers | ✅ | ❌ | ❌ |
-| User‑scoped encrypted secrets | ✅ | ❌ | partial |
-| RBAC + audit trail | ✅ | ❌ | partial |
-| Markdown knowledge wiki | ✅ | ❌ | ❌ |
-| Background queue + cron + watchdog | ✅ | ❌ | ❌ |
-| Cost tracking with attribution | ✅ | ❌ | ✅ |
-| Telegram bot control | ✅ | ❌ | ❌ |
-| Browser automation tool | ✅ | ❌ | ❌ |
-| Zero ongoing API cost | ✅ | ✅ | ❌ |
-| Zero vendor lock‑in | ✅ | ✅ | ❌ |
+<p align="center"><img src="docs/screenshots/readme/v3-admin.png" width="92%" alt="Admin Portal"/></p>
 
----
+### 🖥 Built-in web UI
 
-## 🧱 Architecture
+The proxy also ships a lightweight built-in app at `/app`, so you can ship a useful UI without the separate hosted dashboard.
 
-```
- ┌─────────────────────────────────────────────────────────────────┐
- │                  CLIENT TOOLS (your machine)                    │
- │  Cursor · Claude Code · Aider · Continue · any OpenAI client    │
- └────────────────────────┬────────────────────────────────────────┘
-                          │  OpenAI / Anthropic‑compatible API
-                          ▼
- ┌─────────────────────────────────────────────────────────────────┐
- │                  PROXY  (port 8000)                             │
- │  proxy.py — FastAPI · async · streaming                         │
- │                                                                 │
- │  ┌──────────────┐ ┌──────────────┐ ┌────────────────────────┐   │
- │  │ Auth + Keys  │ │  LLM Router  │ │  Agent / Task Queue    │   │
- │  │ key_store    │ │ provider_    │ │  agent/loop.py         │   │
- │  │ rbac v3      │ │ router.py    │ │  runtimes/manager.py   │   │
- │  └──────────────┘ └──────┬───────┘ └────────────────────────┘   │
- │  ┌──────────────────┐    │    ┌─────────────────────────────┐   │
- │  │ Admin portal +   │    │    │ React WebUI / SPA           │   │
- │  │ Setup wizard     │    │    │ /admin/app  ·  /app         │   │
- │  └──────────────────┘    │    └─────────────────────────────┘   │
- └──────────────────────────┼──────────────────────────────────────┘
-                            │
-       ┌────────────────────┼─────────────────────┐
-       ▼                    ▼                     ▼
- ┌─────────────┐     ┌──────────────┐     ┌────────────────┐
- │   Ollama    │     │  Cloud APIs  │     │   Langfuse     │
- │ port 11434  │     │ HF · OpenRtr │     │ traces · cost  │
- │ local LLMs  │     │ OpenAI · …   │     │ observability  │
- └─────────────┘     └──────────────┘     └────────────────┘
+<p align="center"><img src="docs/screenshots/webui/webui-app.png" width="92%" alt="Built-in Web UI"/></p>
 
- ┌─────────────────────────────────────────────────────────────────┐
- │     OPTIONAL · Dashboard stack  (Docker Compose, full profile)  │
- │  React 18 frontend (3000) · FastAPI backend (8001) · MongoDB 7  │
- │  Adds: Kanban tasks, agents, runtimes, wiki, sources, RBAC v3   │
- └─────────────────────────────────────────────────────────────────┘
-```
+### 🔐 Built-in admin login
 
-| Mode | What you get |
-|---|---|
-| **Proxy only** (`uvicorn proxy:app`) | OpenAI/Anthropic‑compatible endpoint + admin portal + agent + WebUI |
-| **Full stack** (`docker compose up`) | Everything above + React control plane + Kanban + wiki + MongoDB |
+The built-in admin surface has a dedicated login gate before exposing sensitive controls.
+
+<p align="center"><img src="docs/screenshots/webui/webui-admin-login.png" width="92%" alt="Built-in admin login"/></p>
+
+### 🧰 Built-in admin workspace
+
+Once authenticated, admins can manage providers, workspaces, and runtime metadata from the in-proxy UI.
+
+<p align="center"><img src="docs/screenshots/webui/webui-admin.png" width="92%" alt="Built-in admin workspace"/></p>
+<!-- README_UI_GALLERY:END -->
 
 ---
 
-## 🚀 Quick start
+## What kinds of people is this for?
+
+LLM Relay works for:
+
+- **solo builders** who want one clean way to use local AI
+- **non-technical teams** who need a dashboard instead of command lines
+- **engineering teams** who want routing, agent runs, GitHub workflows, and observability
+- **ops/admin owners** who need control, auditability, and safer access
+- **cost-conscious companies** who want more local AI and fewer surprise bills
+
+---
+
+## Common use cases
+
+### “I just want local AI to work with my tools.”
+Use the proxy and point your tools to it.
+
+### “I want a team dashboard.”
+Use the control plane so people can chat, create tasks, manage agents, and see results.
+
+### “I want AI jobs to happen on their own.”
+Use schedules, tasks, playbooks, and workflows.
+
+### “I want to mix local and cloud models safely.”
+Use routing policies, provider priority, and approval-aware escalation.
+
+### “I want our AI to remember project context.”
+Use the wiki, sources, and GitHub integration.
+
+### “I want something I can demo in five minutes.”
+Open the control plane, show chat, tasks, agents, routing, and logs, and people quickly understand the value.
+
+---
+
+## Quick start
+
+### Fastest path for most people
+
+> Right now, this repo does **not** include a committed `.env.example`, so create `.env` yourself.
 
 ```bash
 git clone https://github.com/strikersam/local-llm-server
 cd local-llm-server
 
-cp .env.example .env                       # edit ADMIN_PASSWORD, ADMIN_SECRET, etc.
+cat > .env <<'ENV'
+API_KEYS=sk-relay-dev
+ADMIN_SECRET=replace-with-a-long-random-secret
+ADMIN_EMAIL=admin@llmrelay.local
+ADMIN_PASSWORD=replace-with-a-strong-password
+JWT_SECRET=replace-with-another-long-random-secret
+ENV
 
-docker compose up -d                       # core services (proxy + ollama + mongo + 4 agent runtimes)
-docker compose --profile dashboard up -d   # + React control plane on http://localhost:3000
-docker compose --profile tunnel up -d      # + Cloudflare public tunnel
-docker compose --profile ngrok up -d       # + ngrok tunnel (requires NGROK_AUTHTOKEN)
+docker compose up -d
+docker compose --profile dashboard up -d
 ```
 
-Then open **http://localhost:3000** — the control plane loads immediately and walks you through the Setup Wizard.
+Then open:
 
-> **Note:** `docker compose up -d` already starts **all** core services including the 4 agent runtimes (Hermes, OpenCode, Goose, Aider). The `--profile dashboard` flag adds the React frontend and backend API on port 3000/8001.
+- **http://localhost:3000** → full control plane
+- **http://localhost:8000/admin/ui/login** → built-in admin portal
+- **http://localhost:8000/app** → built-in web UI
+- **http://localhost:8000/health** → health check
 
-### Default credentials
-
-> Change these in `.env` before exposing to the internet.
-
-```
-React dashboard      (port 3000  → backend 8001)
-  Email     admin@llmrelay.local
-  Password  $ADMIN_PASSWORD
-
-Proxy admin portal   (port 8000)
-  Username  anything (e.g. admin)
-  Password  $ADMIN_SECRET
-```
-
-Generate a strong secret:
+### Pull local models
 
 ```bash
-python -c "import secrets; print(secrets.token_urlsafe(32))"
+docker exec llm-server-ollama ollama pull qwen3-coder:30b
+docker exec llm-server-ollama ollama pull deepseek-r1:32b
 ```
 
-> Weak values (`admin`, `password`, `secret`, `change-me`) are rejected at startup.
+### If you only want the core proxy
+
+```bash
+uvicorn proxy:app --reload --port 8000
+```
 
 ---
 
-## 🔌 Connect your tools in 30 seconds
+## Sign in
 
-The proxy is OpenAI **and** Anthropic API‑compatible. Any tool that accepts a custom base URL works without changes.
+### Full control plane (`http://localhost:3000`)
 
-<details>
-<summary><b>Cursor IDE</b></summary>
+- **Email:** `ADMIN_EMAIL`
+- **Password:** `ADMIN_PASSWORD`
 
-Settings → Models → toggle on **OpenAI API Key**:
+### Built-in admin portal (`http://localhost:8000/admin/ui/login`)
 
-```
+- **Username:** anything
+- **Password:** `ADMIN_SECRET`
+
+> Pick strong secrets before exposing this outside your machine.
+
+---
+
+## Connect your tools
+
+### Cursor
+
+```text
 API Key:                  sk-relay-...
-Override OpenAI Base URL: https://your-domain.ngrok-free.dev/v1
+Override OpenAI Base URL: http://localhost:8000/v1
 ```
 
-Click **Verify** — `/v1/models` auto‑populates the model list. Reference config in `client-configs/cursor_settings.json`.
-
-</details>
-
-<details>
-<summary><b>Claude Code CLI</b></summary>
+### Claude Code
 
 ```bash
-export ANTHROPIC_BASE_URL=https://your-domain.ngrok-free.dev
+export ANTHROPIC_BASE_URL=http://localhost:8000
 export ANTHROPIC_API_KEY=sk-relay-...
 claude
 ```
 
-> No `/v1` suffix on `ANTHROPIC_BASE_URL` — Claude Code appends the path itself.
-
-</details>
-
-<details>
-<summary><b>Aider · Continue · Zed · VS Code · Python SDK · iOS Shortcuts</b></summary>
-
-Configs live in [`client-configs/`](client-configs/):
-
-| Tool | File |
-|---|---|
-| Aider | `aider_config.sh` / `aider_config.ps1` |
-| Continue (VS Code & JetBrains) | `continue_config.yaml` / `continue_config.json` |
-| VS Code generic | `vscode_settings.json` |
-| Zed | `zed_settings.json` |
-| Python OpenAI SDK | `python_client_example.py` |
-| iOS Share Sheet | `quick-note-to-claude.shortcut` |
-
-</details>
-
-<details>
-<summary><b>Anywhere with curl</b></summary>
+### Simple API call
 
 ```bash
-curl https://your-domain.ngrok-free.dev/v1/chat/completions \
+curl http://localhost:8000/v1/chat/completions \
   -H "Authorization: Bearer sk-relay-..." \
   -H "Content-Type: application/json" \
-  -d '{"model":"qwen3-coder:30b","messages":[{"role":"user","content":"hi"}]}'
+  -d '{"model":"qwen3-coder:30b","messages":[{"role":"user","content":"hello"}]}'
 ```
 
-</details>
-
-> ⚠️ **Critical .env check:** keep `OLLAMA_BASE=http://localhost:11434`. Pointing it at a tunnel URL causes the proxy to call itself through the internet — and breaks every LLM call when the tunnel blinks.
+If you use Aider, Continue, Zed, VS Code, or Python scripts, examples live in [`client-configs/`](client-configs/).
 
 ---
 
-## 🧠 Provider setup
+## What is included under the hood?
 
-| Provider | Type | Base URL |
-|---|---|---|
-| **Ollama (local)** | Ollama | `http://localhost:11434` |
-| **HuggingFace Inference** | OpenAI Compatible | `https://api-inference.huggingface.co/v1` |
-| **OpenRouter** | OpenAI Compatible | `https://openrouter.ai/api/v1` |
-| **Remote Ollama (LAN)** | Ollama | `http://192.168.1.100:11434` |
-| **OpenAI / Anthropic / Gemini** | native | added in Setup Wizard, key encrypted at rest |
+You do **not** need to learn all of this to get started, but the platform includes:
 
-Pull local models on first run:
+- OpenAI-style and Anthropic-style API compatibility
+- Ollama support
+- local + remote model routing
+- task boards and schedules
+- agent sessions and runtimes
+- workflows and approvals
+- knowledge wiki and source ingestion
+- GitHub repo and pull request flows
+- secrets storage
+- sync between machines
+- observability and cost insights
+- hardware detection
+- browser and voice tools
+- Telegram bot controls
 
-```bash
-docker exec llm-wiki-ollama ollama pull qwen3-coder:30b
-docker exec llm-wiki-ollama ollama pull deepseek-r1:671b
-```
+You do not need to learn all of these on day one.
+Most people start with **chat + models + one dashboard**, then add the rest when the team is ready.
 
----
-
-## 🧩 Optional feature dependencies
-
-Every feature degrades gracefully — missing dependencies never crash the server.
-
-| Feature | Install | Env |
-|---|---|---|
-| Browser automation | `pip install playwright && playwright install chromium` | — |
-| Voice (Whisper API) | — | `WHISPER_BASE_URL=http://localhost:9000` |
-| Voice (local Whisper) | `pip install openai-whisper` | — |
-| Voice recording | `pip install pyaudio` | — |
-| Scheduled jobs | bundled (`apscheduler`) | — |
+If you want the deep technical breakdown, jump to the docs below.
 
 ---
 
-## 🛰 Services & ports
+## Technical docs
 
-| Service | Port | Always on? | Notes |
-|---|---|---|---|
-| Proxy | 8000 | ✅ | OpenAI/Anthropic endpoint + admin portal + agent + WebUI |
-| Ollama | 11434 | ✅ | Local LLM runtime |
-| Hermes runtime | 8002 | ✅ | Code execution agent (OpenAI-compatible wrapper) |
-| OpenCode runtime | 8003 | ✅ | Code generation agent (OpenAI-compatible wrapper) |
-| Goose runtime | 8004 | ✅ | Multi-purpose agent (OpenAI-compatible wrapper) |
-| Aider runtime | 8005 | ✅ | Pair programmer agent (OpenAI-compatible wrapper) |
-| Cloudflare Tunnel | — | optional | `--profile tunnel` |
-| Frontend (React) | 3000 | Docker only | Full control plane (`--profile dashboard`) |
-| Backend (FastAPI) | 8001 | Docker only | Wiki, Kanban, RBAC, sources, social login (`--profile dashboard`) |
-| MongoDB | 27017 | Docker only | Document store for the dashboard |
+For engineers and advanced admins:
 
-### Verify all services are healthy
-
-```bash
-# Check all containers
-docker compose ps
-
-# Check individual runtime agents
-curl http://localhost:8002/health   # Hermes
-curl http://localhost:8003/health   # OpenCode
-curl http://localhost:8004/health   # Goose
-curl http://localhost:8005/health   # Aider
-
-# Check proxy health
-curl http://localhost:8000/health
-```
-
-All runtimes should report `{"status":"ok","runtime":"..."}`. If any show `models:0`, ensure Ollama has models pulled (`ollama list` inside the ollama container).
+- [Documentation index](docs/README.md)
+- [Feature guide](docs/features.md)
+- [API surfaces and route map](docs/api-surfaces.md)
+- [Configuration reference](docs/configuration-reference.md)
+- [Architecture overview](docs/architecture/overview.md)
+- [Model routing guide](docs/model-routing.md)
+- [Claude Code setup](docs/claude-code-setup.md)
+- [Agent runtime setup](docs/runbooks/agent-runtime-setup.md)
+- [Docker agent runtimes](docs/runbooks/docker-agent-runtimes.md)
+- [Langfuse observability](docs/langfuse-observability.md)
+- [Admin dashboard guide](docs/admin-dashboard.md)
+- [Device compatibility](docs/device-compatibility.md)
+- [Troubleshooting](docs/troubleshooting.md)
+- [Changelog](docs/changelog.md)
 
 ---
 
-## 📚 API reference
+## A simple way to think about it
 
-### Proxy (port 8000)
+LLM Relay is:
 
-<details>
-<summary><b>LLM endpoints — OpenAI / Anthropic compatible</b></summary>
+- **a front door** for AI requests
+- **a switchboard** that picks the right model
+- **a control room** for teams
+- **a memory box** for saved knowledge
+- **a manager** for agents, tasks, and schedules
 
-| Method | Endpoint | Description |
-|---|---|---|
-| POST | `/v1/chat/completions` | OpenAI chat completions (streaming) |
-| GET | `/v1/models` | List available models |
-| POST | `/v1/embeddings` | Embeddings passthrough to Ollama |
-| POST | `/v1/messages` | Anthropic Messages API |
-| POST | `/api/chat` · `/api/generate` | Ollama native |
+It is built for people who want AI to feel like **one understandable product**, not a pile of disconnected tools.
 
-All LLM endpoints require a `Bearer` token from `API_KEYS` or `KEYS_FILE`.
-
-</details>
-
-<details>
-<summary><b>Admin portal — requires <code>ADMIN_SECRET</code></b></summary>
-
-| Method | Endpoint | Description |
-|---|---|---|
-| GET / POST | `/admin/ui/login` | Browser login |
-| GET | `/admin/ui/` | Dashboard (session) |
-| POST | `/admin/api/login` | JSON login → `{"token": "adm_..."}` |
-| GET | `/admin/api/status` | Service health + signed‑in user |
-| POST | `/admin/api/control` | Start / stop / restart `ollama`, `proxy`, `tunnel`, `stack` |
-| `*` | `/admin/api/users` | API key CRUD + rotate |
-| `*` | `/admin/api/providers` · `/admin/api/workspaces` | Provider & workspace CRUD |
-| POST | `/admin/api/commands/run` | Allowlisted shell command |
-
-</details>
-
-<details>
-<summary><b>Agent runtime</b></summary>
-
-| Method | Endpoint | Description |
-|---|---|---|
-| POST | `/agent/coordinate` | Run N workers under one coordinator |
-| POST/GET | `/agent/background/tasks` | Background queue submit / list / inspect |
-| POST | `/agent/voice/transcribe` | Base64 audio → text |
-| POST/GET | `/agent/memory/{session_id}` | Snapshot / restore session state |
-| POST | `/agent/context/compress` | Strategy: `reactive\|micro\|inspect` |
-| POST | `/agent/sessions/{id}/snip` | Surgical message removal |
-| POST | `/agent/scheduler/jobs` | Cron‑driven jobs |
-| POST | `/agent/playbooks/{id}/run` | Multi‑step automation |
-| POST | `/agent/watchdog/resources` | Watch URL/file for changes |
-| POST/GET | `/agent/terminal/{run,snapshot}` | Captured terminal buffer |
-| GET | `/agent/skills/search?q=` | Skill library search |
-| GET | `/agent/commits` | AI‑attributed git commits |
-| POST | `/agent/scaffolding/apply` | Apply a project template |
-| POST | `/agent/browser/action` | `navigate \| click \| fill \| screenshot \| evaluate` |
-
-</details>
-
-### Dashboard backend (port 8001 — Docker Compose only)
-
-<details>
-<summary><b>Auth · Tasks · Agents · Runtimes · Wiki · Setup</b></summary>
-
-| Method | Endpoint | Description |
-|---|---|---|
-| `*` | `/api/auth/{login,logout,me,refresh}` | JWT auth (httpOnly cookies) |
-| `*` | `/api/auth/{github,google}/{login,callback}` | Social OAuth |
-| `*` | `/api/tasks` | Kanban CRUD + `/comments` `/approve` `/retry` `/escalate` |
-| `*` | `/api/agents` | Agent definition CRUD + `/use` |
-| `*` | `/runtimes` | Runtime control + health |
-| `*` | `/api/wiki/pages` | Wiki CRUD + `/api/wiki/lint` |
-| `*` | `/api/sources` | Source ingestion |
-| `*` | `/api/setup/{state,step/{n},complete,secret}` | Setup wizard persistence |
-| GET | `/api/{health,stats,platform,activity}` | Diagnostics |
-| GET | `/api/observability/{status,metrics,dashboard-url}` | Langfuse bridge |
-
-</details>
+If you want AI to feel less like scattered tools and more like one product, that is what this repo is trying to do.
 
 ---
 
-## 🛠 Tech stack
+## License
 
-| Layer | Technology |
-|---|---|
-| Proxy & admin | Python 3.11 · FastAPI · Starlette · httpx · Pydantic v2 · Jinja2 |
-| WebUI SPA | React 18 · Vite · Tailwind (statically served by the proxy) |
-| Control plane | React 18 · Tailwind · React Router 6 · Lucide |
-| Dashboard backend | FastAPI · Motor (async MongoDB) · PyJWT · bcrypt |
-| Database | MongoDB 7 |
-| LLM runtime | Ollama + any OpenAI/Anthropic‑compatible API |
-| Observability | Langfuse |
-| Tunnel | Cloudflare Tunnel · ngrok |
-| Containers | Docker Compose |
-
----
-
-## 🧙 Setup Wizard & deployments
-
-The 5‑step wizard configures providers, models, runtimes, the default agent, and cost policy.
-
-- Each step persists to `PUT /api/setup/step/{1‑5}` and to `localStorage` (`llm_relay_setup_draft`).
-- Re‑opening the wizard rehydrates from the backend (or the local draft if the backend is unreachable).
-- Completion clears the draft and never asks again.
-
-**API keys are never stored in this repository or in the static build.** All secrets entered in the wizard are sent to your backend via `POST /api/setup/secret` and stored encrypted server‑side. Only the secret ID lives in the wizard state.
-
-For **GitHub Pages / static frontend** deployments — point the bootstrap step at your backend URL once, it's cached in `localStorage` per browser. Bake it in at build time with the `RENDER_BACKEND_URL` GitHub secret to skip the bootstrap step entirely.
-
-For cross‑origin deploys, set `FRONTEND_URL` in the backend `.env`:
-
-```env
-FRONTEND_URL=https://strikersam.github.io
-```
-
----
-
-## 🛡 Troubleshooting
-
-| Symptom | Cause | Fix |
-|---|---|---|
-| `Invalid value for '--log-level': 'INFO' is not one of...` | `LOG_LEVEL=INFO` (uppercase) in `.env` — Uvicorn only accepts lowercase | Change to `LOG_LEVEL=info` in `.env` and restart |
-| Runtime agents (Hermes, Goose, Aider, OpenCode) not responding | Proxy container crashed due to LOG_LEVEL error | Fix LOG_LEVEL to lowercase, rebuild proxy: `docker compose build --no-cache proxy && docker compose up -d proxy` |
-| Ollama container stuck `unhealthy` | `ollama/ollama:latest` image lacks `curl` | Already fixed in `docker-compose.yml` — healthcheck now uses `ollama list`. Recreate container: `docker compose up -d --no-deps ollama` |
-| `ERR_NGROK_3200` | Tunnel not running | `./run_tunnel.sh` on the server |
-| `404` on `/v1/chat/completions` | `OLLAMA_BASE` set to a tunnel URL | Set `OLLAMA_BASE=http://localhost:11434` and restart |
-| `401 Unauthorized` | Invalid / missing API key | Check `API_KEYS` in `.env`; regenerate with `python generate_api_key.py` |
-| Models list empty | Ollama not running | `ollama serve` or `docker compose up ollama` |
-| `502 Bad Gateway` | Proxy not running | `uvicorn proxy:app --port 8000` |
-| Setup loop | Setup state stuck `completed=false` | `POST /api/setup/complete` with admin token |
-
----
-
-## 📂 Repo map
-
-```
-local-llm-server/
-├── proxy.py                 # FastAPI proxy + admin portal + agent loop
-├── provider_router.py       # 8‑step routing engine + tier classifier
-├── rbac.py · admin_auth.py  # RBAC v3 + signed sessions
-├── secrets_store.py         # AES‑256‑GCM scoped secrets
-├── social_auth.py           # GitHub + Google OAuth
-├── agents/   · runtimes/    # Agent & runtime control planes
-├── tasks/    · workflow/    # Kanban + workflow engine
-├── router/                  # Model classifier · health · registry
-├── handlers/                # v3 auth + Anthropic compat + models API
-├── webui/                   # Static React WebUI served by the proxy
-├── frontend/                # React 18 dashboard SPA
-├── backend/                 # FastAPI control‑plane backend (port 8001)
-├── docker/  · docker-compose.yml
-├── client-configs/          # Cursor · Aider · Continue · Zed · VS Code …
-├── docs/                    # Screenshots · architecture · runbooks
-└── tests/                   # 600+ tests, MongoDB‑backed CI
-```
-
----
-
-## 📝 License
-
-Open source. Use it, fork it, ship it. PRs and issues welcome.
+Open source. Use it, change it, and make it better.
 
 ---
 
 <div align="center">
 
-### If LLM Relay saves you money or unblocks your workflow — a star helps others find it.
+If LLM Relay helps you, a star helps other people find it.
 
 [![Star this repo](https://img.shields.io/github/stars/strikersam/local-llm-server?style=for-the-badge&logo=github&color=FFD43B)](https://github.com/strikersam/local-llm-server/stargazers)
-
-<sub>Built for people who'd rather pay their electricity bill than their API bill.</sub>
 
 </div>

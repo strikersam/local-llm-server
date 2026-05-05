@@ -12,7 +12,7 @@ Complete reference for every environment variable in `.env`. Copy `.env.example`
 | `KEYS_FILE` | (none) | Recommended | Path to the JSON key store (e.g. `keys.json`). Created automatically by `generate_api_key.py`. Enables per-user email/department tracking. |
 | `ADMIN_SECRET` | (none) | For admin UI/API | Strong random secret for the browser admin UI and admin API. Generate: `python -c "import secrets; print(secrets.token_urlsafe(32))"` |
 | `ADMIN_WINDOWS_AUTH` | `true` on Windows | No | Enable Windows credential-based admin login. Users log in with their Windows machine username and password. |
-| `ADMIN_WINDOWS_ALLOWED_USERS` | (empty) | No | Comma-separated Windows usernames allowed to log in (e.g. `HOSTNAME\swami,swami`). Empty = all local users allowed. |
+| `ADMIN_WINDOWS_ALLOWED_USERS` | (empty) | No | Comma-separated Windows usernames allowed to log in (e.g. `HOSTNAME\alice,alice`). Empty = all local users allowed. |
 | `ADMIN_WINDOWS_DEFAULT_DOMAIN` | `.` | No | Default domain for username normalization. `.` means local machine. |
 
 ---
@@ -183,8 +183,8 @@ See [docs/telegram-bot.md](telegram-bot.md) for full setup instructions.
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `OLLAMA_MODELS` | `~/.ollama/models` | Directory where Ollama stores downloaded model weights. Recommended: `D:\aipc-models` (Windows), `/mnt/data/ollama-models` (Linux). Needs lots of free space. |
-| `OLLAMA_EXE` | (auto-detect) | Explicit path to `ollama.exe` or `ollama` binary. Only needed if Ollama is not on `PATH`. Windows AI PC path: `C:\Users\swami\AppData\Roaming\aipc\runtime\ollama\ollama.exe`. |
-| `PYTHON_EXE` | (auto-detect) | Explicit path to Python. Needed on Windows if `python` opens the Store app. Example: `C:\Users\swami\AppData\Local\Programs\Python\Python312\python.exe` |
+| `OLLAMA_EXE` | (auto-detect) | Explicit path to `ollama.exe` or `ollama` binary. Only needed if Ollama is not on `PATH`. Windows AI PC example: `C:\Users\<you>\AppData\Roaming\aipc\runtime\ollama\ollama.exe`. |
+| `PYTHON_EXE` | (auto-detect) | Explicit path to Python. Needed on Windows if `python` opens the Store app. Example: `C:\Users\<you>\AppData\Local\Programs\Python\Python312\python.exe` |
 | `CLOUDFLARED_EXE` | (auto-detect) | Explicit path to `cloudflared.exe`. Default install: `C:\Program Files (x86)\cloudflared\cloudflared.exe`. |
 | `NGROK_EXE` | (auto-detect) | Explicit path to `ngrok` binary. Auto-detected from pyngrok's download location if blank. |
 

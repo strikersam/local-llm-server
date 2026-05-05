@@ -7,7 +7,13 @@ import pathlib
 
 sys.stdout.reconfigure(encoding="utf-8")
 
-OUT = "docs/screenshots"
+OUT = pathlib.Path("docs/screenshots")
+
+
+def out_path(*parts: str) -> pathlib.Path:
+    path = OUT.joinpath(*parts)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    return path
 
 TRACES_HTML = """<!DOCTYPE html>
 <html>
@@ -529,7 +535,14 @@ body { background: #17212b; font-family: -apple-system, BlinkMacSystemFont, 'Seg
 </html>"""
 
 
-async def save_html_screenshot(html: str, name: str, pw, width: int = 1280, height: int = 900):
+async def save_html_screenshot(
+    html: str,
+    name: str,
+    pw,
+    width: int = 1280,
+    height: int = 900,
+    subdir: str = "langfuse",
+):
     with tempfile.NamedTemporaryFile(suffix=".html", delete=False) as tmp:
         tmp_path = pathlib.Path(tmp.name)
     tmp.write_text(html, encoding="utf-8")
@@ -539,7 +552,7 @@ async def save_html_screenshot(html: str, name: str, pw, width: int = 1280, heig
     url = "file:///" + str(tmp).replace("\\", "/")
     await page.goto(url)
     await page.wait_for_load_state("networkidle")
-    await page.screenshot(path=f"{OUT}/{name}", full_page=True)
+    await page.screenshot(path=str(out_path(subdir, name)), full_page=True)
     await browser.close()
     tmp.unlink(missing_ok=True)
     print(f"saved {name}")
@@ -548,10 +561,17 @@ async def save_html_screenshot(html: str, name: str, pw, width: int = 1280, heig
 async def main():
     from playwright.async_api import async_playwright
     async with async_playwright() as p:
-        await save_html_screenshot(TRACES_HTML, "langfuse-traces-list.png", p)
-        await save_html_screenshot(TRACE_DETAIL_HTML, "langfuse-trace-detail.png", p)
-        await save_html_screenshot(COST_DASH_HTML, "langfuse-cost-dashboard.png", p)
-        await save_html_screenshot(TELEGRAM_HTML, "telegram-bot-commands.png", p, width=480, height=900)
+        await save_html_screenshot(TRACES_HTML, "langfuse-traces-list.png", p, subdir="langfuse")
+        await save_html_screenshot(TRACE_DETAIL_HTML, "langfuse-trace-detail.png", p, subdir="langfuse")
+        await save_html_screenshot(COST_DASH_HTML, "langfuse-cost-dashboard.png", p, subdir="langfuse")
+        await save_html_screenshot(
+            TELEGRAM_HTML,
+            "telegram-bot-commands.png",
+            p,
+            width=480,
+            height=900,
+            subdir="telegram",
+        )
 
 
 asyncio.run(main())

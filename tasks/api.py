@@ -5,8 +5,9 @@ from __future__ import annotations
 import logging
 from typing import Any
 from collections.abc import Mapping
+from pathlib import Path
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, Request
 
 from tasks.models import (
     ApprovalRequest,
@@ -18,6 +19,7 @@ from tasks.models import (
     TaskUpdateRequest,
 )
 from tasks.service import TaskWorkflowService
+from tasks.service import TaskExecutionCoordinator
 from tasks.store import TaskStore, get_task_store
 
 log = logging.getLogger("qwen-proxy")
@@ -50,6 +52,17 @@ def _get_store(_: Request) -> TaskStore:
 
 def _get_workflow(request: Request) -> TaskWorkflowService:
     return TaskWorkflowService(store=_get_store(request))
+
+
+def _queue_task_execution(background_tasks: BackgroundTasks, request: Request, task_id: str) -> None:
+    background_tasks.add_task(
+        TaskExecutionCoordinator(
+            store=_get_store(request),
+            workflow=_get_workflow(request),
+            workspace_root=str(Path(__file__).resolve().parent.parent),
+        ).execute,
+        task_id,
+    )
 
 
 def _is_admin(user: Any) -> bool:
@@ -186,7 +199,7 @@ async def update_task(task_id: str, body: TaskUpdateRequest, request: Request, u
                 actor=actor,
                 blocked_reason=task.blocked_reason or "Manually blocked" if body.status is TaskStatus.BLOCKED else None,
                 review_reason=task.review_reason or "Awaiting review" if body.status is TaskStatus.IN_REVIEW else None,
-                pending_agent_run=bool(task.agent_id) if body.status is TaskStatus.IN_PROGRESS else None,
+                pending_agent_run=True if body.status is TaskStatus.IN_PROGRESS else None,
             )
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
@@ -252,3 +265,31 @@ async def escalate_task(task_id: str, request: Request, user: Any = Depends(_cur
     workflow.escalate(task, actor=actor)
     await store.update(task)
     return {"task": task.as_dict()}
+
+
+@task_router.post("/{task_id}/run", status_code=202)
+async def run_task(
+    task_id: str,
+    request: Request,
+    background_tasks: BackgroundTasks,
+    user: Any = Depends(_current_user),
+) -> dict[str, Any]:
+    task, store, actor = await _load_task(request, task_id, user)
+
+    if task.status in {TaskStatus.BLOCKED, TaskStatus.IN_REVIEW, TaskStatus.DONE}:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Task in status '{task.status.value}' cannot be run directly. Move it back to todo/in_progress or use retry.",
+        )
+
+    task.pending_agent_run = True
+    if task.status is TaskStatus.TODO:
+        task.add_log(
+            "Task queued for immediate execution",
+            event_type="execution_requested",
+            actor=actor,
+            task_status=task.status,
+        )
+    await store.update(task)
+    _queue_task_execution(background_tasks, request, task.task_id)
+    return {"task": task.as_dict(), "queued": True}

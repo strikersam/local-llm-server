@@ -12,6 +12,7 @@ Tests cover:
 from __future__ import annotations
 
 import asyncio
+import json
 import time
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -375,6 +376,10 @@ class TestAdapterMetadata:
         from runtimes.adapters.aider import AiderAdapter
         self._check_adapter(AiderAdapter())
 
+    def test_task_harness_metadata(self):
+        from runtimes.adapters.task_harness import TaskHarnessAdapter
+        self._check_adapter(TaskHarnessAdapter())
+
     def test_hermes_is_first_class(self):
         from runtimes.adapters.hermes import HermesAdapter
         assert HermesAdapter.TIER == RuntimeTier.FIRST_CLASS
@@ -395,6 +400,10 @@ class TestAdapterMetadata:
         from runtimes.adapters.aider import AiderAdapter
         assert AiderAdapter.TIER == RuntimeTier.TIER_3
 
+    def test_task_harness_is_tier_2(self):
+        from runtimes.adapters.task_harness import TaskHarnessAdapter
+        assert TaskHarnessAdapter.TIER == RuntimeTier.TIER_2
+
     def test_hermes_supports_scheduled_tasks(self):
         from runtimes.adapters.hermes import HermesAdapter
         assert HermesAdapter().supports(RuntimeCapability.SCHEDULED_TASKS)
@@ -407,6 +416,12 @@ class TestAdapterMetadata:
         from runtimes.adapters.aider import AiderAdapter
         assert AiderAdapter().supports(RuntimeCapability.GIT_OPERATIONS)
 
+    def test_task_harness_supports_scheduled_tasks_and_agent_delegation(self):
+        from runtimes.adapters.task_harness import TaskHarnessAdapter
+        adapter = TaskHarnessAdapter()
+        assert adapter.supports(RuntimeCapability.SCHEDULED_TASKS)
+        assert adapter.supports(RuntimeCapability.AGENT_DELEGATION)
+
     def test_hermes_health_returns_health_object_when_offline(self):
         from runtimes.adapters.hermes import HermesAdapter
         adapter = HermesAdapter({"base_url": "http://localhost:1"})
@@ -414,3 +429,54 @@ class TestAdapterMetadata:
         assert isinstance(health, RuntimeHealth)
         assert health.available is False
         assert health.error is not None
+
+
+class TestTaskHarnessAdapterExecution:
+
+    def test_task_harness_health_reports_missing_binary(self):
+        from runtimes.adapters.task_harness import TaskHarnessAdapter
+
+        with patch("runtimes.adapters.task_harness.shutil.which", return_value=None):
+            health = asyncio.run(TaskHarnessAdapter().health_check())
+
+        assert health.available is False
+        assert "TASK_HARNESS_BIN" in (health.error or "")
+
+    def test_task_harness_execute_parses_run_json(self):
+        from runtimes.adapters.task_harness import TaskHarnessAdapter
+
+        report = {
+            "session_id": "session_abc",
+            "provider": "OpenAI",
+            "model": "gpt-5.4",
+            "text": "OK",
+            "usage": {"input_tokens": 10, "output_tokens": 5},
+        }
+
+        class Proc:
+            returncode = 0
+
+            async def communicate(self):
+                return json.dumps(report).encode(), b""
+
+        async def fake_subprocess_exec(*args, **kwargs):
+            return Proc()
+
+        with patch("runtimes.adapters.task_harness.shutil.which", return_value="/usr/bin/task-harness"), \
+             patch("runtimes.adapters.task_harness.asyncio.create_subprocess_exec", new=fake_subprocess_exec):
+            result = asyncio.run(
+                TaskHarnessAdapter().execute(
+                    TaskSpec(
+                        task_id="task-1",
+                        instruction="Reply with exactly OK",
+                        workspace_path=".",
+                    )
+                )
+            )
+
+        assert result.success is True
+        assert result.output == "OK"
+        assert result.model_used == "gpt-5.4"
+        assert result.provider_used == "OpenAI"
+        assert result.tokens_used == 15
+        assert result.metadata["session_id"] == "session_abc"

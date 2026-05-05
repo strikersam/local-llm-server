@@ -244,19 +244,13 @@ jobs:
           fi
 
       # ── 11. Create pull request ────────────────────────────────────────────
-      - name: Authenticate gh CLI
-        id: gh-auth
-        if: steps.commit.outputs.changed == 'true'
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          echo "${GH_TOKEN}" | gh auth login --with-token
       - name: Create pull request
         id: pr
         if: steps.commit.outputs.changed == 'true'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
+          echo "${GH_TOKEN}" | gh auth login --with-token
           IMPL_SUMMARY=$(python3 -c "
           import json, sys
           try:

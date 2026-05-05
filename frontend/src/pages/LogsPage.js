@@ -34,7 +34,7 @@ function TabBar({ tabs, active, onChange }) {
       {tabs.map(([id, label]) => (
         <button key={id} onClick={() => onChange(id)}
           className="px-3 py-1.5 text-[10px] font-mono uppercase tracking-wider transition-colors"
-          style={active === id ? { background: C.accent, color: '#fff' } : { color: C.tertiary }}
+          style={active === id ? { background: C.accent, color: C.primary } : { color: C.tertiary }}
           onMouseEnter={e => { if (active !== id) e.currentTarget.style.color = C.secondary; }}
           onMouseLeave={e => { if (active !== id) e.currentTarget.style.color = C.tertiary; }}>
           {label}
@@ -122,7 +122,7 @@ function ActivityTab() {
     setLoading(true);
     try {
       const r = await getActivity(100);
-      setEvents(Array.isArray(r.data) ? r.data : r.data?.events || r.data?.activity || []);
+      setEvents(Array.isArray(r.data) ? r.data : r.data?.events || r.data?.activity || r.data?.logs || []);
     } catch (e) {
       setError(fmtErr(e));
     } finally {
@@ -141,6 +141,7 @@ function ActivityTab() {
     auth:     '#3B82F6',
     task:     '#06B6D4',
     agent:    '#8B5CF6',
+    error:    '#EF4444',
   })[cat] || C.muted;
 
   if (loading) return <div className="py-12 text-center text-[11px] font-mono" style={{ color: C.muted }}>Loading…</div>;
@@ -161,7 +162,7 @@ function ActivityTab() {
           {events.map((a, i) => {
             const cat = a.category || a.type || 'other';
             const msg = a.message || a.description || a.action || JSON.stringify(a);
-            const time = a.timestamp ? relTime(a.timestamp) : a.time || '—';
+            const time = a.timestamp || a.created_at ? relTime(a.timestamp || a.created_at) : a.time || '—';
             return (
               <div key={a.id || i} className="flex items-center gap-3 px-5 py-3 transition-colors"
                 onMouseEnter={e => e.currentTarget.style.background = 'rgba(255,255,255,0.015)'}
@@ -199,15 +200,20 @@ function MetricsTab() {
 
   if (loading) return <div className="py-12 text-center text-[11px] font-mono" style={{ color: C.muted }}>Loading metrics…</div>;
 
-  const totalSaved   = savings?.total_saved_usd ?? stats?.cost_saved_usd ?? 0;
-  const monthlySaved = savings?.period_saved_usd ?? 0;
+  const savingsSummary = savings?.summary || {};
+  const totalSaved   = savings?.total_saved_usd ?? savingsSummary.total_savings_usd ?? stats?.cost_saved_usd ?? 0;
+  const monthlySaved = savings?.period_saved_usd ?? savingsSummary.total_savings_usd ?? 0;
   const todaySaved   = savings?.today_saved_usd ?? 0;
-  const dailyBuckets = savings?.buckets || [];
+  const dailyBuckets = savings?.buckets || (savings?.time_series || []).map(d => ({
+    ...d,
+    saved_usd: d.saved_usd ?? d.savings_usd ?? 0,
+    date: d.date || d.label || '',
+  }));
   const maxSaving    = dailyBuckets.length ? Math.max(...dailyBuckets.map(d => d.saved_usd || 0), 1) : 1;
 
-  const totalTokens  = usage?.total_tokens ?? stats?.total_tokens ?? 0;
+  const totalTokens  = usage?.total_tokens ?? savingsSummary.total_tokens ?? stats?.total_tokens ?? 0;
   const localRatio   = usage?.local_ratio ?? stats?.local_ratio ?? null;
-  const requests24h  = usage?.requests_24h ?? stats?.requests_24h ?? 0;
+  const requests24h  = usage?.requests_24h ?? usage?.total_requests ?? savingsSummary.total_requests ?? stats?.requests_24h ?? 0;
   const escalations  = usage?.escalations ?? stats?.escalations ?? 0;
   const escalPct     = requests24h > 0 ? ((escalations / requests24h) * 100).toFixed(1) : '—';
 

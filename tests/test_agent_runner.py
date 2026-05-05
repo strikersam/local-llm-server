@@ -4,6 +4,7 @@ from pathlib import Path
 import pytest
 
 from agent.loop import AgentPhaseError, AgentRunner
+from agent.state import AgentSessionStore
 
 
 def test_agent_runner_applies_a_change_with_mocked_model(tmp_path: Path):
@@ -41,6 +42,51 @@ def test_agent_runner_applies_a_change_with_mocked_model(tmp_path: Path):
     assert result["steps"][0]["status"] == "applied"
     assert result["steps"][0]["changed_files"] == ["notes.txt"]
     assert target.read_text(encoding="utf-8") == "new text\n"
+
+
+def test_agent_runner_logs_tool_events_for_live_streaming(tmp_path: Path):
+    root = tmp_path / "repo"
+    root.mkdir()
+    target = root / "notes.txt"
+    target.write_text("old text\n", encoding="utf-8")
+
+    store = AgentSessionStore(tmp_path / "agent-events.db")
+    store.create_with_id(session_id="session-live", title="Live Run", owner_id="user-1")
+    runner = AgentRunner(
+        ollama_base="http://localhost:11434",
+        workspace_root=root,
+        session_store=store,
+    )
+    responses = iter(
+        [
+            '{"goal":"Update notes","steps":[{"id":1,"description":"Replace notes content","files":["notes.txt"],"type":"edit"}]}',
+            '{"tool":"read_file","args":{"path":"notes.txt"}}',
+            '{"tool":"finish","args":{"reason":"Enough context gathered"}}',
+            'FILE: notes.txt\nACTION: replace\n```text\nnew text\n```',
+            '{"status":"pass","issues":[]}',
+        ]
+    )
+
+    async def fake_chat_text(model: str, messages: list[dict[str, str]]) -> str:
+        return next(responses)
+
+    runner._chat_text = fake_chat_text  # type: ignore[method-assign]
+
+    asyncio.run(
+        runner.run(
+            instruction="Update notes",
+            history=[],
+            requested_model=None,
+            auto_commit=False,
+            max_steps=3,
+            session_id="session-live",
+        )
+    )
+
+    events = store.get_events("session-live")
+    event_types = [event.event_type for event in events]
+    assert "tool_call" in event_types
+    assert "tool_result" in event_types
 
 
 def test_agent_runner_reports_format_failure_with_mocked_model(tmp_path: Path):

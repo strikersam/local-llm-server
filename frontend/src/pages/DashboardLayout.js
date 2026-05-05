@@ -8,7 +8,6 @@ import {
   Zap, Lock, Calendar, TrendingUp,
 } from 'lucide-react';
 import ControlPlanePage from './ControlPlanePage';
-import DashboardHome from './DashboardHome';
 import ChatPage from './ChatPage';
 import WikiPage from './WikiPage';
 import SourcesPage from './SourcesPage';
@@ -29,7 +28,7 @@ import KnowledgePage from './KnowledgePage';
 import LogsPage from './LogsPage';
 
 /**
- * navSections — v3.1 navigation matching the Control Plane design.
+ * navSections — v3.1 navigation matching the Control Plane design system.
  *
  * Sections mirror the design bundle layout:
  *  WORKSPACE   — Control Plane, Tasks
@@ -43,7 +42,7 @@ function buildNavSections(isAdmin, isPowerUser) {
     {
       label: 'WORKSPACE',
       items: [
-        { to: '/', icon: LayoutDashboard, label: 'Control Plane', end: true },
+        { to: '/', icon: LayoutDashboard, label: 'Dashboard', end: true },
         { to: '/tasks', icon: CheckSquare, label: 'Tasks' },
       ],
     },
@@ -66,7 +65,7 @@ function buildNavSections(isAdmin, isPowerUser) {
       items: [
         { to: '/runtimes', icon: Radio, label: 'Agent Runtimes' },
         { to: '/routing', icon: TrendingUp, label: 'Routing Policy' },
-        { to: '/providers', icon: Layers, label: 'Setup' },
+        { to: '/providers', icon: Layers, label: 'Providers' },
       ],
     },
     {
@@ -91,10 +90,10 @@ function NavItem({ to, icon: Icon, label, end, onClick, adminOnly }) {
       onClick={onClick}
       data-testid={`nav-${label.toLowerCase().replace(/\s/g, '-')}`}
       className={({ isActive }) =>
-        `group relative flex items-center gap-2.5 px-3 py-2 mx-2 text-[12.5px] font-medium rounded-lg transition-all duration-150
+        `group relative flex items-center gap-2.5 px-3 py-2 mx-2 text-sm font-medium rounded-lg transition-all duration-150
         ${isActive
-          ? 'bg-[#002FA7]/10 text-white'
-          : 'text-[#808094] hover:text-[#B2B2C4] hover:bg-white/[0.04]'
+          ? `bg-[var(--accent)]/10 text-[var(--text-primary)]`
+          : `text-[var(--text-tertiary)] hover:text-[var(--text-secondary)] hover:bg-[var(--text-secondary)]/5`
         }`
       }
       style={{ width: 'calc(100% - 16px)' }}
@@ -102,12 +101,12 @@ function NavItem({ to, icon: Icon, label, end, onClick, adminOnly }) {
       {({ isActive }) => (
         <>
           {isActive && (
-            <div className="absolute left-0 top-1/2 -translate-y-1/2 w-0.5 h-4 rounded-full bg-[#002FA7]" />
+            <div className="absolute left-0 top-1/2 -translate-y-1/2 w-[2px] h-4 rounded-full bg-[var(--accent)]" />
           )}
-          <Icon size={14} className={isActive ? 'text-[#002FA7]' : 'text-[#6E6E80] group-hover:text-[#8E8EA2]'} />
+          <Icon size={14} className={isActive ? 'text-[var(--accent)]' : 'text-[var(--text-icon-inactive)] group-hover:text-[var(--text-icon-hover)]'} />
           <span className="flex-1 leading-none">{label}</span>
           {adminOnly && (
-            <Lock size={9} className="text-[#565666]" title="Admin only" />
+            <Lock size={9} className="text-[var(--text-muted)]" title="Admin only" />
           )}
         </>
       )}
@@ -121,22 +120,22 @@ function SidebarContent({ user, onLogout, onClose }) {
   const isPowerUser = user?.role === 'power_user';
   const navSections = buildNavSections(isAdmin, isPowerUser);
 
-  const roleColor = isAdmin ? '#002FA7' : isPowerUser ? '#3B82F6' : '#10B981';
+  const roleColor = isAdmin ? 'var(--accent)' : isPowerUser ? 'var(--role-power-user)' : 'var(--role-user)';
   const roleLabel = isAdmin ? 'admin' : isPowerUser ? 'power user' : 'user';
 
   return (
     <div className="flex flex-col h-full" data-testid="sidebar">
       {/* Logo */}
-      <div className="px-4 pt-4 pb-3 border-b" style={{ borderColor: 'rgba(255,255,255,0.06)' }}>
+      <div className="px-4 pt-4 pb-3 border-b" style={{ borderColor: 'rgba(255,255,255,0.08)' }}>
         <div className="flex items-center gap-2.5">
-          <div className="w-7 h-7 rounded-lg flex items-center justify-center"
-            style={{ background: '#002FA7', boxShadow: '0 2px 12px rgba(0,47,167,0.5)' }}>
-            <Cpu size={13} className="text-white" />
+          <div className="w-8 h-8 rounded-lg flex items-center justify-center"
+            style={{ background: 'var(--accent)', boxShadow: '0 2px 12px rgba(0,102,255,0.3)' }}>
+            <Cpu size={16} className="text-white" />
           </div>
           <div>
-            <div className="text-[13px] font-bold text-white tracking-tight"
+            <div className="text-[14px] font-bold text-white tracking-tight"
               style={{ fontFamily: 'var(--font-main)' }}>LLM Relay</div>
-            <div className="text-[9px] text-[#565666] font-mono leading-none mt-0.5">v3.1 · control plane</div>
+            <div className="text-[10px] text-[var(--text-muted)] font-mono leading-none mt-0.5">v3.1 · control plane</div>
           </div>
         </div>
       </div>
@@ -146,7 +145,7 @@ function SidebarContent({ user, onLogout, onClose }) {
         {navSections.map(section => (
           <div key={section.label} className="mb-1">
             <div className="px-5 pt-3 pb-1 text-[9px] tracking-[0.18em] uppercase font-mono font-bold"
-              style={{ color: '#565666' }}>
+              style={{ color: 'var(--text-muted)' }}>
               {section.label}
             </div>
             {section.items.map(item => (
@@ -157,23 +156,23 @@ function SidebarContent({ user, onLogout, onClose }) {
       </nav>
 
       {/* User footer */}
-      <div className="p-3 space-y-0.5" style={{ borderTop: '1px solid rgba(255,255,255,0.06)' }}>
+      <div className="p-3 space-y-0.5" style={{ borderTop: '1px solid rgba(255,255,255,0.08)' }}>
         <div className="flex items-center gap-2.5 px-2 py-1.5 rounded-lg">
-          <div className="w-6 h-6 rounded-full flex items-center justify-center text-[10px] font-bold text-white shrink-0"
-            style={{ background: '#002FA7' }}>
+          <div className="w-7 h-7 rounded-full flex items-center justify-center text-[11px] font-bold text-white shrink-0"
+            style={{ background: 'var(--accent)' }}>
             {initial}
           </div>
           <div className="flex-1 min-w-0">
             <div className="flex items-center gap-1.5">
-              <span className="text-[11.5px] font-medium truncate" style={{ color: '#D2D2E2' }}>
+              <span className="text-[12px] font-medium truncate" style={{ color: 'var(--text-primary)' }}>
                 {user?.name || 'User'}
               </span>
-              <span className="text-[7px] font-mono uppercase tracking-wider px-1 py-px rounded"
-                style={{ background: roleColor + '20', color: roleColor }}>
+              <span className="text-[8px] font-mono uppercase tracking-wider px-1.5 py-[2px] rounded"
+                style={{ background: `var(--role-color)20`, color: 'var(--role-color)' }}>
                 {roleLabel}
               </span>
             </div>
-            <div className="text-[9px] font-mono truncate" style={{ color: '#565666' }}>
+            <div className="text-[10px] font-mono truncate" style={{ color: 'var(--text-muted)' }}>
               {user?.email || 'local'}
             </div>
           </div>
@@ -181,9 +180,8 @@ function SidebarContent({ user, onLogout, onClose }) {
         <button
           onClick={onLogout}
           className="w-full flex items-center gap-2 px-2 py-1.5 rounded-lg text-[11px] transition-all duration-150"
-          style={{ color: '#6E6E80' }}
-          onMouseEnter={e => { e.currentTarget.style.color = '#f87171'; e.currentTarget.style.background = 'rgba(239,68,68,0.05)'; }}
-          onMouseLeave={e => { e.currentTarget.style.color = '#6E6E80'; e.currentTarget.style.background = 'transparent'; }}
+          onMouseEnter={e => { e.currentTarget.style.color = 'var(--danger)'; e.currentTarget.style.background = 'var(--danger-hover-bg)'; }}
+          onMouseLeave={e => { e.currentTarget.style.color = 'var(--text-muted)'; e.currentTarget.style.background = 'transparent'; }}
           data-testid="logout-button"
         >
           <LogOut size={12} />
@@ -207,27 +205,28 @@ export default function DashboardLayout() {
   const closeSidebar = useCallback(() => setSidebarOpen(false), []);
 
   return (
-    <div className="min-h-[100dvh] flex" style={{ background: '#0F0F13', fontFamily: 'var(--font-main)' }}
+    <div className="min-h-[100dvh] flex" 
+      style={{ background: 'var(--bg-base)', fontFamily: 'var(--font-main)' }}
       data-testid="dashboard-layout">
 
       {/* Mobile top bar */}
-      <div className="lg:hidden fixed top-0 left-0 right-0 z-50 flex items-center gap-3 px-4 h-12"
-        style={{ background: '#0D0D11', borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
+      <div className="lg:hidden fixed top-0 left-0 right-0 z-50 flex items-center gap-2.5 px-3 h-14"
+        style={{ background: 'var(--bg-sidebar)', borderBottom: '1px solid var(--border)' }}>
         <button
           onClick={() => setSidebarOpen(s => !s)}
-          className="w-7 h-7 flex items-center justify-center rounded border text-white"
-          style={{ borderColor: 'rgba(255,255,255,0.1)' }}
+          className="w-9 h-9 flex items-center justify-center rounded border"
+          style={{ borderColor: 'var(--border-soft)' }}
           data-testid="mobile-menu-toggle"
           aria-label="Toggle navigation"
         >
-          {sidebarOpen ? <X size={15} /> : <Menu size={15} />}
+          {sidebarOpen ? <X size={16} /> : <Menu size={16} />}
         </button>
         <div className="flex items-center gap-2">
-          <div className="w-6 h-6 rounded-md flex items-center justify-center"
-            style={{ background: '#002FA7' }}>
-            <Cpu size={11} className="text-white" />
+          <div className="w-7 h-7 rounded-md flex items-center justify-center"
+            style={{ background: 'var(--accent)' }}>
+            <Cpu size={14} className="text-white" />
           </div>
-          <span className="text-[12px] font-bold text-white tracking-tight"
+          <span className="text-[13px] font-bold text-white tracking-tight"
             style={{ fontFamily: 'var(--font-main)' }}>LLM Relay</span>
         </div>
       </div>
@@ -246,22 +245,24 @@ export default function DashboardLayout() {
       <aside
         className={`
           fixed lg:static inset-y-0 left-0 z-40
-          w-52 flex flex-col
+          w-[260px] flex flex-col
           transform transition-transform duration-200 ease-out
           ${sidebarOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0'}
         `}
-        style={{ background: '#0D0D11', borderRight: '1px solid rgba(255,255,255,0.06)' }}
+        style={{ background: 'var(--bg-sidebar)', borderRight: '1px solid var(--border)' }}
       >
         <SidebarContent user={user} onLogout={handleLogout} onClose={closeSidebar} />
       </aside>
 
       {/* Main content */}
       <main className="flex-1 min-w-0 flex flex-col overflow-hidden" style={{ paddingTop: '0' }}>
-        <div className="flex-1 overflow-hidden pt-12 lg:pt-0">
+        <div className="flex-1 overflow-hidden pt-[16px] lg:pt-0">
           <Routes>
-            {/* Control Plane home */}
+            {/* Dashboard home */}
             <Route path="/" element={<div className="h-full overflow-y-auto"><ControlPlanePage /></div>} />
-            <Route path="/dashboard" element={<div className="h-full overflow-y-auto"><DashboardHome /></div>} />
+            <Route path="/dashboard" element={<Navigate to="/" replace />} />
+            <Route path="/control-plane" element={<Navigate to="/" replace />} />
+            <Route path="/llmrelay" element={<Navigate to="/" replace />} />
 
             {/* Workspace */}
             <Route path="/tasks" element={<div className="h-full overflow-y-auto"><TasksPage /></div>} />

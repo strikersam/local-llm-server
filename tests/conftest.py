@@ -174,8 +174,8 @@ def wiki_client():
 
 
 @pytest.fixture
-def client(wiki_client):
-    """Compatibility alias for tests that expect a generic TestClient fixture."""
+def client(wiki_client: TestClient) -> TestClient:
+    """Backward-compatible alias for tests expecting a generic client fixture."""
     return wiki_client
 
 

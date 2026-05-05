@@ -1,22 +1,22 @@
 {
   "schema_version": "1",
-  "session_id": "github-pages-bug-sweep-2026-04-25",
-  "status": "completed",
-  "last_updated": "2026-04-25T00:40:00Z",
-  "next_step": "Deploy the updated build and verify the live GitHub Pages auth/bootstrap flow.",
+  "session_id": "direct-chat-reliability-2026-05-05",
+  "status": "in_progress",
+  "last_updated": "2026-05-05T07:46:30Z",
+  "next_step": "Finish rebasing the direct-chat reliability branch onto master, force-push the updated PR branch, and merge once checks are green.",
   "completed_steps": [
-    "reproduce-router-and-deployment-bugs",
-    "fix-router-model-map-fallback",
-    "fix-prelogin-bootstrap-route",
-    "fix-frontend-backend-resolution",
-    "fix-oauth-origin-checks",
-    "stabilize-router-and-v3-auth-tests",
-    "browser-verify-bootstrap-and-login",
-    "changelog-update"
+    "rebuild-root-hosted-dashboard",
+    "prioritize-nvidia-nemotron-defaults",
+    "add-live-agent-status-and-stream-endpoints",
+    "persist-editable-setup-wizard-state-and-settings-shortcut",
+    "replace-external-harness-branding-with-task-harness",
+    "run-python-frontend-and-build-verification",
+    "stabilize-direct-chat-provider-failover-and-recovery"
   ],
   "tests_run": [
-    "./.venv/bin/pytest -x tests/test_model_router.py tests/test_frontend_deployment_guards.py — PASS",
-    "npm run build (frontend/) — PASS",
-    "./.venv/bin/pytest -x — PASS (613 passed)"
+    "pytest -x — PASS (733 passed, 15 skipped)",
+    "CI=true npm test -- --watch=false (frontend/) — PASS (52 passed)",
+    "PUBLIC_URL=/local-llm-server REACT_APP_BACKEND_URL=https://relay.example.com npm run build (frontend/) — PASS",
+    "pytest -x — PASS (757 passed, 15 skipped)"
   ]
 }

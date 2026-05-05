@@ -32,7 +32,7 @@
 
 ## Files Touched
 - `/app/README.md` (full rewrite, ~540 lines)
-- `/app/docs/screenshots/v3-*.png` (14 new screenshots)
+- `/app/docs/screenshots/readme/v3-*.png` (14 new screenshots)
 - `/app/scratch/seed_demo_data.py` (new — for repeatable demo data)
 
 ## Backlog / Nice-to-Have
