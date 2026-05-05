@@ -2,11 +2,12 @@ import React, { useState, useEffect, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import { chatSend, listSessions, getSession, deleteSession, listProviders, listProviderModels, getGithubStatus, createTask, createSchedule, fmtErr, getAuthHeaders, getBackendUrl } from '../api';
+import { chatSend, listSessions, getSession, deleteSession, listProviders, listProviderModels, getGithubStatus, createTask, createSchedule, fmtErr, getBackendUrl } from '../api';
 import { Send, Plus, Trash2, MessageSquare, Bot, User, Loader2, Zap, Clock, Settings, X, ChevronDown } from 'lucide-react';
 import AgentStatusPanel from '../components/AgentStatusPanel.jsx';
 import AgentActivityFeed from '../components/AgentActivityFeed.jsx';
 import ToolCallViewer from '../components/ToolCallViewer.jsx';
+import { fetchAgentWorkspaceSnapshot } from '../utils/agentWorkspaceTransport';
 
 const LS_PROVIDER_ID = 'llmrelay_provider_id';
 const LS_MODEL       = 'llmrelay_model';
@@ -398,6 +399,8 @@ export default function ChatPage() {
   const [workflowAction, setWorkflowAction] = useState('');
   const [agentSnapshot, setAgentSnapshot] = useState(emptyAgentSnapshot);
   const [agentConsoleTab, setAgentConsoleTab] = useState('progress');
+  const [agentWorkspaceState, setAgentWorkspaceState] = useState('idle');
+  const [agentWorkspaceError, setAgentWorkspaceError] = useState('');
 
   const messagesEndRef = useRef(null);
   const inputRef       = useRef(null);
@@ -423,26 +426,18 @@ export default function ChatPage() {
 
     const loadAgentSnapshot = async () => {
       try {
-        const base = (getBackendUrl() || '').replace(/\/$/, '');
-        const response = await fetch(`${base}/api/agent/status?session_id=${encodeURIComponent(sessionId)}`, {
-          headers: getAuthHeaders(),
-        });
-        if (!response.ok) {
-          if (!cancelled) setAgentSnapshot(emptyAgentSnapshot());
-          return;
-        }
-        const data = await response.json();
+        const data = await fetchAgentWorkspaceSnapshot(sessionId);
         if (!cancelled) {
-          setAgentSnapshot({
-            has_events: Boolean(data.has_events),
-            agents: Array.isArray(data.agents) ? data.agents : [],
-            tool_calls: Array.isArray(data.tool_calls) ? data.tool_calls : [],
-            latest_summary: data.latest_summary || '',
-            latest_error: data.latest_error || '',
-          });
+          setAgentSnapshot(data);
+          setAgentWorkspaceState('connected');
+          setAgentWorkspaceError('');
         }
-      } catch {
-        if (!cancelled) setAgentSnapshot(emptyAgentSnapshot());
+      } catch (error) {
+        if (!cancelled) {
+          setAgentSnapshot(emptyAgentSnapshot());
+          setAgentWorkspaceState(error?.code === 'auth' ? 'auth_error' : 'reconnecting');
+          setAgentWorkspaceError(error instanceof Error ? error.message : 'Live agent workspace is reconnecting.');
+        }
       }
     };
 
@@ -667,6 +662,8 @@ export default function ChatPage() {
     sessionId && (
       sending ||
       agentMode ||
+      agentWorkspaceState === 'reconnecting' ||
+      agentWorkspaceState === 'auth_error' ||
       agentSnapshot.has_events ||
       agentSnapshot.agents.length ||
       agentSnapshot.tool_calls.length ||
@@ -822,7 +819,9 @@ export default function ChatPage() {
                 <div>
                   <div className="text-[10px] font-mono uppercase tracking-[0.2em] text-[#AFC4FF]">Live agent workspace</div>
                   <div className="text-xs text-white mt-1">
-                    {agentSnapshot.latest_error
+                    {agentWorkspaceError
+                      ? agentWorkspaceError
+                      : agentSnapshot.latest_error
                       ? agentSnapshot.latest_error
                       : agentSnapshot.latest_summary || 'Track planning, tool use, and verification in real time.'}
                   </div>
@@ -853,16 +852,45 @@ export default function ChatPage() {
                 ))}
               </div>
 
+              {agentWorkspaceState === 'reconnecting' && (
+                <div className="mx-4 mt-3 rounded-md border border-amber-400/20 bg-amber-400/10 px-3 py-2 text-[11px] text-amber-200" data-testid="agent-workspace-reconnect-banner">
+                  Reconnecting live agent updates…
+                </div>
+              )}
+
+              {agentWorkspaceState === 'auth_error' && (
+                <div className="mx-4 mt-3 rounded-md border border-red-500/20 bg-red-500/10 px-3 py-2 text-[11px] text-red-200" data-testid="agent-workspace-auth-banner">
+                  Agent workspace session expired. Sign in again to restore live agent updates.
+                </div>
+              )}
+
               <div className="p-3 md:p-4 md:grid md:grid-cols-2 md:gap-4 space-y-3 md:space-y-0">
                 <div className={`${agentConsoleTab !== 'progress' ? 'hidden md:block' : ''}`}>
-                  <AgentStatusPanel sessionId={sessionId} className="h-full min-h-[220px]" />
+                  <AgentStatusPanel
+                    sessionId={sessionId}
+                    agents={agentSnapshot.agents}
+                    loading={agentWorkspaceState === 'idle'}
+                    error={agentWorkspaceState === 'auth_error' ? agentWorkspaceError : null}
+                    className="h-full min-h-[220px]"
+                  />
                 </div>
                 <div className={`${agentConsoleTab !== 'tools' ? 'hidden md:block' : ''}`}>
                   <ToolCallViewer toolCalls={agentSnapshot.tool_calls} className="h-full min-h-[220px]" />
                 </div>
                 <div className={`${agentConsoleTab !== 'activity' ? 'hidden md:block' : ''} md:col-span-2`}>
                   <div className="h-[320px] md:h-[360px]">
-                    <AgentActivityFeed sessionId={sessionId} className="h-full" />
+                    <AgentActivityFeed
+                      sessionId={sessionId}
+                      className="h-full"
+                      onConnectionChange={(state) => {
+                        if (state === 'connected') {
+                          setAgentWorkspaceState('connected');
+                          setAgentWorkspaceError('');
+                        } else if (state === 'reconnecting') {
+                          setAgentWorkspaceState((current) => current === 'auth_error' ? current : 'reconnecting');
+                        }
+                      }}
+                    />
                   </div>
                 </div>
               </div>

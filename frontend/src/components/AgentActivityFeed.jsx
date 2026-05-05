@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from "react";
-import { getAccessToken, getBackendUrl } from "../api";
+import { createAgentWorkspaceEventSource } from "../utils/agentWorkspaceTransport";
 
 const AGENT_COLORS = {
   planner: "text-blue-400 bg-blue-400/10 border-blue-400/20",
@@ -34,7 +34,7 @@ function formatTime(isoString) {
   }
 }
 
-export default function AgentActivityFeed({ sessionId, maxEvents = 100, className = "" }) {
+export default function AgentActivityFeed({ sessionId, maxEvents = 100, className = "", onConnectionChange = null }) {
   const [events, setEvents] = useState([]);
   const [connected, setConnected] = useState(false);
   const [paused, setPaused] = useState(false);
@@ -51,14 +51,12 @@ export default function AgentActivityFeed({ sessionId, maxEvents = 100, classNam
       return undefined;
     }
 
-    const base = (getBackendUrl() || "").replace(/\/$/, "");
-    const params = new URLSearchParams({ session_id: sessionId });
-    const accessToken = getAccessToken();
-    if (accessToken) params.set("access_token", accessToken);
-    const url = `${base}/api/agent/stream?${params.toString()}`;
-    const es = new EventSource(url);
+    const es = createAgentWorkspaceEventSource(sessionId);
 
-    es.onopen = () => setConnected(true);
+    es.onopen = () => {
+      setConnected(true);
+      onConnectionChange?.('connected');
+    };
     es.onmessage = (ev) => {
       try {
         const data = JSON.parse(ev.data);
@@ -74,13 +72,17 @@ export default function AgentActivityFeed({ sessionId, maxEvents = 100, classNam
         // ignore parse errors
       }
     };
-    es.onerror = () => setConnected(false);
+    es.onerror = () => {
+      setConnected(false);
+      onConnectionChange?.('reconnecting');
+    };
 
     return () => {
       es.close();
       setConnected(false);
+      onConnectionChange?.('disconnected');
     };
-  }, [sessionId, maxEvents]);
+  }, [sessionId, maxEvents, onConnectionChange]);
 
   useEffect(() => {
     if (!paused) bottomRef.current?.scrollIntoView({ behavior: "smooth" });

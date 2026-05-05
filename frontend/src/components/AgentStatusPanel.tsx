@@ -1,5 +1,4 @@
-import React, { useEffect, useState } from "react";
-import { getAuthHeaders, getBackendUrl } from "../api";
+import React from "react";
 
 export interface AgentStatus {
   id: string;
@@ -14,7 +13,9 @@ export interface AgentStatus {
 
 interface AgentStatusPanelProps {
   sessionId?: string;
-  pollInterval?: number;
+  agents?: AgentStatus[];
+  loading?: boolean;
+  error?: string | null;
   className?: string;
 }
 
@@ -45,45 +46,11 @@ const ROLE_ICONS: Record<string, string> = {
 
 export const AgentStatusPanel: React.FC<AgentStatusPanelProps> = ({
   sessionId,
-  pollInterval = 2000,
+  agents = [],
+  loading = false,
+  error = null,
   className = "",
 }) => {
-  const [agents, setAgents] = useState<AgentStatus[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-
-  useEffect(() => {
-    let cancelled = false;
-
-    const fetchStatus = async () => {
-      try {
-        const url = sessionId
-          ? `${(getBackendUrl() || "").replace(/\/$/, "")}/api/agent/status?session_id=${encodeURIComponent(sessionId)}`
-          : `${(getBackendUrl() || "").replace(/\/$/, "")}/api/agent/status`;
-        const res = await fetch(url, { headers: getAuthHeaders() });
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
-        const data = await res.json();
-        if (!cancelled) {
-          setAgents(Array.isArray(data) ? data : data.agents ?? []);
-          setError(null);
-          setLoading(false);
-        }
-      } catch (e) {
-        if (!cancelled) {
-          setError(e instanceof Error ? e.message : "Unknown error");
-          setLoading(false);
-        }
-      }
-    };
-
-    fetchStatus();
-    const timer = setInterval(fetchStatus, pollInterval);
-    return () => {
-      cancelled = true;
-      clearInterval(timer);
-    };
-  }, [sessionId, pollInterval]);
-
   const activeCount = agents.filter((a) => a.status === "running").length;
   const waitingCount = agents.filter((a) => a.status === "waiting").length;
 

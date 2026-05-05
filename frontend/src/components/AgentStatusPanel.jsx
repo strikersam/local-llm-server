@@ -1,5 +1,4 @@
-import React, { useEffect, useState } from "react";
-import { getAuthHeaders, getBackendUrl } from "../api";
+import React from "react";
 
 const STATUS_STYLES = {
   idle: "bg-gray-500/20 text-gray-400 border-gray-500/30",
@@ -26,43 +25,7 @@ const ROLE_ICONS = {
   coordinator: "🎯",
 };
 
-export default function AgentStatusPanel({ sessionId, pollInterval = 2000, className = "" }) {
-  const [agents, setAgents] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(null);
-
-  useEffect(() => {
-    let cancelled = false;
-
-    const fetchStatus = async () => {
-      try {
-        const base = (getBackendUrl() || "").replace(/\/$/, "");
-        const url = sessionId
-          ? `${base}/api/agent/status?session_id=${encodeURIComponent(sessionId)}`
-          : `${base}/api/agent/status`;
-        const res = await fetch(url, { headers: getAuthHeaders() });
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
-        const data = await res.json();
-        if (!cancelled) {
-          setAgents(Array.isArray(data) ? data : data.agents ?? []);
-          setError(null);
-          setLoading(false);
-        }
-      } catch (e) {
-        if (!cancelled) {
-          setError(e instanceof Error ? e.message : "Unknown error");
-          setLoading(false);
-        }
-      }
-    };
-
-    fetchStatus();
-    const timer = setInterval(fetchStatus, pollInterval);
-    return () => {
-      cancelled = true;
-      clearInterval(timer);
-    };
-  }, [sessionId, pollInterval]);
+export default function AgentStatusPanel({ sessionId, agents = [], loading = false, error = null, className = "" }) {
 
   const activeCount = agents.filter((a) => a.status === "running").length;
   const waitingCount = agents.filter((a) => a.status === "waiting").length;

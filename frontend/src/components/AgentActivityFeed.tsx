@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from "react";
-import { getAccessToken, getBackendUrl } from "../api";
+import { createAgentWorkspaceEventSource } from "../utils/agentWorkspaceTransport";
 
 export interface ActivityEvent {
   id: string;
@@ -14,6 +14,7 @@ interface AgentActivityFeedProps {
   sessionId?: string;
   maxEvents?: number;
   className?: string;
+  onConnectionChange?: ((state: "connected" | "reconnecting" | "disconnected") => void) | null;
 }
 
 const AGENT_COLORS: Record<string, string> = {
@@ -53,6 +54,7 @@ export const AgentActivityFeed: React.FC<AgentActivityFeedProps> = ({
   sessionId,
   maxEvents = 100,
   className = "",
+  onConnectionChange = null,
 }) => {
   const [events, setEvents] = useState<ActivityEvent[]>([]);
   const [connected, setConnected] = useState(false);
@@ -71,22 +73,13 @@ export const AgentActivityFeed: React.FC<AgentActivityFeedProps> = ({
       return undefined;
     }
 
-    const base = (getBackendUrl() || "").replace(/\/$/, "");
-    const params = new URLSearchParams();
-    if (sessionId) {
-      params.set("session_id", sessionId);
-    }
-    const accessToken = getAccessToken();
-    if (accessToken) {
-      params.set("access_token", accessToken);
-    }
-    const query = params.toString();
-    const url = query.length > 0 ? `${base}/api/agent/stream?${query}` : `${base}/api/agent/stream`;
-
-    const es = new EventSource(url);
+    const es = createAgentWorkspaceEventSource(sessionId);
     esRef.current = es;
 
-    es.onopen = () => setConnected(true);
+    es.onopen = () => {
+      setConnected(true);
+      onConnectionChange?.("connected");
+    };
 
     es.onmessage = (ev) => {
       try {
@@ -106,13 +99,15 @@ export const AgentActivityFeed: React.FC<AgentActivityFeedProps> = ({
 
     es.onerror = () => {
       setConnected(false);
+      onConnectionChange?.("reconnecting");
     };
 
     return () => {
       es.close();
       setConnected(false);
+      onConnectionChange?.("disconnected");
     };
-  }, [sessionId, maxEvents]);
+  }, [sessionId, maxEvents, onConnectionChange]);
 
   // Auto-scroll when not paused
   useEffect(() => {
