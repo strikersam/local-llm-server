@@ -7,6 +7,7 @@
 - `docs/README.md` / `docs/screenshots/` — documentation is now grouped under a canonical docs index, screenshots are organized by area (`readme/`, `webui/`, `admin/`, `langfuse/`, `telegram/`), and setup scripts now point to the maintained docs instead of one-off root guides.
 
 ### Fixed
+- `backend/server.py` / `provider_router.py` / `tests/test_chat_mode_regressions.py` / `tests/test_provider_router.py` / `tests/test_provider_failover_integration.py` — direct chat now uses bounded per-provider timeouts, retries healthy fallbacks without keeping a broken model pin, and returns a stable in-chat recovery/diagnostic message instead of bubbling raw 502/503 failures when the first provider stalls or goes down.
 - `.gitignore` / tracked repo artifacts — removed stale backup files, generated logs, historical test reports, and redundant root-level setup transcripts that were making the repository hard to navigate and easy to desynchronize.
 - `launcher.py` / `remote-admin/*.html` / `github-pages-*.html` / docs examples — replaced hardcoded tunnel URLs, personal filesystem paths, and user-specific placeholder names with generic defaults so the repo no longer leaks machine-specific setup details.
 
