@@ -13,7 +13,6 @@ on:
 permissions:
   contents: read
   issues: write
-  security-events: read
   dependabot-alerts: read
 
 jobs:
