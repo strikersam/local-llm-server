@@ -26,7 +26,7 @@ async def test_failover_skips_local_uses_windows_server(monkeypatch):
     """Local Ollama down → Windows server Ollama used."""
     attempts: list[str] = []
 
-    async def fake_post_chat(self, provider, payload):
+    async def fake_post_chat(self, provider, payload, timeout_sec):
         attempts.append(provider.provider_id)
         if provider.provider_id == "ollama-local":
             return httpx.Response(503, json={"error": "local down"})
@@ -69,7 +69,7 @@ async def test_failover_chain_local_windows_hf_deepseek_anthropic(monkeypatch):
     """Full chain: local → windows → hf → deepseek → anthropic."""
     attempts: list[str] = []
 
-    async def fake_post_chat(self, provider, payload):
+    async def fake_post_chat(self, provider, payload, timeout_sec):
         attempts.append(provider.provider_id)
         # Fail everything except anthropic
         if provider.provider_id != "anthropic":
@@ -142,7 +142,7 @@ async def test_failover_chain_local_windows_hf_deepseek_anthropic(monkeypatch):
 async def test_failover_raises_503_when_all_fail(monkeypatch):
     """All providers fail → ProviderFallbackError is raised."""
 
-    async def fake_post_chat(self, provider, payload):
+    async def fake_post_chat(self, provider, payload, timeout_sec):
         return httpx.Response(503, json={"error": "all down"})
 
     monkeypatch.setattr(ProviderRouter, "_post_chat", fake_post_chat)
@@ -180,7 +180,7 @@ async def test_provider_on_cooldown_is_skipped(monkeypatch):
 
     attempts: list[str] = []
 
-    async def fake_post_chat(self, provider, payload):
+    async def fake_post_chat(self, provider, payload, timeout_sec):
         attempts.append(provider.provider_id)
         return httpx.Response(200, json={"choices": [{"message": {"content": "ok"}}]})
 
