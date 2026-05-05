@@ -32,6 +32,7 @@ def pytest_configure() -> None:
     os.environ.setdefault("JWT_SECRET", "ci-jwt-secret-key-12345678901234567890")
     os.environ.setdefault("V3_ADMIN_EMAIL", "admin@llmrelay.local")
     os.environ.setdefault("V3_ADMIN_NAME", "Administrator")
+    os.environ.setdefault("V3_ADMIN_PASSWORD", os.environ.get("ADMIN_PASSWORD", "WikiAdmin2026!"))
 
 
 # Mock motor modules to avoid connection errors
@@ -170,6 +171,12 @@ def setup_database_moks(monkeypatch):
 def wiki_client():
     from backend.server import app
     return TestClient(app)
+
+
+@pytest.fixture
+def client(wiki_client):
+    """Compatibility alias for tests that expect a generic TestClient fixture."""
+    return wiki_client
 
 
 # Reset cross-request provider cooldown state before every test.

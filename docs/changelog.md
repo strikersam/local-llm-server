@@ -14,6 +14,15 @@
 ### Fixed
 - runtime execution now surfaces actionable missing-binary errors, including `task-harness` configuration guidance, instead of late raw PATH failures.
 - planner/verifier/judge failures now surface phase-specific structured errors and BLOCKED fallback behavior instead of ambiguous downstream failures.
+- `tests/test_iteration_7_features.py` — fixed an accidental indentation error on a skipped test so CI syntax checks and CodeQL can parse the test suite again.
+- `tests/conftest.py` — restored a generic `client` fixture alias so `tests/test_v3_auth.py` can run under the shared test harness.
+- `tests/conftest.py` — set `V3_ADMIN_PASSWORD` in the shared test env so v3 auth tests use the same seeded admin credentials as the mocked backend.
+- `backend/server.py` — `/api/auth/login` now returns `token_type`, `expires_in`, and `id` alongside the tokens, restoring the response contract expected by the v3 auth tests.
+- `backend/server.py` — `/api/auth/me` now includes `id` as an alias of `_id`, matching the v3 auth API contract used by the tests and frontend.
+- `backend/server.py` — auth tokens now include `iat` and `jti`, so refreshing produces a distinct access token even when requests happen in the same second.
+- `backend/server.py` — `/api/auth/logout` now returns `status: "logged out"`, matching the v3 auth test and client expectations.
+- `backend/server.py` — `/api/auth/logout` now also returns the authenticated email, preserving the v3 auth response contract.
+- `backend/server.py` — `/api/auth/refresh` now falls back cleanly for the limited-mode admin user instead of crashing on a non-ObjectId test user id.
 
 ### Security
 - requirements.txt — bump multiple dependencies to address security vulnerabilities: pillow>=10.3.0, pygments>=2.20.0, requests>=2.33.0, certifi>=2023.07.22, idna>=3.7, urllib3>=2.6.3, cryptography>=46.0.6, pyasn1>=0.6.3, setuptools>=78.1.1, oauthlib>=3.2.1, PyJWT>=2.12.0, zipp>=3.19.1, wheel>=0.38.1 (fixes CVEs including DoS, credential leakage, and improper validation).
