@@ -10,13 +10,16 @@ on:
       - '.github/workflows/openclaw-security-automation.yml'
       - '.github/scripts/security_fix_agent.py'
 
+permissions:
+  contents: read
+  issues: write
+  dependabot-alerts: read
+  security-events: read
+
 jobs:
   security-automation:
     runs-on: ubuntu-latest
     timeout-minutes: 30
-    permissions:
-      vulnerability-alerts: read
-      security-events: read
     env:
       GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       GITHUB_REPOSITORY: ${{ github.repository }}
@@ -57,12 +60,14 @@ jobs:
 
       - name: Fix Dependabot alerts
         if: steps.dependabot-check.outputs.dependabot_count != '0'
+        continue-on-error: true
         run: |
           echo "Fixing Dependabot alerts..."
           python .github/scripts/security_fix_agent.py --fix-dependabot
 
       - name: Fix CodeQL alerts
         if: steps.codeql-check.outputs.codeql_count != '0'
+        continue-on-error: true
         run: |
           echo "Fixing CodeQL alerts..."
           python .github/scripts/security_fix_agent.py --fix-codeql
