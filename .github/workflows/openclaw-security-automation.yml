@@ -10,6 +10,11 @@ on:
       - '.github/workflows/openclaw-security-automation.yml'
       - '.github/scripts/security_fix_agent.py'
 
+permissions:
+  contents: read
+  issues: write
+  security-events: read
+
 jobs:
   security-automation:
     runs-on: ubuntu-latest
