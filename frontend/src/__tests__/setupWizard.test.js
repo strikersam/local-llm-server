@@ -139,6 +139,14 @@ describe('SetupWizardPage rendering', () => {
     });
   });
 
+  test('renders a mobile steps toggle for narrow layouts', async () => {
+    mockHealthyBackend();
+    mockSetupState();
+    renderWizard();
+
+    expect(await screen.findByTestId('mobile-steps-toggle')).toBeInTheDocument();
+  });
+
   test('shows loading indicator while fetching state', () => {
     mockHealthyBackend();
     // Make getSetupState never resolve so loading persists
@@ -146,7 +154,7 @@ describe('SetupWizardPage rendering', () => {
     renderWizard();
     // Loading spinner should appear (it's shown while loadingState=true)
     // The sidebar is immediately visible
-    expect(screen.getByText('🧠 Setup Wizard')).toBeInTheDocument();
+    expect(screen.getAllByText('🧠 Setup Wizard').length).toBeGreaterThan(0);
   });
 });
 
@@ -313,7 +321,7 @@ describe('localStorage draft fallback', () => {
     await screen.findByText(/connect to your local llm server/i);
     // localStorage was applied (draft loaded but user still needs to connect for step 4)
     // The draft is loaded internally; no visible assertion needed beyond "not crashing"
-    expect(screen.getByText('🧠 Setup Wizard')).toBeInTheDocument();
+    expect(screen.getAllByText('🧠 Setup Wizard').length).toBeGreaterThan(0);
   });
 });
 

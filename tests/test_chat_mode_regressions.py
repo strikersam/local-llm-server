@@ -3,12 +3,14 @@ from __future__ import annotations
 import asyncio
 import uuid
 from types import SimpleNamespace
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, Mock
 
 from bson import ObjectId
 from fastapi import HTTPException
+import httpx
 
 import backend.server as server
+from provider_router import ProviderAttempt, ProviderConfig, ProviderResult
 
 
 def _auth_headers(client) -> dict[str, str]:
@@ -158,6 +160,20 @@ def test_agent_stream_endpoint_emits_server_sent_events(client) -> None:
     first_chunk = asyncio.run(response.body_iterator.__anext__())
 
     assert "Started read_file" in first_chunk
+
+
+def test_agent_status_endpoint_accepts_access_token_query_param(client) -> None:
+    login = client.post(
+        "/api/auth/login",
+        json={"email": "admin@llmrelay.local", "password": "WikiAdmin2026!"},
+    )
+    assert login.status_code == 200, login.text
+    token = login.json()["access_token"]
+
+    response = client.get(f"/api/agent/status?access_token={token}")
+
+    assert response.status_code == 200, response.text
+    assert response.json()["has_events"] is False
 
 
 def test_chat_send_returns_safe_boundary_for_repo_editing_requests_when_agent_mode_is_off(
@@ -564,3 +580,76 @@ def test_chat_send_timeout_fallback_retries_with_provider_default_model(
     assert response.status_code == 200, response.text
     assert "Recovered via provider default" in response.json()["response"]
     assert call_llm.await_count == 2
+
+
+def test_chat_send_emits_langfuse_observation_for_direct_chat(client, monkeypatch) -> None:
+    provider = ProviderConfig(
+        provider_id="nvidia-nim",
+        type="openai-compatible",
+        base_url="https://integrate.api.nvidia.com/v1",
+        default_model="meta/llama-3.3-70b-instruct",
+    )
+    fake_result = ProviderResult(
+        response=httpx.Response(
+            200,
+            json={
+                "choices": [{"message": {"content": "Observed reply"}}],
+                "usage": {
+                    "prompt_tokens": 11,
+                    "completion_tokens": 7,
+                    "total_tokens": 18,
+                },
+                "model": "meta/llama-3.3-70b-instruct",
+            },
+        ),
+        provider=provider,
+        model="meta/llama-3.3-70b-instruct",
+        attempts=[
+            ProviderAttempt(
+                provider_id="nvidia-nim",
+                model="meta/llama-3.3-70b-instruct",
+                status_code=200,
+                latency_ms=42,
+            )
+        ],
+    )
+
+    class _FakeRouter:
+        async def chat_completion(self, payload, **kwargs):
+            return fake_result
+
+    async def fake_build_provider_router(**kwargs):
+        return (
+            _FakeRouter(),
+            {"allow_commercial_fallback": True},
+            {
+                "provider_id": "nvidia-nim",
+                "default_model": "meta/llama-3.3-70b-instruct",
+                "base_url": "https://integrate.api.nvidia.com/v1",
+                "api_key": "test-key",
+            },
+        )
+
+    emit = Mock()
+
+    monkeypatch.setattr("backend.server.get_active_provider", AsyncMock(return_value={"provider_id": "nvidia-nim"}))
+    monkeypatch.setattr("backend.server._build_provider_router", fake_build_provider_router)
+    monkeypatch.setattr("backend.server.emit_chat_observation", emit)
+
+    response = client.post(
+        "/api/chat/send",
+        headers=_auth_headers(client),
+        json={
+            "session_id": f"langfuse-{uuid.uuid4()}",
+            "agent_mode": False,
+            "content": "Explain the architecture trade-offs in plain English.",
+        },
+    )
+
+    assert response.status_code == 200, response.text
+    assert response.json()["response"] == "Observed reply"
+    emit.assert_called_once()
+    assert emit.call_args.kwargs["email"] == "admin@llmrelay.local"
+    assert emit.call_args.kwargs["prompt_tokens"] == 11
+    assert emit.call_args.kwargs["completion_tokens"] == 7
+    assert emit.call_args.kwargs["task_name"] == "direct chat"

@@ -78,6 +78,7 @@ const pill = (label, color = 'green') =>
 export default function SetupWizardPage({ onComplete }) {
   const navigate = useNavigate();
   const [step, setStep] = useState(1);
+  const [showStepMenu, setShowStepMenu] = useState(false);
   const [saving, setSaving] = useState(false);
   const [hardware, setHardware] = useState(null);
   const [models, setModels] = useState([]);
@@ -585,9 +586,49 @@ export default function SetupWizardPage({ onComplete }) {
   // ─── Render ─────────────────────────────────────────────────────────────────
 
   return (
-    <div className="min-h-screen bg-gray-50 flex">
+    <div className="min-h-screen bg-gray-50 flex flex-col lg:flex-row">
+      <div className="lg:hidden sticky top-0 z-20 border-b border-indigo-200 bg-white/95 backdrop-blur px-4 py-3 flex items-center justify-between">
+        <div>
+          <div className="text-sm font-bold text-indigo-950">🧠 Setup Wizard</div>
+          <div className="text-[11px] text-indigo-500">Step {step} of {STEPS.length}</div>
+        </div>
+        <button
+          type="button"
+          data-testid="mobile-steps-toggle"
+          onClick={() => setShowStepMenu(s => !s)}
+          className="rounded-lg border border-indigo-200 bg-indigo-50 px-3 py-2 text-xs font-semibold text-indigo-700"
+        >
+          {showStepMenu ? 'Hide steps' : 'View steps'}
+        </button>
+      </div>
+
+      {showStepMenu && (
+        <div className="lg:hidden border-b border-indigo-200 bg-indigo-900 text-white px-4 py-4 space-y-2">
+          {STEPS.map(s => (
+            <button
+              key={s.num}
+              type="button"
+              className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-left transition-colors ${
+                step === s.num ? 'bg-indigo-700 text-white' : step > s.num ? 'text-indigo-200' : 'text-indigo-300'
+              }`}
+              onClick={() => {
+                if (step >= s.num) setStep(s.num);
+                setShowStepMenu(false);
+              }}
+            >
+              <span className="text-xl">{s.icon}</span>
+              <div>
+                <div className="text-sm font-medium">Step {s.num}</div>
+                <div className="text-xs opacity-80">{s.title}</div>
+              </div>
+              {step > s.num && <span className="ml-auto text-green-400">✓</span>}
+            </button>
+          ))}
+        </div>
+      )}
+
       {/* Sidebar */}
-      <div className="w-64 bg-indigo-900 text-white p-6 flex flex-col">
+      <div className="hidden lg:flex w-64 bg-indigo-900 text-white p-6 flex-col">
         <div className="mb-8">
           <div className="text-lg font-bold">🧠 Setup Wizard</div>
           <div className="text-indigo-300 text-sm mt-1">{setupAlreadyCompleted ? 'Update your saved setup anytime' : "Let's get you started"}</div>
@@ -615,7 +656,7 @@ export default function SetupWizardPage({ onComplete }) {
       </div>
 
       {/* Main */}
-      <div className="flex-1 p-8 overflow-auto">
+      <div className="flex-1 p-4 sm:p-6 lg:p-8 overflow-auto">
         <div className="max-w-2xl mx-auto">
 
           {/* Backend connection banner */}
@@ -634,7 +675,7 @@ export default function SetupWizardPage({ onComplete }) {
                     <code className="bg-white px-1 rounded">http://localhost:8000</code> if
                     running locally, or your ngrok/Cloudflare tunnel URL for remote access.
                   </p>
-                  <div className="flex gap-2">
+                  <div className="flex flex-col sm:flex-row gap-2">
                     <input
                       className="flex-1 border border-gray-300 rounded-lg px-3 py-2 text-base text-gray-900 bg-white focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200 focus:outline-none"
                       value={backendUrlInput}
@@ -708,7 +749,7 @@ export default function SetupWizardPage({ onComplete }) {
             </div>
           </div>
 
-          <div className="bg-white rounded-2xl shadow p-8">
+          <div className="bg-white rounded-2xl shadow p-5 sm:p-6 lg:p-8">
 
             {/* ── Step 1: Provider Setup ─────────────────────────────────── */}
             {step === 1 && (
@@ -954,7 +995,7 @@ export default function SetupWizardPage({ onComplete }) {
                         {daemonConnected && (
                           <div className="space-y-2">
                             <div className="text-xs font-medium text-gray-700 mb-1">Services</div>
-                            <div className="grid grid-cols-2 gap-2">
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                               <button
                                 onClick={() => proxyRunning ? stopService('proxy') : startService('proxy')}
                                 className={`px-2 py-1.5 rounded text-xs font-medium ${proxyRunning ? 'bg-red-100 text-red-700 hover:bg-red-200' : 'bg-green-100 text-green-700 hover:bg-green-200'}`}
@@ -978,7 +1019,7 @@ export default function SetupWizardPage({ onComplete }) {
                 {hardware && (
                   <div className="bg-gray-50 rounded-xl p-4 mb-5 text-sm">
                     <div className="font-semibold text-gray-700 mb-2">🖥️ Detected Hardware</div>
-                    <div className="grid grid-cols-2 gap-2 text-gray-600">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-gray-600">
                       <span>CPU: {hardware.cpu_model?.split(' ').slice(0,4).join(' ')}</span>
                       <span>RAM: {hardware.ram_total_gb?.toFixed(0)} GB</span>
                       <span>VRAM: {hardware.total_vram_gb?.toFixed(0)} GB {hardware.has_gpu ? '🟢' : '⚠️ No GPU'}</span>
@@ -1114,18 +1155,18 @@ export default function SetupWizardPage({ onComplete }) {
             )}
 
             {/* ── Navigation ─────────────────────────────────────────────── */}
-            <div className="flex items-center justify-between mt-8 pt-6 border-t">
+            <div className="flex flex-col-reverse gap-3 sm:flex-row sm:items-center sm:justify-between mt-8 pt-6 border-t">
               <button
                 onClick={() => setStep(s => s - 1)}
                 disabled={step === 1}
-                className="px-4 py-2 text-sm text-gray-600 hover:text-gray-800 disabled:opacity-40"
+                className="w-full sm:w-auto px-4 py-2 text-sm text-gray-600 hover:text-gray-800 disabled:opacity-40"
               >
                 ← Back
               </button>
               <button
                 onClick={handleSave}
                 disabled={saving}
-                className="px-6 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 text-sm font-medium disabled:opacity-50"
+                className="w-full sm:w-auto px-6 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 text-sm font-medium disabled:opacity-50"
               >
                 {saving ? 'Saving...' : step === 5 ? '🚀 Complete Setup' : 'Next →'}
               </button>

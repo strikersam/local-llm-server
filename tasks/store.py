@@ -171,6 +171,44 @@ class TaskStore:
             docs = docs[:limit]
         return [Task.model_validate(d) for d in docs]
 
+    async def count_by_agent(
+        self,
+        *,
+        owner_id: str | None = None,
+        statuses: set[TaskStatus] | None = None,
+    ) -> dict[str, int]:
+        """Return task counts keyed by ``agent_id`` for the requested statuses."""
+        status_values = {status.value for status in statuses} if statuses else None
+
+        if self._mode == "mongo":
+            match: dict[str, Any] = {"agent_id": {"$ne": None}}
+            if owner_id is not None:
+                match["owner_id"] = owner_id
+            if status_values is not None:
+                match["status"] = {"$in": sorted(status_values)}
+            pipeline = [
+                {"$match": match},
+                {"$group": {"_id": "$agent_id", "count": {"$sum": 1}}},
+            ]
+            rows = await self._collection.aggregate(pipeline).to_list(length=1000)
+            return {
+                str(row.get("_id")): int(row.get("count") or 0)
+                for row in rows
+                if row.get("_id")
+            }
+
+        counts: dict[str, int] = {}
+        for task in self._mem.values():
+            agent_id = task.get("agent_id")
+            if not agent_id:
+                continue
+            if owner_id is not None and task.get("owner_id") != owner_id:
+                continue
+            if status_values is not None and task.get("status") not in status_values:
+                continue
+            counts[str(agent_id)] = counts.get(str(agent_id), 0) + 1
+        return counts
+
     async def count_for_user(self, owner_id: str) -> dict[str, int]:
         """Return counts per status for a user's tasks."""
         if self._mode == "mongo":

@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from "react";
-import { getBackendUrl } from "../api";
+import { getAccessToken, getBackendUrl } from "../api";
 
 export interface ActivityEvent {
   id: string;
@@ -72,9 +72,16 @@ export const AgentActivityFeed: React.FC<AgentActivityFeedProps> = ({
     }
 
     const base = (getBackendUrl() || "").replace(/\/$/, "");
-    const url = sessionId
-      ? `${base}/api/agent/stream?session_id=${encodeURIComponent(sessionId)}`
-      : `${base}/api/agent/stream`;
+    const params = new URLSearchParams();
+    if (sessionId) {
+      params.set("session_id", sessionId);
+    }
+    const accessToken = getAccessToken();
+    if (accessToken) {
+      params.set("access_token", accessToken);
+    }
+    const query = params.toString();
+    const url = query.length > 0 ? `${base}/api/agent/stream?${query}` : `${base}/api/agent/stream`;
 
     const es = new EventSource(url);
     esRef.current = es;

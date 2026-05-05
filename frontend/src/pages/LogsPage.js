@@ -141,6 +141,7 @@ function ActivityTab() {
     auth:     '#3B82F6',
     task:     '#06B6D4',
     agent:    '#8B5CF6',
+    error:    '#EF4444',
   })[cat] || C.muted;
 
   if (loading) return <div className="py-12 text-center text-[11px] font-mono" style={{ color: C.muted }}>Loading…</div>;
@@ -161,7 +162,7 @@ function ActivityTab() {
           {events.map((a, i) => {
             const cat = a.category || a.type || 'other';
             const msg = a.message || a.description || a.action || JSON.stringify(a);
-            const time = a.timestamp ? relTime(a.timestamp) : a.time || '—';
+            const time = a.timestamp || a.created_at ? relTime(a.timestamp || a.created_at) : a.time || '—';
             return (
               <div key={a.id || i} className="flex items-center gap-3 px-5 py-3 transition-colors"
                 onMouseEnter={e => e.currentTarget.style.background = 'rgba(255,255,255,0.015)'}
