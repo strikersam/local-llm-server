@@ -143,16 +143,18 @@ def fix_one_dependabot_alert() -> bool:
     
     alert = alerts[0]  # Fix the first alert
     # Use .get() to avoid KeyError if the structure is unexpected
-    advisory_id = alert.get('security_advisory', {}).get('id', 'unknown')
+    advisory = alert.get('security_advisory', {})
+    advisory_id = advisory.get('id', 'unknown')
+    advisory_url = advisory.get('html_url', 'N/A')
     print(f"Processing Dependabot alert #{alert['number']}: {advisory_id}")
     
     # Extract dependency information
-    dep = alert["dependency"]
-    package_name = dep["package"]["name"]
-    current_version = dep["version"]
-    vulnerable_version_range = dep["vulnerable_version_range"]
+    dep = alert.get("dependency", {})
+    package_info = dep.get("package", {})
+    package_name = package_info.get("name", "unknown")
+    current_version = dep.get("version", "unknown")
+    vulnerable_version_range = dep.get("vulnerable_version_range", "unknown")
     # The advisory should contain information about patched versions
-    advisory = alert.get("security_advisory", {})
     # We'll try to update to the latest version (this is simplistic)
     # In practice, we should check what versions are available and not vulnerable
     
@@ -200,7 +202,7 @@ def fix_one_dependabot_alert() -> bool:
                 commit_message,
                 f"Automated fix for Dependabot alert #{alert['number']}\n\n"
                 f"This PR updates `{package_name}` to address the security vulnerability.\n"
-                f"- Advisory: {advisory.get('html_url', 'N/A')}\n"
+                f"- Advisory: {advisory_url}\n"
                 f"- Alert: {alert.get('html_url', 'N/A')}\n"
             )
             if pr_url:
@@ -226,7 +228,11 @@ def fix_one_codeql_alert() -> bool:
         return False
     
     alert = alerts[0]  # Fix the first alert
-    print(f"Processing CodeQL alert #{alert['number']}: {alert['rule']['id']}")
+    # Use .get() to avoid KeyError
+    rule = alert.get('rule', {})
+    rule_id = rule.get('id', 'unknown')
+    alert_url = alert.get('html_url', 'N/A')
+    print(f"Processing CodeQL alert #{alert['number']}: {rule_id}")
     
     # Check if the alert has a fix suggestion
     fix = alert.get("fix")
@@ -264,8 +270,8 @@ def fix_one_codeql_alert() -> bool:
             commit_message,
             f"Automated fix for CodeQL alert #{alert['number']}\n\n"
             f"This PR applies the suggested fix for the CodeQL alert.\n"
-            f"- Rule: {alert['rule']['id']}\n"
-            f"- Alert: {alert['html_url']}\n"
+            f"- Rule: {rule_id}\n"
+            f"- Alert: {alert_url}\n"
         )
         if pr_url:
             print(f"Created PR: {pr_url}")
