@@ -10,6 +10,11 @@ on:
       - '.github/workflows/openclaw-security-automation.yml'
       - '.github/scripts/security_fix_agent.py'
 
+permissions:
+  dependabot-alerts: read
+  code-scanning-alerts: read
+  issues: write
+
 jobs:
   security-automation:
     runs-on: ubuntu-latest
