@@ -11,10 +11,8 @@ on:
       - '.github/scripts/security_fix_agent.py'
 
 permissions:
-  dependabot-alerts: read
-  code-scanning-alerts: read
+  contents: read
   issues: write
-  contents: read  # Needed for checkout
 
 jobs:
   security-automation:
