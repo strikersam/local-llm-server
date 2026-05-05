@@ -61,6 +61,10 @@ jobs:
           echo "Fixing CodeQL alerts..."
           python .github/scripts/security_fix_agent.py --fix-codeql
 
+      - name: Get current timestamp
+        id: timestamp
+        run: echo "timestamp=$(date -u +'%Y-%m-%dT%H:%M:%SZ')" >> $GITHUB_OUTPUT
+
       - name: Create summary issue
         if: (steps.dependabot-check.outputs.dependabot_count != '0' || steps.codeql-check.outputs.codeql_count != '0')
         uses: actions/github-script@v7
@@ -88,7 +92,7 @@ jobs:
               - Workflow: OpenClaw Security Automation
               - Repository: \${{ github.repository }}
               - Commit: \${{ github.sha }}
-              - Timestamp: \${{ new Date().toISOString() }}
+              - Timestamp: ${steps.timestamp.outputs.timestamp}
               
               For more details, check the workflow run logs.
               `;
