@@ -1,18 +1,43 @@
-# NEXT ACTION — live agent workspace + task harness
+# NEXT ACTION — CompanyHelm Dashboard Refresh
 
-**Session:** `agent-workspace-mobile-streaming-2026-05-04`
+**Session:** `companyhelm-dashboard-refresh` (2026-05-04)
 **Resume command:** `python scripts/ai_runner.py resume`
+**Status file:** `.claude/state/agent-state.json`
+**Checkpoint log:** `.claude/state/checkpoint.jsonl`
 
-## Completed
-- Direct chat now routes complex requests into tracked tasks and schedules
-- Live `/api/agent/status` and `/api/agent/stream` telemetry is wired into chat
-- Chat now shows a mobile-first live agent workspace with progress, activity, and tool-call panels
-- The setup wizard can be reopened later for edits and now preserves saved choices cleanly
-- Langfuse host defaults now come from environment-backed setup detection
-- Complex agent tasks now receive automatic skill/workflow guidance when relevant
-- External harness runtime branding is now generic (`Task Harness`)
+---
 
-## Next
-- Commit the full change set
-- Push the branch to GitHub
-- Open a PR targeting `master`
+## Current Objective
+
+The hosted dashboard refresh is implemented locally. The next meaningful step is to
+push the branch, open a PR, let CI and GitHub Pages run, and merge once the pipeline is green.
+
+---
+
+## Completed Steps
+
+- [x] Audited the local hosted dashboard against the public CompanyHelm marketing site and repo dashboard structure
+- [x] Rebuilt the root hosted dashboard into a more CompanyHelm-style mobile-first overview
+- [x] Added legacy route recovery for `/dashboard`, `/control-plane`, and `/llmrelay`
+- [x] Preserved and regression-tested GitHub + Google social-login affordances
+- [x] Fixed auth callback redirects so successful login lands on `/`
+- [x] Prioritized `nvidia/nemotron-3-super-120b-a12b` for hosted NVIDIA defaults across setup/provider selection paths
+- [x] Added frontend CI coverage (test + production build)
+- [x] Ran `pytest -x` successfully (`733 passed, 15 skipped`)
+- [x] Ran frontend test suite successfully (`52 passed`)
+- [x] Verified `npm run build` succeeds for the GitHub Pages frontend
+
+## Next Step
+
+- [ ] Commit the branch and push `feat/companyhelm-dashboard-refresh`
+- [ ] Open a PR against `master`
+- [ ] Wait for CI / GitHub Pages checks to finish green
+- [ ] Merge to `master`
+- [ ] Re-run a quick live smoke check on the deployed GitHub Pages dashboard
+
+## If Interrupted
+
+1. Read `.claude/state/agent-state.json` for full status
+2. Read `.claude/state/checkpoint.jsonl` for the last persisted milestone
+3. Run `git status --short` to confirm the staged diff
+4. Resume with PR creation and hosted verification
