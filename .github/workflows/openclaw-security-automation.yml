@@ -14,7 +14,7 @@ jobs:
   security-automation:
     runs-on: ubuntu-latest
     timeout-minutes: 30
-    environment:
+    env:
       GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
     steps:
       - name: Checkout repository
