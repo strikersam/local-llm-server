@@ -7,6 +7,7 @@
 - `frontend/src/pages/SetupWizardPage.js` / `backend/server.py` / `provider_router.py` / `.github/scripts/implement_agent.py` / `.github/scripts/review_agent.py` — NVIDIA defaults now prioritize `nvidia/nemotron-3-super-120b-a12b` wherever the repo chooses a hosted default model, while still keeping the coder-specific Qwen path available for code-heavy execution.
 
 ### Fixed
+- `backend/server.py` / `provider_router.py` / `tests/test_chat_mode_regressions.py` / `tests/test_provider_router.py` / `tests/test_provider_failover_integration.py` — direct chat now uses bounded per-provider timeouts, retries healthy fallbacks without keeping a broken model pin, and returns a stable in-chat recovery/diagnostic message instead of bubbling raw 502/503 failures when the first provider stalls or goes down.
 - `frontend/src/pages/AuthCallback.js` — both social-login callbacks and legacy token callbacks now return users to the root dashboard after auth state sync, avoiding the stale `/control-plane` destination.
 - `.github/workflows/ci.yml` — CI now runs the GitHub Pages frontend test suite and production build in addition to the Python suite, so mobile/dashboard regressions and auth UI regressions are caught before merge.
 

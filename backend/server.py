@@ -2842,6 +2842,8 @@ async def call_llm(
     temperature: float = 0.3,
     provider_id: str | None = None,
     allow_commercial_fallback_once: bool = False,
+    max_retries: int = 2,
+    provider_timeout_sec: float = 300.0,
 ) -> str:
     provider = (
         await db.providers.find_one({"provider_id": provider_id})
@@ -2866,6 +2868,8 @@ async def call_llm(
                 "temperature": temperature,
                 "stream": False,
             },
+            max_retries=max_retries,
+            provider_timeout_sec=provider_timeout_sec,
             allow_commercial_fallback=policy["allow_commercial_fallback"],
         )
         return extract_openai_text(result.response.json())
@@ -2915,6 +2919,10 @@ class ChatMessage(BaseModel):
         False  # When True, forces multi-agent orchestration regardless of complexity
     )
     allow_commercial_fallback_once: bool = False
+
+
+_DIRECT_CHAT_PROVIDER_TIMEOUT_SEC = 20.0
+_DIRECT_CHAT_MAX_RETRIES = 0
 
 
 async def _agent_timeout_fallback_response(
@@ -2972,6 +2980,99 @@ async def _agent_timeout_fallback_response(
         "⚠️ Agent Mode timed out before tool execution completed. "
         "Here is a direct recovery answer without repository side effects:\n\n"
         f"{recovered}"
+    )
+
+
+def _chat_error_detail_text(detail: object) -> str:
+    if isinstance(detail, dict):
+        message = detail.get("message")
+        if isinstance(message, str) and message.strip():
+            return message.strip()
+        nested_detail = detail.get("detail")
+        if isinstance(nested_detail, str) and nested_detail.strip():
+            return nested_detail.strip()
+    if isinstance(detail, str):
+        return detail.strip()
+    return str(detail).strip()
+
+
+def _direct_chat_recovery_attempts(
+    *, provider_id: str | None, requested_model: str | None
+) -> list[tuple[str | None, str | None]]:
+    attempts: list[tuple[str | None, str | None]] = []
+    if requested_model:
+        attempts.append((provider_id, None))
+    attempts.append((None, None))
+
+    deduped: list[tuple[str | None, str | None]] = []
+    for candidate in attempts:
+        if candidate not in deduped:
+            deduped.append(candidate)
+    return deduped
+
+
+async def _recover_direct_chat_response(
+    *,
+    llm_messages: list[dict],
+    provider_id: str | None,
+    requested_model: str | None,
+    session_model: str | None,
+    temperature: float,
+    allow_commercial_fallback_once: bool,
+    failure_detail: str,
+) -> str:
+    recovery_model = requested_model or session_model
+    log.warning("Direct chat primary attempt failed: %s", failure_detail)
+
+    for recovery_provider_id, recovery_requested_model in _direct_chat_recovery_attempts(
+        provider_id=provider_id,
+        requested_model=recovery_model,
+    ):
+        log.info(
+            "Attempting direct-chat recovery with provider=%s model=%s",
+            recovery_provider_id or "auto",
+            recovery_requested_model or "provider-default",
+        )
+        try:
+            recovered = await call_llm(
+                llm_messages,
+                model=recovery_requested_model,
+                temperature=temperature,
+                provider_id=recovery_provider_id,
+                allow_commercial_fallback_once=allow_commercial_fallback_once,
+                max_retries=_DIRECT_CHAT_MAX_RETRIES,
+                provider_timeout_sec=_DIRECT_CHAT_PROVIDER_TIMEOUT_SEC,
+            )
+            return (
+                "⚠️ The selected provider or model did not answer reliably, so I "
+                "recovered this reply using the next healthy fallback:\n\n"
+                f"{recovered}"
+            )
+        except HTTPException as exc:
+            if (
+                exc.status_code == 409
+                and isinstance(exc.detail, dict)
+                and exc.detail.get("approval_required")
+            ):
+                raise
+            log.warning(
+                "Direct-chat recovery attempt failed with HTTP %s: %s",
+                exc.status_code,
+                _chat_error_detail_text(exc.detail),
+            )
+            continue
+        except Exception as exc:
+            log.warning("Direct-chat recovery attempt failed: %s", exc)
+            continue
+
+    return (
+        "⚠️ Direct chat could not reach a healthy LLM provider, so I did not "
+        "fabricate an answer.\n\n"
+        f"Last failure: {failure_detail}\n\n"
+        "Next steps:\n"
+        "• Open Providers and run Test on the configured backends.\n"
+        "• If a specific model was selected, switch back to the provider default model.\n"
+        "• Retry once the healthy provider indicator is green."
     )
 
 
@@ -3273,6 +3374,8 @@ async def chat_send(body: ChatMessage, user: dict = Depends(get_current_user)):
                     temperature=float(temperature),
                     provider_id=provider_hint_id,
                     allow_commercial_fallback_once=body.allow_commercial_fallback_once,
+                    max_retries=_DIRECT_CHAT_MAX_RETRIES,
+                    provider_timeout_sec=_DIRECT_CHAT_PROVIDER_TIMEOUT_SEC,
                 ),
                 timeout=_LLM_TIMEOUT_SEC,
             )
@@ -3285,13 +3388,50 @@ async def chat_send(body: ChatMessage, user: dict = Depends(get_current_user)):
                 detail = dict(exc.detail)
                 detail.setdefault("session_id", sid)
                 raise HTTPException(status_code=409, detail=detail) from exc
-            raise
+            try:
+                response_text = await _recover_direct_chat_response(
+                    llm_messages=llm_messages,
+                    provider_id=provider_hint_id,
+                    requested_model=body.model or session.get("model"),
+                    session_model=session.get("model"),
+                    temperature=float(temperature),
+                    allow_commercial_fallback_once=body.allow_commercial_fallback_once,
+                    failure_detail=_chat_error_detail_text(exc.detail),
+                )
+            except HTTPException as recovery_exc:
+                if (
+                    recovery_exc.status_code == 409
+                    and isinstance(recovery_exc.detail, dict)
+                    and recovery_exc.detail.get("approval_required")
+                ):
+                    detail = dict(recovery_exc.detail)
+                    detail.setdefault("session_id", sid)
+                    raise HTTPException(status_code=409, detail=detail) from recovery_exc
+                raise
         except asyncio.TimeoutError:
             log.warning("LLM call timed out after %ds", _LLM_TIMEOUT_SEC)
-            response_text = (
-                f"⚠️ The model took too long to respond (exceeded {_LLM_TIMEOUT_SEC} seconds). "
-                "It may still be generating in the background. Please try again or select a faster model."
-            )
+            try:
+                response_text = await _recover_direct_chat_response(
+                    llm_messages=llm_messages,
+                    provider_id=provider_hint_id,
+                    requested_model=body.model or session.get("model"),
+                    session_model=session.get("model"),
+                    temperature=float(temperature),
+                    allow_commercial_fallback_once=body.allow_commercial_fallback_once,
+                    failure_detail=(
+                        f"The initial direct-chat request exceeded {_LLM_TIMEOUT_SEC} seconds."
+                    ),
+                )
+            except HTTPException as recovery_exc:
+                if (
+                    recovery_exc.status_code == 409
+                    and isinstance(recovery_exc.detail, dict)
+                    and recovery_exc.detail.get("approval_required")
+                ):
+                    detail = dict(recovery_exc.detail)
+                    detail.setdefault("session_id", sid)
+                    raise HTTPException(status_code=409, detail=detail) from recovery_exc
+                raise
 
     assistant_message = {"role": "assistant", "content": response_text}
     if assistant_meta is not None:

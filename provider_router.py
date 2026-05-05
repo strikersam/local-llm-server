@@ -500,6 +500,7 @@ class ProviderRouter:
         is_primary: bool,
         max_retries: int,
         attempts: list[ProviderAttempt],
+        provider_timeout_sec: float,
     ) -> ProviderResult | None:
         """Try all models for one provider. Returns ProviderResult on success, None on failure.
 
@@ -512,7 +513,9 @@ class ProviderRouter:
             for attempt_number in range(max_retries + 1):
                 started = time.perf_counter()
                 try:
-                    response = await self._post_chat(provider, provider_payload)
+                    response = await self._post_chat(
+                        provider, provider_payload, provider_timeout_sec
+                    )
                     latency_ms = int((time.perf_counter() - started) * 1000)
                     attempts.append(ProviderAttempt(
                         provider.provider_id, model, response.status_code, latency_ms=latency_ms,
@@ -548,6 +551,7 @@ class ProviderRouter:
         model_fallbacks: list[str] | None = None,
         max_retries: int = 2,
         allow_commercial_fallback: bool = True,
+        provider_timeout_sec: float = 300.0,
     ) -> ProviderResult:
         attempts: list[ProviderAttempt] = []
         deferred_commercial: list[str] = []
@@ -571,7 +575,7 @@ class ProviderRouter:
                 continue
             result = await self._try_one_provider(
                 provider, payload, original_model, model_fallbacks or [],
-                provider_index == 0, max_retries, attempts,
+                provider_index == 0, max_retries, attempts, provider_timeout_sec,
             )
             if result is not None:
                 return result
@@ -592,7 +596,10 @@ class ProviderRouter:
                     continue
                 result = await self._try_one_provider(
                     provider, payload, original_model, model_fallbacks or [],
-                    is_primary, 0, attempts,  # max_retries=0 for last-resort
+                    is_primary,
+                    0,
+                    attempts,
+                    provider_timeout_sec,
                 )
                 if result is not None:
                     return result
@@ -625,13 +632,16 @@ class ProviderRouter:
         return deduped
 
     async def _post_chat(
-        self, provider: ProviderConfig, payload: dict[str, Any]
+        self,
+        provider: ProviderConfig,
+        payload: dict[str, Any],
+        timeout_sec: float = 300.0,
     ) -> httpx.Response:
         headers = provider.auth_headers()
         if provider.type.startswith("emergent-"):
-            return await self._post_emergent_chat(provider, payload)
+            return await self._post_emergent_chat(provider, payload, timeout_sec)
         async with httpx.AsyncClient(
-            timeout=httpx.Timeout(300.0, connect=10.0)
+            timeout=httpx.Timeout(timeout_sec, connect=min(10.0, timeout_sec))
         ) as client:
             if provider.type == "anthropic":
                 response = await client.post(
@@ -664,7 +674,10 @@ class ProviderRouter:
             return response
 
     async def _post_emergent_chat(
-        self, provider: ProviderConfig, payload: dict[str, Any]
+        self,
+        provider: ProviderConfig,
+        payload: dict[str, Any],
+        timeout_sec: float = 300.0,
     ) -> httpx.Response:
         from emergentintegrations.llm.chat import LlmChat, UserMessage
 
@@ -679,7 +692,10 @@ class ProviderRouter:
         ).with_model(
             provider_name, str(payload.get("model") or provider.default_model or "")
         )
-        response_text = await chat.send_message(UserMessage(text=user_text))
+        response_text = await asyncio.wait_for(
+            chat.send_message(UserMessage(text=user_text)),
+            timeout=timeout_sec,
+        )
         return httpx.Response(
             200,
             json={

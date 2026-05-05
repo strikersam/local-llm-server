@@ -1,43 +1,18 @@
-# NEXT ACTION — CompanyHelm Dashboard Refresh
+# NEXT ACTION — direct chat reliability
 
-**Session:** `companyhelm-dashboard-refresh` (2026-05-04)
+**Session:** `direct-chat-reliability-2026-05-05`
 **Resume command:** `python scripts/ai_runner.py resume`
 **Status file:** `.claude/state/agent-state.json`
 **Checkpoint log:** `.claude/state/checkpoint.jsonl`
 
----
+## Completed
+- Direct chat now uses bounded per-provider timeouts instead of waiting indefinitely on a single unhealthy backend
+- Direct chat now retries recovery without keeping a broken model pin and can fall through to the next healthy provider chain
+- When recovery still fails, chat now returns a stable in-thread diagnostic instead of surfacing a raw 502/503 error bubble
+- Added regression coverage for direct-chat recovery and provider timeout plumbing
+- Re-ran `pytest -x` successfully (`757 passed, 15 skipped`)
 
-## Current Objective
-
-The hosted dashboard refresh is implemented locally. The next meaningful step is to
-push the branch, open a PR, let CI and GitHub Pages run, and merge once the pipeline is green.
-
----
-
-## Completed Steps
-
-- [x] Audited the local hosted dashboard against the public CompanyHelm marketing site and repo dashboard structure
-- [x] Rebuilt the root hosted dashboard into a more CompanyHelm-style mobile-first overview
-- [x] Added legacy route recovery for `/dashboard`, `/control-plane`, and `/llmrelay`
-- [x] Preserved and regression-tested GitHub + Google social-login affordances
-- [x] Fixed auth callback redirects so successful login lands on `/`
-- [x] Prioritized `nvidia/nemotron-3-super-120b-a12b` for hosted NVIDIA defaults across setup/provider selection paths
-- [x] Added frontend CI coverage (test + production build)
-- [x] Ran `pytest -x` successfully (`733 passed, 15 skipped`)
-- [x] Ran frontend test suite successfully (`52 passed`)
-- [x] Verified `npm run build` succeeds for the GitHub Pages frontend
-
-## Next Step
-
-- [ ] Commit the branch and push `feat/companyhelm-dashboard-refresh`
-- [ ] Open a PR against `master`
-- [ ] Wait for CI / GitHub Pages checks to finish green
-- [ ] Merge to `master`
-- [ ] Re-run a quick live smoke check on the deployed GitHub Pages dashboard
-
-## If Interrupted
-
-1. Read `.claude/state/agent-state.json` for full status
-2. Read `.claude/state/checkpoint.jsonl` for the last persisted milestone
-3. Run `git status --short` to confirm the staged diff
-4. Resume with PR creation and hosted verification
+## Next
+- Finish resolving the rebase onto `origin/master`
+- Force-push the updated `fix/direct-chat-reliability` branch
+- Wait for PR checks, then merge PR `#70`

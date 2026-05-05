@@ -1,22 +1,22 @@
 {
   "schema_version": "1",
-  "session_id": "companyhelm-dashboard-refresh-2026-05-04",
+  "session_id": "direct-chat-reliability-2026-05-05",
   "status": "in_progress",
-  "last_updated": "2026-05-04T14:35:00Z",
-  "next_step": "Commit the dashboard refresh branch, push it, open a PR, wait for CI, and merge when green.",
+  "last_updated": "2026-05-05T07:46:30Z",
+  "next_step": "Finish rebasing the direct-chat reliability branch onto master, force-push the updated PR branch, and merge once checks are green.",
   "completed_steps": [
-    "audit-companyhelm-reference-dashboard",
     "rebuild-root-hosted-dashboard",
-    "restore-legacy-dashboard-routes",
-    "fix-auth-callback-root-redirect",
     "prioritize-nvidia-nemotron-defaults",
-    "add-dashboard-and-auth-regression-tests",
-    "add-frontend-ci-build-gate",
-    "run-python-and-frontend-verification"
+    "add-live-agent-status-and-stream-endpoints",
+    "persist-editable-setup-wizard-state-and-settings-shortcut",
+    "replace-external-harness-branding-with-task-harness",
+    "run-python-frontend-and-build-verification",
+    "stabilize-direct-chat-provider-failover-and-recovery"
   ],
   "tests_run": [
     "pytest -x — PASS (733 passed, 15 skipped)",
     "CI=true npm test -- --watch=false (frontend/) — PASS (52 passed)",
-    "PUBLIC_URL=/local-llm-server REACT_APP_BACKEND_URL=https://relay.example.com npm run build (frontend/) — PASS"
+    "PUBLIC_URL=/local-llm-server REACT_APP_BACKEND_URL=https://relay.example.com npm run build (frontend/) — PASS",
+    "pytest -x — PASS (757 passed, 15 skipped)"
   ]
 }

@@ -419,6 +419,66 @@ def test_chat_send_falls_back_to_direct_answer_when_agent_mode_times_out(
     direct_reply.assert_awaited_once()
 
 
+def test_chat_send_recovers_direct_chat_after_provider_failure(client, monkeypatch) -> None:
+    attempts: list[dict[str, object | None]] = []
+
+    async def flaky_direct_reply(messages, **kwargs):
+        attempts.append(kwargs)
+        if len(attempts) == 1:
+            raise HTTPException(status_code=503, detail="primary provider unavailable")
+        return "Recovered direct answer"
+
+    monkeypatch.setattr("backend.server.call_llm", flaky_direct_reply)
+
+    response = client.post(
+        "/api/chat/send",
+        headers=_auth_headers(client),
+        json={
+            "session_id": f"direct-recovery-{uuid.uuid4()}",
+            "agent_mode": False,
+            "provider_id": "ollama-local",
+            "model": "broken-model",
+            "content": "Summarize the architecture trade-offs in plain English.",
+        },
+    )
+
+    assert response.status_code == 200, response.text
+    payload = response.json()
+    assert "Recovered direct answer" in payload["response"]
+    assert "recovered this reply" in payload["response"]
+    assert len(attempts) == 2
+    assert attempts[0]["provider_id"] == "ollama-local"
+    assert attempts[0]["model"] == "broken-model"
+    assert attempts[0]["max_retries"] == 0
+    assert attempts[0]["provider_timeout_sec"] == 20.0
+    assert attempts[1]["provider_id"] == "ollama-local"
+    assert attempts[1]["model"] is None
+    assert attempts[1]["max_retries"] == 0
+
+
+def test_chat_send_returns_stable_direct_chat_diagnostic_when_recovery_fails(
+    client, monkeypatch
+) -> None:
+    async def always_fail(messages, **kwargs):
+        raise HTTPException(status_code=503, detail="all providers down")
+
+    monkeypatch.setattr("backend.server.call_llm", always_fail)
+
+    response = client.post(
+        "/api/chat/send",
+        headers=_auth_headers(client),
+        json={
+            "session_id": f"direct-diagnostic-{uuid.uuid4()}",
+            "agent_mode": False,
+            "content": "Explain why the deployment health checks might be failing.",
+        },
+    )
+
+    assert response.status_code == 200, response.text
+    assert "could not reach a healthy LLM provider" in response.json()["response"]
+    assert "all providers down" in response.json()["response"]
+
+
 def test_chat_send_uses_provider_default_model_for_agent_mode_when_model_is_omitted(
     client, monkeypatch
 ) -> None:
