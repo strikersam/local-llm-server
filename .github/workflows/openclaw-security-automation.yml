@@ -14,7 +14,7 @@ permissions:
   contents: read
   issues: write
   security-events: read
-  dependabot-alerts: read
+  dependabot: read
 
 jobs:
   security-automation:
