@@ -212,6 +212,7 @@ export const updateTask = (id, data) => API.patch(`/api/tasks/${id}`, data);
 export const deleteTask = (id) => API.delete(`/api/tasks/${id}`);
 export const retryTask = (id) => API.post(`/api/tasks/${id}/retry`);
 export const escalateTask = (id) => API.post(`/api/tasks/${id}/escalate`);
+export const runTask = (id) => API.post(`/api/tasks/${id}/run`);
 export const addTaskComment = (id, data) => API.post(`/api/tasks/${id}/comments`, data);
 export const approveTaskCheckpoint = (id, data) => API.post(`/api/tasks/${id}/approve`, data);
 export const getTaskCounts = () => API.get('/api/tasks/counts');
