@@ -2,6 +2,19 @@
 
 ## [Unreleased]
 
+### Added
+- `agent/job_manager.py` — async direct-chat agent job lifecycle with queued/running/succeeded/failed/cancelled states, heartbeat timestamps, and progress events.
+- `docs/architecture/runtime-model.md`, `docs/architecture/agent-job-lifecycle.md`, `docs/architecture/feature-maturity-matrix.md`, and `docs/runbooks/runtime-troubleshooting.md` — documented runtime preflight, async agent jobs, maturity tiers, and troubleshooting.
+
+### Changed
+- `direct_chat.py` — split direct chat from async agent workflows; `agent_mode=true` now returns `202 Accepted` plus a pollable job id instead of blocking the request until the full tool loop completes.
+- `frontend/src/pages/ChatPage.js` — added a mobile-friendly agent job status card and polling flow for async agent runs.
+- `runtimes/base.py`, `runtimes/api.py`, and `runtimes/routing.py` — added runtime readiness/preflight validation so tasks fail early with structured diagnostics.
+
+### Fixed
+- runtime execution now surfaces actionable missing-binary errors, including `task-harness` configuration guidance, instead of late raw PATH failures.
+- planner/verifier/judge failures now surface phase-specific structured errors and BLOCKED fallback behavior instead of ambiguous downstream failures.
+
 ### Security
 - requirements.txt — bump multiple dependencies to address security vulnerabilities: pillow>=10.3.0, pygments>=2.20.0, requests>=2.33.0, certifi>=2023.07.22, idna>=3.7, urllib3>=2.6.3, cryptography>=46.0.6, pyasn1>=0.6.3, setuptools>=78.1.1, oauthlib>=3.2.1, PyJWT>=2.12.0, zipp>=3.19.1, wheel>=0.38.1 (fixes CVEs including DoS, credential leakage, and improper validation).
 

@@ -27,6 +27,7 @@ from runtimes.base import (
     IntegrationMode,
     RuntimeAdapter,
     RuntimeCapability,
+    RuntimeDependency,
     RuntimeExecutionError,
     RuntimeHealth,
     RuntimeTier,
@@ -65,6 +66,15 @@ class GooseAdapter(RuntimeAdapter):
         self._bin = (config or {}).get("bin") or os.environ.get("GOOSE_BIN", "goose")
         self._model = (config or {}).get("model") or os.environ.get("GOOSE_MODEL", "qwen3-coder:14b")
         self._profile = (config or {}).get("profile") or os.environ.get("GOOSE_PROFILE", "default")
+
+    def required_dependencies(self) -> list[RuntimeDependency]:
+        return [
+            RuntimeDependency(
+                name="goose",
+                config_var="GOOSE_BIN",
+                install_hint="Install Goose and set GOOSE_BIN if needed.",
+            )
+        ] if not self._base_url else []
 
     async def health_check(self) -> RuntimeHealth:
         if self._base_url:

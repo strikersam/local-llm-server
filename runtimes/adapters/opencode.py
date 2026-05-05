@@ -32,6 +32,7 @@ from runtimes.base import (
     IntegrationMode,
     RuntimeAdapter,
     RuntimeCapability,
+    RuntimeDependency,
     RuntimeExecutionError,
     RuntimeHealth,
     RuntimeTier,
@@ -75,6 +76,15 @@ class OpenCodeAdapter(RuntimeAdapter):
             "OPENCODE_MODEL", os.environ.get("AGENT_EXECUTOR_MODEL", "qwen3-coder:30b")
         )
         self._workspace = (config or {}).get("workspace") or os.environ.get("OPENCODE_WORKSPACE", ".")
+
+    def required_dependencies(self) -> list[RuntimeDependency]:
+        return [
+            RuntimeDependency(
+                name="opencode",
+                config_var="OPENCODE_BIN",
+                install_hint="Install OpenCode and set OPENCODE_BIN if the binary is not on PATH.",
+            )
+        ] if not self._base_url else []
 
     # ── Health ────────────────────────────────────────────────────────────────
 

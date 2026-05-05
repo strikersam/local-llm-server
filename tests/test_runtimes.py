@@ -21,7 +21,9 @@ from runtimes.base import (
     RuntimeCapability,
     RuntimeTier,
     IntegrationMode,
+    RuntimeDependency,
     RuntimeHealth,
+    RuntimePreflightError,
     TaskResult,
     TaskSpec,
     RuntimeUnavailableError,
@@ -76,6 +78,19 @@ class TierTwoStub(StubAdapter):
     RUNTIME_ID   = "stub_t2"
     DISPLAY_NAME = "Stub Tier 2"
     TIER         = RuntimeTier.TIER_2
+
+
+class TaskHarnessStub(StubAdapter):
+    RUNTIME_ID = "task_harness_stub"
+
+    def required_dependencies(self):
+        return [
+            RuntimeDependency(
+                name="task-harness",
+                config_var="TASK_HARNESS_BIN",
+                install_hint="Install a compatible harness and point TASK_HARNESS_BIN at it.",
+            )
+        ]
 
 
 # ── Registry tests ─────────────────────────────────────────────────────────────
@@ -182,6 +197,76 @@ class TestCircuitState:
         assert cs.is_open
         cs.record_success()
         assert not cs.is_open
+
+
+class TestRuntimePreflight:
+
+    def test_missing_task_harness_binary_returns_structured_preflight_issue(self, monkeypatch):
+        adapter = TaskHarnessStub()
+        monkeypatch.delenv("TASK_HARNESS_BIN", raising=False)
+        monkeypatch.setattr("shutil.which", lambda name: None)
+
+        report = asyncio.run(
+            adapter.readiness_check(
+                TaskSpec(task_id="task-1", instruction="run", workspace_path=".")
+            )
+        )
+
+        assert report.ready is False
+        issue = report.issues[0]
+        assert issue.code == "missing_binary"
+        assert issue.details["binary"] == "task-harness"
+        assert issue.details["config_var"] == "TASK_HARNESS_BIN"
+        assert "Install a compatible harness" in (issue.fix_hint or "")
+
+    def test_runtime_api_returns_preflight_report(self, monkeypatch):
+        from fastapi import FastAPI
+        from fastapi.testclient import TestClient
+        from runtimes.api import runtime_router
+        from runtimes.manager import RuntimeManager
+
+        manager = RuntimeManager()
+        manager.register(TaskHarnessStub())
+        monkeypatch.setattr("runtimes.api.get_runtime_manager", lambda: manager)
+        monkeypatch.setattr("shutil.which", lambda name: None)
+
+        app = FastAPI()
+        app.include_router(runtime_router)
+        client = TestClient(app)
+
+        response = client.post(
+            "/runtimes/task_harness_stub/run",
+            json={"instruction": "hello", "workspace_path": "."},
+        )
+
+        assert response.status_code == 412
+        body = response.json()["detail"]
+        assert body["runtime_id"] == "task_harness_stub"
+        assert body["issues"][0]["code"] == "missing_binary"
+
+    def test_routing_engine_falls_back_when_primary_preflight_fails(self, monkeypatch):
+        reg = RuntimeCapabilityRegistry()
+        failing = TaskHarnessStub()
+        healthy = StubAdapter()
+        reg.register(failing)
+        reg.register(healthy)
+
+        health = MagicMock()
+        health.is_available.return_value = True
+        engine = RuntimeRoutingPolicyEngine(
+            reg,
+            health,
+            policy=RoutingPolicy(preferred_runtime_id="task_harness_stub", fallback_runtime_ids=["stub"]),
+        )
+        monkeypatch.setattr("shutil.which", lambda name: None if name == "task-harness" else "/usr/bin/git")
+
+        result, decision = asyncio.run(
+            engine.route_and_execute(TaskSpec(task_id="task-2", instruction="run", workspace_path="."))
+        )
+
+        assert result.runtime_id == "stub"
+        assert decision.fallback_attempted is True
+        assert decision.fallback_runtime_id == "stub"
 
 
 # ── RoutingPolicy tests ───────────────────────────────────────────────────────

@@ -62,6 +62,12 @@ DEFAULT_VERIFIER_MODEL = os.environ.get(
 )
 
 
+class AgentPhaseError(RuntimeError):
+    def __init__(self, phase: str, message: str) -> None:
+        self.phase = phase
+        super().__init__(f"{phase}: {message}")
+
+
 class AgentRunner:
     def __init__(
         self,
@@ -244,9 +250,15 @@ class AgentRunner:
             "agent plan: model=%s [%s/%s]",
             planner_model, planner_decision.mode, planner_decision.selection_source,
         )
-        raw = await self._chat_json(planner_model, messages)
-        raw = self._normalize_plan_response(raw, instruction)
-        plan = AgentPlan.model_validate(raw)
+        try:
+            raw = await self._chat_json(planner_model, messages)
+            raw = self._normalize_plan_response(raw, instruction)
+            plan = AgentPlan.model_validate(raw)
+        except Exception as exc:
+            raise AgentPhaseError(
+                "planning",
+                f"planner output was invalid or incomplete: {exc}",
+            ) from exc
         plan.steps = plan.steps[:max_steps]
         return plan
 
@@ -427,18 +439,30 @@ class AgentRunner:
                 new_content = self._clean_generated_file_content(new_content)
                 syntax_issues = self._local_syntax_check(out_path, new_content)
                 syntax_issues.extend(self._local_safety_check(out_path, new_content))
-                verification = await self._chat_json(
-                    verifier_model,
-                    build_verification_prompt(
-                        goal=goal,
-                        step=step,
-                        target_file=out_path,
-                        original_content=original_content,
-                        new_content=new_content,
-                        syntax_issues=syntax_issues,
-                    ),
-                )
-                verdict = VerificationResult.model_validate(verification)
+                try:
+                    verification = await self._chat_json(
+                        verifier_model,
+                        build_verification_prompt(
+                            goal=goal,
+                            step=step,
+                            target_file=out_path,
+                            original_content=original_content,
+                            new_content=new_content,
+                            syntax_issues=syntax_issues,
+                        ),
+                    )
+                    verdict = VerificationResult.model_validate(verification)
+                except Exception as exc:
+                    return {
+                        "step_id": step["id"],
+                        "description": step["description"],
+                        "status": "failed",
+                        "failure_phase": "verification",
+                        "issues": [f"verifier_output_invalid: {exc}"],
+                        "changed_files": changed_files,
+                        "observations": observations,
+                        "models": {"executor": executor_model, "verifier": verifier_model},
+                    }
                 if verdict.status == "pass" and not syntax_issues:
                     diff_result = self.tools.apply_diff(out_path, new_content)
                     changed_files.append(out_path)
@@ -661,7 +685,13 @@ class AgentRunner:
             return raw
         except Exception as exc:
             log.warning("Judge call failed; defaulting to BLOCKED: %s", exc)
-            fallback = {"verdict": "BLOCKED", "notes": f"Judge unavailable: {exc}"}
+            fallback = {
+                "verdict": "BLOCKED",
+                "security": "WARN",
+                "correctness": "WARN",
+                "notes": f"Judge unavailable: {exc}",
+                "failure_phase": "judge",
+            }
             self._log_event(session_id, "assistant_message", {"judge": fallback})
             return fallback
 
