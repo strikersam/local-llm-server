@@ -22,12 +22,18 @@ from pathlib import Path
 
 GITHUB_API_URL = "https://api.github.com"
 GITHUB_TOKEN = os.environ.get("GITHUB_TOKEN")
-REPO_OWNER = os.environ.get("GITHUB_REPOSITORY_OWNER")
-REPO_NAME = os.environ.get("GITHUB_REPOSITORY_NAME")
+# In GitHub Actions, we can use GITHUB_REPOSITORY which is in the format "owner/repo"
+GITHUB_REPOSITORY = os.environ.get("GITHUB_REPOSITORY")
 
 if not GITHUB_TOKEN:
     print("Error: GITHUB_TOKEN environment variable not set", file=sys.stderr)
     sys.exit(1)
+
+if not GITHUB_REPOSITORY or '/' not in GITHUB_REPOSITORY:
+    print("Error: GITHUB_REPOSITORY environment variable not set or invalid", file=sys.stderr)
+    sys.exit(1)
+
+REPO_OWNER, REPO_NAME = GITHUB_REPOSITORY.split('/', 1)
 
 def github_api_request(method: str, endpoint: str, data: Optional[Dict] = None) -> Dict:
     """Make a request to the GitHub API."""

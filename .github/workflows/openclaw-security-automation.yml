@@ -16,6 +16,7 @@ jobs:
     timeout-minutes: 30
     env:
       GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      GITHUB_REPOSITORY: ${{ github.repository }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
