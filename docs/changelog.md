@@ -23,6 +23,7 @@
 - `backend/server.py` — `/api/auth/logout` now returns `status: "logged out"`, matching the v3 auth test and client expectations.
 - `backend/server.py` — `/api/auth/logout` now also returns the authenticated email, preserving the v3 auth response contract.
 - `backend/server.py` — `/api/auth/refresh` now falls back cleanly for the limited-mode admin user instead of crashing on a non-ObjectId test user id.
+- `Dockerfile.backend` — now copies `commercial_equivalent.py` into the backend image so `langfuse_obs.py` can import it in production; this fixes Render boot failure `ModuleNotFoundError: No module named 'commercial_equivalent'`.
 
 ### Security
 - requirements.txt — bump multiple dependencies to address security vulnerabilities: pillow>=10.3.0, pygments>=2.20.0, requests>=2.33.0, certifi>=2023.07.22, idna>=3.7, urllib3>=2.6.3, cryptography>=46.0.6, pyasn1>=0.6.3, setuptools>=78.1.1, oauthlib>=3.2.1, PyJWT>=2.12.0, zipp>=3.19.1, wheel>=0.38.1 (fixes CVEs including DoS, credential leakage, and improper validation).
