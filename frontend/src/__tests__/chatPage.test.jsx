@@ -283,8 +283,8 @@ test('renders the live agent workspace when session telemetry exists', async () 
   render(<ChatPage />);
 
   expect(await screen.findByTestId('agent-console')).toBeInTheDocument();
-  expect(screen.getByText(/live agent workspace/i)).toBeInTheDocument();
-  expect(screen.getByText(/tracked the full agent run/i)).toBeInTheDocument();
+  expect(screen.getAllByText(/live agent workspace/i).length).toBeGreaterThan(0);
+  expect(screen.getAllByText(/tracked the full agent run/i).length).toBeGreaterThan(0);
   expect(global.fetch).toHaveBeenCalledWith(
     '/api/agent/status?session_id=session-live',
     { headers: { Authorization: 'Bearer token-123' } },

@@ -57,15 +57,17 @@ const STEPS = [
 
 // Nvidia NIM free models
 const NVIDIA_MODELS = {
-  executor: 'qwen/qwen2.5-coder-32b-instruct',
-  planner:  'nvidia/nemotron-3-super-120b-a12b',
+  executor: 'nvidia/nemotron-3-super-120b-a12b',
+  planner:  'nvidia/llama-3.1-nemotron-ultra-253b-v1',
   verifier: 'nvidia/nemotron-3-super-120b-a12b',
+  judge: 'nvidia/llama-3.1-nemotron-ultra-253b-v1',
   default:  'nvidia/nemotron-3-super-120b-a12b',
 };
 const LOCAL_MODELS = {
   executor: 'qwen3-coder:30b',
   planner:  'deepseek-r1:32b',
   verifier: 'deepseek-r1:32b',
+  judge: 'deepseek-r1:32b',
   default:  'qwen3-coder:30b',
 };
 const DEFAULT_LANGFUSE_HOST = process.env.REACT_APP_LANGFUSE_BASE_URL || process.env.REACT_APP_LANGFUSE_HOST || 'https://cloud.langfuse.com';
@@ -117,7 +119,10 @@ export default function SetupWizardPage({ onComplete }) {
 
   // Step 2 — Models (defaults set to Nvidia NIM; adjusted when state loads)
   const [defaultModel, setDefaultModel] = useState(NVIDIA_MODELS.default);
-  const [reviewerModel, setReviewerModel] = useState(NVIDIA_MODELS.verifier);
+  const [plannerModel, setPlannerModel] = useState(NVIDIA_MODELS.planner);
+  const [executorModel, setExecutorModel] = useState(NVIDIA_MODELS.executor);
+  const [verifierModel, setVerifierModel] = useState(NVIDIA_MODELS.verifier);
+  const [judgeModel, setJudgeModel] = useState(NVIDIA_MODELS.judge);
   const [repoPath, setRepoPath] = useState('');
   const [modelsPath, setModelsPath] = useState('');
   const [daemonConnected, setDaemonConnected] = useState(false);
@@ -173,8 +178,11 @@ export default function SetupWizardPage({ onComplete }) {
     if (Object.keys(m).length) {
       const nvidia = p.use_nvidia_nim ?? true;
       const models = nvidia ? NVIDIA_MODELS : LOCAL_MODELS;
-      setDefaultModel(m.default_model || models.default);
-      setReviewerModel(m.reviewer_model || models.verifier);
+      setDefaultModel(m.default_model || m.executor_model || m.coder_model || models.default);
+      setPlannerModel(m.planner_model || models.planner);
+      setExecutorModel(m.executor_model || m.coder_model || m.default_model || models.executor);
+      setVerifierModel(m.verifier_model || m.reviewer_model || models.verifier);
+      setJudgeModel(m.judge_model || models.judge);
     }
     if (Object.keys(rt).length) {
       setEnableHermes(rt.enable_hermes ?? true);
@@ -220,7 +228,10 @@ export default function SetupWizardPage({ onComplete }) {
     if (p.copilotSecretId)             setCopilotSecretId(p.copilotSecretId);
 
     if (m.defaultModel)   setDefaultModel(m.defaultModel);
-    if (m.reviewerModel)  setReviewerModel(m.reviewerModel);
+    if (m.plannerModel)   setPlannerModel(m.plannerModel);
+    if (m.executorModel || m.defaultModel)   setExecutorModel(m.executorModel || m.defaultModel);
+    if (m.verifierModel || m.reviewerModel)  setVerifierModel(m.verifierModel || m.reviewerModel);
+    if (m.judgeModel)     setJudgeModel(m.judgeModel);
 
     if (rt.enableHermes   !== undefined) setEnableHermes(rt.enableHermes);
     if (rt.enableOpenCode !== undefined) setEnableOpenCode(rt.enableOpenCode);
@@ -474,12 +485,12 @@ export default function SetupWizardPage({ onComplete }) {
     saveDraft({
       currentStep,
       step1: { useNvidiaNim, useOllama, ollamaUrl, repoPath, modelsPath, useOpenAI, openaiSecretId, useAnthropic, anthropicSecretId, useGoogle, googleSecretId, useAzure, azureSecretId, useCopilot, copilotSecretId },
-      step2: { defaultModel, reviewerModel },
+      step2: { defaultModel, plannerModel, executorModel, verifierModel, judgeModel },
       step3: { enableHermes, enableOpenCode, enableTaskHarness, enableAider },
       step4: { agentName, agentModel, costPolicy },
       step5: { neverPaid, requireApproval, enableLangfuse, langfuseHost },
     });
-  }, [useNvidiaNim, useOllama, ollamaUrl, repoPath, modelsPath, useOpenAI, openaiSecretId, useAnthropic, anthropicSecretId, useGoogle, googleSecretId, useAzure, azureSecretId, useCopilot, copilotSecretId, defaultModel, reviewerModel, enableHermes, enableOpenCode, enableTaskHarness, enableAider, agentName, agentModel, costPolicy, neverPaid, requireApproval, enableLangfuse, langfuseHost]);
+  }, [useNvidiaNim, useOllama, ollamaUrl, repoPath, modelsPath, useOpenAI, openaiSecretId, useAnthropic, anthropicSecretId, useGoogle, googleSecretId, useAzure, azureSecretId, useCopilot, copilotSecretId, defaultModel, plannerModel, executorModel, verifierModel, judgeModel, enableHermes, enableOpenCode, enableTaskHarness, enableAider, agentName, agentModel, costPolicy, neverPaid, requireApproval, enableLangfuse, langfuseHost]);
 
   // ─── Save step ──────────────────────────────────────────────────────────────
 
@@ -516,7 +527,15 @@ export default function SetupWizardPage({ onComplete }) {
 
       const payloads = {
         1: { use_nvidia_nim: useNvidiaNim, use_ollama: useOllama, ollama_base_url: ollamaUrl, repo_path: repoPath, models_path: modelsPath, use_openai: useOpenAI, use_anthropic: useAnthropic, use_google: useGoogle, use_azure: useAzure, openai_secret_id: newOpenaiSecretId, anthropic_secret_id: newAnthropicSecretId, google_secret_id: newGoogleSecretId, azure_secret_id: newAzureSecretId, copilot_secret_id: newCopilotSecretId },
-        2: { default_model: defaultModel, coder_model: defaultModel, reviewer_model: reviewerModel },
+        2: {
+          default_model: defaultModel,
+          coder_model: executorModel,
+          planner_model: plannerModel,
+          executor_model: executorModel,
+          reviewer_model: verifierModel,
+          verifier_model: verifierModel,
+          judge_model: judgeModel,
+        },
         3: { enable_hermes: enableHermes, enable_opencode: enableOpenCode, enable_task_harness: enableTaskHarness, enable_aider: enableAider },
         4: { agent_name: agentName, agent_model: agentModel, cost_policy: costPolicy },
         5: { never_use_paid_providers: neverPaid, require_approval_before_paid: requireApproval, enable_langfuse: enableLangfuse, langfuse_host: langfuseHost },
@@ -764,9 +783,19 @@ export default function SetupWizardPage({ onComplete }) {
                       setUseNvidiaNim(e.target.checked);
                       if (e.target.checked) {
                         setDefaultModel(NVIDIA_MODELS.default);
-                        setReviewerModel(NVIDIA_MODELS.verifier);
+                        setPlannerModel(NVIDIA_MODELS.planner);
+                        setExecutorModel(NVIDIA_MODELS.executor);
+                        setVerifierModel(NVIDIA_MODELS.verifier);
+                        setJudgeModel(NVIDIA_MODELS.judge);
                         setAgentModel(NVIDIA_MODELS.default);
                         setCostPolicy('free_only');
+                      } else {
+                        setDefaultModel(LOCAL_MODELS.default);
+                        setPlannerModel(LOCAL_MODELS.planner);
+                        setExecutorModel(LOCAL_MODELS.executor);
+                        setVerifierModel(LOCAL_MODELS.verifier);
+                        setJudgeModel(LOCAL_MODELS.judge);
+                        setAgentModel(LOCAL_MODELS.default);
                       }
                     }} className="w-4 h-4" />
                     <div className="flex-1">
@@ -957,6 +986,7 @@ export default function SetupWizardPage({ onComplete }) {
                       <div><span className="font-medium">Coder:</span> {NVIDIA_MODELS.executor}</div>
                       <div><span className="font-medium">Planner:</span> {NVIDIA_MODELS.planner}</div>
                       <div><span className="font-medium">Verifier:</span> {NVIDIA_MODELS.verifier}</div>
+                      <div><span className="font-medium">Judge:</span> {NVIDIA_MODELS.judge}</div>
                     </div>
                     <p className="text-xs text-green-600 mt-2">All inference routed through integrate.api.nvidia.com — no local GPU needed.</p>
                   </div>
@@ -1040,18 +1070,39 @@ export default function SetupWizardPage({ onComplete }) {
                     </div>
                   </div>
                 )}
-                <div className="space-y-3">
+                <div className="space-y-4">
                   <div>
-                    <label className="text-sm font-medium text-gray-700">Default / Coder Model</label>
+                    <label className="text-sm font-medium text-gray-700">Direct Chat default model</label>
                     <input className="w-full mt-1 border border-gray-300 rounded-lg px-3 py-2 text-base text-gray-900 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200 focus:outline-none"
                       value={defaultModel} onChange={e => setDefaultModel(e.target.value)}
-                      placeholder="qwen3-coder:30b" />
+                      placeholder="nvidia/nemotron-3-super-120b-a12b" />
+                    <p className="text-xs text-gray-500 mt-1">Used for non-agent chat when you stay on the provider default path.</p>
                   </div>
-                  <div>
-                    <label className="text-sm font-medium text-gray-700">Reviewer Model</label>
-                    <input className="w-full mt-1 border border-gray-300 rounded-lg px-3 py-2 text-base text-gray-900 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200 focus:outline-none"
-                      value={reviewerModel} onChange={e => setReviewerModel(e.target.value)}
-                      placeholder="deepseek-r1:32b" />
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                    <div>
+                      <label className="text-sm font-medium text-gray-700">Planner model</label>
+                      <input className="w-full mt-1 border border-gray-300 rounded-lg px-3 py-2 text-base text-gray-900 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200 focus:outline-none"
+                        value={plannerModel} onChange={e => setPlannerModel(e.target.value)}
+                        placeholder="nvidia/llama-3.1-nemotron-ultra-253b-v1" />
+                    </div>
+                    <div>
+                      <label className="text-sm font-medium text-gray-700">Coder / executor model</label>
+                      <input className="w-full mt-1 border border-gray-300 rounded-lg px-3 py-2 text-base text-gray-900 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200 focus:outline-none"
+                        value={executorModel} onChange={e => setExecutorModel(e.target.value)}
+                        placeholder="nvidia/nemotron-3-super-120b-a12b" />
+                    </div>
+                    <div>
+                      <label className="text-sm font-medium text-gray-700">Verifier model</label>
+                      <input className="w-full mt-1 border border-gray-300 rounded-lg px-3 py-2 text-base text-gray-900 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200 focus:outline-none"
+                        value={verifierModel} onChange={e => setVerifierModel(e.target.value)}
+                        placeholder="nvidia/nemotron-3-super-120b-a12b" />
+                    </div>
+                    <div>
+                      <label className="text-sm font-medium text-gray-700">Judge model</label>
+                      <input className="w-full mt-1 border border-gray-300 rounded-lg px-3 py-2 text-base text-gray-900 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200 focus:outline-none"
+                        value={judgeModel} onChange={e => setJudgeModel(e.target.value)}
+                        placeholder="nvidia/llama-3.1-nemotron-ultra-253b-v1" />
+                    </div>
                   </div>
                 </div>
               </div>

@@ -100,7 +100,11 @@ class Step2Request(BaseModel):
     """Local model detection results and default model selection."""
     default_model:      str  = "qwen/qwen2.5-coder-32b-instruct"
     coder_model:        str  = "qwen/qwen2.5-coder-32b-instruct"
+    planner_model:      str  = "nvidia/llama-3.1-nemotron-ultra-253b-v1"
+    executor_model:     str  = "qwen/qwen2.5-coder-32b-instruct"
     reviewer_model:     str  = "deepseek-ai/deepseek-r1"
+    verifier_model:     str  = "deepseek-ai/deepseek-r1"
+    judge_model:        str  = "nvidia/llama-3.1-nemotron-ultra-253b-v1"
     embedding_model:    str  = "nomic-embed-text"
     accepted_degraded:  bool = False   # user acknowledges degraded compatibility
     repo_path:          str | None = None  # path to local-llm-server repo

@@ -402,6 +402,7 @@ export default function ChatPage() {
   const [agentConsoleTab, setAgentConsoleTab] = useState('progress');
   const [agentWorkspaceState, setAgentWorkspaceState] = useState('idle');
   const [agentWorkspaceError, setAgentWorkspaceError] = useState('');
+  const [mobileAgentConsoleOpen, setMobileAgentConsoleOpen] = useState(false);
 
   const messagesEndRef = useRef(null);
   const inputRef       = useRef(null);
@@ -419,6 +420,13 @@ export default function ChatPage() {
   useEffect(() => { if (paramSid) loadSession(paramSid); }, [paramSid]); // eslint-disable-line
   useEffect(() => { messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' }); }, [messages]);
   useEffect(() => () => jobPollRef.current && clearInterval(jobPollRef.current), []);
+  useEffect(() => { setMobileAgentConsoleOpen(false); }, [sessionId]);
+  useEffect(() => {
+    if (!inputRef.current) return;
+    inputRef.current.style.height = '0px';
+    const nextHeight = Math.min(inputRef.current.scrollHeight, 192);
+    inputRef.current.style.height = `${Math.max(nextHeight, 52)}px`;
+  }, [input]);
 
   const startJobPolling = (jobId) => {
     if (jobPollRef.current) clearInterval(jobPollRef.current);
@@ -719,8 +727,92 @@ export default function ChatPage() {
     )
   );
 
+  const renderAgentConsolePanel = () => (
+    <div className="rounded-[28px] border border-white/10 bg-[#11151D]/90 shadow-[0_16px_50px_rgba(0,0,0,0.28)] backdrop-blur-xl overflow-hidden" data-testid="agent-console">
+      <div className="flex items-center justify-between gap-3 px-4 py-3 border-b border-white/10 bg-white/[0.03]">
+        <div>
+          <div className="text-[10px] font-mono uppercase tracking-[0.2em] text-[#AFC4FF]">Live agent workspace</div>
+          <div className="text-xs text-white mt-1">
+            {agentWorkspaceError
+              ? agentWorkspaceError
+              : agentSnapshot.latest_error
+              ? agentSnapshot.latest_error
+              : agentSnapshot.latest_summary || 'Track planning, tool use, and verification in real time.'}
+          </div>
+        </div>
+        <div className="hidden md:flex items-center gap-2 text-[10px] font-mono text-[#737373]">
+          <span className="border border-white/10 px-2 py-1 rounded-full">{agentSnapshot.agents.length} agents</span>
+          <span className="border border-white/10 px-2 py-1 rounded-full">{agentSnapshot.tool_calls.length} tools</span>
+        </div>
+      </div>
+
+      <div className="md:hidden px-3 pt-3 flex gap-2 overflow-x-auto scrollbar-hide">
+        {[
+          ['progress', 'Progress'],
+          ['activity', 'Activity'],
+          ['tools', 'Tools'],
+        ].map(([value, label]) => (
+          <button
+            key={value}
+            onClick={() => setAgentConsoleTab(value)}
+            className={`px-3 py-1.5 rounded-full border text-[10px] font-mono uppercase tracking-[0.18em] whitespace-nowrap transition-colors ${
+              agentConsoleTab === value
+                ? 'border-[#002FA7]/60 bg-[#002FA7]/20 text-white'
+                : 'border-white/10 text-[#737373]'
+            }`}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+
+      {agentWorkspaceState === 'reconnecting' && (
+        <div className="mx-4 mt-3 rounded-md border border-amber-400/20 bg-amber-400/10 px-3 py-2 text-[11px] text-amber-200" data-testid="agent-workspace-reconnect-banner">
+          Reconnecting live agent updates…
+        </div>
+      )}
+
+      {agentWorkspaceState === 'auth_error' && (
+        <div className="mx-4 mt-3 rounded-md border border-red-500/20 bg-red-500/10 px-3 py-2 text-[11px] text-red-200" data-testid="agent-workspace-auth-banner">
+          Agent workspace session expired. Sign in again to restore live agent updates.
+        </div>
+      )}
+
+      <div className="p-3 md:p-4 md:grid md:grid-cols-2 md:gap-4 space-y-3 md:space-y-0">
+        <div className={`${agentConsoleTab !== 'progress' ? 'hidden md:block' : ''}`}>
+          <AgentStatusPanel
+            sessionId={sessionId}
+            agents={agentSnapshot.agents}
+            loading={agentWorkspaceState === 'idle'}
+            error={agentWorkspaceState === 'auth_error' ? agentWorkspaceError : null}
+            className="h-full min-h-[220px]"
+          />
+        </div>
+        <div className={`${agentConsoleTab !== 'tools' ? 'hidden md:block' : ''}`}>
+          <ToolCallViewer toolCalls={agentSnapshot.tool_calls} className="h-full min-h-[220px]" />
+        </div>
+        <div className={`${agentConsoleTab !== 'activity' ? 'hidden md:block' : ''} md:col-span-2`}>
+          <div className="h-[320px] md:h-[360px]">
+            <AgentActivityFeed
+              sessionId={sessionId}
+              className="h-full"
+              onConnectionChange={(state) => {
+                if (state === 'connected') {
+                  setAgentWorkspaceState('connected');
+                  setAgentWorkspaceError('');
+                } else if (state === 'reconnecting') {
+                  setAgentWorkspaceState((current) => current === 'auth_error' ? current : 'reconnecting');
+                }
+              }}
+            />
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+
   return (
-    <div className="h-full min-h-0 flex bg-[#0B0D12]" data-testid="chat-page">
+    <div className="flex h-[100dvh] min-h-0 overflow-hidden bg-[#0B0D12]" data-testid="chat-page">
       <CommercialApprovalModal
         approval={approvalPrompt}
         onApprove={handleApproveCommercialFallback}
@@ -782,7 +874,7 @@ export default function ChatPage() {
       <div className="flex-1 flex flex-col min-w-0 min-h-0">
 
         {/* ── Header ── */}
-        <div className="sticky top-0 z-20 px-4 md:px-6 py-3 border-b border-white/10 flex items-center gap-3 flex-wrap bg-[#0B0D12]/95 backdrop-blur supports-[backdrop-filter]:bg-[#0B0D12]/80">
+        <div className="sticky top-0 z-20 px-4 pt-[calc(env(safe-area-inset-top,0px)+0.75rem)] pb-3 md:px-6 md:pt-3 border-b border-white/10 flex items-center gap-3 flex-wrap bg-[#0B0D12]/95 backdrop-blur supports-[backdrop-filter]:bg-[#0B0D12]/80">
           <Bot size={16} className="text-[#002FA7] shrink-0" />
           <span className="text-xs tracking-[0.15em] uppercase text-[#A0A0A0] font-mono font-bold truncate">
             {currentSession ? currentSession.title?.slice(0, 40) : 'New Chat Session'}
@@ -882,92 +974,42 @@ export default function ChatPage() {
         )}
 
         {showAgentConsole && (
-          <div className="px-3 pt-3 md:px-6 md:pt-4">
-            <div className="rounded-[28px] border border-white/10 bg-[#11151D]/90 shadow-[0_16px_50px_rgba(0,0,0,0.28)] backdrop-blur-xl overflow-hidden" data-testid="agent-console">
-              <div className="flex items-center justify-between gap-3 px-4 py-3 border-b border-white/10 bg-white/[0.03]">
-                <div>
-                  <div className="text-[10px] font-mono uppercase tracking-[0.2em] text-[#AFC4FF]">Live agent workspace</div>
-                  <div className="text-xs text-white mt-1">
-                    {agentWorkspaceError
-                      ? agentWorkspaceError
-                      : agentSnapshot.latest_error
-                      ? agentSnapshot.latest_error
-                      : agentSnapshot.latest_summary || 'Track planning, tool use, and verification in real time.'}
-                  </div>
-                </div>
-                <div className="hidden md:flex items-center gap-2 text-[10px] font-mono text-[#737373]">
-                  <span className="border border-white/10 px-2 py-1 rounded-full">{agentSnapshot.agents.length} agents</span>
-                  <span className="border border-white/10 px-2 py-1 rounded-full">{agentSnapshot.tool_calls.length} tools</span>
-                </div>
-              </div>
-
-              <div className="md:hidden px-3 pt-3 flex gap-2 overflow-x-auto scrollbar-hide">
-                {[
-                  ['progress', 'Progress'],
-                  ['activity', 'Activity'],
-                  ['tools', 'Tools'],
-                ].map(([value, label]) => (
-                  <button
-                    key={value}
-                    onClick={() => setAgentConsoleTab(value)}
-                    className={`px-3 py-1.5 rounded-full border text-[10px] font-mono uppercase tracking-[0.18em] whitespace-nowrap transition-colors ${
-                      agentConsoleTab === value
-                        ? 'border-[#002FA7]/60 bg-[#002FA7]/20 text-white'
-                        : 'border-white/10 text-[#737373]'
-                    }`}
-                  >
-                    {label}
-                  </button>
-                ))}
-              </div>
-
-              {agentWorkspaceState === 'reconnecting' && (
-                <div className="mx-4 mt-3 rounded-md border border-amber-400/20 bg-amber-400/10 px-3 py-2 text-[11px] text-amber-200" data-testid="agent-workspace-reconnect-banner">
-                  Reconnecting live agent updates…
-                </div>
-              )}
-
-              {agentWorkspaceState === 'auth_error' && (
-                <div className="mx-4 mt-3 rounded-md border border-red-500/20 bg-red-500/10 px-3 py-2 text-[11px] text-red-200" data-testid="agent-workspace-auth-banner">
-                  Agent workspace session expired. Sign in again to restore live agent updates.
-                </div>
-              )}
-
-              <div className="p-3 md:p-4 md:grid md:grid-cols-2 md:gap-4 space-y-3 md:space-y-0">
-                <div className={`${agentConsoleTab !== 'progress' ? 'hidden md:block' : ''}`}>
-                  <AgentStatusPanel
-                    sessionId={sessionId}
-                    agents={agentSnapshot.agents}
-                    loading={agentWorkspaceState === 'idle'}
-                    error={agentWorkspaceState === 'auth_error' ? agentWorkspaceError : null}
-                    className="h-full min-h-[220px]"
-                  />
-                </div>
-                <div className={`${agentConsoleTab !== 'tools' ? 'hidden md:block' : ''}`}>
-                  <ToolCallViewer toolCalls={agentSnapshot.tool_calls} className="h-full min-h-[220px]" />
-                </div>
-                <div className={`${agentConsoleTab !== 'activity' ? 'hidden md:block' : ''} md:col-span-2`}>
-                  <div className="h-[320px] md:h-[360px]">
-                    <AgentActivityFeed
-                      sessionId={sessionId}
-                      className="h-full"
-                      onConnectionChange={(state) => {
-                        if (state === 'connected') {
-                          setAgentWorkspaceState('connected');
-                          setAgentWorkspaceError('');
-                        } else if (state === 'reconnecting') {
-                          setAgentWorkspaceState((current) => current === 'auth_error' ? current : 'reconnecting');
-                        }
-                      }}
-                    />
-                  </div>
-                </div>
-              </div>
+          <>
+            <div className="hidden md:block px-3 pt-3 md:px-6 md:pt-4">
+              {renderAgentConsolePanel()}
             </div>
-          </div>
+            <div className="px-4 pt-3 md:hidden">
+              <button
+                type="button"
+                onClick={() => setMobileAgentConsoleOpen(true)}
+                className="w-full rounded-2xl border border-[#002FA7]/25 bg-[#101318] px-4 py-3 text-left"
+              >
+                <div className="flex items-center justify-between gap-3">
+                  <div>
+                    <div className="text-[10px] font-mono uppercase tracking-[0.18em] text-[#AFC4FF]">Live agent workspace</div>
+                    <div className="mt-1 text-xs text-white">{agentJob?.phase || agentSnapshot.latest_summary || 'Open progress, activity, and tool usage'}</div>
+                  </div>
+                  <div className="text-[10px] font-mono text-[#A0A0A0]">Open</div>
+                </div>
+              </button>
+            </div>
+            {mobileAgentConsoleOpen && (
+              <div className="fixed inset-0 z-40 bg-black/70 backdrop-blur-sm p-3 pt-[calc(env(safe-area-inset-top,0px)+0.75rem)] pb-[calc(env(safe-area-inset-bottom,0px)+0.75rem)] md:hidden">
+                <div className="flex h-full flex-col gap-3">
+                  <div className="flex items-center justify-between px-1">
+                    <div className="text-xs font-mono uppercase tracking-[0.18em] text-white">Agent workspace</div>
+                    <button type="button" onClick={() => setMobileAgentConsoleOpen(false)} className="text-[11px] font-mono uppercase tracking-[0.16em] text-[#A0A0A0]">Close</button>
+                  </div>
+                  <div className="min-h-0 flex-1 overflow-y-auto">
+                    {renderAgentConsolePanel()}
+                  </div>
+                </div>
+              </div>
+            )}
+          </>
         )}
         {/* ── Messages ── */}
-        <div className="flex-1 overflow-y-auto px-4 pb-32 pt-4 md:px-6 md:pb-40 md:pt-6 space-y-4">
+        <div className="flex-1 overflow-y-auto overscroll-contain px-4 pb-32 pt-4 md:px-6 md:pb-40 md:pt-6 space-y-4">
           {messages.length === 0 && (
             <div className="h-full flex flex-col items-center justify-center text-center animate-fade-in px-4">
               <Bot size={40} className="text-[#002FA7] mb-4" />
@@ -1170,7 +1212,7 @@ export default function ChatPage() {
               }
               rows={1}
               style={{ fontSize: '16px' }} /* prevent iOS zoom */
-              className="flex-1 bg-[#141414] border border-white/10 px-4 py-3 text-sm text-white font-mono outline-none focus:border-[#002FA7] resize-none transition-colors"
+              className="flex-1 min-h-[52px] max-h-48 overflow-y-auto bg-[#141414] border border-white/10 px-4 py-3 text-sm text-white font-mono outline-none focus:border-[#002FA7] resize-none transition-colors"
               data-testid="chat-input"
             />
             <button

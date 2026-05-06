@@ -221,6 +221,7 @@ async def _handle_agent_mode(
 
     job = _agent_jobs.create_job(
         session_id=session_id,
+        owner_id=user.email,
         instruction=req.content,
         requested_model=req.model,
         provider_id=req.provider_id,

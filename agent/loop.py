@@ -60,6 +60,12 @@ DEFAULT_VERIFIER_MODEL = os.environ.get(
     if (os.environ.get("NVIDIA_API_KEY") or os.environ.get("NVidiaApiKey"))
     else "deepseek-r1:32b",
 )
+DEFAULT_JUDGE_MODEL = os.environ.get(
+    "AGENT_JUDGE_MODEL",
+    "nvidia/llama-3.1-nemotron-ultra-253b-v1"
+    if (os.environ.get("NVIDIA_API_KEY") or os.environ.get("NVidiaApiKey"))
+    else DEFAULT_VERIFIER_MODEL,
+)
 
 
 class AgentPhaseError(RuntimeError):
@@ -110,6 +116,7 @@ class AgentRunner:
         instruction: str,
         history: list[dict[str, str]],
         requested_model: str | None,
+        model_overrides: dict[str, str | None] | None = None,
         auto_commit: bool,
         max_steps: int,
         user_id: str | None = None,
@@ -131,7 +138,7 @@ class AgentRunner:
         self._log_event(session_id, "user_message", {"instruction": instruction})
 
         plan = await self._generate_plan(
-            instruction, effective_history, requested_model, max_steps, user_id, memory_store
+            instruction, effective_history, requested_model, model_overrides, max_steps, user_id, memory_store
         )
         self._log_event(session_id, "step_start", {"goal": plan.goal, "steps": len(plan.steps)})
 
@@ -161,6 +168,7 @@ class AgentRunner:
             plan=plan,
             instruction=instruction,
             requested_model=requested_model,
+            model_overrides=model_overrides,
             max_steps=max_steps,
             auto_commit=auto_commit,
             user_id=user_id,
@@ -174,6 +182,7 @@ class AgentRunner:
                 plan=plan,
                 step_results=parallel_result.get("steps", []),
                 requested_model=requested_model,
+                model_overrides=model_overrides,
                 session_id=session_id,
             )
             return parallel_result
@@ -188,6 +197,7 @@ class AgentRunner:
                 plan.goal,
                 step_data,
                 requested_model,
+                model_overrides,
                 user_id,
                 memory_store,
                 session_id=session_id,
@@ -212,6 +222,7 @@ class AgentRunner:
             plan=plan,
             step_results=step_results,
             requested_model=requested_model,
+            model_overrides=model_overrides,
             session_id=session_id,
         )
 
@@ -238,6 +249,7 @@ class AgentRunner:
         instruction: str,
         history: list[dict[str, str]],
         requested_model: str | None,
+        model_overrides: dict[str, str | None] | None,
         max_steps: int,
         user_id: str | None = None,
         memory_store: UserMemoryStore | None = None,
@@ -250,7 +262,8 @@ class AgentRunner:
             override_model=requested_model if requested_model else None,
             endpoint_type="agent_plan",
         )
-        planner_model = planner_decision.resolved_model if not requested_model else requested_model
+        planner_override = (model_overrides or {}).get("planner")
+        planner_model = planner_override or planner_decision.resolved_model
         if not planner_model:
             planner_model = DEFAULT_PLANNER_MODEL
         log.debug(
@@ -313,6 +326,7 @@ class AgentRunner:
         goal: str,
         step: dict[str, Any],
         requested_model: str | None,
+        model_overrides: dict[str, str | None] | None,
         user_id: str | None = None,
         memory_store: UserMemoryStore | None = None,
         session_id: str | None = None,
@@ -333,7 +347,8 @@ class AgentRunner:
             override_model=requested_model if requested_model else None,
             endpoint_type="agent_execute",
         )
-        executor_model = executor_decision.resolved_model if not requested_model else requested_model
+        executor_override = requested_model or (model_overrides or {}).get("executor")
+        executor_model = executor_override or executor_decision.resolved_model
         if not executor_model:
             executor_model = DEFAULT_EXECUTOR_MODEL
 
@@ -341,7 +356,8 @@ class AgentRunner:
             requested_model=requested_model,
             endpoint_type="agent_verify",
         )
-        verifier_model = verifier_decision.resolved_model if not requested_model else requested_model
+        verifier_override = (model_overrides or {}).get("verifier")
+        verifier_model = verifier_override or verifier_decision.resolved_model
         if not verifier_model:
             verifier_model = DEFAULT_VERIFIER_MODEL
 
@@ -664,6 +680,7 @@ class AgentRunner:
         plan: AgentPlan,
         step_results: list[dict[str, Any]],
         requested_model: str | None,
+        model_overrides: dict[str, str | None] | None,
         session_id: str | None,
     ) -> dict[str, Any]:
         """Lightweight Judge agent: holistic review of completed work.
@@ -680,7 +697,7 @@ class AgentRunner:
             # Nothing happened — no judgement needed
             return {"verdict": "APPROVED", "notes": "No changes were made."}
 
-        judge_model = requested_model or DEFAULT_VERIFIER_MODEL
+        judge_model = (model_overrides or {}).get("judge") or DEFAULT_JUDGE_MODEL
         messages = [
             {
                 "role": "system",
@@ -802,6 +819,7 @@ class AgentRunner:
             instruction=instruction,
             history=[],
             requested_model=requested_model,
+            model_overrides=None,
             auto_commit=False,
             max_steps=max_steps,
             user_id=user_id,
@@ -831,6 +849,7 @@ class AgentRunner:
         plan: AgentPlan,
         instruction: str,
         requested_model: str | None,
+        model_overrides: dict[str, str | None] | None = None,
         max_steps: int,
         auto_commit: bool,
         user_id: str | None,
@@ -865,7 +884,7 @@ class AgentRunner:
             WorkerSpec(
                 worker_id=f"step-{step.id}",
                 instruction=f"Goal: {plan.goal}\n\nStep: {step.description}\nFiles: {', '.join(step.files) or '(determine from context)'}",
-                model=requested_model,
+                model=requested_model or (model_overrides or {}).get("executor"),
                 max_steps=max(2, max_steps // len(plan.steps)),
             )
             for step in plan.steps[:max_steps]

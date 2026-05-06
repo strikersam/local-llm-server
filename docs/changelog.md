@@ -7,11 +7,15 @@
 - `docs/architecture/runtime-model.md`, `docs/architecture/agent-job-lifecycle.md`, `docs/architecture/feature-maturity-matrix.md`, and `docs/runbooks/runtime-troubleshooting.md` — documented runtime preflight, async agent jobs, maturity tiers, and troubleshooting.
 
 ### Changed
+- `backend/server.py` / `agent/loop.py` / `setup/api.py` / `frontend/src/pages/SetupWizardPage.js` — hosted Direct Chat agent runs now queue asynchronous jobs instead of blocking the request, and agent role models are now configurable per role (planner, coder/executor, verifier, judge) with NVIDIA-first defaults.
+- `frontend/src/pages/ChatPage.js` — mobile Direct Chat now uses a safer dynamic viewport layout, auto-resizing composer, safe-area-aware sticky header/composer spacing, and a collapsible mobile agent workspace so progress/activity no longer consume the full chat surface.
 - `direct_chat.py` — split direct chat from async agent workflows; `agent_mode=true` now returns `202 Accepted` plus a pollable job id instead of blocking the request until the full tool loop completes.
 - `frontend/src/pages/ChatPage.js` — added a mobile-friendly agent job status card and polling flow for async agent runs.
 - `runtimes/base.py`, `runtimes/api.py`, and `runtimes/routing.py` — added runtime readiness/preflight validation so tasks fail early with structured diagnostics.
 
 ### Fixed
+- `backend/server.py` / `tests/test_chat_mode_regressions.py` — hosted Direct Chat no longer relies on the fragile inline agent timeout fallback path; long-running complex tasks stay in progress through the new job lifecycle and can be polled/cancelled from the UI.
+- `agent/loop.py` / `backend/server.py` — planner/verifier/judge selection no longer collapses to a single requested model for every agent phase, so NVIDIA-backed coding flows can keep a Nemotron executor while using separate planner/judge defaults.
 - `agent/job_manager.py` / `tests/test_direct_chat_async.py` — direct-chat async agent workspaces now validate session/job ids and derive hashed directory names before creating directories, closing the CodeQL path-traversal finding on isolated workspace creation.
 - `proxy.py` / `tests/test_agent_api.py` — `/agent/run` and `/agent/sessions/{id}/run` no longer echo internal failure details back to API callers; they now return only a stable failure summary, resolving the CodeQL information-exposure findings.
 - runtime execution now surfaces actionable missing-binary errors, including `task-harness` configuration guidance, instead of late raw PATH failures.

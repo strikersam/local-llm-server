@@ -61,6 +61,7 @@ def test_chat_send_uses_agent_path_only_when_agent_mode_is_enabled(
 
     monkeypatch.setattr("backend.server.call_llm", direct_reply)
     monkeypatch.setattr("backend.server._run_agent_loop", agent_reply)
+    monkeypatch.setattr(server, "_CHAT_AGENT_JOBS", server.AgentJobManager())
 
     response = client.post(
         "/api/chat/send",
@@ -72,8 +73,10 @@ def test_chat_send_uses_agent_path_only_when_agent_mode_is_enabled(
         },
     )
 
-    assert response.status_code == 200, response.text
-    assert response.json()["response"] == "Agent answer"
+    assert response.status_code == 202, response.text
+    job_id = response.json()["job_id"]
+    final_job = client.get(f"/api/chat/agent-jobs/{job_id}", headers=_auth_headers(client)).json()
+    assert final_job["status"] in {"queued", "running", "succeeded"}
     agent_reply.assert_awaited_once()
     direct_reply.assert_not_called()
 
@@ -121,14 +124,20 @@ def test_agent_status_endpoint_reports_live_progress_and_tool_calls(client, monk
         },
     )
 
-    assert response.status_code == 200, response.text
+    assert response.status_code == 202, response.text
 
-    status_response = client.get(
-        f"/api/agent/status?session_id={session_id}",
-        headers=_auth_headers(client),
-    )
-    assert status_response.status_code == 200, status_response.text
-    payload = status_response.json()
+    payload = None
+    for _ in range(20):
+        status_response = client.get(
+            f"/api/agent/status?session_id={session_id}",
+            headers=_auth_headers(client),
+        )
+        assert status_response.status_code == 200, status_response.text
+        payload = status_response.json()
+        if payload.get("latest_summary") == "Fixed the failing tests.":
+            break
+
+    assert payload is not None
     assert payload["has_events"] is True
     assert any(agent["role"] == "planner" for agent in payload["agents"])
     assert any(agent["role"] == "implementer" for agent in payload["agents"])
@@ -409,15 +418,28 @@ def test_chat_send_keeps_explanatory_github_pr_guidance_on_direct_path(client, m
     unexpected_agent.assert_not_called()
 
 
-def test_chat_send_falls_back_to_direct_answer_when_agent_mode_times_out(
-    client, monkeypatch
+def test_chat_send_queues_agent_mode_job_and_persists_result(
+    client, monkeypatch, tmp_path
 ) -> None:
-    direct_reply = AsyncMock(return_value="Recovered direct answer")
-    timed_out_agent = AsyncMock(side_effect=asyncio.TimeoutError())
-    session_id = f"agent-timeout-{uuid.uuid4()}"
+    session_id = f"agent-job-{uuid.uuid4()}"
+    run_agent = AsyncMock(return_value="Agent answer")
 
-    monkeypatch.setattr("backend.server.call_llm", direct_reply)
-    monkeypatch.setattr("backend.server._run_agent_loop", timed_out_agent)
+    async def fake_build_provider_router(**kwargs):
+        return (
+            SimpleNamespace(providers=[]),
+            {"allow_commercial_fallback": True},
+            {
+                "provider_id": "nvidia-nim",
+                "default_model": "nvidia/nemotron-3-super-120b-a12b",
+                "base_url": "https://integrate.api.nvidia.com/v1",
+                "api_key": "test-key",
+            },
+        )
+
+    monkeypatch.setattr(server, "_CHAT_AGENT_JOBS", server.AgentJobManager())
+    monkeypatch.setattr(server, "_CHAT_AGENT_WORKSPACE_ROOT", tmp_path / "chat-agent-workspaces")
+    monkeypatch.setattr("backend.server._build_provider_router", fake_build_provider_router)
+    monkeypatch.setattr("backend.server._run_agent_loop", run_agent)
 
     response = client.post(
         "/api/chat/send",
@@ -429,10 +451,19 @@ def test_chat_send_falls_back_to_direct_answer_when_agent_mode_times_out(
         },
     )
 
-    assert response.status_code == 200, response.text
-    assert "Recovered direct answer" in response.json()["response"]
-    timed_out_agent.assert_awaited_once()
-    direct_reply.assert_awaited_once()
+    assert response.status_code == 202, response.text
+    payload = response.json()
+    assert payload["job_id"]
+
+    for _ in range(20):
+        job = client.get(f"/api/chat/agent-jobs/{payload['job_id']}", headers=_auth_headers(client))
+        assert job.status_code == 200, job.text
+        if job.json()["status"] == "succeeded":
+            break
+    final_job = client.get(f"/api/chat/agent-jobs/{payload['job_id']}", headers=_auth_headers(client)).json()
+    assert final_job["status"] == "succeeded"
+    assert final_job["result"]["response"] == "Agent answer"
+    run_agent.assert_awaited_once()
 
 
 def test_chat_send_recovers_direct_chat_after_provider_failure(client, monkeypatch) -> None:
@@ -514,11 +545,14 @@ def test_chat_send_uses_provider_default_model_for_agent_mode_when_model_is_omit
 
     async def fake_run_agent_loop(**kwargs):
         captured["requested_model"] = kwargs.get("requested_model")
+        captured["planner_model"] = (kwargs.get("model_overrides") or {}).get("planner")
+        captured["judge_model"] = (kwargs.get("model_overrides") or {}).get("judge")
         return "Agent answer"
 
     monkeypatch.setattr("backend.server.get_active_provider", AsyncMock(return_value=None))
     monkeypatch.setattr("backend.server._build_provider_router", fake_build_provider_router)
     monkeypatch.setattr("backend.server._run_agent_loop", fake_run_agent_loop)
+    monkeypatch.setattr(server, "_CHAT_AGENT_JOBS", server.AgentJobManager())
 
     response = client.post(
         "/api/chat/send",
@@ -530,56 +564,71 @@ def test_chat_send_uses_provider_default_model_for_agent_mode_when_model_is_omit
         },
     )
 
-    assert response.status_code == 200, response.text
-    assert response.json()["response"] == "Agent answer"
-    assert captured["requested_model"] == "meta/llama-3.3-70b-instruct"
+    assert response.status_code == 202, response.text
+    assert captured["requested_model"] == "qwen3-coder:30b"
+    assert captured["planner_model"]
+    assert captured["judge_model"]
 
 
-def test_chat_send_timeout_fallback_retries_with_provider_default_model(
+def test_chat_send_uses_saved_agent_role_models_for_agent_mode(
     client, monkeypatch
 ) -> None:
-    session_id = f"agent-timeout-default-{uuid.uuid4()}"
+    captured: dict[str, object] = {}
 
     async def fake_build_provider_router(**kwargs):
         return (
             SimpleNamespace(providers=[]),
             {"allow_commercial_fallback": True},
             {
-                "default_model": "meta/llama-3.3-70b-instruct",
+                "provider_id": "nvidia-nim",
+                "default_model": "nvidia/nemotron-3-super-120b-a12b",
                 "base_url": "https://integrate.api.nvidia.com/v1",
                 "api_key": "test-key",
             },
         )
 
-    call_llm = AsyncMock(
-        side_effect=[
-            HTTPException(status_code=503, detail="bad explicit model"),
-            "Recovered via provider default",
-        ]
-    )
+    async def fake_run_agent_loop(**kwargs):
+        captured["requested_model"] = kwargs.get("requested_model")
+        captured["model_overrides"] = kwargs.get("model_overrides")
+        return "Agent answer"
 
-    monkeypatch.setattr("backend.server.get_active_provider", AsyncMock(return_value=None))
     monkeypatch.setattr("backend.server._build_provider_router", fake_build_provider_router)
+    monkeypatch.setattr("backend.server._run_agent_loop", fake_run_agent_loop)
+    monkeypatch.setattr(server, "_CHAT_AGENT_JOBS", server.AgentJobManager())
     monkeypatch.setattr(
-        "backend.server._run_agent_loop",
-        AsyncMock(side_effect=asyncio.TimeoutError()),
+        "backend.server.get_wizard_state",
+        AsyncMock(
+            return_value=SimpleNamespace(
+                step2_model={
+                    "planner_model": "planner-custom",
+                    "executor_model": "executor-custom",
+                    "verifier_model": "verifier-custom",
+                    "judge_model": "judge-custom",
+                },
+                step4_agent={"agent_model": "executor-custom"},
+            )
+        ),
     )
-    monkeypatch.setattr("backend.server.call_llm", call_llm)
 
     response = client.post(
         "/api/chat/send",
         headers=_auth_headers(client),
         json={
-            "session_id": session_id,
+            "session_id": f"agent-configured-{uuid.uuid4()}",
             "agent_mode": True,
-            "model": "qwen/qwen2.5-coder-32b-instruct",
             "content": "Make the fix and give me the commit message.",
         },
     )
 
-    assert response.status_code == 200, response.text
-    assert "Recovered via provider default" in response.json()["response"]
-    assert call_llm.await_count == 2
+    assert response.status_code == 202, response.text
+    assert captured["requested_model"] == "executor-custom"
+    assert captured["model_overrides"] == {
+        "default": "executor-custom",
+        "planner": "planner-custom",
+        "executor": "executor-custom",
+        "verifier": "verifier-custom",
+        "judge": "judge-custom",
+    }
 
 
 def test_chat_send_emits_langfuse_observation_for_direct_chat(client, monkeypatch) -> None:

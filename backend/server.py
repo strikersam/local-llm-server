@@ -49,6 +49,7 @@ from agents.api import agent_router
 from agents.store import AgentStore, set_agent_store
 from agent.scheduler import AgentScheduler, get_scheduler, set_scheduler
 from agent.skills import SkillLibrary
+from agent.job_manager import AgentJobManager, make_isolated_workspace
 from agent.state import AgentSessionStore
 from provider_router import (
     CommercialFallbackRequiredError,
@@ -66,6 +67,7 @@ from tasks.api import task_router
 from tasks.dispatcher import TaskDispatcher
 from tasks.store import TaskStore, get_task_store, set_task_store
 from setup import setup_router
+from setup.api import get_wizard_state
 from secrets_store import secrets_router, get_secrets_store
 
 logging.basicConfig(
@@ -127,6 +129,10 @@ OLLAMA_BASE = (
 )
 OLLAMA_MODEL = os.environ.get("OLLAMA_MODEL", "qwen3-coder:30b")
 _LIMITED_CHAT_SESSIONS: dict[str, dict[str, object]] = {}
+_CHAT_AGENT_JOBS = AgentJobManager()
+_CHAT_AGENT_WORKSPACE_ROOT = Path(
+    os.environ.get("BACKEND_CHAT_AGENT_WORKSPACE_ROOT", ".data/backend-chat-agent-workspaces")
+)
 
 
 def _safe_object_id(value: str | None) -> ObjectId | None:
@@ -236,6 +242,61 @@ async def _persist_chat_session(
         "updated_at": updated_at,
     }
     _save_limited_chat_session(session_id, record)
+
+
+def _default_agent_role_models() -> dict[str, str]:
+    nim_enabled = bool(
+        (os.environ.get("NVIDIA_API_KEY") or os.environ.get("NVidiaApiKey") or "").strip()
+    )
+    if nim_enabled:
+        return {
+            "default": os.environ.get("NVIDIA_DEFAULT_MODEL") or "nvidia/nemotron-3-super-120b-a12b",
+            "planner": os.environ.get("AGENT_PLANNER_MODEL") or "nvidia/llama-3.1-nemotron-ultra-253b-v1",
+            "executor": os.environ.get("AGENT_EXECUTOR_MODEL") or "nvidia/nemotron-3-super-120b-a12b",
+            "verifier": os.environ.get("AGENT_VERIFIER_MODEL") or "nvidia/nemotron-3-super-120b-a12b",
+            "judge": os.environ.get("AGENT_JUDGE_MODEL") or "nvidia/llama-3.1-nemotron-ultra-253b-v1",
+        }
+    return {
+        "default": os.environ.get("OLLAMA_MODEL") or "qwen3-coder:30b",
+        "planner": os.environ.get("AGENT_PLANNER_MODEL") or "deepseek-r1:32b",
+        "executor": os.environ.get("AGENT_EXECUTOR_MODEL") or "qwen3-coder:30b",
+        "verifier": os.environ.get("AGENT_VERIFIER_MODEL") or "deepseek-r1:32b",
+        "judge": os.environ.get("AGENT_JUDGE_MODEL") or os.environ.get("AGENT_VERIFIER_MODEL") or "deepseek-r1:32b",
+    }
+
+
+async def _resolve_user_agent_role_models(user: dict[str, object]) -> dict[str, str]:
+    defaults = _default_agent_role_models()
+    user_key = str(user.get("email") or user.get("_id") or "anonymous")
+    try:
+        state = await get_wizard_state(user_key)
+    except Exception:
+        return defaults
+
+    step2 = state.step2_model or {}
+    step4 = state.step4_agent or {}
+    return {
+        "default": str(
+            step2.get("default_model")
+            or step2.get("executor_model")
+            or step2.get("coder_model")
+            or step4.get("agent_model")
+            or defaults["default"]
+        ),
+        "planner": str(step2.get("planner_model") or defaults["planner"]),
+        "executor": str(
+            step2.get("executor_model")
+            or step2.get("coder_model")
+            or step4.get("agent_model")
+            or defaults["executor"]
+        ),
+        "verifier": str(
+            step2.get("verifier_model")
+            or step2.get("reviewer_model")
+            or defaults["verifier"]
+        ),
+        "judge": str(step2.get("judge_model") or defaults["judge"]),
+    }
 
 
 class AgentStatusEntry(BaseModel):
@@ -2590,9 +2651,11 @@ async def _run_agent_loop(
     provider: dict,
     session_id: str | None = None,
     requested_model: str | None = None,
+    model_overrides: dict[str, str] | None = None,
     github_token: str | None = None,
     provider_chain: list[ProviderConfig] | None = None,
     allow_commercial_fallback: bool = True,
+    workspace_root: str | Path | None = None,
 ) -> str:
     try:
         from agent.loop import AgentRunner
@@ -2610,7 +2673,7 @@ async def _run_agent_loop(
         )
 
     # Use a workspace root defined by either environment or a default.
-    workspace_root = Path(__file__).resolve().parent
+    workspace_root = Path(workspace_root or Path(__file__).resolve().parent)
 
     headers = (
         {"Authorization": f"Bearer {provider.get('api_key')}"}
@@ -2665,6 +2728,7 @@ async def _run_agent_loop(
             instruction=agent_instruction,
             history=session_messages,
             requested_model=requested_model,
+            model_overrides=model_overrides,
             auto_commit=True,
             max_steps=8,
             memory_store=UserMemoryStore(),
@@ -3040,6 +3104,35 @@ _DIRECT_CHAT_PROVIDER_TIMEOUT_SEC = 20.0
 _DIRECT_CHAT_MAX_RETRIES = 0
 
 
+async def _persist_agent_chat_response(
+    *,
+    session_id: str,
+    user_id: str,
+    storage_mode: str,
+    db_session_id: ObjectId | None,
+    title: str,
+    provider_id: str | None,
+    model: str | None,
+    temperature: float | None,
+    messages: list[dict],
+    created_at: str | None,
+    response_text: str,
+) -> None:
+    final_messages = list(messages) + [{"role": "assistant", "content": response_text}]
+    await _persist_chat_session(
+        session_id=session_id,
+        user_id=user_id,
+        storage_mode=storage_mode,
+        db_session_id=db_session_id,
+        title=title,
+        provider_id=provider_id,
+        model=model,
+        temperature=temperature,
+        messages=final_messages,
+        created_at=created_at,
+    )
+
+
 async def _agent_timeout_fallback_response(
     *,
     content: str,
@@ -3299,41 +3392,24 @@ async def chat_send(body: ChatMessage, user: dict = Depends(get_current_user)):
             user_id=str(uid),
             title=str(session.get("title") or body.content[:60]),
         )
-        try:
-            provider = (
-                await db.providers.find_one({"provider_id": provider_hint_id})
-                if provider_hint_id
-                else await get_active_provider()
-            )
-        except Exception:
-            provider = None
-        if not provider:
-            provider = _fallback_local_provider_record()
+        await _persist_chat_session(
+            session_id=sid,
+            user_id=uid,
+            storage_mode=session_storage,
+            db_session_id=db_session_id,
+            title=str(session.get("title") or body.content[:60]),
+            provider_id=provider_id,
+            model=body.model or session.get("model"),
+            temperature=temperature,
+            messages=messages,
+            created_at=session.get("created_at"),
+        )
+
+        role_models = await _resolve_user_agent_role_models(user)
         try:
             router, policy, primary_provider = await _build_provider_router(
                 primary_provider_id=provider_hint_id,
                 allow_commercial_fallback_once=body.allow_commercial_fallback_once,
-            )
-            requested_agent_model = (
-                body.model
-                or session.get("model")
-                or primary_provider.get("default_model")
-            )
-            response_text = await asyncio.wait_for(
-                _run_agent_loop(
-                    instruction=body.content,
-                    session_messages=model_messages[
-                        :-1
-                    ],  # exclude the just-appended user msg
-                    wiki_index=wiki_index,
-                    provider=primary_provider,
-                    session_id=sid,
-                    requested_model=requested_agent_model,
-                    github_token=user.get("github_repo_token"),
-                    provider_chain=router.providers[1:],
-                    allow_commercial_fallback=policy["allow_commercial_fallback"],
-                ),
-                timeout=_AGENT_TIMEOUT_SEC,
             )
         except CommercialFallbackRequiredError as exc:
             raise HTTPException(
@@ -3345,63 +3421,75 @@ async def chat_send(body: ChatMessage, user: dict = Depends(get_current_user)):
                     "session_id": sid,
                 },
             ) from exc
-        except ProviderFallbackError as exc:
-            log.error("All LLM providers failed during agent run: %s", exc)
-            raise HTTPException(status_code=503, detail=str(exc)) from exc
-        except asyncio.TimeoutError:
-            log.warning(
-                "Agent loop timed out after %ds — falling back to direct recovery answer",
-                _AGENT_TIMEOUT_SEC,
+
+        requested_agent_model = (
+            body.model
+            or session.get("model")
+            or (primary_provider.get("default_model") if provider_hint_id else role_models["executor"])
+            or primary_provider.get("default_model")
+        )
+
+        job = _CHAT_AGENT_JOBS.create_job(
+            session_id=sid,
+            owner_id=str(uid),
+            instruction=body.content,
+            requested_model=requested_agent_model,
+            provider_id=primary_provider.get("provider_id"),
+        )
+        workspace_root = make_isolated_workspace(_CHAT_AGENT_WORKSPACE_ROOT, sid, job.job_id)
+        job.workspace_path = str(workspace_root)
+
+        async def _run_agent_job(heartbeat):
+            heartbeat("planning", f"Planner model: {role_models['planner']}")
+            response_text = await _run_agent_loop(
+                instruction=body.content,
+                session_messages=model_messages[:-1],
+                wiki_index=wiki_index,
+                provider=primary_provider,
+                session_id=sid,
+                requested_model=requested_agent_model,
+                model_overrides=role_models,
+                github_token=user.get("github_repo_token"),
+                provider_chain=router.providers[1:],
+                allow_commercial_fallback=policy["allow_commercial_fallback"],
+                workspace_root=workspace_root,
             )
-            try:
-                response_text = await _agent_timeout_fallback_response(
-                    content=body.content,
-                    provider_id=primary_provider.get("provider_id"),
-                    model=requested_agent_model,
-                    provider_default_model=primary_provider.get("default_model"),
-                    session_model=session.get("model"),
-                    temperature=float(temperature),
-                    allow_commercial_fallback_once=body.allow_commercial_fallback_once,
-                    observation=observation_payload,
-                )
-            except Exception as fallback_exc:
-                log.error(
-                    "Agent timeout fallback failed: %s", fallback_exc, exc_info=True
-                )
-                response_text = (
-                    f"⚠️ The agent took too long to respond (exceeded {_AGENT_TIMEOUT_SEC} seconds). "
-                    "Try a simpler query or switch to a faster model."
-                )
-            try:
-                AGENT_EVENT_STORE.append_event(
-                    sid,
-                    "assistant_message",
-                    {"summary": response_text, "timeout": True},
-                )
-                _append_agent_session_message(sid, "assistant", response_text)
-            except Exception:
-                log.debug("agent timeout event append failed", exc_info=True)
-            use_agent = True  # mark handled — skip simple LLM fallback
-        except Exception as exc:
-            log.error("Agent loop failed: %s", exc, exc_info=True)
-            response_text = (
-                "⚠️ The agent run failed before it could use any tools.\n\n"
-                f"Error: {type(exc).__name__}: {exc}\n\n"
-                "Troubleshooting:\n"
-                "• Check that the selected LLM provider is reachable (Providers page → Test).\n"
-                "• If using Ollama in Docker, ensure OLLAMA_BASE_URL points to the container hostname (e.g. http://ollama:11434).\n"
-                "• For GitHub operations, verify a token is connected at Settings → GitHub and Agent Mode (⚡) is ON."
+            heartbeat("verification", f"Judge model: {role_models['judge']}")
+            await _persist_agent_chat_response(
+                session_id=sid,
+                user_id=uid,
+                storage_mode=session_storage,
+                db_session_id=db_session_id,
+                title=str(session.get("title") or body.content[:60]),
+                provider_id=provider_id,
+                model=body.model or session.get("model") or requested_agent_model,
+                temperature=temperature,
+                messages=messages,
+                created_at=session.get("created_at"),
+                response_text=response_text,
             )
-            try:
-                AGENT_EVENT_STORE.append_event(
-                    sid,
-                    "assistant_message",
-                    {"summary": response_text, "error": f"{type(exc).__name__}: {exc}"},
-                )
-                _append_agent_session_message(sid, "assistant", response_text)
-            except Exception:
-                log.debug("agent failure event append failed", exc_info=True)
-            use_agent = True  # mark handled — skip the silent LLM fallback
+            return {
+                "session_id": sid,
+                "response": response_text,
+                "runtime": {
+                    "provider_id": primary_provider.get("provider_id"),
+                    "workspace_path": str(workspace_root),
+                    "requested_model": requested_agent_model,
+                    "role_models": role_models,
+                },
+            }
+
+        _CHAT_AGENT_JOBS.start_job(job.job_id, _run_agent_job)
+        return JSONResponse(
+            status_code=202,
+            content={
+                "session_id": sid,
+                "job_id": job.job_id,
+                "status": job.status,
+                "phase": job.phase,
+                "message": "Agent workflow queued. Poll the job endpoint for progress.",
+            },
+        )
 
     if not use_agent:
         github_connected = bool(user.get("github_repo_token"))
@@ -3590,6 +3678,28 @@ async def chat_send(body: ChatMessage, user: dict = Depends(get_current_user)):
         "assistant_meta": assistant_meta,
         "message_count": len(messages),
     }
+
+
+@app.get("/api/chat/agent-jobs/{job_id}")
+async def get_chat_agent_job(job_id: str, user: dict = Depends(get_current_user)):
+    job = _CHAT_AGENT_JOBS.get_job(job_id)
+    if job is None:
+        raise HTTPException(status_code=404, detail="Agent job not found")
+    if job.owner_id and job.owner_id != str(user.get("_id")):
+        raise HTTPException(status_code=403, detail="Forbidden")
+    return job.as_dict()
+
+
+@app.post("/api/chat/agent-jobs/{job_id}/cancel")
+async def cancel_chat_agent_job(job_id: str, user: dict = Depends(get_current_user)):
+    job = _CHAT_AGENT_JOBS.get_job(job_id)
+    if job is None:
+        raise HTTPException(status_code=404, detail="Agent job not found")
+    if job.owner_id and job.owner_id != str(user.get("_id")):
+        raise HTTPException(status_code=403, detail="Forbidden")
+    cancelled = _CHAT_AGENT_JOBS.cancel_job(job_id)
+    assert cancelled is not None
+    return cancelled.as_dict()
 
 
 @app.get("/api/chat/sessions")

@@ -200,14 +200,20 @@ describe('Prefill from saved wizard state', () => {
       current_step: 2,
       step2_model: {
         default_model: 'llama3:8b',
-        reviewer_model: 'mistral:7b',
+        planner_model: 'planner-x',
+        executor_model: 'coder-x',
+        verifier_model: 'mistral:7b',
+        judge_model: 'judge-x',
       },
     });
     renderWizard();
 
     // After state loads, component should show step 2 with the saved model names
     await screen.findByDisplayValue('llama3:8b');
+    expect(screen.getByDisplayValue('planner-x')).toBeInTheDocument();
+    expect(screen.getByDisplayValue('coder-x')).toBeInTheDocument();
     expect(screen.getByDisplayValue('mistral:7b')).toBeInTheDocument();
+    expect(screen.getByDisplayValue('judge-x')).toBeInTheDocument();
   });
 
   test('prefills Step 4 agent name from saved state', async () => {

@@ -24,6 +24,7 @@ class AgentJob:
     job_id: str
     session_id: str
     instruction: str
+    owner_id: str | None = None
     status: str = "queued"
     phase: str = "queued"
     created_at: str = field(default_factory=_now)
@@ -42,6 +43,7 @@ class AgentJob:
             "job_id": self.job_id,
             "session_id": self.session_id,
             "instruction": self.instruction,
+            "owner_id": self.owner_id,
             "status": self.status,
             "phase": self.phase,
             "created_at": self.created_at,
@@ -67,6 +69,7 @@ class AgentJobManager:
         *,
         session_id: str,
         instruction: str,
+        owner_id: str | None = None,
         runtime_id: str = "internal_agent",
         workspace_path: str | None = None,
         requested_model: str | None = None,
@@ -76,6 +79,7 @@ class AgentJobManager:
             job_id=f"aj_{secrets.token_hex(8)}",
             session_id=session_id,
             instruction=instruction,
+            owner_id=owner_id,
             runtime_id=runtime_id,
             workspace_path=workspace_path,
             requested_model=requested_model,
