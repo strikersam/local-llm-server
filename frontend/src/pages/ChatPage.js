@@ -402,13 +402,6 @@ export default function ChatPage() {
   const [agentConsoleTab, setAgentConsoleTab] = useState('progress');
   const [agentWorkspaceState, setAgentWorkspaceState] = useState('idle');
   const [agentWorkspaceError, setAgentWorkspaceError] = useState('');
-  const [agentJob, setAgentJob] = useState(null);
-  const [githubStatus, setGithubStatus] = useState({ connected: false, login: '' });
-  const [workflowAction, setWorkflowAction] = useState('');
-  const [agentSnapshot, setAgentSnapshot] = useState(emptyAgentSnapshot);
-  const [agentConsoleTab, setAgentConsoleTab] = useState('progress');
-  const [agentWorkspaceState, setAgentWorkspaceState] = useState('idle');
-  const [agentWorkspaceError, setAgentWorkspaceError] = useState('');
 
   const messagesEndRef = useRef(null);
   const inputRef       = useRef(null);
@@ -973,10 +966,6 @@ export default function ChatPage() {
             </div>
           </div>
         )}
-            </div>
-          </div>
-        )}
-
         {/* ── Messages ── */}
         <div className="flex-1 overflow-y-auto px-4 pb-32 pt-4 md:px-6 md:pb-40 md:pt-6 space-y-4">
           {messages.length === 0 && (
