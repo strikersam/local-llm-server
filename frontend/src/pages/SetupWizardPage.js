@@ -586,16 +586,16 @@ export default function SetupWizardPage({ onComplete }) {
 
   if (done) {
     return (
-      <div className="flex flex-col items-center justify-center min-h-screen bg-gray-50 p-8">
-        <div className="bg-white rounded-2xl shadow-lg p-10 text-center max-w-md">
+      <div className="setup-wizard min-h-[100dvh] flex flex-col items-center justify-center p-4 sm:p-8">
+        <div className="app-panel-elevated p-8 sm:p-10 text-center max-w-md w-full">
           <div className="text-5xl mb-4">🎉</div>
-          <h1 className="text-2xl font-bold text-gray-800 mb-2">You're all set!</h1>
-          <p className="text-gray-500 mb-6">Your AI Agent Control Plane is ready to use.</p>
+          <h1 className="text-2xl font-bold text-[var(--text-primary)] mb-2">You're all set</h1>
+          <p className="text-[var(--text-tertiary)] mb-6">Your AI Agent Control Plane is ready to use.</p>
           <button
             onClick={() => navigate(getPublicPath('/'))}
-            className="bg-indigo-600 text-white px-6 py-2 rounded-lg hover:bg-indigo-700"
+            className="app-button-primary w-full rounded-[18px]"
           >
-            Open Control Plane →
+            Open Control Plane
           </button>
         </div>
       </div>
@@ -605,24 +605,26 @@ export default function SetupWizardPage({ onComplete }) {
   // ─── Render ─────────────────────────────────────────────────────────────────
 
   return (
-    <div className="min-h-screen bg-gray-50 flex flex-col lg:flex-row">
-      <div className="lg:hidden sticky top-0 z-20 border-b border-indigo-200 bg-white/95 backdrop-blur px-4 py-3 flex items-center justify-between">
+    <div className="setup-wizard min-h-[100dvh] flex flex-col lg:flex-row">
+      <div className="lg:hidden sticky top-0 z-20 border-b app-glass px-4 py-3 flex items-center justify-between pt-[calc(env(safe-area-inset-top,0px)+0.75rem)]"
+        style={{ borderColor: 'var(--border)' }}>
         <div>
-          <div className="text-sm font-bold text-indigo-950">🧠 Setup Wizard</div>
-          <div className="text-[11px] text-indigo-500">Step {step} of {STEPS.length}</div>
+          <div className="text-sm font-bold text-[var(--text-primary)]">🧠 Setup Wizard</div>
+          <div className="text-[11px] text-[var(--text-muted)]">Step {step} of {STEPS.length}</div>
         </div>
         <button
           type="button"
           data-testid="mobile-steps-toggle"
           onClick={() => setShowStepMenu(s => !s)}
-          className="rounded-lg border border-indigo-200 bg-indigo-50 px-3 py-2 text-xs font-semibold text-indigo-700"
+          className="app-button-secondary rounded-full px-3 py-2 text-[0.7rem]"
         >
           {showStepMenu ? 'Hide steps' : 'View steps'}
         </button>
       </div>
 
       {showStepMenu && (
-        <div className="lg:hidden border-b border-indigo-200 bg-indigo-900 text-white px-4 py-4 space-y-2">
+        <div className="lg:hidden border-b px-4 py-4 space-y-2 app-panel"
+          style={{ borderColor: 'var(--border)' }}>
           {STEPS.map(s => (
             <button
               key={s.num}
@@ -647,10 +649,11 @@ export default function SetupWizardPage({ onComplete }) {
       )}
 
       {/* Sidebar */}
-      <div className="hidden lg:flex w-64 bg-indigo-900 text-white p-6 flex-col">
+      <div className="hidden lg:flex w-[280px] bg-[rgba(5,6,8,0.92)] text-white p-6 flex-col border-r"
+        style={{ borderColor: 'var(--border)' }}>
         <div className="mb-8">
-          <div className="text-lg font-bold">🧠 Setup Wizard</div>
-          <div className="text-indigo-300 text-sm mt-1">{setupAlreadyCompleted ? 'Update your saved setup anytime' : "Let's get you started"}</div>
+          <div className="text-lg font-bold tracking-[-0.03em]">🧠 Setup Wizard</div>
+          <div className="text-[var(--text-tertiary)] text-sm mt-1">{setupAlreadyCompleted ? 'Update your saved setup anytime' : "Let's get you started"}</div>
         </div>
         <nav className="space-y-1 flex-1">
           {STEPS.map(s => (
@@ -671,7 +674,7 @@ export default function SetupWizardPage({ onComplete }) {
             </div>
           ))}
         </nav>
-        <div className="text-indigo-400 text-xs mt-6">v3.1 — AI Control Plane</div>
+        <div className="text-[var(--text-muted)] text-xs mt-6 font-mono uppercase tracking-[0.16em]">v3.1 · AI Control Plane</div>
       </div>
 
       {/* Main */}

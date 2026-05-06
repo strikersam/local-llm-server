@@ -3,10 +3,14 @@
 ## [Unreleased]
 
 ### Added
+- `docs/screenshots/webui/mobile-refresh/` — added before/after mobile captures for the login screen and setup wizard so the frontend refresh PR includes visual regression evidence.
 - `agent/job_manager.py` — async direct-chat agent job lifecycle with queued/running/succeeded/failed/cancelled states, heartbeat timestamps, and progress events.
 - `docs/architecture/runtime-model.md`, `docs/architecture/agent-job-lifecycle.md`, `docs/architecture/feature-maturity-matrix.md`, and `docs/runbooks/runtime-troubleshooting.md` — documented runtime preflight, async agent jobs, maturity tiers, and troubleshooting.
 
 ### Changed
+- `frontend/src/index.css`, `frontend/src/pages/DashboardLayout.js`, and `frontend/src/pages/LoginPage.js` — introduced a unified mobile-first black design system with layered dark surfaces, safe-area-aware app chrome, thumb-friendly bottom navigation, and a denser native-style authentication shell.
+- `frontend/src/pages/SetupWizardPage.js` and `frontend/src/pages/AuthCallback.js` — removed the remaining light-theme onboarding/auth screens and aligned setup completion, step navigation, and OAuth callback states with the new dark mobile app shell.
+- `frontend/src/pages/ChatPage.js` — refined the chat surface into a native-feeling mobile layout with pill controls, elevated message bubbles, a card composer above the safe area, and cleaner modal/panel styling across mobile and tablet breakpoints.
 - `backend/server.py` / `agent/loop.py` / `setup/api.py` / `frontend/src/pages/SetupWizardPage.js` — hosted Direct Chat agent runs now queue asynchronous jobs instead of blocking the request, and agent role models are now configurable per role (planner, coder/executor, verifier, judge) with NVIDIA-first defaults.
 - `frontend/src/pages/ChatPage.js` — mobile Direct Chat now uses a safer dynamic viewport layout, auto-resizing composer, safe-area-aware sticky header/composer spacing, and a collapsible mobile agent workspace so progress/activity no longer consume the full chat surface.
 - `direct_chat.py` — split direct chat from async agent workflows; `agent_mode=true` now returns `202 Accepted` plus a pollable job id instead of blocking the request until the full tool loop completes.

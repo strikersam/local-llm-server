@@ -235,13 +235,13 @@ function ModelPickerModal({ providers, onConfirm, onClose, initialProvider, init
       onClick={onClose}
     >
       <div
-        className="w-full md:max-w-md bg-[#111111] border border-white/10 rounded-t-2xl md:rounded-2xl flex flex-col overflow-hidden shadow-2xl max-h-[90vh]"
+        className="w-full md:max-w-md app-modal-sheet md:rounded-[28px] flex flex-col overflow-hidden max-h-[90vh]"
         onClick={e => e.stopPropagation()}
       >
         {/* Header */}
         <div className="flex items-center justify-between px-5 py-4 border-b border-white/10 shrink-0">
           <span className="text-sm font-bold font-mono tracking-wide">Select Provider &amp; Model</span>
-          <button onClick={onClose} className="text-[#737373] hover:text-white transition-colors p-1">
+          <button onClick={onClose} className="text-[#737373] hover:text-white transition-colors p-1 min-h-[2.5rem] min-w-[2.5rem] flex items-center justify-center rounded-full">
             <X size={16} />
           </button>
         </div>
@@ -279,7 +279,7 @@ function ModelPickerModal({ providers, onConfirm, onClose, initialProvider, init
               <button
                 key={m}
                 onClick={() => setPickerModel(m)}
-                className={`w-full flex items-center justify-between px-4 py-3 border text-left transition-colors ${
+                className={`w-full flex items-center justify-between rounded-[18px] px-4 py-3 border text-left transition-colors ${
                   pickerModel === m
                     ? 'border-[#002FA7] bg-[#002FA7]/10'
                     : 'border-white/10 hover:border-white/20 hover:bg-white/[0.02]'
@@ -298,14 +298,14 @@ function ModelPickerModal({ providers, onConfirm, onClose, initialProvider, init
         <div className="flex gap-3 px-5 py-4 border-t border-white/10 shrink-0">
           <button
             onClick={onClose}
-            className="flex-1 py-2.5 border border-white/10 text-xs font-mono uppercase tracking-wider text-[#737373] hover:text-white hover:border-white/20 transition-colors"
+            className="app-button-secondary flex-1 rounded-full text-[0.7rem]"
           >
             Cancel
           </button>
           <button
             disabled={!pickerModel}
             onClick={() => onConfirm(pickerProvider, pickerModel)}
-            className="flex-1 py-2.5 bg-[#002FA7] hover:bg-[#002585] text-white text-xs font-mono uppercase tracking-wider transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+            className="app-button-primary flex-1 rounded-full text-[0.7rem] disabled:opacity-40 disabled:cursor-not-allowed"
           >
             Use {pickerModel ? short(pickerModel, 20) : 'model'}
           </button>
@@ -320,7 +320,7 @@ function CommercialApprovalModal({ approval, onApprove, onCancel }) {
 
   return (
     <div className="fixed inset-0 bg-black/75 backdrop-blur-sm z-50 flex items-center justify-center p-4" data-testid="commercial-approval-modal">
-      <div className="w-full max-w-lg bg-[#111111] border border-[#002FA7]/25 rounded-2xl shadow-2xl overflow-hidden">
+      <div className="w-full max-w-lg app-panel-elevated overflow-hidden">
         <div className="px-5 py-4 border-b border-white/10">
           <div className="text-sm font-bold font-mono tracking-wide text-white" data-testid="commercial-approval-title">
             Commercial Fallback Approval
@@ -354,14 +354,14 @@ function CommercialApprovalModal({ approval, onApprove, onCancel }) {
         <div className="px-5 py-4 border-t border-white/10 flex gap-3">
           <button
             onClick={onCancel}
-            className="flex-1 py-2.5 border border-white/10 text-xs font-mono uppercase tracking-wider text-[#737373] hover:text-white hover:border-white/20 transition-colors"
+            className="app-button-secondary flex-1 rounded-full text-[0.7rem]"
             data-testid="commercial-approval-cancel-button"
           >
             Stay on local/free
           </button>
           <button
             onClick={onApprove}
-            className="flex-1 py-2.5 bg-[#002FA7] hover:bg-[#002585] text-white text-xs font-mono uppercase tracking-wider transition-colors"
+            className="app-button-primary flex-1 rounded-full text-[0.7rem]"
             data-testid="commercial-approval-approve-button"
           >
             Approve this request
@@ -812,7 +812,7 @@ export default function ChatPage() {
   );
 
   return (
-    <div className="flex h-[100dvh] min-h-0 overflow-hidden bg-[#0B0D12]" data-testid="chat-page">
+    <div className="flex h-full min-h-0 overflow-hidden app-shell" data-testid="chat-page">
       <CommercialApprovalModal
         approval={approvalPrompt}
         onApprove={handleApproveCommercialFallback}
@@ -831,14 +831,14 @@ export default function ChatPage() {
       )}
 
       {/* Sessions sidebar — desktop only */}
-      <div className="w-64 border-r border-white/10 bg-[#141414] flex-col shrink-0 hidden md:flex">
+      <aside className="w-72 border-r border-white/10 bg-[rgba(10,12,15,0.94)] flex-col shrink-0 hidden md:flex backdrop-blur-xl">
         <div className="p-4 border-b border-white/10">
           <button
             onClick={startNew}
-            className="w-full flex items-center justify-center gap-2 bg-[#002FA7] hover:bg-[#002585] text-white py-2.5 text-xs tracking-wider uppercase font-mono transition-colors"
+            className="app-button-primary w-full rounded-[18px] text-[0.72rem]"
             data-testid="new-chat-button"
           >
-            <Plus size={14} /> NEW SESSION
+            <Plus size={14} /> New session
           </button>
         </div>
         <div className="flex-1 overflow-y-auto divide-y divide-white/5">
@@ -868,23 +868,23 @@ export default function ChatPage() {
             <div className="p-4 text-center text-xs text-[#737373]">No sessions yet</div>
           )}
         </div>
-      </div>
+      </aside>
 
       {/* Chat area */}
       <div className="flex-1 flex flex-col min-w-0 min-h-0">
 
         {/* ── Header ── */}
-        <div className="sticky top-0 z-20 px-4 pt-[calc(env(safe-area-inset-top,0px)+0.75rem)] pb-3 md:px-6 md:pt-3 border-b border-white/10 flex items-center gap-3 flex-wrap bg-[#0B0D12]/95 backdrop-blur supports-[backdrop-filter]:bg-[#0B0D12]/80">
+        <div className="sticky top-0 z-20 px-4 pt-3 pb-3 md:px-6 md:pt-4 border-b border-white/10 flex items-center gap-3 flex-wrap bg-[rgba(5,6,8,0.88)] backdrop-blur-xl">
           <Bot size={16} className="text-[#002FA7] shrink-0" />
           <span className="text-xs tracking-[0.15em] uppercase text-[#A0A0A0] font-mono font-bold truncate">
             {currentSession ? currentSession.title?.slice(0, 40) : 'New Chat Session'}
           </span>
 
           {/* ── Mode toggle ── */}
-          <div className="flex border border-white/10 rounded overflow-hidden shrink-0">
+          <div className="flex border border-white/10 rounded-full overflow-hidden shrink-0 bg-white/[0.03]">
             <button
               onClick={() => setMode('auto')}
-              className={`flex items-center gap-1.5 px-3 py-1.5 text-[10px] font-mono uppercase tracking-wider transition-colors ${
+              className={`flex min-h-[2.5rem] items-center gap-1.5 px-3 py-1.5 text-[10px] font-mono uppercase tracking-wider transition-colors ${
                 mode === 'auto'
                   ? 'bg-[#002FA7]/20 border-r border-[#002FA7]/40 text-white'
                   : 'border-r border-white/10 text-[#737373] hover:text-[#A0A0A0]'
@@ -896,7 +896,7 @@ export default function ChatPage() {
             </button>
             <button
               onClick={() => setMode('manual')}
-              className={`flex items-center gap-1.5 px-3 py-1.5 text-[10px] font-mono uppercase tracking-wider transition-colors ${
+              className={`flex min-h-[2.5rem] items-center gap-1.5 px-3 py-1.5 text-[10px] font-mono uppercase tracking-wider transition-colors ${
                 mode === 'manual'
                   ? 'bg-[#002FA7]/20 text-white'
                   : 'text-[#737373] hover:text-[#A0A0A0]'
@@ -912,7 +912,7 @@ export default function ChatPage() {
           {mode === 'manual' && (
             <button
               onClick={() => setShowPicker(true)}
-              className="flex items-center gap-1.5 px-3 py-1.5 border border-white/10 hover:border-white/20 text-[10px] font-mono text-[#A0A0A0] hover:text-white transition-colors"
+              className="flex min-h-[2.5rem] items-center gap-1.5 rounded-full px-3 py-1.5 border border-white/10 hover:border-white/20 text-[10px] font-mono text-[#A0A0A0] hover:text-white transition-colors"
               data-testid="change-model-btn"
             >
               <span className="truncate max-w-[160px]">
@@ -938,7 +938,7 @@ export default function ChatPage() {
             <button
               onClick={() => setAgentMode(m => !m)}
               title={agentMode ? 'Agent mode ON — complex tasks use Plan→Execute→Verify. Click to disable.' : 'Agent mode OFF — direct LLM chat. Click to enable for code/GitHub tasks.'}
-              className={`flex items-center gap-1.5 px-2.5 py-1 border text-[10px] font-mono transition-colors ${
+              className={`flex min-h-[2.5rem] items-center gap-1.5 rounded-full px-3 py-1 border text-[10px] font-mono transition-colors ${
                 agentMode
                   ? 'border-[#002FA7]/60 bg-[#002FA7]/20 text-white'
                   : 'border-white/15 bg-white/5 text-[#737373] hover:border-white/25 hover:text-[#A0A0A0]'
@@ -952,8 +952,8 @@ export default function ChatPage() {
         </div>
 
         {agentJob && (
-          <div className="px-4 md:px-6 py-3 border-b border-white/10 bg-[#101318]">
-            <div className="rounded-2xl border border-[#002FA7]/25 bg-[#002FA7]/8 p-3 md:p-4 flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
+          <div className="px-4 md:px-6 py-3 border-b border-white/10 bg-[rgba(17,20,25,0.72)]">
+            <div className="app-panel p-3 md:p-4 flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
               <div className="min-w-0">
                 <div className="text-[10px] font-mono uppercase tracking-[0.18em] text-[#AFC4FF]">Agent job</div>
                 <div className="mt-1 text-sm text-white">{agentJob.status} · {agentJob.phase}</div>
@@ -964,7 +964,7 @@ export default function ChatPage() {
               {['queued', 'running'].includes(agentJob.status) && (
                 <button
                   onClick={handleCancelAgentJob}
-                  className="self-start md:self-auto px-3 py-2 rounded-xl border border-white/10 text-[11px] font-mono uppercase tracking-wider text-[#A0A0A0] hover:text-white hover:border-white/20 transition-colors"
+                  className="app-button-secondary self-start md:self-auto rounded-full text-[0.7rem]"
                 >
                   Cancel
                 </button>
@@ -982,7 +982,7 @@ export default function ChatPage() {
               <button
                 type="button"
                 onClick={() => setMobileAgentConsoleOpen(true)}
-                className="w-full rounded-2xl border border-[#002FA7]/25 bg-[#101318] px-4 py-3 text-left"
+                className="w-full rounded-[24px] border border-[#002FA7]/25 bg-[rgba(17,20,25,0.88)] px-4 py-3 text-left"
               >
                 <div className="flex items-center justify-between gap-3">
                   <div>
@@ -1009,7 +1009,7 @@ export default function ChatPage() {
           </>
         )}
         {/* ── Messages ── */}
-        <div className="flex-1 overflow-y-auto overscroll-contain px-4 pb-32 pt-4 md:px-6 md:pb-40 md:pt-6 space-y-4">
+        <div className="flex-1 overflow-y-auto overscroll-contain px-4 pb-24 pt-4 md:px-6 md:pb-32 md:pt-6 space-y-4">
           {messages.length === 0 && (
             <div className="h-full flex flex-col items-center justify-center text-center animate-fade-in px-4">
               <Bot size={40} className="text-[#002FA7] mb-4" />
@@ -1044,17 +1044,17 @@ export default function ChatPage() {
           )}
 
           {messages.map((m, i) => (
-            <div key={i} className={`flex gap-3 ${m.role === 'user' ? 'justify-end' : ''} animate-fade-in`}>
+            <div key={i} className={`flex gap-3 items-end ${m.role === 'user' ? 'justify-end' : ''} animate-fade-in`}>
               {m.role === 'assistant' && (
                 <div className="w-7 h-7 bg-[#002FA7] flex items-center justify-center shrink-0 mt-1">
                   <Bot size={14} />
                 </div>
               )}
-              <div className={`max-w-[85%] md:max-w-[70%] ${
+              <div className={`max-w-[88%] md:max-w-[70%] rounded-[24px] ${
                 m.role === 'user'
                   ? 'bg-[#002FA7]/20 border border-[#002FA7]/30'
-                  : 'bg-[#1A1A1A] border border-white/10'
-              } px-4 py-3`}>
+                  : 'bg-[#151922] border border-white/10'
+              } px-4 py-3 shadow-[0_12px_36px_rgba(0,0,0,0.18)]`}>
                 {m.role === 'assistant' ? (
                   <>
                     <div className="wiki-content text-xs text-[#A0A0A0]">
@@ -1121,7 +1121,7 @@ export default function ChatPage() {
         </div>
 
         {/* ── Composer ── */}
-        <div className="sticky bottom-0 z-20 border-t border-white/10 p-3 md:p-4 bg-[#0B0D12]/95 backdrop-blur supports-[backdrop-filter]:bg-[#0B0D12]/80 pb-[calc(env(safe-area-inset-bottom,0px)+0.75rem)]">
+        <div className="sticky bottom-0 z-20 border-t border-white/10 p-3 md:p-4 bg-[rgba(5,6,8,0.92)] backdrop-blur-xl pb-[calc(env(safe-area-inset-bottom,0px)+0.75rem)]">
           {composerRecommendation && (
             <div className="mb-3 border border-[#002FA7]/30 bg-[#002FA7]/10 px-3 py-3" data-testid="agent-mode-preflight-banner">
               <div className="flex flex-wrap items-start justify-between gap-3">
@@ -1195,7 +1195,7 @@ export default function ChatPage() {
             )}
           </div>
 
-          <div className="flex gap-3 items-end">
+          <div className="app-panel rounded-[28px] px-3 py-3 flex gap-3 items-end">
             <textarea
               ref={inputRef}
               value={input}
@@ -1212,13 +1212,13 @@ export default function ChatPage() {
               }
               rows={1}
               style={{ fontSize: '16px' }} /* prevent iOS zoom */
-              className="flex-1 min-h-[52px] max-h-48 overflow-y-auto bg-[#141414] border border-white/10 px-4 py-3 text-sm text-white font-mono outline-none focus:border-[#002FA7] resize-none transition-colors"
+              className="flex-1 min-h-[52px] max-h-48 overflow-y-auto bg-transparent border-0 px-3 py-2 text-sm text-white font-mono outline-none resize-none transition-colors"
               data-testid="chat-input"
             />
             <button
               onClick={handleSend}
               disabled={!input.trim() || sending || (mode === 'manual' && !model)}
-              className="bg-[#002FA7] hover:bg-[#002585] text-white p-3 transition-colors disabled:opacity-50 disabled:cursor-not-allowed shrink-0 flex items-center gap-2"
+              className="app-button-primary rounded-full min-h-[3rem] min-w-[3rem] px-4 shrink-0 flex items-center gap-2"
               data-testid="chat-send-button"
             >
               {sending ? <Loader2 size={16} className="animate-spin" /> : <Send size={16} />}
