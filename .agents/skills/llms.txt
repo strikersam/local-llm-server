@@ -1,7 +1,0 @@
-taste-skill: The main design skill for premium frontend code. Covers layout, typography, colors, spacing, and motion.
-redesign-skill: For upgrading existing projects by auditing and fixing design problems.
-soft-skill: Focuses on an expensive, soft UI look with premium fonts, whitespace, depth, and smooth animations.
-output-skill: Prevents AI from being lazy, skipping code blocks, or using placeholder comments.
-minimalist-skill: Enforces clean, editorial-style interfaces (Notion/Linear style) with strict monochrome palettes.
-brutalist-skill: Raw mechanical interfaces, Swiss typography, extreme scale contrast. (Beta)
-stitch-skill: Google Stitch-compatible semantic design rules for premium AI UI generation.
