@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import logging
 import re
 import secrets
@@ -165,8 +166,8 @@ class AgentJobManager:
 
 
 def make_isolated_workspace(root: Path, session_id: str, job_id: str) -> Path:
-    session_component = _validated_workspace_component(session_id, field_name="session_id")
-    job_component = _validated_workspace_component(job_id, field_name="job_id")
+    session_component = _workspace_component(session_id, field_name="session_id")
+    job_component = _workspace_component(job_id, field_name="job_id")
     workspace = (root / session_component / job_component).resolve()
     root_resolved = root.resolve()
     if root_resolved not in workspace.parents:
@@ -175,7 +176,8 @@ def make_isolated_workspace(root: Path, session_id: str, job_id: str) -> Path:
     return workspace
 
 
-def _validated_workspace_component(value: str, *, field_name: str) -> str:
+def _workspace_component(value: str, *, field_name: str) -> str:
     if not _WORKSPACE_COMPONENT_RE.fullmatch(value):
         raise ValueError(f"Invalid {field_name}")
-    return value
+    digest = hashlib.sha256(value.encode("utf-8")).hexdigest()
+    return digest[:24]

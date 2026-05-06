@@ -441,7 +441,7 @@ def _provider_headers_for_request(
     return None
 
 
-def _agent_failure_result(instruction: str, exc: Exception) -> dict[str, object]:
+def _agent_failure_result(instruction: str) -> dict[str, object]:
     return {
         "goal": instruction,
         "plan": None,
@@ -449,7 +449,6 @@ def _agent_failure_result(instruction: str, exc: Exception) -> dict[str, object]
         "commits": [],
         "summary": "Agent run failed. Check server logs for details.",
         "status": "failed",
-        "error": {"type": exc.__class__.__name__},
     }
 
 
@@ -1359,7 +1358,7 @@ async def run_agent_task(
         )
     except Exception as exc:
         log.exception("Agent run failed")
-        result = _agent_failure_result(body.instruction, exc)
+        result = _agent_failure_result(body.instruction)
     AGENT_SESSIONS.append_message(session_id, "assistant", result["summary"])
     updated = AGENT_SESSIONS.update_result(
         session_id,
@@ -1431,7 +1430,7 @@ async def run_agent_once(
         )
     except Exception as exc:
         log.exception("Agent one-off run failed")
-        result = _agent_failure_result(body.instruction, exc)
+        result = _agent_failure_result(body.instruction)
     AGENT_SESSIONS.append_message(temp.session_id, "assistant", result["summary"])
     updated = AGENT_SESSIONS.update_result(
         temp.session_id,

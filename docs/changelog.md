@@ -12,8 +12,8 @@
 - `runtimes/base.py`, `runtimes/api.py`, and `runtimes/routing.py` — added runtime readiness/preflight validation so tasks fail early with structured diagnostics.
 
 ### Fixed
-- `agent/job_manager.py` / `tests/test_direct_chat_async.py` — direct-chat async agent workspaces now validate session/job path components before creating directories, closing the CodeQL path-traversal finding on isolated workspace creation.
-- `proxy.py` / `tests/test_agent_api.py` — `/agent/run` and `/agent/sessions/{id}/run` no longer echo raw exception details back to API callers; they now return a stable failure summary plus exception type only, resolving the CodeQL information-exposure findings.
+- `agent/job_manager.py` / `tests/test_direct_chat_async.py` — direct-chat async agent workspaces now validate session/job ids and derive hashed directory names before creating directories, closing the CodeQL path-traversal finding on isolated workspace creation.
+- `proxy.py` / `tests/test_agent_api.py` — `/agent/run` and `/agent/sessions/{id}/run` no longer echo internal failure details back to API callers; they now return only a stable failure summary, resolving the CodeQL information-exposure findings.
 - runtime execution now surfaces actionable missing-binary errors, including `task-harness` configuration guidance, instead of late raw PATH failures.
 - planner/verifier/judge failures now surface phase-specific structured errors and BLOCKED fallback behavior instead of ambiguous downstream failures.
 - `tests/test_iteration_7_features.py` — fixed an accidental indentation error on a skipped test so CI syntax checks and CodeQL can parse the test suite again.

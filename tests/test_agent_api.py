@@ -211,7 +211,7 @@ def test_agent_run_returns_structured_failure(monkeypatch):
     assert resp.status_code == 200
     assert resp.json()["result"]["status"] == "failed"
     assert resp.json()["result"]["summary"] == "Agent run failed. Check server logs for details."
-    assert resp.json()["result"]["error"] == {"type": "RuntimeError"}
+    assert "error" not in resp.json()["result"]
 
     proxy.app.dependency_overrides.clear()
 
@@ -244,7 +244,7 @@ def test_agent_session_run_redacts_internal_exception_details(monkeypatch):
     assert resp.status_code == 200
     assert resp.json()["result"]["status"] == "failed"
     assert resp.json()["result"]["summary"] == "Agent run failed. Check server logs for details."
-    assert resp.json()["result"]["error"] == {"type": "RuntimeError"}
+    assert "error" not in resp.json()["result"]
 
     proxy.app.dependency_overrides.clear()
 

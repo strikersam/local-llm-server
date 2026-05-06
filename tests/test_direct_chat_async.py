@@ -125,3 +125,11 @@ def test_make_isolated_workspace_rejects_path_traversal(tmp_path: Path):
 
     with pytest.raises(ValueError):
         make_isolated_workspace(tmp_path, "session-1", "../../escape")
+
+
+def test_make_isolated_workspace_hashes_valid_identifiers(tmp_path: Path):
+    workspace = make_isolated_workspace(tmp_path, "session-1", "job-1")
+
+    assert workspace.parent.name != "session-1"
+    assert workspace.name != "job-1"
+    assert workspace.exists()
