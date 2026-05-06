@@ -110,6 +110,26 @@ async def _get_github_token_for_user(user_email: str) -> str | None:
 
 
 @direct_chat_router.post("/send")
+
+def _is_trivial_message(content: str) -> bool:
+    """Determine if a message is trivial (e.g., greeting, short talk) that should bypass agent mode."""
+    if not content or not isinstance(content, str):
+        return False
+    content = content.strip()
+    # List of trivial greetings and short phrases
+    trivial_phrases = {
+        "hello", "hi", "hey", 
+        "good morning", "good afternoon", "good evening",
+        "how are you", "what's up", "sup", "yo", "greetings",
+        "hi there", "hello there", "hey there"
+    }
+    # Also consider very short messages (less than 3 words) as trivial
+    if len(content.split()) < 3:
+        return True
+    return content.lower() in trivial_phrases
+
+
+
 async def send_chat_message(
     req: ChatSendRequest,
     request: Request,
@@ -120,6 +140,10 @@ async def send_chat_message(
     If agent_mode is True, runs an agent loop to perform the instruction.
     Otherwise, routes the message to the appropriate LLM provider based on the model parameter.
     """
+    # Check for trivial messages (greetings, short talk) and bypass agent mode
+    if req.agent_mode and _is_trivial_message(req.content):
+        log.info(f"Trivial message detected, forcing regular chat mode for: {req.content[:50]}...")
+        req.agent_mode = False
     if req.agent_mode:
         return await _handle_agent_mode(req, user, request)
     else:
@@ -399,3 +423,4 @@ async def delete_chat_session(
         raise HTTPException(status_code=403, detail="Session belongs to another user")
     _direct_chat_store.delete(session_id)
     return {"deleted": True, "session_id": session_id}
+
