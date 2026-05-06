@@ -96,10 +96,10 @@ class _InMemoryErrorLogHandler(logging.Handler):
 
 def _ensure_error_log_capture() -> None:
     root_logger = logging.getLogger()
-    if any(getattr(handler, "_companyhelm_error_buffer", False) for handler in root_logger.handlers):
+    if any(getattr(handler, "_relay_error_buffer", False) for handler in root_logger.handlers):
         return
     handler = _InMemoryErrorLogHandler(level=logging.ERROR)
-    handler._companyhelm_error_buffer = True  # type: ignore[attr-defined]
+    handler._relay_error_buffer = True  # type: ignore[attr-defined]
     root_logger.addHandler(handler)
 
 
@@ -1270,7 +1270,7 @@ async def lifespan(app_: "FastAPI"):
     log.info("RuntimeManager stopped")
 
 
-app = FastAPI(title="LLM Relay — Unified Platform", version="2.0.0", lifespan=lifespan)
+app = FastAPI(title="LLM Relay v4.0 — Unified Platform", version="4.0.0", lifespan=lifespan)
 
 
 frontend_url = os.environ.get("FRONTEND_URL", "http://localhost:3000").rstrip("/")

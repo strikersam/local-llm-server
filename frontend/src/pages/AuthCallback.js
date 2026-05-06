@@ -1,9 +1,9 @@
 /**
- * AuthCallback.js — Social login callback handler (v3.1)
+ * AuthCallback.js — Social login callback handler for LLM Relay v4.0
  *
  * Handles two OAuth flows:
  *   1. Legacy flow: /auth/callback?access_token=...&refresh_token=...
- *   2. Social login flow (v3.1): /auth/callback?token=<jwt>&provider=github|google
+ *   2. Social login flow (v4.0): /auth/callback?token=<jwt>&provider=github|google
  *
  * Security: JWT stored in localStorage (for axios interceptor) and
  * sessionStorage (soft fallback). Never logged or transmitted in URL
@@ -24,7 +24,7 @@ export default function AuthCallback() {
   useEffect(() => {
     const params = new URLSearchParams(location.search);
 
-    // v3.1 social login flow
+    // v4.0 social login flow
     const socialToken = params.get('token');
     const socialProv  = params.get('provider');
 

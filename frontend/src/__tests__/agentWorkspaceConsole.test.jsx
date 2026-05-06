@@ -45,7 +45,7 @@ describe('ChatPage live workspace console', () => {
     api.listProviderModels.mockResolvedValue({ data: { models: ['model-a'] } });
   });
 
-  test('shows the CompanyHelm-style reconnect banner while live updates are offline', async () => {
+  test('shows the reconnect banner while live updates are offline', async () => {
     transport.fetchAgentWorkspaceSnapshot.mockRejectedValueOnce(Object.assign(new Error('HTTP 503'), { code: 'network' }));
 
     render(<ChatPage />);

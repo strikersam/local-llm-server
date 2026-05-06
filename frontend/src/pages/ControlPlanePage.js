@@ -516,7 +516,7 @@ export default function ControlPlanePage() {
 
               <h1 className="mt-4 text-3xl font-semibold tracking-[-0.04em] text-white sm:text-4xl">Dashboard</h1>
               <p className="mt-3 max-w-2xl text-sm leading-relaxed sm:text-[15px]" style={{ color: C.secondary }}>
-                CompanyHelm-style workspace command center for LLM Relay. Monitor agent work, keep NVIDIA-first routing visible, and move between tasks, chats, and infrastructure without leaving the root dashboard.
+                LLM Relay v4.0 workspace command center. Monitor agent work, keep NVIDIA-first routing visible, and move between tasks, chats, and infrastructure without leaving the root dashboard.
               </p>
 
               <div className="mt-4 flex flex-wrap items-center gap-2">
@@ -590,7 +590,7 @@ export default function ControlPlanePage() {
         <div className="grid gap-5 xl:grid-cols-[minmax(0,1.35fr)_minmax(0,1fr)]">
           <PageCard
             title="Work in motion"
-            description="The same root-dashboard job CompanyHelm handles: highlight what is active, what is blocked, and what needs attention next."
+            description="Highlight what is active, what is blocked, and what needs attention next from the root dashboard."
             actionLabel="Open tasks"
             onAction={() => navigate('/tasks')}
           >
@@ -632,7 +632,7 @@ export default function ControlPlanePage() {
         <div className="grid gap-5 xl:grid-cols-3">
           <PageCard
             title="Agents"
-            description="Top agent profiles and their runtime preferences, mirroring the agent inventory emphasis from CompanyHelm."
+            description="Top agent profiles and their runtime preferences, surfaced with the same operational priority as the rest of the workspace."
             actionLabel="Open agents"
             onAction={() => navigate('/agents')}
           >
@@ -686,7 +686,7 @@ export default function ControlPlanePage() {
                 </div>
                 <div className="space-y-3">
                   {activeSchedules.length === 0 ? (
-                    <EmptyState title="No schedules yet" description="Create recurring work to give the dashboard the same automation heartbeat as CompanyHelm." />
+                    <EmptyState title="No schedules yet" description="Create recurring work to give the dashboard a steady automation heartbeat." />
                   ) : (
                     activeSchedules.map((schedule) => <SchedulePreviewRow key={schedule.id || schedule.job_id || schedule.name} schedule={schedule} />)
                   )}

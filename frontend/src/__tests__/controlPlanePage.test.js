@@ -98,7 +98,7 @@ beforeEach(() => {
         },
         {
           task_id: 'task_2',
-          title: 'Review CompanyHelm parity gaps',
+          title: 'Review dashboard parity gaps',
           status: 'blocked',
           priority: 'medium',
           updated_at: '2026-05-04T11:45:00Z',
@@ -188,7 +188,7 @@ test('renders company-style dashboard summary with NVIDIA priority surfaced', as
   renderPage();
 
   expect(await screen.findByRole('heading', { name: 'Dashboard' })).toBeInTheDocument();
-  expect(screen.getByText(/CompanyHelm-style workspace command center/i)).toBeInTheDocument();
+  expect(screen.getByText(/LLM Relay v4\.0 workspace command center/i)).toBeInTheDocument();
 
   await waitFor(() => expect(getUsage).toHaveBeenCalled());
   expect(screen.getByText('$128.40')).toBeInTheDocument();

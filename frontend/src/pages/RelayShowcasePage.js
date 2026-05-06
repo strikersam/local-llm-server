@@ -2,7 +2,7 @@ import React from 'react';
 import HeroSection from '../components/HeroSection';
 import PanelSection from '../components/PanelSection';
 
-export default function CompanyHelmClone() {
+export default function RelayShowcasePage() {
   return (
     <div className="min-h-[100dvh] w-full bg-[#0F0F13] relative overflow-hidden">
       {/* Background gradient - same as LoginPage */}

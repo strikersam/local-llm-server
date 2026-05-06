@@ -2380,7 +2380,7 @@ async def openai_compat(
 if __name__ == "__main__":
     import uvicorn
 
-    log.info("Starting LLM Relay Control Plane v3 on port %d", PROXY_PORT)
+    log.info("Starting LLM Relay v4.0 Control Plane on port %d", PROXY_PORT)
     log.info(
         "Loaded %d env API key(s), %d key-store key(s)",
         len(VALID_API_KEYS),

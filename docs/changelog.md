@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [4.0.0] - 2026-05-06
+
 ### Added
 - `docs/screenshots/webui/mobile-refresh/` — added before/after mobile captures for the login screen and setup wizard so the frontend refresh PR includes visual regression evidence.
 - `agent/job_manager.py` — async direct-chat agent job lifecycle with queued/running/succeeded/failed/cancelled states, heartbeat timestamps, and progress events.
@@ -36,7 +38,7 @@
 - `Dockerfile.backend` — now copies `commercial_equivalent.py` into the backend image so `langfuse_obs.py` can import it in production; this fixes Render boot failure `ModuleNotFoundError: No module named 'commercial_equivalent'`.
 ### Fixed
 - `frontend/src/pages/ChatPage.js` / `frontend/src/components/AgentStatusPanel.jsx` / `frontend/src/components/AgentActivityFeed.jsx` / `backend/server.py` / `frontend/src/__tests__/agentWorkspaceTransport.test.js` / `frontend/src/__tests__/chatPage.test.jsx` / `tests/test_chat_mode_regressions.py` — Direct Chat live agent workspace polling and streaming now authenticate correctly, fixing the `HTTP 401` agent-status / activity panes that appeared after login in hosted chat sessions.
-- `frontend/src/utils/agentWorkspaceTransport.js` / `frontend/src/pages/ChatPage.js` / `frontend/src/components/AgentStatusPanel.jsx` / `frontend/src/components/AgentActivityFeed.jsx` / `frontend/src/__tests__/agentWorkspaceTransport.test.js` / `frontend/src/__tests__/agentWorkspaceConsole.test.jsx` — the Direct Chat live workspace now uses a single CompanyHelm-style transport path for snapshot polling and event streaming, eliminates duplicate status polling, and shows reconnect / auth-expired banners instead of leaving operators with a silent dead workspace.
+- `frontend/src/utils/agentWorkspaceTransport.js` / `frontend/src/pages/ChatPage.js` / `frontend/src/components/AgentStatusPanel.jsx` / `frontend/src/components/AgentActivityFeed.jsx` / `frontend/src/__tests__/agentWorkspaceTransport.test.js` / `frontend/src/__tests__/agentWorkspaceConsole.test.jsx` — the Direct Chat live workspace now uses a single control-plane transport path for snapshot polling and event streaming, eliminates duplicate status polling, and shows reconnect / auth-expired banners instead of leaving operators with a silent dead workspace.
 - `setup/api.py` / `tests/test_setup_api.py` — the setup wizard now persists through the hosted MongoDB path when available instead of relying only on local files, so admin setup survives Render restarts/redeploys and can be reopened for edits later.
 - `backend/server.py` / `langfuse_obs.py` / `tests/test_chat_mode_regressions.py` — hosted direct chat now emits Langfuse observations with token counts and latency metadata, and Langfuse URL detection now accepts `LANGFUSE_URL` alongside the existing host/base env names.
 - `tasks/store.py` / `tasks/service.py` / `tasks/dispatcher.py` / `agents/api.py` / `tests/test_task_dispatcher.py` / `tests/test_tasks_workflow.py` / `tests/test_agents_api.py` — task execution now fans out concurrently, auto-assignment prefers less-busy matching agents, and the Agents API reports running/open-task status so the roster no longer leaves free agents looking idle while work is queued.
@@ -47,7 +49,7 @@
 - `backend/server.py` — refreshed JWT access/refresh tokens now include unique `iat`/`jti` claims so a refresh always yields a distinct token even when requests land in the same second.
 
 ### Changed
-- `frontend/src/pages/ControlPlanePage.js` / `frontend/src/pages/DashboardLayout.js` — replaced the root hosted dashboard with a more CompanyHelm-style mobile-first workspace overview: usage and provider priority live at the top, task/routing/agent/provider/runtime/schedule sections are grouped into clearer operational cards, and the primary sidebar entry is now simply **Dashboard**. Legacy `/dashboard`, `/control-plane`, and `/llmrelay` URLs now funnel back to the root dashboard instead of leaving stale entry points behind.
+- `frontend/src/pages/ControlPlanePage.js` / `frontend/src/pages/DashboardLayout.js` — replaced the root hosted dashboard with a more refined mobile-first workspace overview: usage and provider priority live at the top, task/routing/agent/provider/runtime/schedule sections are grouped into clearer operational cards, and the primary sidebar entry is now simply **Dashboard**. Legacy `/dashboard`, `/control-plane`, and `/llmrelay` URLs now funnel back to the root dashboard instead of leaving stale entry points behind.
 - `frontend/src/pages/SetupWizardPage.js` / `backend/server.py` / `provider_router.py` / `.github/scripts/implement_agent.py` / `.github/scripts/review_agent.py` — NVIDIA defaults now prioritize `nvidia/nemotron-3-super-120b-a12b` wherever the repo chooses a hosted default model, while still keeping the coder-specific Qwen path available for code-heavy execution.
 
 ### Fixed

@@ -5,7 +5,7 @@ export default function PanelSection() {
         <div className="cl-card w-full min-w-0 p-6">
           <div className="cl-header mb-6">
             <div className="cl-internal-x0fvpz">
-              <h1 className="cl-headerTitle text-2xl font-bold">Sign in to CompanyHelm</h1>
+              <h1 className="cl-headerTitle text-2xl font-bold">Sign in to LLM Relay v4.0</h1>
               <p className="cl-headerSubtitle text-muted-foreground mt-2">
                 Welcome back! Please sign in to continue
               </p>
@@ -87,7 +87,7 @@ export default function PanelSection() {
             <div className="cl-footer mt-6 flex flex-col items-center">
               <div className="cl-footerAction cl-footerAction__signIn flex items-center gap-2 text-sm text-muted-foreground">
                 <span className="cl-footerActionText">Don't have an account?</span>
-                <a className="cl-footerActionLink underline" href="https://app.companyhelm.com/sign-up">Sign up</a>
+                <a className="cl-footerActionLink underline" href="https://strikersam.github.io/local-llm-server/">Open LLM Relay</a>
               </div>
               <div className="cl-internal-1dauvpw flex flex-col items-center mt-4">
                 <div className="cl-internal-dt53uo flex items-center gap-2">
@@ -106,8 +106,8 @@ export default function PanelSection() {
                     </div>
                     <div className="cl-internal-ft53uo mt-2">
                       <div className="cl-internal-6685xs flex space-x-4 text-xs">
-                        <a className="cl-footerPagesLink cl-footerPagesLink__privacy" href="https://www.companyhelm.com/privacy" target="_blank" rel="noopener noreferrer">Privacy</a>
-                        <a className="cl-footerPagesLink cl-footerPagesLink__terms" href="https://www.companyhelm.com/terms" target="_blank" rel="noopener noreferrer">Terms</a>
+                        <a className="cl-footerPagesLink cl-footerPagesLink__privacy" href="https://github.com/strikersam/local-llm-server" target="_blank" rel="noopener noreferrer">Repo</a>
+                        <a className="cl-footerPagesLink cl-footerPagesLink__terms" href="https://strikersam.github.io/local-llm-server/" target="_blank" rel="noopener noreferrer">App</a>
                       </div>
                     </div>
                   </div>
