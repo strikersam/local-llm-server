@@ -5,7 +5,7 @@
 ### Added
 - `runtimes/adapters/jcode.py` — First-class jcode runtime adapter (TIER_2). jcode is a high-performance Rust coding agent that connects to the local proxy as its OpenAI provider. Supports CLI and HTTP API modes; capabilities include MCP connectivity, semantic vector memory, multi-agent swarm, browser automation, repo editing, and streaming. Includes `write_mcp_config()` to generate `.jcode/mcp.json` for project-local MCP server registration.
 - `runtimes/manager.py` — `JCodeAdapter` registered in the default RuntimeManager alongside Hermes, OpenCode, Goose, Aider, and TaskHarness.
-- `docker-compose.yml` — Added `jcode` service (port 8006) with `JCODE_PROVIDER_URL` pointing at the proxy; added `JCODE_BASE_URL` to proxy and backend environment blocks.
+- `docker-compose.yml` — Added `jcode` service (port 8006) with `JCODE_PROVIDER_URL` pointing at the proxy; added `JCODE_BASE_URL` and `TASK_HARNESS_BASE_URL` to proxy and backend environment blocks. Added missing `task-harness` Docker service (port 8007) so `docker compose up task-harness` works in Docker environments.
 - `scripts/register_agent_runtimes.py` — Added jcode to `RUNTIME_ROLES` for agent store registration.
 - `frontend/src/pages/SetupWizardPage.js` — Added jcode toggle (badge: New) to Step 3 runtime configuration panel; wired state, persistence, and draft restore.
 
