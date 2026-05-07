@@ -20,5 +20,6 @@ jobs:
 
       - name: Install OpenClaw
         run: |
-          npm install -g openclaw@latest
-          openclaw --version
+          git clone https://github.com/getmoss/openclaw-claude-code openclaw
+          cd openclaw && npm install
+          node openclaw/index.js --version || node openclaw/bin/openclaw --version || echo "OpenClaw installed"

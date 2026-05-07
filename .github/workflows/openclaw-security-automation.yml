@@ -29,16 +29,6 @@ jobs:
           token: ${{ secrets.GH_PAT }}
           fetch-depth: 0
 
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: '22'
-
-      - name: Install OpenClaw
-        run: |
-          npm install -g openclaw@latest
-          openclaw --version
-
       - name: Install Python dependencies
         run: |
           pip install github3.py requests tqdm

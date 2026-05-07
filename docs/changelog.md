@@ -3,6 +3,8 @@
 ## [Unreleased]
 
 ### Fixed
+- `openclaw-security-automation.yml` — removed `npm install -g openclaw@latest` install step (openclaw is not on npm; the Python security agent never calls it anyway, so the step was both broken and unused).
+- `openclaw-maintenance.yml` — replaced `npm install -g openclaw@latest` with the correct install method: `git clone https://github.com/getmoss/openclaw-claude-code` + `npm install`, as documented in `docs/runbooks/openclaw-setup.md`.
 - `agent/loop.py` — `AgentRunner._chat_text()` rebuilt a new `ProviderRouter` instance on every LLM call (re-reading env vars and constructing `ProviderConfig` each time); router is now built once in `__init__` and reused, eliminating per-call overhead for jcode and other fast-path clients.
 - `agent/loop.py` — `InferenceCache` was implemented but never wired into the agent loop; `_chat_text()` now checks the cache before hitting the LLM and stores results after live calls, so repeated identical prompts (retries, compaction, similar sequential tasks) are served instantly from cache.
 - `openclaw-security-automation.yml`: Dependabot and CodeQL alert counts were never captured from Python stdout (shell vars `$DEPENDABOT_COUNT`/`$CODEQL_COUNT` were unset); now captured via command substitution.
