@@ -536,9 +536,10 @@ class ProviderRouter:
                 except Exception as exc:
                     latency_ms = int((time.perf_counter() - started) * 1000)
                     attempts.append(ProviderAttempt(
-                        provider.provider_id, model, None, error=str(exc), latency_ms=latency_ms,
+                        provider.provider_id, model, None, error=str(exc)[:200], latency_ms=latency_ms,
                     ))
                     last_was_conn_error = True
+                    break  # connection refused/timeout — retrying won't help, apply cooldown and move on
                 if attempt_number < max_retries:
                     await asyncio.sleep(min(0.25 * (2**attempt_number), 2.0))
         # Apply failure-type-aware cooldown: auth errors last longer than transient failures.

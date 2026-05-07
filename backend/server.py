@@ -2644,6 +2644,49 @@ async def _compact_context(
     return compacted + recent
 
 
+async def _agent_provider_failure_response(instruction: str, exc: Exception) -> str:
+    """Fall back to a direct LLM call when the agent loop cannot reach any provider.
+
+    Tries call_llm() with a simple conversational prompt. If that also fails, returns
+    an actionable error message explaining what went wrong and how to fix it.
+    """
+    log.warning("Agent provider failure — attempting direct-chat fallback: %s", exc)
+    try:
+        direct_response = await call_llm(
+            messages=[{"role": "user", "content": instruction}],
+            allow_commercial_fallback_once=True,
+        )
+        return (
+            f"{direct_response}\n\n"
+            "_(Answered in direct-chat mode — the agent infrastructure is currently unavailable.)_"
+        )
+    except Exception as fallback_exc:
+        log.warning("Direct-chat fallback also failed: %s", fallback_exc)
+
+    failure_detail = str(exc)
+    providers_hint = ""
+    if "401" in failure_detail:
+        providers_hint = (
+            "One or more API keys returned **401 Unauthorized**. "
+            "Update them at **Providers → API Key**.\n"
+        )
+    if "All connection attempts failed" in failure_detail or "Connection refused" in failure_detail:
+        providers_hint += (
+            "Ollama appears to be offline. "
+            "Start it with `ollama serve` or check **Providers → Test**.\n"
+        )
+    return (
+        "⚠️ **All LLM providers failed** — the agent couldn't start.\n\n"
+        + (providers_hint or "")
+        + "\n**To fix:**\n"
+        "• Open **Providers** and click **Test** next to each provider.\n"
+        "• Replace any provider showing 401 with a valid API key.\n"
+        "• If using Ollama, make sure it is running and reachable.\n"
+        "• Add a free fallback such as OpenRouter or DeepSeek.\n\n"
+        f"_Technical detail: {failure_detail[:300]}_"
+    )
+
+
 async def _run_agent_loop(
     instruction: str,
     session_messages: list[dict],
@@ -2744,11 +2787,18 @@ async def _run_agent_loop(
         return result["summary"]
     except CommercialFallbackRequiredError:
         raise
-    except ProviderFallbackError:
-        raise
+    except ProviderFallbackError as exc:
+        log.error("AgentRunner provider fallback exhausted: %s", exc)
+        return await _agent_provider_failure_response(instruction, exc)
     except Exception as exc:
         log.error("AgentRunner failed: %s", exc)
-        return f"Agent error: {exc}"
+        exc_str = str(exc)
+        if "All configured LLM providers failed" in exc_str or exc_str.startswith("planning:"):
+            return await _agent_provider_failure_response(instruction, exc)
+        return (
+            f"⚠️ Agent error: {exc}\n\n"
+            "If this persists, check the server logs for details."
+        )
 
 
 # ─── Activity Logging ──────────────────────────────────────────────────────────

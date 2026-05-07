@@ -3,6 +3,15 @@
 ## [Unreleased]
 
 ### Fixed
+- `provider_router.py` — connection failures (e.g. Ollama not running) no longer trigger up to 3 retry attempts per model; the provider is now marked on cooldown on the first connection error and the router moves to the next provider immediately. This eliminates the "All connection attempts failed × 3" noise in error messages.
+- `backend/server.py` — agent chat no longer surfaces raw `"Agent error: planning: planner output was invalid or incomplete: All configured LLM providers failed (...)"` when providers are unavailable; it now falls back to a direct `call_llm()` response and, if that also fails, returns a structured message with actionable fix steps (check API keys, start Ollama, add a fallback provider).
+- `direct_chat.py` — agent mode now passes the app's live provider chain to `AgentRunner` instead of an empty list; this allows the agent to use all configured fallback providers rather than re-initialising from env vars with only the local Ollama default.
+- `direct_chat.py` — scoped single-provider router is now created with a new `ProviderRouter([provider])` instance instead of temporarily mutating the shared `router.providers` list (which was not thread-safe under concurrent requests).
+
+### Changed
+- `direct_chat.py` — `_is_trivial_message()` now classifies short questions (≤ 12 words, no code/file keywords) as trivial so they bypass the full agent plan-execute-verify loop and go straight to the LLM, matching the conversational agent-chat UX of hosted coding agents.
+
+### Fixed (pre-existing)
 - `openclaw-security-automation.yml`: Dependabot and CodeQL alert counts were never captured from Python stdout (shell vars `$DEPENDABOT_COUNT`/`$CODEQL_COUNT` were unset); now captured via command substitution.
 - `openclaw-security-automation.yml`: Removed invalid `dependabot-alerts: read` permission key (not a valid GitHub Actions permission).
 - `security_fix_agent.py`: Branch cleanup ran unconditionally after both success and failure; now only cleans up on failure and returns early after a successful push.

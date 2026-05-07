@@ -110,19 +110,35 @@ async def _get_github_token_for_user(user_email: str) -> str | None:
 
 
 def _is_trivial_message(content: str) -> bool:
-    """Determine if a message is trivial (e.g., greeting, short talk) that should bypass agent mode."""
+    """Return True when a message is conversational and should skip the agent loop.
+
+    The agent loop (plan → execute → verify) is expensive and only worthwhile for
+    tasks that involve file I/O, code changes, or multi-step reasoning. Simple
+    questions and greetings should go straight to the LLM.
+    """
     if not content or not isinstance(content, str):
         return False
-    content = content.strip()
+    stripped = content.strip()
+    lowered = stripped.lower()
+
     trivial_phrases = {
-        "hello", "hi", "hey",
+        "hello", "hi", "hey", "sup", "yo", "greetings",
         "good morning", "good afternoon", "good evening",
-        "how are you", "what's up", "sup", "yo", "greetings",
-        "hi there", "hello there", "hey there"
+        "how are you", "what's up", "hi there", "hello there", "hey there",
+        "thanks", "thank you", "ok", "okay", "sounds good", "got it",
+        "what can you do", "who are you", "what are you",
     }
-    if len(content.split()) < 3:
+    if lowered in trivial_phrases:
         return True
-    return content.lower() in trivial_phrases
+    words = stripped.split()
+    if len(words) <= 4:
+        return True
+    # Short questions that don't imply file/code operations
+    if lowered.endswith("?") and len(words) <= 12 and not any(
+        kw in lowered for kw in ("file", "code", "write", "create", "fix", "build", "run", "edit", "generate", "deploy", "commit", "push", "implement", "refactor")
+    ):
+        return True
+    return False
 
 
 @direct_chat_router.post("/send")
@@ -188,14 +204,9 @@ async def _handle_regular_chat(
 
         # Call the router
         if provider:
-            # We want to try just this provider, but we don't have a method for that.
-            # We can temporarily set the router's providers to just this one.
-            original_providers = router.providers
-            router.providers = [provider]
-            try:
-                result = await router.chat_completion(payload)
-            finally:
-                router.providers = original_providers
+            # Create a scoped single-provider router rather than mutating the shared one.
+            from provider_router import ProviderRouter as _PR
+            result = await _PR([provider]).chat_completion(payload)
         else:
             result = await router.chat_completion(payload)
 
@@ -274,11 +285,19 @@ async def _handle_agent_mode(
         from agent.loop import AgentRunner
 
         heartbeat("planning", "Runtime preflight passed")
+        app_router: ProviderRouter = request.app.state.PROVIDER_ROUTER
+        # Use the first provider as the primary base URL; pass the rest as the
+        # fallback chain so the agent can survive a single-provider failure.
+        sorted_providers = sorted(app_router.providers, key=lambda p: p.priority)
+        primary_provider = sorted_providers[0] if sorted_providers else None
+        ollama_base = primary_provider.normalized_base_url if primary_provider else OLLAMA_BASE
+        primary_headers = primary_provider.auth_headers() if primary_provider and primary_provider.api_key else {}
+        fallback_chain = sorted_providers[1:] if len(sorted_providers) > 1 else []
         runner = AgentRunner(
-            ollama_base=OLLAMA_BASE,
+            ollama_base=ollama_base,
             workspace_root=str(workspace_root),
-            provider_headers={},
-            provider_chain=[],
+            provider_headers=primary_headers,
+            provider_chain=fallback_chain,
             allow_commercial_fallback=req.allow_commercial_fallback_once,
             provider_temperature=req.temperature,
             session_store=None,
