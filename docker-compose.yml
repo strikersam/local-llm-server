@@ -139,6 +139,31 @@ services:
       ollama:
         condition: service_started
 
+  jcode:
+    build:
+      context: .
+      dockerfile: Dockerfile.runtime
+      args:
+        RUNTIME_NAME: jcode
+    container_name: llm-server-jcode
+    restart: unless-stopped
+    ports:
+      - "8006:8080"
+    environment:
+      - RUNTIME_NAME=jcode
+      - OLLAMA_BASE=http://ollama:11434
+      - DEFAULT_MODEL=qwen3-coder:30b
+      - PORT=8080
+      - JCODE_PROVIDER_URL=http://proxy:8000/v1
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+    depends_on:
+      ollama:
+        condition: service_started
+
   # ── MongoDB (agent store & task persistence) ───────────────────────────────
   mongo:
     image: mongo:7
@@ -174,6 +199,7 @@ services:
       - OPENCODE_BASE_URL=http://opencode:8080
       - GOOSE_BASE_URL=http://goose:8080
       - AIDER_BASE_URL=http://aider:8080
+      - JCODE_BASE_URL=http://jcode:8080
       - OLLAMA_WINDOWS_SERVER=${OLLAMA_WINDOWS_SERVER:-}
       - OLLAMA_WINDOWS_MODEL=${OLLAMA_WINDOWS_MODEL:-llama3.2}
       - HF_TOKEN=${HF_TOKEN:-}
@@ -223,6 +249,7 @@ services:
       - OPENCODE_BASE_URL=http://opencode:8080
       - GOOSE_BASE_URL=http://goose:8080
       - AIDER_BASE_URL=http://aider:8080
+      - JCODE_BASE_URL=http://jcode:8080
     depends_on:
       mongo:
         condition: service_started

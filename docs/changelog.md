@@ -2,9 +2,18 @@
 
 ## [Unreleased]
 
+### Added
+- `runtimes/adapters/jcode.py` — First-class jcode runtime adapter (TIER_2). jcode is a high-performance Rust coding agent that connects to the local proxy as its OpenAI provider. Supports CLI and HTTP API modes; capabilities include MCP connectivity, semantic vector memory, multi-agent swarm, browser automation, repo editing, and streaming. Includes `write_mcp_config()` to generate `.jcode/mcp.json` for project-local MCP server registration.
+- `runtimes/manager.py` — `JCodeAdapter` registered in the default RuntimeManager alongside Hermes, OpenCode, Goose, Aider, and TaskHarness.
+- `docker-compose.yml` — Added `jcode` service (port 8006) with `JCODE_PROVIDER_URL` pointing at the proxy; added `JCODE_BASE_URL` to proxy and backend environment blocks.
+- `scripts/register_agent_runtimes.py` — Added jcode to `RUNTIME_ROLES` for agent store registration.
+- `frontend/src/pages/SetupWizardPage.js` — Added jcode toggle (badge: New) to Step 3 runtime configuration panel; wired state, persistence, and draft restore.
+
 ### Fixed
 - `openclaw-security-automation.yml` — removed `npm install -g openclaw@latest` install step (openclaw is not on npm; the Python security agent never calls it anyway, so the step was both broken and unused).
 - `openclaw-maintenance.yml` — replaced `npm install -g openclaw@latest` with the correct install method: `git clone https://github.com/getmoss/openclaw-claude-code` + `npm install`, as documented in `docs/runbooks/openclaw-setup.md`.
+- `runtimes/control.py` — `task_harness` and `jcode` were missing from `RUNTIME_CONTAINERS` and `RUNTIME_LOCAL_PORTS`; start/stop API calls for those runtimes returned `{"error": "Unknown runtime: ..."}`. Both are now registered with port assignments (8104 and 8105 respectively).
+- `runtimes/control.py` — `asyncio.get_event_loop().create_task(...)` in `_start_local_runtime` was deprecated in Python 3.10+ and could raise `DeprecationWarning`; replaced with `asyncio.create_task(...)`.
 - `agent/loop.py` — `AgentRunner._chat_text()` rebuilt a new `ProviderRouter` instance on every LLM call (re-reading env vars and constructing `ProviderConfig` each time); router is now built once in `__init__` and reused, eliminating per-call overhead for jcode and other fast-path clients.
 - `agent/loop.py` — `InferenceCache` was implemented but never wired into the agent loop; `_chat_text()` now checks the cache before hitting the LLM and stores results after live calls, so repeated identical prompts (retries, compaction, similar sequential tasks) are served instantly from cache.
 - `openclaw-security-automation.yml`: Dependabot and CodeQL alert counts were never captured from Python stdout (shell vars `$DEPENDABOT_COUNT`/`$CODEQL_COUNT` were unset); now captured via command substitution.

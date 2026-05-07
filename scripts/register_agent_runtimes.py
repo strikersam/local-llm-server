@@ -65,6 +65,22 @@ RUNTIME_ROLES = {
         "task_types": ["code_generation", "refactoring", "debugging"],
         "model": "aider:latest",
     },
+    "jcode": {
+        "name": "jcode",
+        "description": (
+            "High-performance Rust coding agent with semantic vector memory, "
+            "multi-agent swarm, browser automation, and MCP connectivity. "
+            "Connects to the local proxy as its OpenAI provider."
+        ),
+        "task_types": [
+            "code_generation",
+            "repo_editing",
+            "refactoring",
+            "debugging",
+            "multi_file_edit",
+        ],
+        "model": "jcode:latest",
+    },
 }
 
 

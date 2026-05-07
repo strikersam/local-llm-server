@@ -185,6 +185,7 @@ def _build_default_manager() -> RuntimeManager:
     from runtimes.adapters.goose import GooseAdapter
     from runtimes.adapters.hermes import HermesAdapter
     from runtimes.adapters.internal_agent import InternalAgentAdapter
+    from runtimes.adapters.jcode import JCodeAdapter
     from runtimes.adapters.opencode import OpenCodeAdapter
     from runtimes.adapters.openhands import OpenHandsAdapter
     from runtimes.adapters.task_harness import TaskHarnessAdapter
@@ -231,5 +232,8 @@ def _build_default_manager() -> RuntimeManager:
 
     # Aider is always registered (lightweight, just needs the binary)
     mgr.register(AiderAdapter())
+
+    # jcode is always registered; health returns unavailable when binary not installed
+    mgr.register(JCodeAdapter())
 
     return mgr

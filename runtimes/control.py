@@ -25,6 +25,8 @@ RUNTIME_CONTAINERS = {
     "opencode": "opencode",
     "goose": "goose",
     "aider": "aider",
+    "task_harness": "task-harness",
+    "jcode": "jcode",
 }
 
 # Local subprocess fallback ports (when Docker is unavailable)
@@ -33,6 +35,8 @@ RUNTIME_LOCAL_PORTS = {
     "opencode": 8101,
     "goose": 8102,
     "aider": 8103,
+    "task_harness": 8104,
+    "jcode": 8105,
 }
 
 # Keep track of locally-spawned runtime processes
@@ -134,9 +138,7 @@ async def _start_local_runtime(runtime_id: str) -> dict[str, Any]:
         # Trigger an immediate health check so the UI updates quickly
         try:
             manager = get_runtime_manager()
-            asyncio.get_event_loop().create_task(
-                manager.refresh_runtime_health(runtime_id)
-            )
+            asyncio.create_task(manager.refresh_runtime_health(runtime_id))
         except Exception as exc:
             log.debug("Could not trigger health refresh: %s", exc)
 

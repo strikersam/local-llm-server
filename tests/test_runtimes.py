@@ -480,3 +480,91 @@ class TestTaskHarnessAdapterExecution:
         assert result.provider_used == "OpenAI"
         assert result.tokens_used == 15
         assert result.metadata["session_id"] == "session_abc"
+
+
+class TestJCodeAdapterMetadata:
+
+    def test_jcode_metadata(self):
+        from runtimes.adapters.jcode import JCodeAdapter
+        adapter = JCodeAdapter()
+        assert adapter.RUNTIME_ID == "jcode"
+        assert adapter.DISPLAY_NAME
+        assert isinstance(adapter.TIER, RuntimeTier)
+        assert isinstance(adapter.INTEGRATION_MODE, IntegrationMode)
+        assert isinstance(adapter.CAPABILITIES, frozenset)
+        d = adapter.as_dict()
+        assert d["runtime_id"] == "jcode"
+        assert "capabilities" in d
+
+    def test_jcode_is_tier_2(self):
+        from runtimes.adapters.jcode import JCodeAdapter
+        assert JCodeAdapter.TIER == RuntimeTier.TIER_2
+
+    def test_jcode_supports_mcp_connectivity(self):
+        from runtimes.adapters.jcode import JCodeAdapter
+        assert JCodeAdapter().supports(RuntimeCapability.MCP_CONNECTIVITY)
+
+    def test_jcode_supports_memory_sessions(self):
+        from runtimes.adapters.jcode import JCodeAdapter
+        assert JCodeAdapter().supports(RuntimeCapability.MEMORY_SESSIONS)
+
+    def test_jcode_supports_repo_editing(self):
+        from runtimes.adapters.jcode import JCodeAdapter
+        assert JCodeAdapter().supports(RuntimeCapability.REPO_EDITING)
+
+    def test_jcode_health_reports_missing_binary(self):
+        from runtimes.adapters.jcode import JCodeAdapter
+        with patch("runtimes.adapters.jcode.shutil.which", return_value=None):
+            health = asyncio.run(JCodeAdapter().health_check())
+        assert health.available is False
+        assert health.error is not None
+        assert "jcode" in (health.error or "").lower() or "binary" in (health.error or "").lower()
+
+    def test_jcode_health_via_http_when_offline(self):
+        from runtimes.adapters.jcode import JCodeAdapter
+        adapter = JCodeAdapter({"base_url": "http://localhost:1"})
+        health = asyncio.run(adapter.health_check())
+        assert isinstance(health, RuntimeHealth)
+        assert health.available is False
+        assert health.error is not None
+
+    def test_jcode_required_dependencies_when_no_base_url(self):
+        from runtimes.adapters.jcode import JCodeAdapter
+        adapter = JCodeAdapter()
+        deps = adapter.required_dependencies()
+        assert len(deps) == 1
+        assert deps[0].name == "jcode"
+        assert deps[0].config_var == "JCODE_BIN"
+
+    def test_jcode_no_required_dependencies_when_base_url_set(self):
+        from runtimes.adapters.jcode import JCodeAdapter
+        adapter = JCodeAdapter({"base_url": "http://localhost:8105"})
+        assert adapter.required_dependencies() == []
+
+    def test_jcode_write_mcp_config(self, tmp_path):
+        from runtimes.adapters.jcode import JCodeAdapter
+        adapter = JCodeAdapter({"api_key": "test-key"})
+        config_path = adapter.write_mcp_config(workspace_path=str(tmp_path), proxy_url="http://localhost:8000/v1")
+        assert config_path.exists()
+        data = json.loads(config_path.read_text())
+        assert "mcpServers" in data
+        server = data["mcpServers"]["local-llm-proxy"]
+        assert "http://localhost:8000/mcp" in server["url"]
+
+    def test_jcode_execute_missing_binary_raises(self):
+        from runtimes.adapters.jcode import JCodeAdapter
+        from runtimes.base import RuntimeUnavailableError
+        with patch("runtimes.adapters.jcode.shutil.which", return_value=None):
+            with pytest.raises(RuntimeUnavailableError):
+                asyncio.run(
+                    JCodeAdapter().execute(
+                        TaskSpec(task_id="t1", instruction="hello")
+                    )
+                )
+
+    def test_jcode_registered_in_default_manager(self):
+        """jcode must be registered in the default RuntimeManager."""
+        from runtimes.manager import _build_default_manager
+        mgr = _build_default_manager()
+        ids = mgr._registry.ids()
+        assert "jcode" in ids
