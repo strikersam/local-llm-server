@@ -219,121 +219,120 @@ This one is easy to explain:
 
 ## See the product
 
-Run `make ui-docs` after built-in web UI changes to refresh the captured `/app` and `/admin/app` screenshots and rewrite this gallery block automatically.
-
-> **Screenshot status:** Login and Setup Wizard show v4 captures. All other screenshots below are from v3 and will be replaced with v4 captures once the app is running. The UI has changed significantly — dark mobile shell, new dashboard layout, agent mode toggle, async job status cards, NVIDIA NIM provider card, and redesigned onboarding.
+Run `python scripts/gen_v4_screenshots.py` to regenerate all v4 mockup screenshots. Run `make ui-docs` to refresh the built-in `/app` and `/admin/app` captures.
 
 <!-- README_UI_GALLERY:START -->
 ### 🛬 Login
 
-The v4 login screen uses a native-grade dark app shell with safe-area-aware layout that works on both mobile and desktop.
+The v4 login screen splits into a feature panel on the left and a sign-in form on the right, both in the native dark shell. Mobile users see a full-screen dark auth flow.
 
 <p align="center">
-  <img src="docs/screenshots/readme/v4-login-mobile.png" width="42%" alt="LLM Relay v4 mobile login"/>
-  &nbsp;&nbsp;
-  <img src="docs/screenshots/readme/v3-login.png" width="48%" alt="LLM Relay login desktop"/>
+  <img src="docs/screenshots/readme/v4-login.png" width="58%" alt="LLM Relay v4 login (desktop)"/>
+  &nbsp;
+  <img src="docs/screenshots/readme/v4-login-mobile.png" width="28%" alt="LLM Relay v4 login (mobile)"/>
 </p>
 
 ### 🧙 Setup Wizard
 
-The wizard helps you choose providers, models, runtimes, a default agent, and a cost policy.
-NVIDIA NIM is the first recommended option and is auto-detected when a server-side key is present.
+The wizard walks you through providers → models → runtime → agent → cost policy. NVIDIA NIM appears first with "★ Recommended" and "Free" badges, and is auto-marked "already configured" when `NVIDIA_API_KEY` is set on the server.
 
 <p align="center">
-  <img src="docs/screenshots/readme/v4-setup-mobile.png" width="42%" alt="Setup Wizard v4 mobile"/>
-  &nbsp;&nbsp;
-  <img src="docs/screenshots/readme/v3-setup-wizard.png" width="48%" alt="Setup Wizard desktop"/>
+  <img src="docs/screenshots/readme/v4-setup-wizard.png" width="58%" alt="Setup Wizard v4"/>
+  &nbsp;
+  <img src="docs/screenshots/readme/v4-setup-mobile.png" width="28%" alt="Setup Wizard v4 mobile"/>
 </p>
+
+### 🏠 Dashboard
+
+The v4 control plane opens with usage stats, live provider health, running task progress bars, and quick-action cards — all in a single mobile-first workspace overview.
+
+<p align="center"><img src="docs/screenshots/readme/v4-control-plane.png" width="92%" alt="LLM Relay v4 Dashboard"/></p>
 
 ### 💬 Chat
 
-This is where people talk to AI directly. v4 adds a real Agent Mode toggle (defaults off for fast direct chat), a collapsible agent workspace panel, and async job status cards so long tasks never hang the UI.
+Direct chat with a real Agent Mode toggle (off by default for fast LLM responses). Enable it for complex multi-step tasks — async job status cards replace the old blocking request so the UI never hangs.
 
-<p align="center"><img src="docs/screenshots/readme/v3-chat.png" width="92%" alt="Direct Chat"/></p>
+<p align="center"><img src="docs/screenshots/readme/v4-chat.png" width="92%" alt="Direct Chat v4"/></p>
 
 ### 🗂 Task Board
 
-This makes AI work visible. You can see what is waiting, running, blocked, in review, or done.
-v4 fans tasks out concurrently and auto-assigns to the least-busy matching agent.
+AI work made visible. v4 fans tasks out concurrently — multiple agents pick up work from the queue simultaneously, and the board shows live step progress for each running job.
 
-<p align="center"><img src="docs/screenshots/readme/v3-tasks-kanban.png" width="92%" alt="Kanban Task Board"/></p>
+<p align="center"><img src="docs/screenshots/readme/v4-tasks-kanban.png" width="92%" alt="Kanban Task Board v4"/></p>
 
 ### 🤖 Agent Roster
 
-Your cast of AI helpers. Each agent can have its own model, runtime, specialty, and rules.
-In v4, planner/executor/verifier/judge phases each get their own model configuration.
+Each agent now has per-role model configuration: planner, coder/executor, verifier, and judge can all use different models optimised for their phase of the pipeline.
 
-<p align="center"><img src="docs/screenshots/readme/v3-agents.png" width="92%" alt="Agent Roster"/></p>
+<p align="center"><img src="docs/screenshots/readme/v4-agents.png" width="92%" alt="Agent Roster v4"/></p>
 
 ### ⚙️ Runtimes
 
-The engines behind the scenes that actually run your AI work.
-v4 adds preflight validation so tasks fail early with structured diagnostics instead of cryptic late errors.
+v4 adds runtime preflight validation. The panel shows structured diagnostics — green for healthy, yellow with an actionable message for unavailable runtimes (e.g. Docker socket missing) — instead of cryptic late failures.
 
-<p align="center"><img src="docs/screenshots/readme/v3-runtimes.png" width="92%" alt="Agent Runtimes"/></p>
+<p align="center"><img src="docs/screenshots/readme/v4-runtimes.png" width="92%" alt="Agent Runtimes v4"/></p>
 
 ### 🛣 Routing Policy
 
-This is where you decide how smart, cheap, fast, or private the system should be when picking a model.
-v4 adds bounded per-provider timeouts and failure-type-aware cooldowns.
+Choose your strategy (free-first, local-first, cost-aware, quality) and see the live provider priority order. v4 adds bounded per-provider timeouts and failure-type-aware cooldowns shown in the stats panel.
 
-<p align="center"><img src="docs/screenshots/readme/v3-routing.png" width="92%" alt="Routing Policy"/></p>
+<p align="center"><img src="docs/screenshots/readme/v4-routing.png" width="92%" alt="Routing Policy v4"/></p>
 
 ### 🔌 Providers and Models
 
-Connect local and cloud AI sources. NVIDIA NIM is now auto-configured at priority −10 when `NVIDIA_API_KEY` is set, so it is always the first provider tried.
+NVIDIA NIM sits at priority −10 with "★ Recommended" and "Free Tier" badges, auto-configured from `NVIDIA_API_KEY`. The models table lists NIM, Ollama, and cloud models with context window, type, and cost at a glance.
 
 <p align="center">
-  <img src="docs/screenshots/readme/v3-providers.png" width="48%" alt="Providers"/>
+  <img src="docs/screenshots/readme/v4-providers.png" width="48%" alt="Providers v4"/>
   &nbsp;
-  <img src="docs/screenshots/readme/v3-models.png" width="48%" alt="Models"/>
+  <img src="docs/screenshots/readme/v4-models.png" width="48%" alt="Models v4"/>
 </p>
 
 ### 📚 Knowledge
 
-Your team's memory: wiki pages, source material, and reusable context.
+Your team's memory: wiki pages with tags, plus a source library for GitHub repos, URLs, and uploaded files. Agents can pull from these sources during task execution.
 
-<p align="center"><img src="docs/screenshots/readme/v3-knowledge.png" width="92%" alt="Knowledge and Wiki"/></p>
+<p align="center"><img src="docs/screenshots/readme/v4-knowledge.png" width="92%" alt="Knowledge and Wiki v4"/></p>
 
-### 🔭 Logs and activity
+### 🔭 Logs and Activity
 
-Helps you answer, "what just happened?" v4 adds Langfuse traces from direct chat with token counts and latency so every conversation is observable.
+Real-time event feed with INFO/WARN/ERROR badges and inline Langfuse trace links. v4 emits traces from direct chat too, so every conversation has token counts and latency attribution.
 
-<p align="center"><img src="docs/screenshots/readme/v3-logs.png" width="92%" alt="Logs"/></p>
+<p align="center"><img src="docs/screenshots/readme/v4-logs.png" width="92%" alt="Logs v4"/></p>
 
 ### 🗓 Schedules
 
-Make AI jobs run later or run again automatically. v4 adds a `run-now` action and fixes cron scheduling from the UI.
+Automated agent jobs on cron schedules. v4 adds a **Run now** button per schedule and fixes cron expression submission from the UI so `daily` / `weekly` presets map correctly to 5-field cron strings.
 
-<p align="center"><img src="docs/screenshots/readme/v3-schedules.png" width="92%" alt="Schedules"/></p>
+<p align="center"><img src="docs/screenshots/readme/v4-schedules.png" width="92%" alt="Schedules v4"/></p>
 
-### 🧭 Settings and guardrails
+### 🧭 Settings
 
-Central settings keep defaults, policies, and integrations in one place instead of scattered config files.
+Central configuration for server name, default cost policy, Langfuse tracing, agent defaults (max steps, timeout, per-role models), and integrations.
 
-<p align="center"><img src="docs/screenshots/readme/v3-settings.png" width="92%" alt="Settings"/></p>
+<p align="center"><img src="docs/screenshots/readme/v4-settings.png" width="92%" alt="Settings v4"/></p>
 
 ### 🛡 Admin portal
 
-Admins can manage access, controls, and system behavior.
+API key management with create / revoke, system health at a glance, and server version info.
 
-<p align="center"><img src="docs/screenshots/readme/v3-admin.png" width="92%" alt="Admin Portal"/></p>
+<p align="center"><img src="docs/screenshots/readme/v4-admin.png" width="92%" alt="Admin Portal v4"/></p>
 
 ### 🖥 Built-in web UI
 
-The proxy ships a lightweight built-in app at `/app`, so you can ship a useful UI without the separate hosted dashboard.
+The proxy ships a lightweight built-in app at `/app`, usable without the separate hosted dashboard.
 
 <p align="center"><img src="docs/screenshots/webui/webui-app.png" width="92%" alt="Built-in Web UI"/></p>
 
 ### 🔐 Built-in admin login
 
-The built-in admin surface has a dedicated login gate before exposing sensitive controls.
+Dedicated login gate before exposing sensitive controls in the in-proxy admin surface.
 
 <p align="center"><img src="docs/screenshots/webui/webui-admin-login.png" width="92%" alt="Built-in admin login"/></p>
 
 ### 🧰 Built-in admin workspace
 
-Once authenticated, admins can manage providers, workspaces, and runtime metadata from the in-proxy UI.
+Manage providers, workspaces, and runtime metadata directly from the in-proxy UI.
 
 <p align="center"><img src="docs/screenshots/webui/webui-admin.png" width="92%" alt="Built-in admin workspace"/></p>
 <!-- README_UI_GALLERY:END -->
