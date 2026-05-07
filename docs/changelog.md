@@ -3,6 +3,11 @@
 ## [Unreleased]
 
 ### Fixed
+- `openclaw-security-automation.yml`: Dependabot and CodeQL alert counts were never captured from Python stdout (shell vars `$DEPENDABOT_COUNT`/`$CODEQL_COUNT` were unset); now captured via command substitution.
+- `openclaw-security-automation.yml`: Removed invalid `dependabot-alerts: read` permission key (not a valid GitHub Actions permission).
+- `security_fix_agent.py`: Branch cleanup ran unconditionally after both success and failure; now only cleans up on failure and returns early after a successful push.
+- `security_fix_agent.py`: pip upgrade path now rewrites `requirements.txt` via `pip freeze` so the change is actually tracked by git.
+- `security_fix_agent.py`: Removed `CODEQL_FIX_APPLIED.txt` dummy file creation; CodeQL fix now exits early with a clear message when no edits can be applied automatically.
 - `direct_chat.py` — `@direct_chat_router.post("/send")` decorator was accidentally applied to `_is_trivial_message` instead of `send_chat_message` (inserted between the decorator and the handler by commit b172df5); `/api/chat/send` now correctly routes requests.
 - `proxy.py` — `app.state.PROVIDER_ROUTER` was never set in the lifespan, causing `AttributeError` in the direct-chat regular-chat path; lifespan now sets it from the module-level singleton.
 - `frontend/src/index.css` — attribute selector used single quotes (`input[type='checkbox']`) but regression test expected double quotes; normalised to double quotes.

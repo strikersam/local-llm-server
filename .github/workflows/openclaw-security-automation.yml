@@ -13,7 +13,6 @@ on:
 permissions:
   contents: read
   issues: write
-  dependabot-alerts: read
   security-events: read
 
 jobs:
@@ -48,15 +47,15 @@ jobs:
         id: dependabot-check
         run: |
           echo "Checking for Dependabot alerts..."
-          python .github/scripts/security_fix_agent.py --check-dependabot
-          echo "dependabot_count=$DEPENDABOT_COUNT" >> $GITHUB_OUTPUT
+          COUNT=$(python .github/scripts/security_fix_agent.py --check-dependabot)
+          echo "dependabot_count=$COUNT" >> $GITHUB_OUTPUT
 
       - name: Check for CodeQL alerts
         id: codeql-check
         run: |
           echo "Checking for CodeQL alerts..."
-          python .github/scripts/security_fix_agent.py --check-codeql
-          echo "codeql_count=$CODEQL_COUNT" >> $GITHUB_OUTPUT
+          COUNT=$(python .github/scripts/security_fix_agent.py --check-codeql)
+          echo "codeql_count=$COUNT" >> $GITHUB_OUTPUT
 
       - name: Fix Dependabot alerts
         if: steps.dependabot-check.outputs.dependabot_count != '0'

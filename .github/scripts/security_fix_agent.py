@@ -189,13 +189,15 @@ def fix_one_dependabot_alert() -> bool:
                     except json.JSONDecodeError:
                         pass
         
-        # Try pip
-        if not success and (Path("requirements.txt").exists() or Path("setup.py").exists() or Path("pyproject.toml").exists()):
+        # Try pip — upgrade and rewrite requirements.txt so the change is tracked
+        if not success and Path("requirements.txt").exists():
             print("Detected Python project, attempting pip update...")
             exit_code, stdout, stderr = run_command(["pip", "install", "--upgrade", package_name])
             if exit_code == 0:
-                # We don't have an easy way to get the new version, assume it worked
-                success = True
+                freeze_code, freeze_out, _ = run_command(["pip", "freeze"])
+                if freeze_code == 0:
+                    Path("requirements.txt").write_text(freeze_out)
+                    success = True
         
         # Try to commit and push if we made changes
         if success:
@@ -212,12 +214,14 @@ def fix_one_dependabot_alert() -> bool:
                     print(f"Created PR: {pr_url}")
                 else:
                     print("Failed to create PR", file=sys.stderr)
+                run_command(["git", "checkout", "master"])
+                return True
             else:
                 print("Failed to commit and push changes", file=sys.stderr)
         else:
             print(f"Could not automatically update {package_name}", file=sys.stderr)
-        
-        # Clean up branch on failure
+
+        # Clean up local branch on failure
         run_command(["git", "checkout", "master"])
         run_command(["git", "branch", "-D", branch_name])
         return True  # Attempt made
@@ -253,24 +257,21 @@ def fix_one_codeql_alert() -> bool:
             return True  # Branch creation failed, but we tried
         
         # Apply each edit
+        edits_applied = False
         for edit in fix["edits"]:
             file_path = edit.get("location", {}).get("path")
             if not file_path:
                 continue
-            
-            # Replace the content in the specified range
-            # Note: This is simplified - in practice we'd need to read the file, apply the edit, and write back
-            # For now, we'll just note that we need to implement proper file editing
-            print(f"Would edit file {file_path} (implementation needed)")
-        
-        # For now, we'll just create a commit with a placeholder message
-        # In a real implementation, we would apply the edits to the files
+            print(f"Would edit file {file_path} (manual review required)")
+
+        if not edits_applied:
+            print("No edits could be applied automatically — manual fix required", file=sys.stderr)
+            run_command(["git", "checkout", "master"])
+            run_command(["git", "branch", "-D", branch_name])
+            return True
+
         commit_message = f"fix: apply CodeQL suggested fix for alert #{alert['number']}"
-        
-        # Create a dummy change to demonstrate the workflow
-        # In practice, we would apply the actual fixes
-        Path("CODEQL_FIX_APPLIED.txt").write_text(f"Applied fix for alert {alert['number']}\\n")
-        
+
         if commit_and_push(branch_name, commit_message):
             pr_url = create_pull_request(
                 branch_name,
@@ -284,10 +285,12 @@ def fix_one_codeql_alert() -> bool:
                 print(f"Created PR: {pr_url}")
             else:
                 print("Failed to create PR", file=sys.stderr)
+            run_command(["git", "checkout", "master"])
+            return True
         else:
             print("Failed to commit and push changes", file=sys.stderr)
-        
-        # Clean up branch on failure
+
+        # Clean up local branch on failure
         run_command(["git", "checkout", "master"])
         run_command(["git", "branch", "-D", branch_name])
         return True  # Attempt made
