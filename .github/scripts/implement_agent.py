@@ -200,10 +200,20 @@ SYSTEM = textwrap.dedent("""
        in docs/changelog.md.
     5. Use bash to run `pytest -x -q --tb=short` after implementing.
        If tests fail, fix the code — do NOT give up.
-    6. When done and tests are green, call:
+    6. ONLY when `pytest -x -q --tb=short` exits 0 (all tests pass), call:
          bash(cmd="echo IMPLEMENTATION_COMPLETE")
+       NEVER call this if the last pytest run had any failures or errors.
 
-    Rules:
+    CRITICAL rules to avoid breaking existing tests:
+    - Prefer adding NEW files (new modules, new test files) over modifying existing ones.
+    - If you must modify an existing file, make the smallest possible change.
+    - NEVER change function signatures or remove functions that tests call.
+    - NEVER change class names or module-level variable names.
+    - After EVERY file change, re-run `pytest -x -q --tb=short` to catch regressions immediately.
+    - If tests were passing before your change and fail after, revert that change.
+    - The baseline test count is shown below — your final pytest run must match or exceed it.
+
+    Additional rules:
     - Only implement features clearly supported by the URL content.
     - Minimal focused changes — no sprawling refactors.
     - Type annotations on all public functions.
@@ -253,17 +263,35 @@ def main() -> None:
     url_content = Path("/tmp/note_content.txt").read_text()  # nosec: B108 - Reading from predictable temp file path written by fetch_url.py
     context = load_context()
 
+    # Run baseline pytest before agent touches anything so we know the passing count.
+    print("[agent] Running baseline pytest to establish passing baseline...")
+    baseline_result = subprocess.run(
+        ["pytest", "-x", "-q", "--tb=no"],
+        capture_output=True, text=True, timeout=300,
+    )
+    baseline_summary = (baseline_result.stdout + baseline_result.stderr).strip()[-500:]
+    baseline_passed = baseline_result.returncode == 0
+    print(f"[agent] Baseline: returncode={baseline_result.returncode}")
+    print(baseline_summary)
+
     system_with_context = SYSTEM + "\n\n" + context[:4000]
     user_msg = textwrap.dedent(f"""
         ## Issue #{ISSUE_NUM}
         **URL**: {URL}
         **Task**: {TASK or "(no specific task — infer from URL content)"}
 
+        ## Baseline test status (before your changes)
+        ```
+        {baseline_summary}
+        ```
+        {"✅ Baseline passing — your implementation must keep all these tests green." if baseline_passed else "⚠️ Baseline had failures — do not introduce new failures."}
+
         ## URL Content
         {url_content[:4000]}
 
         Begin by reading CLAUDE.md and the skill files, then plan and implement.
-        Run pytest when done.
+        Run `pytest -x -q --tb=short` after EVERY file change to catch regressions immediately.
+        Only call `echo IMPLEMENTATION_COMPLETE` when pytest exits 0.
     """).strip()
 
     messages: list[dict] = [
@@ -272,6 +300,7 @@ def main() -> None:
     ]
 
     success = False
+    last_pytest_passed = False  # tracks whether the most recent pytest bash call succeeded
     summary = "No implementation performed"
     turns = 0
 
@@ -299,8 +328,8 @@ def main() -> None:
         # No tool calls → just update summary, don't mark as successful yet
         if finish == "stop" or not msg.tool_calls:
             summary = msg.content or summary
-            # Only succeed if the model explicitly signals completion in content
-            if msg.content and "IMPLEMENTATION_COMPLETE" in msg.content:
+            # Only succeed if the model explicitly signals completion in content AND tests passed
+            if msg.content and "IMPLEMENTATION_COMPLETE" in msg.content and last_pytest_passed:
                 success = True
             break
 
@@ -317,9 +346,23 @@ def main() -> None:
             output = handler(fn_args) if handler else f"[unknown tool: {fn_name}]"
             print(f"[tool result] {output[:300]}")
 
+            # Track whether the last pytest run succeeded
+            if fn_name == "bash" and "pytest" in fn_args.get("cmd", ""):
+                last_pytest_passed = "[exit 0]" in output
+
             if fn_name == "bash" and "IMPLEMENTATION_COMPLETE" in output:
-                success = True
-                summary = msg.content or summary
+                if last_pytest_passed:
+                    success = True
+                    summary = msg.content or summary
+                else:
+                    # Inject a hard block so the agent knows it must fix tests first
+                    print("[agent] IMPLEMENTATION_COMPLETE blocked — last pytest was not exit 0")
+                    # Override the tool result to push the agent to fix tests
+                    output = (
+                        "[BLOCKED] IMPLEMENTATION_COMPLETE rejected: your last pytest run "
+                        "did not exit 0. Run `pytest -x -q --tb=short`, fix all failures, "
+                        "then call `echo IMPLEMENTATION_COMPLETE` again."
+                    )
 
             messages.append({
                 "role": "tool",
