@@ -23,7 +23,7 @@ import sys
 import textwrap
 from pathlib import Path
 
-from openai import OpenAI
+from openai import APIError, OpenAI
 
 PR_NUMBER = sys.argv[1] if len(sys.argv) > 1 else ""
 RESULT_FILE = "/tmp/review_result.json"  # nosec: B108 - Predictable temp file path used for backward compatibility
@@ -131,7 +131,7 @@ def main() -> None:
             messages=[{"role": "user", "content": prompt}],
         )
         text = response.choices[0].message.content or ""
-    except Exception as exc:
+    except APIError as exc:
         print(f"ERROR: API call failed: {exc}", file=sys.stderr)
         result = {"verdict": "FAIL", "summary": f"Review failed: {exc}", "details": ""}
         with open(RESULT_FILE, "w") as f:
