@@ -23,29 +23,39 @@ import sys
 import textwrap
 from pathlib import Path
 
-from openai import OpenAI
+from openai import APIError, OpenAI
 
 PR_NUMBER = sys.argv[1] if len(sys.argv) > 1 else ""
 RESULT_FILE = "/tmp/review_result.json"  # nosec: B108 - Predictable temp file path used for backward compatibility
 
 
 def get_pr_diff(pr_num: str) -> str:
-    result = subprocess.run(
-        f"gh pr diff {pr_num} --patch",
+    try:
+        result = subprocess.run(
             ["gh", "pr", "diff", pr_num, "--patch"],
-    )
-    diff = result.stdout
+            capture_output=True, text=True, timeout=30,
+        )
+        if result.returncode != 0:
+            return f"[diff unavailable: gh exited {result.returncode}: {result.stderr.strip()[:200]}]"
+        diff = result.stdout
+    except subprocess.TimeoutExpired:
+        return "[diff unavailable: gh timed out]"
     if len(diff) > 12000:
         diff = diff[:12000] + "\n...[diff truncated]"
     return diff
 
 
 def get_pr_files(pr_num: str) -> str:
-    result = subprocess.run(
-        f"gh pr view {pr_num} --json files -q '.files[].path'",
+    try:
+        result = subprocess.run(
             ["gh", "pr", "view", pr_num, "--json", "files", "-q", ".files[].path"],
-    )
-    return result.stdout.strip()
+            capture_output=True, text=True, timeout=30,
+        )
+        if result.returncode != 0:
+            return f"[files unavailable: gh exited {result.returncode}: {result.stderr.strip()[:200]}]"
+        return result.stdout.strip()
+    except subprocess.TimeoutExpired:
+        return "[files unavailable: gh timed out]"
 
 
 def load_council_skill() -> str:
@@ -66,6 +76,15 @@ def main() -> None:
 
     diff = get_pr_diff(PR_NUMBER)
     files = get_pr_files(PR_NUMBER)
+
+    # Fail closed: if we couldn't fetch the diff we cannot do a real review.
+    if diff.startswith("[diff unavailable"):
+        print(f"ERROR: {diff}", file=sys.stderr)
+        result = {"verdict": "FAIL", "summary": f"Review failed: {diff}", "details": ""}
+        with open(RESULT_FILE, "w") as f:
+            json.dump(result, f)
+        sys.exit(1)
+
     skill = load_council_skill()
 
     prompt = textwrap.dedent(f"""
@@ -105,12 +124,19 @@ def main() -> None:
         base_url="https://integrate.api.nvidia.com/v1",
         api_key=api_key,
     )
-    response = client.chat.completions.create(
-        model="nvidia/nemotron-3-super-120b-a12b",
-        max_tokens=2048,
-        messages=[{"role": "user", "content": prompt}],
-    )
-    text = response.choices[0].message.content or ""
+    try:
+        response = client.chat.completions.create(
+            model="qwen/qwen3-coder-480b-a35b-instruct",
+            max_tokens=2048,
+            messages=[{"role": "user", "content": prompt}],
+        )
+        text = response.choices[0].message.content or ""
+    except APIError as exc:
+        print(f"ERROR: API call failed: {exc}", file=sys.stderr)
+        result = {"verdict": "FAIL", "summary": f"Review failed: {exc}", "details": ""}
+        with open(RESULT_FILE, "w") as f:
+            json.dump(result, f)
+        sys.exit(1)
     print(text)
 
     # Parse verdict — fail closed if output is unparseable

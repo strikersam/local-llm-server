@@ -321,8 +321,9 @@ class ProviderRouter:
         if primary_provider:
             providers.append(primary_provider)
         else:
-            # Determine whether to include Ollama as a fallback
-            # In hosted mode (NVIDIA key present), we skip Ollama fallback unless explicitly opted in
+            # Include Ollama as local fallback unless a cloud-hosted NVIDIA key is present.
+            # When NVIDIA_API_KEY is set, skip Ollama by default (it's likely not running);
+            # set INCLUDE_LOCAL_FALLBACK=true to force-include it even in hosted mode.
             include_local_fallback = os.environ.get("INCLUDE_LOCAL_FALLBACK", "false").lower() == "true"
             has_nvidia_key = bool(nvidia_key)
             if not has_nvidia_key or include_local_fallback:
@@ -339,7 +340,6 @@ class ProviderRouter:
                         priority=0,  # local Ollama beats windows-server (5) and cloud fallbacks
                     )
                 )
-        # If we have NVIDIA key and not including local fallback, we skip Ollama
 
         windows_base = (
             (os.environ.get("OLLAMA_WINDOWS_SERVER") or "").strip().rstrip("/")

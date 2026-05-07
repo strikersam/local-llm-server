@@ -52,7 +52,7 @@ def test_agent_mode_queues_async_job(monkeypatch, tmp_path: Path):
     monkeypatch.setattr("agent.loop.AgentRunner", FakeRunner)
 
     client = TestClient(proxy.app)
-    response = client.post("/api/chat/send", json={"content": "Implement feature", "agent_mode": True})
+    response = client.post("/api/chat/send", json={"content": "Implement this new feature", "agent_mode": True})
     assert response.status_code == 202
     body = response.json()
     assert body["status"] in {"queued", "running"}
@@ -89,7 +89,7 @@ def test_agent_mode_returns_runtime_validation_errors(monkeypatch, tmp_path: Pat
     monkeypatch.setattr("runtimes.adapters.internal_agent.InternalAgentAdapter.readiness_check", fake_readiness)
 
     client = TestClient(proxy.app)
-    response = client.post("/api/chat/send", json={"content": "Implement feature", "agent_mode": True})
+    response = client.post("/api/chat/send", json={"content": "Implement this new feature", "agent_mode": True})
     assert response.status_code == 412
     assert response.json()["detail"]["ready"] is False
 

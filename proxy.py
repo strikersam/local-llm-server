@@ -573,6 +573,8 @@ async def lifespan(app: FastAPI):
     _dispatcher_task = asyncio.create_task(_task_dispatcher.run_forever())
     log.info("Task dispatcher started in background")
 
+    app.state.PROVIDER_ROUTER = PROVIDER_ROUTER
+
     try:
         yield
     finally:

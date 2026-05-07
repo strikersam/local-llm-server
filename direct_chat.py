@@ -109,27 +109,23 @@ async def _get_github_token_for_user(user_email: str) -> str | None:
     return os.environ.get("GITHUB_TOKEN") or os.environ.get("GH_TOKEN")
 
 
-@direct_chat_router.post("/send")
-
 def _is_trivial_message(content: str) -> bool:
     """Determine if a message is trivial (e.g., greeting, short talk) that should bypass agent mode."""
     if not content or not isinstance(content, str):
         return False
     content = content.strip()
-    # List of trivial greetings and short phrases
     trivial_phrases = {
-        "hello", "hi", "hey", 
+        "hello", "hi", "hey",
         "good morning", "good afternoon", "good evening",
         "how are you", "what's up", "sup", "yo", "greetings",
         "hi there", "hello there", "hey there"
     }
-    # Also consider very short messages (less than 3 words) as trivial
     if len(content.split()) < 3:
         return True
     return content.lower() in trivial_phrases
 
 
-
+@direct_chat_router.post("/send")
 async def send_chat_message(
     req: ChatSendRequest,
     request: Request,

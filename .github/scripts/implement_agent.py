@@ -33,9 +33,10 @@ MAX_TURNS = 40
 # Model preference: heavy reasoning model first, reliable fallbacks after.
 # All are free-tier NVIDIA NIM models.
 CANDIDATE_MODELS = [
-    ("nvidia/nemotron-3-super-120b-a12b",       "reasoning (Nemotron 3 Super 120B)"),
-    ("qwen/qwen2.5-coder-32b-instruct",         "coding (Qwen2.5 Coder 32B)"),
+    ("qwen/qwen3-coder-480b-a35b-instruct",      "coding (Qwen3-Coder 480B — primary)"),
     ("nvidia/llama-3.1-nemotron-ultra-253b-v1", "reasoning (Nemotron Ultra 253B)"),
+    ("meta/llama-3.3-70b-instruct",             "coding (Llama 3.3 70B)"),
+    ("qwen/qwen2.5-coder-32b-instruct",         "coding (Qwen2.5 Coder 32B)"),
 ]
 
 
@@ -82,8 +83,8 @@ def tool_write_file(path: str, content: str) -> str:
 def tool_list_files(pattern: str = "**/*.py") -> str:
     try:
         result = subprocess.run(
-            f"git ls-files -- {pattern}",
             ["git", "ls-files", "--", pattern],
+            capture_output=True, text=True, timeout=30,
         )
         lines = result.stdout.strip().splitlines()
         return "\n".join(lines[:200]) if lines else "(no files matched)"

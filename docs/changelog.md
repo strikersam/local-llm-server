@@ -8,6 +8,16 @@
 - `security_fix_agent.py`: Branch cleanup ran unconditionally after both success and failure; now only cleans up on failure and returns early after a successful push.
 - `security_fix_agent.py`: pip upgrade path now rewrites `requirements.txt` via `pip freeze` so the change is actually tracked by git.
 - `security_fix_agent.py`: Removed `CODEQL_FIX_APPLIED.txt` dummy file creation; CodeQL fix now exits early with a clear message when no edits can be applied automatically.
+- `direct_chat.py` — `@direct_chat_router.post("/send")` decorator was accidentally applied to `_is_trivial_message` instead of `send_chat_message` (inserted between the decorator and the handler by commit b172df5); `/api/chat/send` now correctly routes requests.
+- `proxy.py` — `app.state.PROVIDER_ROUTER` was never set in the lifespan, causing `AttributeError` in the direct-chat regular-chat path; lifespan now sets it from the module-level singleton.
+- `frontend/src/index.css` — attribute selector used single quotes (`input[type='checkbox']`) but regression test expected double quotes; normalised to double quotes.
+- `tests/test_direct_chat_async.py` — test content "Implement feature" (2 words) was silently reclassified as trivial and bypassed agent mode; updated to 4-word content that is unambiguously non-trivial.
+- `.github/scripts/review_agent.py` — fail closed when diff fetch fails: if `gh pr diff` returns an error the script now writes a FAIL result and exits 1 instead of forwarding the placeholder to the LLM and potentially emitting a PASS/WARN.
+
+### Changed
+- `.github/scripts/implement_agent.py` — switched primary NVIDIA NIM model to `qwen/qwen3-coder-480b-a35b-instruct` (correct publisher namespace); fixed `tool_list_files` duplicate-arg `subprocess.run` bug; pipeline now uses NVIDIA APIs for agentic implementation.
+- `.github/scripts/review_agent.py` — switched council review model to `qwen/qwen3-coder-480b-a35b-instruct`; fixed `subprocess.run` duplicate-arg bug; added `subprocess.TimeoutExpired` and non-zero returncode handling; wrapped API call in try/except so the result file is always written on failure.
+- `provider_router.py` — `ollama-local` is excluded from the provider chain when `NVIDIA_API_KEY` is set (hosted mode); set `INCLUDE_LOCAL_FALLBACK=true` to force-include it even in hosted deployments.
 
 ## [4.0.0] - 2026-05-06
 

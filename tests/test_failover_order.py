@@ -103,9 +103,25 @@ def test_from_env_provider_order_local_first(monkeypatch):
     monkeypatch.delenv("HF_TOKEN", raising=False)
     monkeypatch.delenv("DEEPSEEK_API_KEY", raising=False)
     monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    monkeypatch.delenv("NVIDIA_API_KEY", raising=False)
+    monkeypatch.delenv("INCLUDE_LOCAL_FALLBACK", raising=False)
 
     router = ProviderRouter.from_env()
     assert router.providers[0].provider_id == "ollama-local"
+
+
+def test_from_env_excludes_ollama_when_nvidia_key_set(monkeypatch):
+    """ollama-local must NOT appear when NVIDIA_API_KEY is set and INCLUDE_LOCAL_FALLBACK is unset."""
+    monkeypatch.setenv("NVIDIA_API_KEY", "test-nvidia-key")
+    monkeypatch.delenv("INCLUDE_LOCAL_FALLBACK", raising=False)
+    monkeypatch.delenv("OLLAMA_WINDOWS_SERVER", raising=False)
+    monkeypatch.delenv("HF_TOKEN", raising=False)
+    monkeypatch.delenv("DEEPSEEK_API_KEY", raising=False)
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+
+    router = ProviderRouter.from_env()
+    ids = [p.provider_id for p in router.providers]
+    assert "ollama-local" not in ids
 
 
 def test_from_env_windows_comes_before_huggingface(monkeypatch):
