@@ -1,9 +1,9 @@
 {
   "schema_version": "1",
-  "session_id": "mobile-native-black-ui-2026-05-06",
-  "status": "in_progress",
-  "last_updated": "2026-05-06T13:18:00Z",
-  "next_step": "Stage the mobile-native frontend refresh, create the two frontend commits, push codex/mobile-native-black-ui, and open the PR with the verification notes and before/after screenshots.",
+  "session_id": "fix-openclaw-security-2026-05-07",
+  "status": "completed",
+  "last_updated": "2026-05-07T16:30:00Z",
+  "next_step": "Investigate red pipeline — likely openclaw workflows failing at npm install -g openclaw@latest (package may not exist on npm).",
   "completed_steps": [
     "rebuild-root-hosted-dashboard",
     "prioritize-nvidia-nemotron-defaults",
@@ -13,7 +13,8 @@
     "run-python-frontend-and-build-verification",
     "stabilize-direct-chat-provider-failover-and-recovery",
     "audit-mobile-native-black-ui-front-end",
-    "implement-mobile-native-black-ui-refresh"
+    "implement-mobile-native-black-ui-refresh",
+    "fix-openclaw-security-workflow-bugs"
   ],
   "tests_run": [
     "pytest -x — PASS (733 passed, 15 skipped)",

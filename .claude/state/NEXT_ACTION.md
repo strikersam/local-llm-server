@@ -1,20 +1,21 @@
-# NEXT ACTION — mobile-native-black-ui
+# NEXT ACTION — fix-openclaw-security
 
-**Session:** `mobile-native-black-ui-2026-05-06`
+**Session:** `fix-openclaw-security-2026-05-07`
 **Resume command:** `python scripts/ai_runner.py resume`
 **Status file:** `.claude/state/agent-state.json`
 **Checkpoint log:** `.claude/state/checkpoint.jsonl`
 
 ## Completed
-- Audited the current frontend architecture, theme tokens, dashboard shell, chat layout, login flow, and setup wizard
-- Identified remaining white-theme regressions in `SetupWizardPage.js` and `AuthCallback.js`
-- Created feature branch `codex/mobile-native-black-ui`
-- Confirmed the requested repository remote already matches `https://github.com/strikersam/local-llm-server`
-- Implemented the shared black mobile-first design system and refreshed the dashboard shell, login, setup, auth callback, and chat surfaces
-- Captured before/after mobile screenshots in `docs/screenshots/webui/mobile-refresh/`
-- Verified the frontend with `CI=true npm test -- --watch=false`, `npm run build`, and a Playwright smoke audit at mobile/tablet/desktop widths
+- Fixed 5 bugs in `.github/workflows/openclaw-security-automation.yml` and `.github/scripts/security_fix_agent.py`:
+  - Dependabot/CodeQL count not captured from Python stdout (shell vars never set)
+  - Invalid `dependabot-alerts: read` workflow permission key removed
+  - Unconditional branch deletion after successful push fixed
+  - pip upgrade now rewrites `requirements.txt` via `pip freeze`
+  - Removed `CODEQL_FIX_APPLIED.txt` dummy file creation
+- Updated `docs/changelog.md` under `[Unreleased] ### Fixed`
+- Opened and merged PR #82 to master
 
 ## Next
-- Stage the frontend refresh changes and session-state updates
-- Create two logical frontend commits
-- Push `codex/mobile-native-black-ui` and open the PR with UX/accessibility/responsive/testing notes plus the screenshot links
+- Investigate red pipeline — both openclaw workflows install `openclaw@latest` via npm,
+  which may not be a real package, causing the workflow to fail before our code changes run.
+  If confirmed, either replace with a real security tool or remove the npm install step.
