@@ -38,6 +38,18 @@ def test_agent_mode_queues_async_job(monkeypatch, tmp_path: Path):
     monkeypatch.setattr(direct_chat, "_agent_jobs", AgentJobManager())
     monkeypatch.setattr(direct_chat, "_agent_workspace_root", tmp_path / "workspaces")
 
+    # Stub PROVIDER_ROUTER so _run_agent_job can resolve provider settings
+    class _FakeProvider:
+        priority = 1
+        api_key = None
+        normalized_base_url = "http://localhost:11434"
+        def auth_headers(self): return {}
+
+    class _FakeRouter:
+        providers = [_FakeProvider()]
+
+    proxy.app.state.PROVIDER_ROUTER = _FakeRouter()
+
     async def fake_readiness(self, spec):
         return RuntimeReadinessReport(runtime_id="internal_agent", ready=True, selected_runtime="internal_agent")
 
@@ -52,7 +64,8 @@ def test_agent_mode_queues_async_job(monkeypatch, tmp_path: Path):
     monkeypatch.setattr("agent.loop.AgentRunner", FakeRunner)
 
     client = TestClient(proxy.app)
-    response = client.post("/api/chat/send", json={"content": "Implement this new feature", "agent_mode": True})
+    # Use 5+ words with a code-op keyword so the trivial-message filter doesn't downgrade to regular chat
+    response = client.post("/api/chat/send", json={"content": "Please implement this important new feature", "agent_mode": True})
     assert response.status_code == 202
     body = response.json()
     assert body["status"] in {"queued", "running"}
@@ -89,7 +102,7 @@ def test_agent_mode_returns_runtime_validation_errors(monkeypatch, tmp_path: Pat
     monkeypatch.setattr("runtimes.adapters.internal_agent.InternalAgentAdapter.readiness_check", fake_readiness)
 
     client = TestClient(proxy.app)
-    response = client.post("/api/chat/send", json={"content": "Implement this new feature", "agent_mode": True})
+    response = client.post("/api/chat/send", json={"content": "Please implement this important new feature", "agent_mode": True})
     assert response.status_code == 412
     assert response.json()["detail"]["ready"] is False
 
