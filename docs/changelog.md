@@ -1,6 +1,8 @@
 # Changelog
 
 ## [Unreleased]
+### Fixed
+- Removed automatic Ollama fallback in provider router to prevent connection errors when Ollama is not running. Ollama is now only included when INCLUDE_LOCAL_FALLBACK=true is explicitly set, preserving NVIDIA NIM as highest priority when NVIDIA_API_KEY is set.
 
 ## [4.0.0] - 2026-05-06
 
