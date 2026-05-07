@@ -14,6 +14,7 @@ import asyncio
 import httpx
 
 from agent.context_manager import ContextManager
+from agent.inference_cache import InferenceCache
 from agent.models import AgentPlan, ToolCall, VerificationResult
 from agent.prompts import (
     build_compaction_prompt,
@@ -109,6 +110,39 @@ class AgentRunner:
         self.email = email
         self.department = department
         self.key_id = key_id
+
+        # Build ProviderRouter once at init time rather than per LLM call.
+        # payload["model"] always overrides default_model at routing time
+        # (see provider_router.py L711), so a single cached router handles
+        # all model variants without rebuilding on every _chat_text() call.
+        _is_ollama = (
+            "11434" in self.ollama_base
+            or "ollama" in self.ollama_base
+            or "localhost" in self.ollama_base
+            or "127.0.0.1" in self.ollama_base
+        )
+        _has_auth_headers = bool(self.provider_headers)
+        _nvidia_key = (
+            os.environ.get("NVIDIA_API_KEY") or os.environ.get("NVidiaApiKey") or None
+        ) if not _is_ollama and not _has_auth_headers else None
+        _primary = ProviderConfig(
+            provider_id="agent-primary",
+            type="ollama" if _is_ollama else "openai-compatible",
+            base_url=self.ollama_base,
+            api_key=_nvidia_key,
+            headers=dict(self.provider_headers),
+            default_model=None,
+            priority=0,
+        )
+        self._router: ProviderRouter = (
+            ProviderRouter([_primary, *self.provider_chain])
+            if self.provider_chain
+            else ProviderRouter.from_env(primary_provider=_primary)
+        )
+
+        # Inference cache: serves repeated identical prompts without hitting
+        # the LLM again.  Useful across retries and similar sequential tasks.
+        self._inference_cache = InferenceCache()
 
     async def run(
         self,
@@ -964,40 +998,41 @@ class AgentRunner:
         payload: dict[str, Any] = {"model": model, "messages": messages, "stream": False}
         if self.provider_temperature is not None:
             payload["temperature"] = self.provider_temperature
+
+        # Fast path: return cached response without touching the LLM.
+        cache_kwargs: dict[str, Any] = {}
+        if self.provider_temperature is not None:
+            cache_kwargs["temperature"] = self.provider_temperature
+        cached = self._inference_cache.get(model=model, messages=messages, **cache_kwargs)
+        if cached is not None:
+            log.debug("_chat_text cache HIT model=%s", model)
+            return cached
+
         start = time.perf_counter()
-        # Detect provider type from URL — Nvidia NIM and other cloud APIs are
-        # openai-compatible; local Ollama uses the ollama protocol.
-        _is_ollama = (
-            "11434" in self.ollama_base
-            or "ollama" in self.ollama_base
-            or "localhost" in self.ollama_base
-            or "127.0.0.1" in self.ollama_base
-        )
-        # Only inject the NVIDIA api_key when there are no provider_headers carrying
-        # auth already (e.g. DeepSeek / Anthropic pass their key via headers; adding
-        # the NVIDIA key on top would clobber the Authorization header they set).
-        _has_auth_headers = bool(self.provider_headers)
-        _nvidia_key = (
-            os.environ.get("NVIDIA_API_KEY") or os.environ.get("NVidiaApiKey") or None
-        ) if not _is_ollama and not _has_auth_headers else None
-        primary = ProviderConfig(
-            provider_id="agent-primary",
-            type="ollama" if _is_ollama else "openai-compatible",
-            base_url=self.ollama_base,
-            api_key=_nvidia_key,
-            headers=dict(self.provider_headers),
-            default_model=model,
-            priority=0,
-        )
-        router = ProviderRouter([primary, *self.provider_chain]) if self.provider_chain else ProviderRouter.from_env(primary_provider=primary)
-        result = await router.chat_completion(
+        # Reuse the ProviderRouter built at __init__ time — avoids re-reading
+        # env vars and re-constructing ProviderConfig on every call.
+        result = await self._router.chat_completion(
             payload,
             allow_commercial_fallback=self.allow_commercial_fallback,
         )
         duration_ms = int((time.perf_counter() - start) * 1000)
         data = result.response.json()
         out_text = data["choices"][0]["message"]["content"]
-        
+
+        # Store in inference cache so retries and similar tasks skip the LLM.
+        usage = data.get("usage", {})
+        tokens_used = int(
+            usage.get("total_tokens", 0)
+            or (usage.get("prompt_tokens", 0) + usage.get("completion_tokens", 0))
+        )
+        self._inference_cache.set(
+            model=model,
+            messages=messages,
+            response=out_text,
+            tokens_used=tokens_used,
+            **cache_kwargs,
+        )
+
         # Emit Langfuse observation
         if self.email:
             usage = data.get("usage", {})
