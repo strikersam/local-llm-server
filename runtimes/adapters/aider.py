@@ -28,6 +28,7 @@ from runtimes.base import (
     IntegrationMode,
     RuntimeAdapter,
     RuntimeCapability,
+    RuntimeDependency,
     RuntimeExecutionError,
     RuntimeHealth,
     RuntimeTier,
@@ -72,6 +73,15 @@ class AiderAdapter(RuntimeAdapter):
             str((config or {}).get("no_auto_commit", os.environ.get("AIDER_NO_AUTO_COMMIT", "false"))).lower()
             == "true"
         )
+
+    def required_dependencies(self) -> list[RuntimeDependency]:
+        return [
+            RuntimeDependency(
+                name="aider",
+                config_var="AIDER_BIN",
+                install_hint="Install aider-chat and set AIDER_BIN if needed.",
+            )
+        ] if not self._base_url else []
 
     async def health_check(self) -> RuntimeHealth:
         if self._base_url:

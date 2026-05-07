@@ -24,7 +24,12 @@ from collections.abc import Mapping
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
 
-from runtimes.base import TaskSpec, RuntimeUnavailableError, RuntimeExecutionError
+from runtimes.base import (
+    TaskSpec,
+    RuntimeExecutionError,
+    RuntimePreflightError,
+    RuntimeUnavailableError,
+)
 from runtimes.manager import get_runtime_manager
 from runtimes.control import start_runtime, stop_runtime, start_all_runtimes, stop_all_runtimes
 
@@ -153,8 +158,13 @@ async def run_task_on_runtime(
     )
 
     try:
+        report = await adapter.readiness_check(spec)
+        if not report.ready:
+            raise RuntimePreflightError(runtime_id, report)
         result = await adapter.execute(spec)
         return {"result": result.as_dict()}
+    except RuntimePreflightError as exc:
+        raise HTTPException(status_code=412, detail=exc.report.as_dict()) from exc
     except RuntimeUnavailableError as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
     except RuntimeExecutionError as exc:

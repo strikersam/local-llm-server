@@ -101,6 +101,25 @@ async def test_comment_on_review_task_requeues_execution(workflow: TaskWorkflowS
 
 
 @pytest.mark.asyncio
+async def test_comment_on_review_task_without_agent_still_requeues_execution(workflow: TaskWorkflowService):
+    task = Task(
+        owner_id="owner@example.com",
+        title="Review this patch",
+        status=TaskStatus.IN_REVIEW,
+        review_reason="Needs confirmation from a human reviewer",
+    )
+
+    workflow.add_comment(
+        task,
+        author="owner@example.com",
+        body="Please continue with the internal fallback runtime.",
+    )
+
+    assert task.status is TaskStatus.IN_PROGRESS
+    assert task.pending_agent_run is True
+
+
+@pytest.mark.asyncio
 async def test_create_task_auto_assigns_best_available_agent(
     workflow: TaskWorkflowService,
     agent_store: AgentStore,
@@ -141,6 +160,55 @@ async def test_create_task_auto_assigns_best_available_agent(
 
 
 @pytest.mark.asyncio
+async def test_create_task_prefers_least_busy_matching_agent(
+    workflow: TaskWorkflowService,
+    agent_store: AgentStore,
+    task_store: TaskStore,
+):
+    await agent_store.create(
+        AgentDefinition(
+            owner_id="owner@example.com",
+            agent_id="agent_busy",
+            name="Busy Code Agent",
+            model="qwen3-coder:30b",
+            task_types=["code_generation"],
+            is_public=True,
+        )
+    )
+    await agent_store.create(
+        AgentDefinition(
+            owner_id="owner@example.com",
+            agent_id="agent_free",
+            name="Free Code Agent",
+            model="qwen3-coder:30b",
+            task_types=["code_generation"],
+            is_public=True,
+        )
+    )
+    await task_store.create(
+        Task(
+            owner_id="owner@example.com",
+            title="Already running",
+            agent_id="agent_busy",
+            task_type="code_generation",
+            status=TaskStatus.IN_PROGRESS,
+            pending_agent_run=True,
+        )
+    )
+
+    task = Task(
+        owner_id="owner@example.com",
+        title="Generate endpoint",
+        description="Create the missing endpoint.",
+        task_type="code_generation",
+    )
+
+    await workflow.create_task(task, actor="owner@example.com")
+
+    assert task.agent_id == "agent_free"
+
+
+@pytest.mark.asyncio
 async def test_rejecting_checkpoint_requeues_task(workflow: TaskWorkflowService):
     task = Task(
         owner_id="owner@example.com",
@@ -164,6 +232,20 @@ async def test_rejecting_checkpoint_requeues_task(workflow: TaskWorkflowService)
     assert task.status is TaskStatus.IN_PROGRESS
     assert task.pending_agent_run is True
     assert checkpoint.approved is False
+
+
+@pytest.mark.asyncio
+async def test_transition_to_in_progress_requeues_even_without_agent(workflow: TaskWorkflowService):
+    task = Task(
+        owner_id="owner@example.com",
+        title="Resume backlog item",
+        status=TaskStatus.TODO,
+    )
+
+    workflow.transition(task, TaskStatus.IN_PROGRESS, actor="owner@example.com")
+
+    assert task.status is TaskStatus.IN_PROGRESS
+    assert task.pending_agent_run is True
 
 
 @dataclass
@@ -286,6 +368,29 @@ def test_create_task_persists_requested_status(api_client: TestClient):
     assert response.json()["task"]["status"] == "in_review"
 
 
+def test_run_task_endpoint_schedules_execution(api_client: TestClient, task_store: TaskStore, monkeypatch):
+    task = Task(owner_id="owner@example.com", title="Run me now", pending_agent_run=True)
+    asyncio.run(task_store.create(task))
+
+    calls: list[str] = []
+
+    class _StubCoordinator:
+        def __init__(self, **kwargs):
+            pass
+
+        async def execute(self, task_id: str):
+            calls.append(task_id)
+
+    monkeypatch.setattr("tasks.api.TaskExecutionCoordinator", _StubCoordinator)
+
+    response = api_client.post(f"/api/tasks/{task.task_id}/run")
+
+    assert response.status_code == 202
+    assert response.json()["queued"] is True
+    assert response.json()["task"]["task_id"] == task.task_id
+    assert calls == [task.task_id]
+
+
 @pytest.mark.asyncio
 async def test_scheduler_trigger_creates_real_task(
     task_store: TaskStore,
@@ -362,3 +467,91 @@ async def test_end_to_end_api_task_creation_and_execution_history(
     assert task["last_model_used"] == "qwen3-coder:30b"
     assert task["comments"][-1]["author"] == "agent:agent_e2e"
     assert any(entry["event_type"] == "runtime_selected" for entry in task["execution_log"])
+
+
+@pytest.mark.asyncio
+async def test_execution_timeout_marks_task_failed(
+    task_store: TaskStore,
+    workflow: TaskWorkflowService,
+) -> None:
+    task = Task(
+        owner_id="owner@example.com",
+        title="Long running task",
+        prompt="Do something slow.",
+        task_type="code_generation",
+        pending_agent_run=True,
+    )
+    await task_store.create(task)
+
+    class _SlowRuntimeManager:
+        async def execute(self, spec):
+            await asyncio.sleep(0.05)
+
+    coordinator = TaskExecutionCoordinator(
+        store=task_store,
+        workflow=workflow,
+        runtime_manager=_SlowRuntimeManager(),
+        workspace_root="/tmp/workspace",
+        execution_timeout_s=0.01,
+    )
+
+    updated = await coordinator.execute(task.task_id)
+
+    assert updated.status is TaskStatus.FAILED
+    assert updated.pending_agent_run is False
+    assert updated.error_message is not None
+    assert "timed out" in updated.error_message.lower()
+
+
+@pytest.mark.asyncio
+async def test_coordinator_deduplicates_overlapping_execution_requests(task_store: TaskStore) -> None:
+    task = Task(
+        owner_id="owner@example.com",
+        title="Only run once",
+        pending_agent_run=True,
+    )
+    await task_store.create(task)
+
+    started = asyncio.Event()
+    release = asyncio.Event()
+
+    class _SlowRuntimeManager:
+        def __init__(self) -> None:
+            self.calls = 0
+
+        async def execute(self, spec):
+            self.calls += 1
+            started.set()
+            await release.wait()
+            return (
+                _FakeResult(
+                    runtime_id="internal_agent",
+                    task_id=spec.task_id,
+                    success=True,
+                    output="done",
+                ),
+                _FakeDecision(
+                    selected_runtime_id="internal_agent",
+                    model_used=None,
+                    provider_used="local",
+                    reason="dedupe test",
+                ),
+            )
+
+    runtime_manager = _SlowRuntimeManager()
+    coordinator = TaskExecutionCoordinator(
+        store=task_store,
+        workflow=TaskWorkflowService(store=task_store),
+        runtime_manager=runtime_manager,
+        workspace_root="/tmp/workspace",
+    )
+
+    first = asyncio.create_task(coordinator.execute(task.task_id))
+    await started.wait()
+    second = asyncio.create_task(coordinator.execute(task.task_id))
+
+    await asyncio.sleep(0)
+    release.set()
+    await asyncio.gather(first, second)
+
+    assert runtime_manager.calls == 1

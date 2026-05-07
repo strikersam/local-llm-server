@@ -139,6 +139,14 @@ describe('SetupWizardPage rendering', () => {
     });
   });
 
+  test('renders a mobile steps toggle for narrow layouts', async () => {
+    mockHealthyBackend();
+    mockSetupState();
+    renderWizard();
+
+    expect(await screen.findByTestId('mobile-steps-toggle')).toBeInTheDocument();
+  });
+
   test('shows loading indicator while fetching state', () => {
     mockHealthyBackend();
     // Make getSetupState never resolve so loading persists
@@ -146,7 +154,7 @@ describe('SetupWizardPage rendering', () => {
     renderWizard();
     // Loading spinner should appear (it's shown while loadingState=true)
     // The sidebar is immediately visible
-    expect(screen.getByText('🧠 Setup Wizard')).toBeInTheDocument();
+    expect(screen.getAllByText('🧠 Setup Wizard').length).toBeGreaterThan(0);
   });
 });
 
@@ -192,14 +200,20 @@ describe('Prefill from saved wizard state', () => {
       current_step: 2,
       step2_model: {
         default_model: 'llama3:8b',
-        reviewer_model: 'mistral:7b',
+        planner_model: 'planner-x',
+        executor_model: 'coder-x',
+        verifier_model: 'mistral:7b',
+        judge_model: 'judge-x',
       },
     });
     renderWizard();
 
     // After state loads, component should show step 2 with the saved model names
     await screen.findByDisplayValue('llama3:8b');
+    expect(screen.getByDisplayValue('planner-x')).toBeInTheDocument();
+    expect(screen.getByDisplayValue('coder-x')).toBeInTheDocument();
     expect(screen.getByDisplayValue('mistral:7b')).toBeInTheDocument();
+    expect(screen.getByDisplayValue('judge-x')).toBeInTheDocument();
   });
 
   test('prefills Step 4 agent name from saved state', async () => {
@@ -217,13 +231,55 @@ describe('Prefill from saved wizard state', () => {
     await screen.findByDisplayValue('Coder Bot');
   });
 
-  test('calls onComplete callback when setup is already completed', async () => {
+  test('reopens a completed setup for editing instead of exiting immediately', async () => {
     mockHealthyBackend();
-    api.getSetupState.mockResolvedValue({ data: { completed: true } });
+    api.getSetupState.mockResolvedValue({
+      data: {
+        completed: true,
+        current_step: 5,
+        step1_providers: {},
+        step2_model: {},
+        step3_runtimes: {},
+        step4_agent: {},
+        step5_policy: { enable_langfuse: true, langfuse_host: 'https://telemetry.example.com' },
+      },
+    });
     const onComplete = jest.fn();
     renderWizard({ onComplete });
 
-    await waitFor(() => expect(onComplete).toHaveBeenCalled(), { timeout: 3000 });
+    expect(await screen.findByText(/saved setup loaded/i)).toBeInTheDocument();
+    expect(screen.getByDisplayValue('https://telemetry.example.com')).toBeInTheDocument();
+    expect(onComplete).not.toHaveBeenCalled();
+  });
+
+  test('uses the backend-provided Langfuse host as the default setup value', async () => {
+    api.getBackendUrl.mockReturnValue('http://localhost:8000');
+    api.getSetupState.mockResolvedValue({
+      data: {
+        completed: false,
+        current_step: 5,
+        step1_providers: {},
+        step2_model: {},
+        step3_runtimes: {},
+        step4_agent: {},
+        step5_policy: { enable_langfuse: true },
+      },
+    });
+    global.fetch = jest.fn(async (url) => {
+      if (url.includes('/api/health')) return { ok: true, status: 200 };
+      if (url.includes('/api/setup/detect/providers')) {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({ langfuse: { configured: true, host: 'https://trace.example.com' } }),
+        };
+      }
+      return { ok: false, status: 404, json: async () => ({}) };
+    });
+
+    renderWizard();
+
+    expect(await screen.findByDisplayValue('https://trace.example.com')).toBeInTheDocument();
   });
 });
 
@@ -271,7 +327,7 @@ describe('localStorage draft fallback', () => {
     await screen.findByText(/connect to your local llm server/i);
     // localStorage was applied (draft loaded but user still needs to connect for step 4)
     // The draft is loaded internally; no visible assertion needed beyond "not crashing"
-    expect(screen.getByText('🧠 Setup Wizard')).toBeInTheDocument();
+    expect(screen.getAllByText('🧠 Setup Wizard').length).toBeGreaterThan(0);
   });
 });
 
@@ -330,13 +386,13 @@ describe('Backend connection banner', () => {
 // ─── Done screen ──────────────────────────────────────────────────────────────
 
 describe('Done screen', () => {
-  test('renders done screen when setup is already completed', async () => {
+  test('shows the editable saved-setup banner when setup is already completed', async () => {
     mockHealthyBackend();
-    api.getSetupState.mockResolvedValue({ data: { completed: true } });
+    api.getSetupState.mockResolvedValue({ data: { completed: true, current_step: 5 } });
 
     renderWizard();
 
-    await screen.findByText(/you're all set/i, {}, { timeout: 3000 });
-    expect(screen.getByText(/open control plane/i)).toBeInTheDocument();
+    await screen.findByText(/saved setup loaded/i, {}, { timeout: 3000 });
+    expect(screen.getByText(/update your saved setup anytime/i)).toBeInTheDocument();
   });
 });

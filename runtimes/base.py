@@ -19,8 +19,11 @@ from __future__ import annotations
 import abc
 import asyncio
 import logging
-from dataclasses import dataclass, field
+import os
+import shutil
+from dataclasses import dataclass, field as dataclass_field
 from enum import Enum
+from pathlib import Path
 from typing import Any, AsyncIterator
 
 log = logging.getLogger("qwen-proxy")
@@ -86,6 +89,85 @@ class RuntimeExecutionError(Exception):
         super().__init__(f"Runtime '{runtime_id}' execution error: {message}")
 
 
+class RuntimePreflightError(Exception):
+    """Raised when a runtime fails readiness validation before execution starts."""
+
+    def __init__(self, runtime_id: str, report: "RuntimeReadinessReport") -> None:
+        self.runtime_id = runtime_id
+        self.report = report
+        super().__init__(
+            f"Runtime '{runtime_id}' failed preflight: {report.summary or 'runtime is not ready'}"
+        )
+
+
+@dataclass
+class RuntimeDependency:
+    """One runtime dependency that can be validated during preflight."""
+
+    name: str
+    kind: str = "binary"
+    config_var: str | None = None
+    install_hint: str | None = None
+    required: bool = True
+
+
+@dataclass
+class RuntimeValidationIssue:
+    """Structured, actionable preflight validation issue."""
+
+    code: str
+    message: str
+    field: str | None = None
+    fix_hint: str | None = None
+    details: dict[str, Any] = dataclass_field(default_factory=dict)
+
+    def as_dict(self) -> dict[str, Any]:
+        return {
+            "code": self.code,
+            "message": self.message,
+            "field": self.field,
+            "fix_hint": self.fix_hint,
+            "details": self.details,
+        }
+
+
+@dataclass
+class RuntimeReadinessReport:
+    """Preflight result returned before a runtime task starts."""
+
+    runtime_id: str
+    ready: bool
+    health: RuntimeHealth | None = None
+    selected_runtime: str | None = None
+    workspace_path: str | None = None
+    dependencies: list[RuntimeDependency] = dataclass_field(default_factory=list)
+    tools: dict[str, Any] = dataclass_field(default_factory=dict)
+    issues: list[RuntimeValidationIssue] = dataclass_field(default_factory=list)
+    summary: str = ""
+
+    def as_dict(self) -> dict[str, Any]:
+        return {
+            "runtime_id": self.runtime_id,
+            "selected_runtime": self.selected_runtime or self.runtime_id,
+            "ready": self.ready,
+            "summary": self.summary,
+            "workspace_path": self.workspace_path,
+            "health": self.health.as_dict() if self.health else None,
+            "dependencies": [
+                {
+                    "name": dep.name,
+                    "kind": dep.kind,
+                    "config_var": dep.config_var,
+                    "install_hint": dep.install_hint,
+                    "required": dep.required,
+                }
+                for dep in self.dependencies
+            ],
+            "tools": self.tools,
+            "issues": [issue.as_dict() for issue in self.issues],
+        }
+
+
 @dataclass
 class RuntimeHealth:
     """Health status snapshot for a runtime."""
@@ -94,7 +176,7 @@ class RuntimeHealth:
     version: str | None = None
     latency_ms: float | None = None
     error: str | None = None
-    details: dict[str, Any] = field(default_factory=dict)
+    details: dict[str, Any] = dataclass_field(default_factory=dict)
 
     def as_dict(self) -> dict[str, Any]:
         return {
@@ -114,15 +196,15 @@ class TaskResult:
     task_id: str
     success: bool
     output: str
-    artifacts: list[dict[str, Any]] = field(default_factory=list)
-    tool_calls: list[dict[str, Any]] = field(default_factory=list)
+    artifacts: list[dict[str, Any]] = dataclass_field(default_factory=list)
+    tool_calls: list[dict[str, Any]] = dataclass_field(default_factory=list)
     model_used: str | None = None
     provider_used: str | None = None
     tokens_used: int | None = None
     cost_usd: float | None = None
     execution_time_ms: float | None = None
     escalation_reason: str | None = None
-    metadata: dict[str, Any] = field(default_factory=dict)
+    metadata: dict[str, Any] = dataclass_field(default_factory=dict)
 
     def as_dict(self) -> dict[str, Any]:
         return {
@@ -155,7 +237,7 @@ class TaskSpec:
     allow_paid_escalation: bool = False
     max_tokens: int | None = None
     timeout_sec: int = 300
-    context: dict[str, Any] = field(default_factory=dict)
+    context: dict[str, Any] = dataclass_field(default_factory=dict)
     tool_allowlist: list[str] | None = None  # None = all tools allowed
 
 
@@ -216,6 +298,178 @@ class RuntimeAdapter(abc.ABC):
     async def stop(self) -> None:
         """Called when the runtime is being unregistered or the server
         is shutting down.  Override to terminate subprocesses."""
+
+    async def cleanup_workspace(self, workspace_path: str | None) -> None:
+        """Clean up any runtime-owned workspace resources after execution."""
+
+    def required_dependencies(self) -> list[RuntimeDependency]:
+        """Return runtime-specific dependency declarations for preflight."""
+        return []
+
+    def tool_availability_report(self) -> dict[str, Any]:
+        """Return a best-effort tool availability report for diagnostics."""
+        tools: dict[str, Any] = {}
+        for dependency in self.required_dependencies():
+            if dependency.kind == "binary":
+                configured_name = (
+                    os.environ.get(dependency.config_var, dependency.name)
+                    if dependency.config_var
+                    else dependency.name
+                )
+                tools[dependency.name] = {
+                    "kind": dependency.kind,
+                    "configured": configured_name,
+                    "resolved_path": shutil.which(configured_name),
+                    "config_var": dependency.config_var,
+                }
+        return tools
+
+    async def provision_workspace(self, workspace_path: str | None) -> tuple[str | None, list[RuntimeValidationIssue]]:
+        """Ensure the requested workspace exists and is writable."""
+        if not workspace_path:
+            return None, []
+
+        issues: list[RuntimeValidationIssue] = []
+        path = Path(workspace_path).expanduser()
+        try:
+            path.mkdir(parents=True, exist_ok=True)
+        except Exception as exc:
+            issues.append(
+                RuntimeValidationIssue(
+                    code="workspace_create_failed",
+                    field="workspace_path",
+                    message=f"Workspace '{path}' could not be created.",
+                    fix_hint="Choose a writable workspace path or create it before retrying.",
+                    details={"workspace_path": str(path), "error": str(exc)},
+                )
+            )
+            return str(path), issues
+
+        if not path.is_dir():
+            issues.append(
+                RuntimeValidationIssue(
+                    code="workspace_not_directory",
+                    field="workspace_path",
+                    message=f"Workspace '{path}' is not a directory.",
+                    fix_hint="Point the runtime at a directory path.",
+                    details={"workspace_path": str(path)},
+                )
+            )
+            return str(path), issues
+
+        if not os.access(path, os.W_OK):
+            issues.append(
+                RuntimeValidationIssue(
+                    code="workspace_not_writable",
+                    field="workspace_path",
+                    message=f"Workspace '{path}' is not writable.",
+                    fix_hint="Grant write permissions or select a different workspace path.",
+                    details={"workspace_path": str(path)},
+                )
+            )
+        return str(path), issues
+
+    async def validate_task_spec(self, spec: TaskSpec) -> list[RuntimeValidationIssue]:
+        """Validate task-specific prerequisites beyond runtime dependencies."""
+        issues: list[RuntimeValidationIssue] = []
+        if (spec.task_type in {"repo_editing", "git_operations"}) or bool(spec.context.get("requires_git")):
+            git_path = shutil.which("git")
+            if not git_path:
+                issues.append(
+                    RuntimeValidationIssue(
+                        code="missing_git",
+                        field="task_type",
+                        message="This task requires git, but the 'git' binary is not available.",
+                        fix_hint="Install git or run the task on a runtime with git available.",
+                        details={"selected_runtime": self.RUNTIME_ID},
+                    )
+                )
+
+        if spec.timeout_sec < 10:
+            issues.append(
+                RuntimeValidationIssue(
+                    code="timeout_too_small",
+                    field="timeout_sec",
+                    message="Timeout budget is too small for agent execution.",
+                    fix_hint="Increase timeout_sec to at least 10 seconds.",
+                    details={"timeout_sec": spec.timeout_sec},
+                )
+            )
+        return issues
+
+    async def readiness_check(self, spec: TaskSpec) -> RuntimeReadinessReport:
+        """Run runtime preflight validation before execution starts."""
+        health = await self.health_check()
+        issues: list[RuntimeValidationIssue] = []
+        dependencies = self.required_dependencies()
+
+        workspace_path, workspace_issues = await self.provision_workspace(spec.workspace_path)
+        issues.extend(workspace_issues)
+
+        for dependency in dependencies:
+            if dependency.kind == "binary":
+                configured_name = (
+                    os.environ.get(dependency.config_var, dependency.name)
+                    if dependency.config_var
+                    else dependency.name
+                )
+                resolved_path = shutil.which(configured_name)
+                if dependency.required and not resolved_path:
+                    fix_hint = dependency.install_hint or f"Install '{configured_name}' and ensure it is on PATH."
+                    if dependency.config_var:
+                        fix_hint += f" You can also point {dependency.config_var} at the binary."
+                    issues.append(
+                        RuntimeValidationIssue(
+                            code="missing_binary",
+                            field=dependency.config_var or dependency.name,
+                            message=f"Required binary '{configured_name}' is not available for runtime '{self.RUNTIME_ID}'.",
+                            fix_hint=fix_hint,
+                            details={
+                                "binary": configured_name,
+                                "dependency_name": dependency.name,
+                                "config_var": dependency.config_var,
+                                "selected_runtime": self.RUNTIME_ID,
+                                "fallback_runtime_available": False,
+                            },
+                        )
+                    )
+            elif dependency.kind == "env":
+                value = os.environ.get(dependency.name)
+                if dependency.required and not value:
+                    issues.append(
+                        RuntimeValidationIssue(
+                            code="missing_env_var",
+                            field=dependency.name,
+                            message=f"Required environment variable '{dependency.name}' is missing.",
+                            fix_hint=dependency.install_hint or f"Set {dependency.name} before starting this runtime.",
+                            details={"selected_runtime": self.RUNTIME_ID},
+                        )
+                    )
+
+        issues.extend(await self.validate_task_spec(spec))
+
+        if not health.available:
+            issues.append(
+                RuntimeValidationIssue(
+                    code="runtime_unhealthy",
+                    message=f"Runtime '{self.RUNTIME_ID}' is not ready.",
+                    fix_hint="Inspect the runtime health error and fix the runtime before retrying.",
+                    details={"health_error": health.error, "selected_runtime": self.RUNTIME_ID},
+                )
+            )
+
+        summary = issues[0].message if issues else f"Runtime '{self.RUNTIME_ID}' is ready."
+        return RuntimeReadinessReport(
+            runtime_id=self.RUNTIME_ID,
+            selected_runtime=self.RUNTIME_ID,
+            ready=not issues,
+            health=health,
+            workspace_path=workspace_path,
+            dependencies=dependencies,
+            tools=self.tool_availability_report(),
+            issues=issues,
+            summary=summary,
+        )
 
     # ── Introspection ─────────────────────────────────────────────────────────
 

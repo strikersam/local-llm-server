@@ -1,1 +1,0 @@
-Enhancement complete. Direct chat now includes session history, provider router integration (with NVIDIA NIM preference), agent mode enhancements, and session management.

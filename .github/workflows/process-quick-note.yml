@@ -1,9 +1,12 @@
 name: Process Quick Note
 
-# Triggered on schedule, manually, or by the self-retry mechanism.
+# Triggered on schedule, manually, push of sentinel file, or by the self-retry mechanism.
 on:
   schedule:
     - cron: '0 */4 * * *'
+  push:
+    branches: [master]
+    paths: ['.github/workflows/.trigger-quick-note']
   workflow_dispatch:
     inputs:
       issue_number:
@@ -244,19 +247,13 @@ jobs:
           fi
 
       # ── 11. Create pull request ────────────────────────────────────────────
-      - name: Authenticate gh CLI
-        id: gh-auth
-        if: steps.commit.outputs.changed == 'true'
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          echo "${GH_TOKEN}" | gh auth login --with-token
       - name: Create pull request
         id: pr
         if: steps.commit.outputs.changed == 'true'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
+          echo "${GH_TOKEN}" | gh auth login --with-token
           IMPL_SUMMARY=$(python3 -c "
           import json, sys
           try:

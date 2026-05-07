@@ -37,6 +37,8 @@ from agents.store import (
     get_agent_store,
 )
 from runtimes.manager import get_runtime_manager
+from tasks.models import TaskStatus
+from tasks.store import get_task_store
 
 log = logging.getLogger("qwen-proxy")
 agent_router = APIRouter(prefix="/api/agents", tags=["agents"])
@@ -74,6 +76,30 @@ def _with_runtime_health(agent_dict: dict) -> dict:
     return agent_dict
 
 
+def _apply_activity_status(
+    agent_dict: dict,
+    *,
+    open_task_count: int,
+    active_task_count: int,
+) -> dict:
+    runtime_health = agent_dict.get("runtime_health") or {}
+    runtime_available = runtime_health.get("available")
+
+    if active_task_count > 0 or open_task_count > 0:
+        status = "running"
+    elif runtime_available is False:
+        status = "error"
+    else:
+        status = "idle"
+
+    agent_dict["status"] = status
+    agent_dict["open_task_count"] = open_task_count
+    agent_dict["active_task_count"] = active_task_count
+    if active_task_count > 0 and not agent_dict.get("last_active"):
+        agent_dict["last_active"] = agent_dict.get("updated_at") or agent_dict.get("last_used_at")
+    return agent_dict
+
+
 # ── List ──────────────────────────────────────────────────────────────────────
 
 @agent_router.get("/")
@@ -88,8 +114,35 @@ async def list_agents(request: Request):
     else:
         agents = await store.list_for_user(uid, include_public=True)
 
+    task_store = get_task_store()
+    owner_scope = None if get_user_role(user) == UserRole.ADMIN else uid
+    open_counts = await task_store.count_by_agent(
+        owner_id=owner_scope,
+        statuses={
+            TaskStatus.TODO,
+            TaskStatus.IN_PROGRESS,
+            TaskStatus.IN_REVIEW,
+            TaskStatus.BLOCKED,
+        },
+    )
+    active_counts = await task_store.count_by_agent(
+        owner_id=owner_scope,
+        statuses={TaskStatus.IN_PROGRESS},
+    )
+
+    enriched = []
+    for agent in agents:
+        agent_dict = _with_runtime_health(agent.as_dict())
+        enriched.append(
+            _apply_activity_status(
+                agent_dict,
+                open_task_count=open_counts.get(agent.agent_id, 0),
+                active_task_count=active_counts.get(agent.agent_id, 0),
+            )
+        )
+
     return {
-        "agents": [_with_runtime_health(a.as_dict()) for a in agents],
+        "agents": enriched,
         "total": len(agents),
     }
 

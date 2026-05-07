@@ -1,5 +1,5 @@
 /**
- * ObservabilityPage.js — Cost Insights & Langfuse Integration (v3.1)
+ * ObservabilityPage.js — Cost Insights & Langfuse Integration (LLM Relay v4.0)
  *
  * Shows:
  *   - Total savings vs cloud APIs (this month / week / day)

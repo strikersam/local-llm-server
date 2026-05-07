@@ -1,22 +1,29 @@
 {
   "schema_version": "1",
-  "session_id": "github-pages-bug-sweep-2026-04-25",
+  "session_id": "fix-openclaw-security-2026-05-07",
   "status": "completed",
-  "last_updated": "2026-04-25T00:40:00Z",
-  "next_step": "Deploy the updated build and verify the live GitHub Pages auth/bootstrap flow.",
+  "last_updated": "2026-05-07T16:30:00Z",
+  "next_step": "Investigate red pipeline — likely openclaw workflows failing at npm install -g openclaw@latest (package may not exist on npm).",
   "completed_steps": [
-    "reproduce-router-and-deployment-bugs",
-    "fix-router-model-map-fallback",
-    "fix-prelogin-bootstrap-route",
-    "fix-frontend-backend-resolution",
-    "fix-oauth-origin-checks",
-    "stabilize-router-and-v3-auth-tests",
-    "browser-verify-bootstrap-and-login",
-    "changelog-update"
+    "rebuild-root-hosted-dashboard",
+    "prioritize-nvidia-nemotron-defaults",
+    "add-live-agent-status-and-stream-endpoints",
+    "persist-editable-setup-wizard-state-and-settings-shortcut",
+    "replace-external-harness-branding-with-task-harness",
+    "run-python-frontend-and-build-verification",
+    "stabilize-direct-chat-provider-failover-and-recovery",
+    "audit-mobile-native-black-ui-front-end",
+    "implement-mobile-native-black-ui-refresh",
+    "fix-openclaw-security-workflow-bugs"
   ],
   "tests_run": [
-    "./.venv/bin/pytest -x tests/test_model_router.py tests/test_frontend_deployment_guards.py — PASS",
+    "pytest -x — PASS (733 passed, 15 skipped)",
+    "CI=true npm test -- --watch=false (frontend/) — PASS (52 passed)",
+    "PUBLIC_URL=/local-llm-server REACT_APP_BACKEND_URL=https://relay.example.com npm run build (frontend/) — PASS",
+    "pytest -x — PASS (757 passed, 15 skipped)",
+    "pytest -x — BLOCKED (pytest not installed in current environment PATH and no local virtualenv present)",
+    "CI=true npm test -- --watch=false (frontend/) — PASS (71 passed)",
     "npm run build (frontend/) — PASS",
-    "./.venv/bin/pytest -x — PASS (613 passed)"
+    "Playwright smoke audit — PASS (login/setup/chat/dashboard at mobile/tablet/desktop, no horizontal overflow)"
   ]
 }

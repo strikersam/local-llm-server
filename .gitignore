@@ -1,37 +1,54 @@
 # Environment & secrets
 .env
+.env.*
 *.env
 !.env.example
 backend/.env
 frontend/.env
+credentials.json
+*.pem
+*.key
+.credentials
 
-# Dependencies
+# Dependencies & caches
 node_modules/
 __pycache__/
-*.pyc
+*.py[cod]
 .venv/
 venv/
+.pytest_cache/
 
-# Runtime data (created by app/tests at runtime)
+# Runtime data
 .data/
 *.db
-
-# Log files
+logs/
 *.log
-/**/*.js
-frontend/frontend.log
-proxy.log
-
-# Secrets / local key material
-keys.json
-
-# Runtime process files
+*.pid
 server.pids
+
+# Local key material
+keys.json
 
 # Build artifacts
 frontend/build/
 dist/
 *.egg-info/
+
+# Generated scratch outputs
+test_reports/
+scratch/verification/report.md
+
+# Temporary / backup files
+*.bak
+*.backup
+*.orig
+*.tmp
+*.fixed
+*.new
+*.log_added
+*.nvidia_*
+*.with_*
+*.test_provider_selection
 
 # IDE
 .vscode/
@@ -48,86 +65,3 @@ Thumbs.db
 .claude/settings.local.json
 .claude/sessions/
 .claude/todos
-# But DO commit project-level AI engineering files in .claude/
-# (skills, hooks, commands, agents, state are intentionally versioned)
--e 
-# Environment and credential files
-.env
-.env.*
-*.env
-credentials.json
-*.pem
-*.key
-.credentials
--e 
-# Environment and credential files
-.env
-.env.*
-*.env
-credentials.json
-*.pem
-*.key
-.credentials
--e 
-# Environment and credential files
-.env
-.env.*
-*.env
-credentials.json
-*.pem
-*.key
-.credentials
--e 
-# Environment and credential files
-.env
-.env.*
-*.env
-credentials.json
-*.pem
-*.key
-.credentials
--e 
-# Environment and credential files
-.env
-.env.*
-*.env
-credentials.json
-*.pem
-*.key
-.credentials
--e 
-# Environment and credential files
-.env
-.env.*
-*.env
-credentials.json
-*.pem
-*.key
-.credentials
--e 
-# Environment and credential files
-.env
-.env.*
-*.env
-credentials.json
-*.pem
-*.key
-.credentials
--e 
-# Environment and credential files
-.env
-.env.*
-*.env
-credentials.json
-*.pem
-*.key
-.credentials
--e 
-# Environment and credential files
-.env
-.env.*
-*.env
-credentials.json
-*.pem
-*.key
-.credentials

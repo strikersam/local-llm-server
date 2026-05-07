@@ -17,6 +17,7 @@ running Ollama models.
 | Implementer | `.claude/agents/implementer.md` | qwen3-coder:30b | Execute file changes |
 | Reviewer | `.claude/agents/reviewer.md` | deepseek-r1:32b | Verify before apply |
 | Judge | `.claude/agents/judge.md` | deepseek-r1:32b | Release gate |
+| OpenClaw | `N/A` | `N/A` | Maintenance: vulnerability fixes, code scan fixes, daily quality scans, regular smoke regression tests with bug reporting, issue raising and fixing |
 
 ## Operating Instructions
 

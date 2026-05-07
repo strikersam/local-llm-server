@@ -6,7 +6,18 @@
  */
 import React, { useState, useEffect, useCallback } from 'react';
 import { Plus, RefreshCw, X, Loader2, AlertTriangle, RotateCcw, ArrowUpCircle } from 'lucide-react';
-import { listTasks, createTask, updateTask, retryTask, escalateTask, addTaskComment, fmtErr } from '../api';
+import {
+  listTasks,
+  createTask,
+  updateTask,
+  retryTask,
+  escalateTask,
+  addTaskComment,
+  listAgents,
+  listRuntimes,
+  runTask,
+  fmtErr,
+} from '../api';
 
 function cls(...p) { return p.filter(Boolean).join(' '); }
 
@@ -117,7 +128,7 @@ function TaskCard({ task, isSelected, onClick }) {
 
 // ── Task detail panel ──────────────────────────────────────────────────────────
 
-function TaskDetailPanel({ task, onClose, onStatusChange, onRetry, onEscalate, onComment }) {
+function TaskDetailPanel({ task, onClose, onStatusChange, onRetry, onEscalate, onComment, onRunNow }) {
   const STATUSES = ['todo', 'in_progress', 'in_review', 'blocked', 'done', 'failed'];
   const [actionLoading, setActionLoading] = useState('');
   const [commentBody, setCommentBody] = useState('');
@@ -133,6 +144,10 @@ function TaskDetailPanel({ task, onClose, onStatusChange, onRetry, onEscalate, o
   async function doEscalate() {
     setActionLoading('escalate');
     try { await onEscalate(task.task_id); } finally { setActionLoading(''); }
+  }
+  async function doRunNow() {
+    setActionLoading('run');
+    try { await onRunNow(task.task_id); } finally { setActionLoading(''); }
   }
   async function doComment() {
     const body = commentBody.trim();
@@ -241,6 +256,16 @@ function TaskDetailPanel({ task, onClose, onStatusChange, onRetry, onEscalate, o
 
         {/* Actions */}
         <div className="flex gap-2">
+          {!['blocked', 'in_review', 'done'].includes(task.status) && (
+            <button onClick={doRunNow} disabled={!!actionLoading}
+              className="flex items-center gap-1.5 px-3 py-2 text-[10px] font-mono uppercase tracking-wider border rounded-lg transition-colors disabled:opacity-40"
+              style={{ borderColor: 'rgba(59,130,246,0.3)', color: '#60A5FA' }}>
+              {actionLoading === 'run'
+                ? <Loader2 size={11} className="animate-spin" />
+                : <RefreshCw size={11} />}
+              Run now
+            </button>
+          )}
           <button onClick={doRetry} disabled={!!actionLoading}
             className="flex items-center gap-1.5 px-3 py-2 text-[10px] font-mono uppercase tracking-wider border rounded-lg transition-colors disabled:opacity-40"
             style={{ borderColor: 'rgba(255,255,255,0.1)', color: C.tertiary }}>
@@ -327,40 +352,141 @@ function TaskDetailPanel({ task, onClose, onStatusChange, onRetry, onEscalate, o
 
 // ── New task form ──────────────────────────────────────────────────────────────
 
-function NewTaskForm({ colId, onAdd, onCancel }) {
+function NewTaskForm({ colId, agents, runtimes, onAdd, onCancel }) {
   const [title, setTitle] = useState('');
+  const [prompt, setPrompt] = useState('');
+  const [agentId, setAgentId] = useState('');
+  const [runtimeId, setRuntimeId] = useState('');
+  const [taskType, setTaskType] = useState('general');
+  const [priority, setPriority] = useState('medium');
+  const [modelPreference, setModelPreference] = useState('');
+  const [requiresApproval, setRequiresApproval] = useState(false);
   const [saving, setSaving] = useState(false);
 
-  async function submit() {
+  async function submit(runNow = false) {
     if (!title.trim() || saving) return;
     setSaving(true);
-    try { await onAdd({ title: title.trim(), status: colId }); } finally { setSaving(false); }
+    try {
+      await onAdd({
+        title: title.trim(),
+        prompt: prompt.trim(),
+        agent_id: agentId || null,
+        runtime_id: runtimeId || null,
+        task_type: taskType,
+        priority,
+        model_preference: modelPreference.trim() || null,
+        requires_approval: requiresApproval,
+        status: runNow || colId === 'in_progress' ? 'in_progress' : 'todo',
+        runNow,
+      });
+    } finally {
+      setSaving(false);
+    }
   }
 
   return (
-    <div className="rounded-lg p-2.5 border"
+    <div className="rounded-lg p-3 border space-y-2.5"
       style={{ borderColor: 'rgba(0,47,167,0.4)', background: 'rgba(0,47,167,0.05)' }}>
       <textarea
         autoFocus
         value={title}
         onChange={e => setTitle(e.target.value)}
+        data-testid="task-form-title"
         onKeyDown={e => {
-          if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); submit(); }
+          if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) { e.preventDefault(); submit(true); }
           if (e.key === 'Escape') onCancel();
         }}
         rows={2}
-        placeholder="Task title… Enter to add"
+        placeholder="Task title…"
         className="w-full bg-transparent text-[12px] font-mono resize-none outline-none"
         style={{ color: C.primary }}
       />
-      <div className="flex gap-1.5 mt-1.5">
-        <button onClick={submit} disabled={saving}
-          className="px-2 py-0.5 text-[9px] font-mono uppercase text-white rounded disabled:opacity-50"
+
+      <textarea
+        value={prompt}
+        onChange={e => setPrompt(e.target.value)}
+        data-testid="task-form-prompt"
+        rows={4}
+        placeholder="Execution prompt / acceptance criteria…"
+        className="w-full rounded border bg-transparent px-2.5 py-2 text-[11px] resize-y outline-none"
+        style={{ color: C.primary, borderColor: 'rgba(255,255,255,0.08)' }}
+      />
+
+      <div className="grid grid-cols-2 gap-2">
+        <label className="space-y-1 text-[9px] font-mono uppercase" style={{ color: C.muted }}>
+          Agent
+          <select value={agentId} onChange={e => setAgentId(e.target.value)} data-testid="task-form-agent"
+            className="w-full rounded border bg-transparent px-2 py-1.5 text-[11px] outline-none"
+            style={{ color: C.primary, borderColor: 'rgba(255,255,255,0.08)' }}>
+            <option value="">Auto-select</option>
+            {agents.map(agent => (
+              <option key={agent.agent_id} value={agent.agent_id}>{agent.name || agent.agent_id}</option>
+            ))}
+          </select>
+        </label>
+
+        <label className="space-y-1 text-[9px] font-mono uppercase" style={{ color: C.muted }}>
+          Runtime
+          <select value={runtimeId} onChange={e => setRuntimeId(e.target.value)} data-testid="task-form-runtime"
+            className="w-full rounded border bg-transparent px-2 py-1.5 text-[11px] outline-none"
+            style={{ color: C.primary, borderColor: 'rgba(255,255,255,0.08)' }}>
+            <option value="">Route automatically</option>
+            {runtimes.map(runtime => (
+              <option key={runtime.runtime_id} value={runtime.runtime_id}>{runtime.display_name || runtime.runtime_id}</option>
+            ))}
+          </select>
+        </label>
+
+        <label className="space-y-1 text-[9px] font-mono uppercase" style={{ color: C.muted }}>
+          Task type
+          <select value={taskType} onChange={e => setTaskType(e.target.value)} data-testid="task-form-type"
+            className="w-full rounded border bg-transparent px-2 py-1.5 text-[11px] outline-none"
+            style={{ color: C.primary, borderColor: 'rgba(255,255,255,0.08)' }}>
+            {['general', 'code_generation', 'code_review', 'repo_editing', 'git_operations', 'web_browse'].map(type => (
+              <option key={type} value={type}>{type.replace(/_/g, ' ')}</option>
+            ))}
+          </select>
+        </label>
+
+        <label className="space-y-1 text-[9px] font-mono uppercase" style={{ color: C.muted }}>
+          Priority
+          <select value={priority} onChange={e => setPriority(e.target.value)} data-testid="task-form-priority"
+            className="w-full rounded border bg-transparent px-2 py-1.5 text-[11px] outline-none"
+            style={{ color: C.primary, borderColor: 'rgba(255,255,255,0.08)' }}>
+            {['low', 'medium', 'high', 'urgent'].map(level => (
+              <option key={level} value={level}>{level}</option>
+            ))}
+          </select>
+        </label>
+      </div>
+
+      <input
+        value={modelPreference}
+        onChange={e => setModelPreference(e.target.value)}
+        data-testid="task-form-model"
+        placeholder="Optional model preference"
+        className="w-full rounded border bg-transparent px-2.5 py-2 text-[11px] outline-none"
+        style={{ color: C.primary, borderColor: 'rgba(255,255,255,0.08)' }}
+      />
+
+      <label className="flex items-center gap-2 text-[10px] font-mono" style={{ color: C.secondary }}>
+        <input type="checkbox" checked={requiresApproval} onChange={e => setRequiresApproval(e.target.checked)} />
+        Require human approval before done
+      </label>
+
+      <div className="flex gap-1.5 mt-1.5 flex-wrap">
+        <button onClick={() => submit(false)} disabled={saving}
+          className="px-2 py-1 text-[9px] font-mono uppercase text-white rounded disabled:opacity-50"
           style={{ background: C.accent }}>
-          {saving ? '…' : 'Add'}
+          {saving ? '…' : 'Add to board'}
+        </button>
+        <button onClick={() => submit(true)} disabled={saving}
+          className="px-2 py-1 text-[9px] font-mono uppercase rounded disabled:opacity-50"
+          style={{ border: '1px solid rgba(59,130,246,0.3)', color: '#60A5FA' }}>
+          Create & run
         </button>
         <button onClick={onCancel}
-          className="px-2 py-0.5 text-[9px] font-mono uppercase border rounded transition-colors"
+          className="px-2 py-1 text-[9px] font-mono uppercase border rounded transition-colors"
           style={{ borderColor: 'rgba(255,255,255,0.1)', color: C.tertiary }}>
           Cancel
         </button>
@@ -373,6 +499,8 @@ function NewTaskForm({ colId, onAdd, onCancel }) {
 
 export default function TasksPage() {
   const [tasks, setTasks]           = useState([]);
+  const [agents, setAgents]         = useState([]);
+  const [runtimes, setRuntimes]     = useState([]);
   const [loading, setLoading]       = useState(true);
   const [selected, setSelected]     = useState(null);
   const [newTaskCol, setNewTaskCol] = useState(null);
@@ -394,20 +522,40 @@ export default function TasksPage() {
     }
   }, [tasks.length]);
 
+  const loadMeta = useCallback(async () => {
+    try {
+      const [agentsResponse, runtimesResponse] = await Promise.all([
+        listAgents(),
+        listRuntimes(),
+      ]);
+      setAgents(agentsResponse.data.agents || []);
+      setRuntimes(runtimesResponse.data.runtimes || []);
+    } catch (e) {
+      setError(prev => prev || fmtErr(e));
+    }
+  }, []);
+
   useEffect(() => { load(); }, [load]);
+  useEffect(() => { loadMeta(); }, [loadMeta]);
   useEffect(() => {
     const timer = setInterval(() => { load(); }, 5000);
     return () => clearInterval(timer);
   }, [load]);
 
   // Agents derived from task data
-  const agents = [...new Set(tasks.map(t => t.agent_id).filter(Boolean))];
+  const agentFilters = [...new Set(tasks.map(t => t.agent_id).filter(Boolean))];
 
   const filtered = filter === 'all' ? tasks : tasks.filter(t => t.agent_id === filter);
 
-  async function handleAdd({ title, status }) {
-    const r = await createTask({ title, status, priority: 'medium' });
-    setTasks(prev => [r.data.task, ...prev]);
+  async function handleAdd(payload) {
+    const { runNow: shouldRunNow, ...taskPayload } = payload;
+    const createResponse = await createTask(taskPayload);
+    const createdTask = createResponse.data.task;
+    setTasks(prev => [createdTask, ...prev]);
+    if (shouldRunNow) {
+      await runTask(createdTask.task_id);
+      await load();
+    }
     setNewTaskCol(null);
   }
 
@@ -415,12 +563,20 @@ export default function TasksPage() {
     const r = await updateTask(taskId, { status });
     setTasks(prev => prev.map(t => t.task_id === taskId ? r.data.task : t));
     if (selected?.task_id === taskId) setSelected(r.data.task);
+    if (status === 'in_progress' && r.data.task?.pending_agent_run) {
+      await runTask(taskId);
+      await load();
+    }
   }
 
   async function handleRetry(taskId) {
     const r = await retryTask(taskId);
     setTasks(prev => prev.map(t => t.task_id === taskId ? r.data.task : t));
     if (selected?.task_id === taskId) setSelected(r.data.task);
+    if (r.data.task?.pending_agent_run) {
+      await runTask(taskId);
+      await load();
+    }
   }
 
   async function handleEscalate(taskId) {
@@ -433,6 +589,15 @@ export default function TasksPage() {
     const r = await addTaskComment(taskId, { body });
     setTasks(prev => prev.map(t => t.task_id === taskId ? r.data.task : t));
     if (selected?.task_id === taskId) setSelected(r.data.task);
+    if (r.data.task?.pending_agent_run) {
+      await runTask(taskId);
+      await load();
+    }
+  }
+
+  async function handleRunNow(taskId) {
+    await runTask(taskId);
+    await load();
   }
 
   const openCount = tasks.filter(t => t.status !== 'done').length;
@@ -464,7 +629,7 @@ export default function TasksPage() {
             }}>
             All
           </button>
-          {agents.map(ag => (
+          {agentFilters.map(ag => (
             <button key={ag} onClick={() => setFilter(ag)}
               className="px-2.5 py-1 text-[10px] font-mono border rounded transition-colors"
               style={{
@@ -523,7 +688,13 @@ export default function TasksPage() {
 
                 {/* New task input for this column */}
                 {newTaskCol === col.id && (
-                  <NewTaskForm colId={col.id} onAdd={handleAdd} onCancel={() => setNewTaskCol(null)} />
+                  <NewTaskForm
+                    colId={col.id}
+                    agents={agents}
+                    runtimes={runtimes}
+                    onAdd={handleAdd}
+                    onCancel={() => setNewTaskCol(null)}
+                  />
                 )}
 
                 {/* Placeholder if empty */}
@@ -568,6 +739,7 @@ export default function TasksPage() {
           onRetry={handleRetry}
           onEscalate={handleEscalate}
           onComment={handleComment}
+          onRunNow={handleRunNow}
         />
       )}
     </div>

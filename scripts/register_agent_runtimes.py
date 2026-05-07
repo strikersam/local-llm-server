@@ -5,7 +5,7 @@ Usage:
   python scripts/register_agent_runtimes.py [--reset]
 
 This script:
-1. Creates AgentDefinition entries for: hermes, opencode, goose, aider
+1. Creates AgentDefinition entries for: hermes, opencode, goose, task_harness, aider
 2. Stores them in MongoDB (or in-memory fallback)
 3. Reports registered agents with their IDs
 
@@ -52,6 +52,12 @@ RUNTIME_ROLES = {
         "description": "Multi-purpose AI development agent",
         "task_types": ["code_generation", "testing", "review"],
         "model": "goose:latest",
+    },
+    "task_harness": {
+        "name": "Task Harness",
+        "description": "Compatible external harness for long-running, multi-file agent workflows",
+        "task_types": ["code_generation", "repo_editing", "scheduled", "agent_delegation"],
+        "model": "task-harness:latest",
     },
     "aider": {
         "name": "Aider (Pair Programmer)",

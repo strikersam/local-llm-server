@@ -441,6 +441,17 @@ def _provider_headers_for_request(
     return None
 
 
+def _agent_failure_result(instruction: str) -> dict[str, object]:
+    return {
+        "goal": instruction,
+        "plan": None,
+        "steps": [],
+        "commits": [],
+        "summary": "Agent run failed. Check server logs for details.",
+        "status": "failed",
+    }
+
+
 # ─── App ────────────────────────────────────────────────────────────────────────
 
 _mongo_client: AsyncIOMotorClient | None = None
@@ -519,7 +530,7 @@ async def lifespan(app: FastAPI):
                     ],
                     "model": os.environ.get(
                         "AGENT_PLANNER_MODEL",
-                        "qwen/qwen2.5-coder-32b-instruct" if _nim_key else "gemma4:latest",
+                        "qwen/qwen2.5-coder-32b-instruct" if _nim_key else "nemotron-3-super-120b-a12b",
                     ),
                 },
             }
@@ -561,6 +572,8 @@ async def lifespan(app: FastAPI):
     SCHEDULER.set_on_fire(TASK_AUTOMATION.handle_scheduled_job)
     _dispatcher_task = asyncio.create_task(_task_dispatcher.run_forever())
     log.info("Task dispatcher started in background")
+
+    app.state.PROVIDER_ROUTER = PROVIDER_ROUTER
 
     try:
         yield
@@ -1347,14 +1360,7 @@ async def run_agent_task(
         )
     except Exception as exc:
         log.exception("Agent run failed")
-        result = {
-            "goal": body.instruction,
-            "plan": None,
-            "steps": [],
-            "commits": [],
-            "summary": f"Agent run failed: {exc}",
-            "status": "failed",
-        }
+        result = _agent_failure_result(body.instruction)
     AGENT_SESSIONS.append_message(session_id, "assistant", result["summary"])
     updated = AGENT_SESSIONS.update_result(
         session_id,
@@ -1426,14 +1432,7 @@ async def run_agent_once(
         )
     except Exception as exc:
         log.exception("Agent one-off run failed")
-        result = {
-            "goal": body.instruction,
-            "plan": None,
-            "steps": [],
-            "commits": [],
-            "summary": f"Agent run failed: {exc}",
-            "status": "failed",
-        }
+        result = _agent_failure_result(body.instruction)
     AGENT_SESSIONS.append_message(temp.session_id, "assistant", result["summary"])
     updated = AGENT_SESSIONS.update_result(
         temp.session_id,
@@ -2383,7 +2382,7 @@ async def openai_compat(
 if __name__ == "__main__":
     import uvicorn
 
-    log.info("Starting LLM Relay Control Plane v3 on port %d", PROXY_PORT)
+    log.info("Starting LLM Relay v4.0 Control Plane on port %d", PROXY_PORT)
     log.info(
         "Loaded %d env API key(s), %d key-store key(s)",
         len(VALID_API_KEYS),

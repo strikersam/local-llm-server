@@ -3,6 +3,9 @@ import os
 import subprocess
 import glob
 
+PROMPT_FILE = os.path.join("scratch", "verification", "prompt.txt")
+REPORT_FILE = os.path.join("scratch", "verification", "report.md")
+
 def check_files(files_str):
     files = [f.strip() for f in files_str.split(',')]
     missing = []
@@ -59,7 +62,7 @@ def check_feature(line):
     return None
 
 def main():
-    lines = open('prompt.txt', 'r', encoding='utf-8').read().splitlines()
+    lines = open(PROMPT_FILE, 'r', encoding='utf-8').read().splitlines()
     results = []
     for line in lines:
         if re.match(r'^\d+\t', line):
@@ -67,7 +70,7 @@ def main():
             if res:
                 results.append(res)
     
-    with open('report.md', 'w') as f:
+    with open(REPORT_FILE, 'w') as f:
         f.write("# Verification Report\n\n| # | Feature | Status | Notes |\n|---|---|---|---|\n")
         for r in results:
             note = r[3]

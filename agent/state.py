@@ -220,6 +220,22 @@ class AgentSessionStore:
                 return None
             return AgentSession.model_validate(session.model_dump())
 
+    def list(self) -> list[AgentSession]:
+        with self._lock:
+            return [AgentSession.model_validate(session.model_dump()) for session in self._sessions.values()]
+
+    def delete(self, session_id: str) -> bool:
+        with self._lock:
+            if session_id not in self._sessions:
+                return False
+            del self._sessions[session_id]
+            with self._connect() as conn:
+                conn.execute("DELETE FROM agent_events WHERE session_id = ?", (session_id,))
+                conn.execute("DELETE FROM session_messages WHERE session_id = ?", (session_id,))
+                conn.execute("DELETE FROM agent_sessions WHERE session_id = ?", (session_id,))
+                conn.commit()
+            return True
+
     def append_message(self, session_id: str, role: str, content: str) -> AgentSession:
         with self._lock:
             session = self._sessions[session_id]

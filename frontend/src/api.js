@@ -14,6 +14,15 @@ export function getBackendUrl() {
   return localStorage.getItem('backend_url') || getDefaultBackendUrl();
 }
 
+export function getAccessToken() {
+  return localStorage.getItem('access_token') || '';
+}
+
+export function getAuthHeaders() {
+  const token = getAccessToken();
+  return token ? { Authorization: `Bearer ${token}` } : {};
+}
+
 export function getPublicPath(path = '') {
   const base = (process.env.PUBLIC_URL || '').replace(/\/$/, '');
   if (!path) return base || '/';
@@ -121,6 +130,8 @@ export const chatSend = (content, sessionId, model, providerId, temperature, age
     agent_mode: agentMode,
     allow_commercial_fallback_once: allowCommercialFallbackOnce,
   });
+export const getAgentChatJob = (jobId) => API.get(`/api/chat/agent-jobs/${jobId}`);
+export const cancelAgentChatJob = (jobId) => API.post(`/api/chat/agent-jobs/${jobId}/cancel`);
 export const listSessions = () => API.get('/api/chat/sessions');
 export const getSession = (id) => API.get(`/api/chat/sessions/${id}`);
 export const deleteSession = (id) => API.delete(`/api/chat/sessions/${id}`);
@@ -212,6 +223,7 @@ export const updateTask = (id, data) => API.patch(`/api/tasks/${id}`, data);
 export const deleteTask = (id) => API.delete(`/api/tasks/${id}`);
 export const retryTask = (id) => API.post(`/api/tasks/${id}/retry`);
 export const escalateTask = (id) => API.post(`/api/tasks/${id}/escalate`);
+export const runTask = (id) => API.post(`/api/tasks/${id}/run`);
 export const addTaskComment = (id, data) => API.post(`/api/tasks/${id}/comments`, data);
 export const approveTaskCheckpoint = (id, data) => API.post(`/api/tasks/${id}/approve`, data);
 export const getTaskCounts = () => API.get('/api/tasks/counts');

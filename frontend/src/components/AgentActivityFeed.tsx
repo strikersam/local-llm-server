@@ -1,4 +1,5 @@
 import React, { useEffect, useRef, useState } from "react";
+import { createAgentWorkspaceEventSource } from "../utils/agentWorkspaceTransport";
 
 export interface ActivityEvent {
   id: string;
@@ -13,6 +14,7 @@ interface AgentActivityFeedProps {
   sessionId?: string;
   maxEvents?: number;
   className?: string;
+  onConnectionChange?: ((state: "connected" | "reconnecting" | "disconnected") => void) | null;
 }
 
 const AGENT_COLORS: Record<string, string> = {
@@ -52,6 +54,7 @@ export const AgentActivityFeed: React.FC<AgentActivityFeedProps> = ({
   sessionId,
   maxEvents = 100,
   className = "",
+  onConnectionChange = null,
 }) => {
   const [events, setEvents] = useState<ActivityEvent[]>([]);
   const [connected, setConnected] = useState(false);
@@ -65,14 +68,18 @@ export const AgentActivityFeed: React.FC<AgentActivityFeedProps> = ({
   pausedRef.current = paused;
 
   useEffect(() => {
-    const url = sessionId
-      ? `/api/agent/stream?session_id=${encodeURIComponent(sessionId)}`
-      : `/api/agent/stream`;
+    if (!sessionId || typeof EventSource === "undefined") {
+      setConnected(false);
+      return undefined;
+    }
 
-    const es = new EventSource(url);
+    const es = createAgentWorkspaceEventSource(sessionId);
     esRef.current = es;
 
-    es.onopen = () => setConnected(true);
+    es.onopen = () => {
+      setConnected(true);
+      onConnectionChange?.("connected");
+    };
 
     es.onmessage = (ev) => {
       try {
@@ -92,13 +99,15 @@ export const AgentActivityFeed: React.FC<AgentActivityFeedProps> = ({
 
     es.onerror = () => {
       setConnected(false);
+      onConnectionChange?.("reconnecting");
     };
 
     return () => {
       es.close();
       setConnected(false);
+      onConnectionChange?.("disconnected");
     };
-  }, [sessionId, maxEvents]);
+  }, [sessionId, maxEvents, onConnectionChange]);
 
   // Auto-scroll when not paused
   useEffect(() => {

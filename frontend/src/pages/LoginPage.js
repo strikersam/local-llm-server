@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useAuth } from '../AuthContext';
 import { fmtErr, getBackendUrl } from '../api';
-import { Lock, ArrowRight, AlertCircle, Github } from 'lucide-react';
+import { Lock, AlertCircle, Github, CheckCircle, Bot, Database } from 'lucide-react';
 
 const GoogleIcon = () => (
   <svg viewBox="0 0 24 24" width="15" height="15" fill="none">
@@ -16,7 +16,7 @@ const GoogleIcon = () => (
 function FieldGroup({ label, children }) {
   return (
     <div>
-      <label className="block text-[11px] font-semibold tracking-widest uppercase text-[#555555] mb-2">{label}</label>
+      <label className="block text-[0.85rem] font-semibold tracking-widest uppercase text-[var(--text-muted)] mb-2">{label}</label>
       {children}
     </div>
   );
@@ -31,7 +31,7 @@ function TextInput({ type, value, onChange, placeholder, required, testId }) {
       placeholder={placeholder}
       required={required}
       data-testid={testId}
-      className="w-full bg-black/40 border border-white/10 rounded-md px-4 py-3 text-sm text-white placeholder-[#444] outline-none focus:border-[#002FA7] focus:ring-1 focus:ring-[#002FA7]/30 transition-all min-h-[46px]"
+      className="app-input w-full px-4 py-3 text-[0.95rem] text-[var(--text-primary)] placeholder-[var(--text-muted)] min-h-[3.25rem]"
     />
   );
 }
@@ -59,14 +59,14 @@ export default function LoginPage() {
   };
 
   return (
-    <div className="min-h-[100dvh] w-full flex bg-[#0F0F13] relative overflow-hidden" data-testid="login-page">
+    <main className="app-shell min-h-[100dvh] w-full flex flex-col lg:flex-row relative overflow-hidden" data-testid="login-page">
       {/* Background gradient */}
       <div className="absolute inset-0 pointer-events-none">
-        <div className="absolute top-[-20%] left-[-10%] w-[600px] h-[600px] rounded-full bg-[#002FA7]/8 blur-[120px]" />
-        <div className="absolute bottom-[-10%] right-[-5%] w-[400px] h-[400px] rounded-full bg-[#002FA7]/5 blur-[100px]" />
-        <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_top_left,rgba(0,47,167,0.04),transparent_60%)]" />
+        <div className="absolute top-[-20%] left-[-10%] h-[32rem] w-[32rem] rounded-full blur-[130px]" style={{ background: 'rgba(93,162,255,0.16)' }} />
+        <div className="absolute bottom-[-10%] right-[-5%] h-[24rem] w-[24rem] rounded-full blur-[120px]" style={{ background: 'rgba(93,162,255,0.1)' }} />
+        <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_top_left,rgba(93,162,255,0.08),transparent_56%)]" />
         <div
-          className="absolute inset-0 opacity-[0.015]"
+          className="absolute inset-0 opacity-[0.02]"
           style={{
             backgroundImage: `url("data:image/svg+xml,%3Csvg width='32' height='32' viewBox='0 0 32 32' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M0 0h1v1H0V0zm16 16h1v1h-1v-1z' fill='%23ffffff' fill-opacity='1'/%3E%3C/svg%3E")`,
             backgroundSize: '32px 32px',
@@ -75,71 +75,81 @@ export default function LoginPage() {
       </div>
 
       {/* Left — branding panel (desktop only) */}
-      <div className="hidden lg:flex flex-col justify-between w-5/12 xl:w-1/2 p-12 xl:p-16 relative z-10">
+      <section className="hidden lg:flex flex-col justify-between w-5/12 xl:w-1/2 p-8 xl:p-10 relative z-10">
         <div className="animate-fade-in">
-          <div className="flex items-center gap-2.5 mb-12">
-            <div className="w-2 h-2 rounded-sm bg-[#002FA7]" />
-            <span className="text-[11px] tracking-[0.3em] uppercase text-[#555555] font-mono font-medium">Platform v3.1</span>
-          </div>
-          <h1 className="text-[80px] xl:text-[96px] font-bold tracking-[-0.04em] leading-[0.9] text-white" style={{ fontFamily: 'Outfit, sans-serif' }}>
-            LLM<br />RELAY
-          </h1>
-          <p className="text-[#6A6A6A] mt-6 text-lg leading-relaxed max-w-sm font-light" style={{ fontFamily: 'Outfit, sans-serif' }}>
-            Route, run, and control LLMs on your own hardware — not someone else's meter.
-          </p>
-          <div className="flex flex-wrap gap-2 mt-8">
-            {['Self-hosted', 'Open source', 'OpenAI-compatible'].map(tag => (
-              <span key={tag} className="px-3 py-1 border border-white/8 rounded-full text-[11px] text-[#555555] font-mono tracking-wide">
-                {tag}
-              </span>
-            ))}
-          </div>
-        </div>
-
-        <div className="text-[11px] text-[#333333] font-mono space-y-1 border-t border-white/5 pt-6 stagger-3">
-          <div><span className="text-[#555555]">RUNTIME</span> — Ollama · OpenAI Compatible · HuggingFace</div>
-          <div><span className="text-[#555555]">STORAGE</span> — MongoDB &nbsp;·&nbsp; <span className="text-[#555555]">OBS</span> — Langfuse</div>
-          <div><span className="text-[#555555]">ACCESS</span> — ngrok / Cloudflare Tunnel</div>
-        </div>
-      </div>
-
-      {/* Divider (desktop) */}
-      <div className="hidden lg:block w-px bg-white/5 self-stretch my-12" />
-
-      {/* Right — login card */}
-      <div className="flex-1 flex items-center justify-center relative z-10 p-5 sm:p-8">
-        <div className="w-full max-w-[400px] animate-fade-in">
-
-          {/* Mobile header */}
-          <div className="lg:hidden text-center mb-8">
-            <div className="inline-flex items-center gap-2 mb-4">
-              <div className="w-2 h-2 rounded-sm bg-[#002FA7]" />
-              <span className="text-[10px] tracking-[0.3em] uppercase text-[#555555] font-mono">Platform v3.1</span>
+          <div className="flex items-center gap-3 mb-8">
+            <div className="w-11 h-11 rounded-2xl flex items-center justify-center"
+              style={{ background: 'linear-gradient(180deg, #6CB0FF 0%, #4F93FF 100%)', boxShadow: '0 12px 28px rgba(93,162,255,0.22)' }}>
+              <Lock size={20} className="text-white" />
             </div>
-            <h1 className="text-4xl font-bold tracking-[-0.03em] text-white" style={{ fontFamily: 'Outfit, sans-serif' }}>LLM Relay</h1>
-            <p className="text-sm text-[#555555] mt-2">Route, run, and control LLMs.</p>
+            <div>
+              <div className="text-[1.35rem] font-extrabold text-[var(--text-primary)] tracking-[-0.04em]"
+                style={{ fontFamily: 'var(--font-main)' }}>LLM Relay v4.0</div>
+              <div className="text-[0.8rem] text-[var(--text-muted)] font-mono leading-none mt-1 tracking-[0.16em] uppercase">native black control plane</div>
+            </div>
           </div>
 
-          {/* Card */}
-          <div className="bg-[#141418] border border-white/8 rounded-xl overflow-hidden shadow-[0_24px_64px_rgba(0,0,0,0.6)]">
-
-            {/* Card header */}
-            <div className="px-6 py-4 border-b border-white/6 flex items-center gap-2.5">
-              <div className="w-7 h-7 rounded-md bg-[#002FA7]/15 border border-[#002FA7]/20 flex items-center justify-center">
-                <Lock size={13} className="text-[#002FA7]" />
+          {/* Features */}
+          <div className="app-panel-elevated p-8 space-y-5">
+            <div className="app-kicker">Private by default</div>
+            <div className="space-y-4">
+            <div className="flex items-center gap-3">
+              <CheckCircle size={16} className="flex-shrink-0 text-[var(--success)]" />
+              <div className="flex-1">
+                <h3 className="text-[1rem] font-semibold text-[var(--text-primary)] mb-1">Enterprise security</h3>
+                <p className="text-[0.92rem] text-[var(--text-tertiary)]">Local-first architecture keeps your data private and your control plane close at hand.</p>
               </div>
-              <span className="text-xs font-semibold tracking-[0.15em] uppercase text-[#666666]">Authenticate</span>
+            </div>
+            <div className="flex items-center gap-3">
+              <Bot size={16} className="flex-shrink-0 text-[var(--accent)]" />
+              <div className="flex-1">
+                <h3 className="text-[1rem] font-semibold text-[var(--text-primary)] mb-1">Multi-agent orchestration</h3>
+                <p className="text-[0.92rem] text-[var(--text-tertiary)]">Coordinate planning, execution, and review flows from one streamlined workspace.</p>
+              </div>
+            </div>
+            <div className="flex items-center gap-3">
+              <Database size={16} className="flex-shrink-0 text-[var(--role-power-user)]" />
+              <div className="flex-1">
+                <h3 className="text-[1rem] font-semibold text-[var(--text-primary)] mb-1">Knowledge integration</h3>
+                <p className="text-[0.92rem] text-[var(--text-tertiary)]">Connect agents to documents, runtime context, and the repositories they need to operate on.</p>
+              </div>
+            </div>
+            </div>
+          </div>
+        </div>
+
+        {/* Footer hint */}
+        <div className="app-panel px-6 py-4">
+          <p className="text-[0.8rem] text-[var(--text-muted)] font-mono">
+            Default: <span className="text-[var(--text-tertiary)]">admin@llmrelay.local</span>
+          </p>
+        </div>
+      </section>
+
+      {/* Right — form panel */}
+      <section className="flex-1 w-full lg:w-7/12 xl:w-1/2 px-4 sm:px-6 xl:px-8 py-[max(env(safe-area-inset-top,0px),1rem)] sm:py-10 lg:py-12 relative z-10 flex items-center">
+        <div className="w-full max-w-md mx-auto space-y-6">
+          <div className="lg:hidden flex items-center gap-3 pb-2">
+            <div className="w-10 h-10 rounded-2xl flex items-center justify-center"
+              style={{ background: 'linear-gradient(180deg, #6CB0FF 0%, #4F93FF 100%)', boxShadow: '0 12px 28px rgba(93,162,255,0.22)' }}>
+              <Lock size={18} className="text-white" />
+            </div>
+            <div>
+              <div className="text-[1.1rem] font-extrabold tracking-[-0.04em] text-[var(--text-primary)]">LLM Relay v4.0</div>
+              <div className="text-[0.72rem] font-mono uppercase tracking-[0.16em] text-[var(--text-muted)]">Secure mobile control plane</div>
+            </div>
+          </div>
+
+          <div className="app-panel-elevated p-5 sm:p-7 space-y-6">
+            <div className="space-y-3">
+              <div className="app-kicker">Sign in</div>
+              <h1 className="app-title text-[var(--text-primary)]">Sign in to Control Plane</h1>
+              <p className="app-subtitle">
+                Control your local AI stack from anywhere with a polished dark workspace designed for mobile and desktop.
+              </p>
             </div>
 
-            {/* Form */}
-            <form onSubmit={handleSubmit} className="p-6 space-y-4" data-testid="login-form">
-              {error && (
-                <div className="flex items-start gap-2.5 text-[#FF3333] text-sm bg-[#FF3333]/8 border border-[#FF3333]/20 rounded-lg p-3.5 animate-scale-in" data-testid="login-error">
-                  <AlertCircle size={15} className="shrink-0 mt-0.5" />
-                  <span className="leading-snug">{error}</span>
-                </div>
-              )}
-
+            <form onSubmit={handleSubmit} className="space-y-4">
               <FieldGroup label="Email">
                 <TextInput
                   type="email"
@@ -147,95 +157,101 @@ export default function LoginPage() {
                   onChange={(e) => setEmail(e.target.value)}
                   placeholder="admin@llmrelay.local"
                   required
-                  testId="login-email-input"
+                  testId="email-input"
                 />
               </FieldGroup>
-
               <FieldGroup label="Password">
                 <TextInput
                   type="password"
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
-                  placeholder="Enter your password"
+                  placeholder="••••••••"
                   required
-                  testId="login-password-input"
+                  testId="password-input"
                 />
               </FieldGroup>
+
+              {error && (
+                <div className="rounded-[18px] border p-4" style={{ background: 'rgba(255,107,125,0.1)', borderColor: 'rgba(255,107,125,0.22)' }}>
+                  <AlertCircle size={16} className="mb-2 text-[var(--danger)]" />
+                  <p className="text-[0.92rem] text-[var(--text-primary)]">{error}</p>
+                </div>
+              )}
 
               <button
                 type="submit"
                 disabled={loading}
-                className="w-full mt-2 bg-[#002FA7] hover:bg-[#0038CC] active:scale-[0.98] text-white rounded-md py-3 px-4 text-sm font-semibold flex items-center justify-center gap-2 transition-all duration-150 disabled:opacity-50 disabled:cursor-not-allowed min-h-[46px] shadow-[0_4px_12px_rgba(0,47,167,0.4)]"
-                data-testid="login-submit-button"
+                className="app-button-primary w-full rounded-[18px] text-[0.82rem]"
               >
                 {loading ? (
                   <>
-                    <div className="w-4 h-4 border-2 border-white/40 border-t-white rounded-full animate-spin" />
-                    <span>Authenticating…</span>
+                    <div className="w-4 h-4 border-2 border-t-transparent rounded-full animate-spin"
+                      style={{ borderColor: '#06111f' }} />
+                    <span>Signing in…</span>
                   </>
                 ) : (
                   <>
-                    <span>Sign in to Relay</span>
-                    <ArrowRight size={15} />
+                    <Lock size={18} />
+                    <span>Sign in</span>
                   </>
                 )}
               </button>
             </form>
 
-            {/* Social login */}
-            <div className="px-6 pb-6 space-y-4">
+            <div className="space-y-4">
               <div className="relative">
                 <div className="absolute inset-0 flex items-center">
-                  <div className="w-full border-t border-white/6" />
+                  <div className="w-full border-t border-[var(--border)]" />
                 </div>
                 <div className="relative flex justify-center">
-                  <span className="bg-[#111111] px-3 text-[11px] uppercase tracking-widest text-[#333333] font-mono">or</span>
+                  <span className="bg-[var(--bg-surface)] px-3 text-[0.7rem] font-mono uppercase tracking-[0.18em] text-[var(--text-muted)]">or continue with</span>
                 </div>
               </div>
 
-              <div className="grid grid-cols-2 gap-2.5">
+              <div className="grid grid-cols-1 xs:grid-cols-2 gap-3">
                 <a
                   href={hasBackendConfig ? `${backendUrl}/api/auth/github/login` : undefined}
-                  className="flex items-center justify-center gap-2 bg-white/4 hover:bg-white/8 border border-white/8 hover:border-white/14 rounded-md py-2.5 text-[12px] font-medium text-[#A0A0A0] hover:text-white transition-all min-h-[42px]"
                   aria-disabled={!hasBackendConfig}
                   onClick={(event) => {
                     if (!hasBackendConfig) event.preventDefault();
                   }}
+                  className="app-button-secondary rounded-[18px] normal-case tracking-normal text-[0.92rem]"
+                  style={{
+                    opacity: hasBackendConfig ? 1 : 0.6,
+                  }}
                 >
-                  <Github size={14} /> GitHub
+                  <Github size={16} />
+                  <span>GitHub</span>
                 </a>
                 <a
                   href={hasBackendConfig ? `${backendUrl}/api/auth/google/login` : undefined}
-                  className="flex items-center justify-center gap-2 bg-white/4 hover:bg-white/8 border border-white/8 hover:border-white/14 rounded-md py-2.5 text-[12px] font-medium text-[#A0A0A0] hover:text-white transition-all min-h-[42px]"
                   aria-disabled={!hasBackendConfig}
                   onClick={(event) => {
                     if (!hasBackendConfig) event.preventDefault();
                   }}
+                  className="app-button-secondary rounded-[18px] normal-case tracking-normal text-[0.92rem]"
+                  style={{
+                    opacity: hasBackendConfig ? 1 : 0.6,
+                  }}
                 >
-                  <GoogleIcon /> Google
+                  <GoogleIcon />
+                  <span>Google</span>
                 </a>
               </div>
-
-              {!hasBackendConfig && (
-                <p className="text-[11px] text-[#666666] leading-relaxed">
-                  Need to connect a backend first?{' '}
-                  <Link to="/bootstrap" className="text-[#8FA8FF] hover:text-white underline underline-offset-2">
-                    Open the setup wizard
-                  </Link>
-                  .
-                </p>
-              )}
-            </div>
-
-            {/* Footer hint */}
-            <div className="border-t border-white/5 px-6 py-3 bg-white/[0.015]">
-              <p className="text-[11px] text-[#444444] font-mono">
-                Default: <span className="text-[#666666]">admin@llmrelay.local</span>
-              </p>
             </div>
           </div>
+
+          {!hasBackendConfig && (
+            <p className="text-[0.9rem] text-[var(--text-tertiary)] leading-relaxed text-center">
+              Need to connect a backend first?{' '}
+              <Link to="/bootstrap" className="text-[var(--accent)] hover:text-[var(--accent-hover)] underline underline-offset-2 transition-colors duration-200">
+                Open the setup wizard
+              </Link>
+              .
+            </p>
+          )}
         </div>
-      </div>
-    </div>
+      </section>
+    </main>
   );
 }

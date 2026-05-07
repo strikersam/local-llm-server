@@ -15,7 +15,7 @@
       <span class="chip">Remote status</span>
     </div>
     {% if supports_windows_auth %}
-    <p class="muted" style="margin-top:1rem;">Accepted examples: <code>swami</code>, <code>HOSTNAME\swami</code>, or your domain-style username if this machine is domain-joined.</p>
+    <p class="muted" style="margin-top:1rem;">Accepted examples: <code>alice</code>, <code>HOSTNAME\alice</code>, or your domain-style username if this machine is domain-joined.</p>
     {% else %}
     <p class="muted" style="margin-top:1rem;">Windows auth is disabled, so the server falls back to the configured admin secret as the password.</p>
     {% endif %}
@@ -28,7 +28,7 @@
     {% endif %}
     <form method="post" action="/admin/ui/login">
       <label>Username</label>
-      <input type="text" name="username" placeholder="swami or HOSTNAME\\swami" />
+      <input type="text" name="username" placeholder="alice or HOSTNAME\\alice" />
       <label>Password</label>
       <input type="password" name="password" required />
       <button type="submit">Sign in</button>

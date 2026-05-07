@@ -235,8 +235,8 @@ Next steps:
 3. Use Claude Code normally!
 
 Documentation:
-  - CLAUDE-CODE-QUICKSTART.md
-  - CLAUDE-CODE-COMMAND-LINE.md
-  - AUTO-LAUNCHER-GUIDE.md
+  - README.md#quick-start
+  - docs/claude-code-setup.md
+  - docs/README.md
 
 "@

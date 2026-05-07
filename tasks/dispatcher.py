@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 
 from tasks.service import TaskExecutionCoordinator
 from tasks.store import TaskStore, get_task_store
@@ -19,11 +20,17 @@ class TaskDispatcher:
         *,
         workspace_root: str,
         poll_interval_s: float = 5.0,
+        max_concurrency: int | None = None,
         store: TaskStore | None = None,
         coordinator: TaskExecutionCoordinator | None = None,
     ) -> None:
         self.workspace_root = workspace_root
         self.poll_interval_s = poll_interval_s
+        self.max_concurrency = max(
+            1,
+            int(max_concurrency or 0)
+            or int(os.environ.get("TASK_DISPATCH_CONCURRENCY", "5")),
+        )
         self.store = store or get_task_store()
         self.coordinator = coordinator or TaskExecutionCoordinator(store=self.store, workspace_root=workspace_root)
         self._stop = False
@@ -42,9 +49,10 @@ class TaskDispatcher:
             await asyncio.sleep(self.poll_interval_s)
 
     async def _poll_and_execute(self) -> None:
-        tasks = await self.store.list_pending(limit=5)
-        for task in tasks:
-            await self._execute_task(task.task_id)
+        tasks = await self.store.list_pending(limit=self.max_concurrency)
+        if not tasks:
+            return
+        await asyncio.gather(*(self._execute_task(task.task_id) for task in tasks))
 
     async def _execute_task(self, task_id: str) -> None:
         log.info("Executing task %s", task_id)

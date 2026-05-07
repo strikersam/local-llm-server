@@ -46,6 +46,7 @@ function RuntimeCard({ runtime, onRun, onRefresh }) {
   const available = h.available;
   const circuitOpen = runtime.circuit_open;
   const tierStyle = TIER_STYLE[runtime.tier] || TIER_STYLE.tier_3;
+  const supportsLifecycleControl = runtime.integration_mode !== 'external_process';
 
   const handleRun = async () => {
     if (!instruction.trim()) return;
@@ -183,7 +184,7 @@ function RuntimeCard({ runtime, onRun, onRefresh }) {
                 <div className="text-[9px] text-[#444]">{Math.round(h.latency_ms)}ms</div>
               )}
             </div>
-            {(!(available && !circuitOpen) && optimisticState !== 'starting') && (
+            {supportsLifecycleControl && (!(available && !circuitOpen) && optimisticState !== 'starting') && (
               <button
                 onClick={(e) => { e.stopPropagation(); handleStart(); }}
                 disabled={controlLoading}
@@ -194,7 +195,7 @@ function RuntimeCard({ runtime, onRun, onRefresh }) {
                 <span>Start</span>
               </button>
             )}
-            {((available && !circuitOpen) || optimisticState === 'starting') && (
+            {supportsLifecycleControl && (((available && !circuitOpen) || optimisticState === 'starting')) && (
               <button
                 onClick={(e) => { e.stopPropagation(); handleStop(); }}
                 disabled={controlLoading}
@@ -241,6 +242,11 @@ function RuntimeCard({ runtime, onRun, onRefresh }) {
           {/* Health details */}
           {h.version && (
             <div className="text-[10px] text-[#555]">Version: <span className="text-[#888] font-mono">{h.version}</span></div>
+          )}
+          {!supportsLifecycleControl && (
+            <div className="text-[10px] text-[#4477FF] bg-[#002FA7]/8 border border-[#002FA7]/20 rounded px-3 py-2">
+              ℹ️ {runtime.display_name} is an on-demand CLI runtime. Install the binary locally and the agent will spawn it per task instead of using Start/Stop lifecycle controls.
+            </div>
           )}
           {h.error && (
             <div className="text-[10px] text-red-400 font-mono bg-red-500/5 border border-red-500/10 rounded px-3 py-2">{h.error}</div>

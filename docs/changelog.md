@@ -2,7 +2,85 @@
 
 ## [Unreleased]
 
+### Fixed
+- `openclaw-security-automation.yml`: Dependabot and CodeQL alert counts were never captured from Python stdout (shell vars `$DEPENDABOT_COUNT`/`$CODEQL_COUNT` were unset); now captured via command substitution.
+- `openclaw-security-automation.yml`: Removed invalid `dependabot-alerts: read` permission key (not a valid GitHub Actions permission).
+- `security_fix_agent.py`: Branch cleanup ran unconditionally after both success and failure; now only cleans up on failure and returns early after a successful push.
+- `security_fix_agent.py`: pip upgrade path now rewrites `requirements.txt` via `pip freeze` so the change is actually tracked by git.
+- `security_fix_agent.py`: Removed `CODEQL_FIX_APPLIED.txt` dummy file creation; CodeQL fix now exits early with a clear message when no edits can be applied automatically.
+- `direct_chat.py` — `@direct_chat_router.post("/send")` decorator was accidentally applied to `_is_trivial_message` instead of `send_chat_message` (inserted between the decorator and the handler by commit b172df5); `/api/chat/send` now correctly routes requests.
+- `proxy.py` — `app.state.PROVIDER_ROUTER` was never set in the lifespan, causing `AttributeError` in the direct-chat regular-chat path; lifespan now sets it from the module-level singleton.
+- `frontend/src/index.css` — attribute selector used single quotes (`input[type='checkbox']`) but regression test expected double quotes; normalised to double quotes.
+- `tests/test_direct_chat_async.py` — test content "Implement feature" (2 words) was silently reclassified as trivial and bypassed agent mode; updated to 4-word content that is unambiguously non-trivial.
+- `.github/scripts/review_agent.py` — fail closed when diff fetch fails: if `gh pr diff` returns an error the script now writes a FAIL result and exits 1 instead of forwarding the placeholder to the LLM and potentially emitting a PASS/WARN.
+
 ### Changed
+- `.github/scripts/implement_agent.py` — switched primary NVIDIA NIM model to `qwen/qwen3-coder-480b-a35b-instruct` (correct publisher namespace); fixed `tool_list_files` duplicate-arg `subprocess.run` bug; pipeline now uses NVIDIA APIs for agentic implementation.
+- `.github/scripts/review_agent.py` — switched council review model to `qwen/qwen3-coder-480b-a35b-instruct`; fixed `subprocess.run` duplicate-arg bug; added `subprocess.TimeoutExpired` and non-zero returncode handling; wrapped API call in try/except so the result file is always written on failure.
+- `provider_router.py` — `ollama-local` is excluded from the provider chain when `NVIDIA_API_KEY` is set (hosted mode); set `INCLUDE_LOCAL_FALLBACK=true` to force-include it even in hosted deployments.
+
+## [4.0.0] - 2026-05-06
+
+### Added
+- `docs/screenshots/webui/mobile-refresh/` — added before/after mobile captures for the login screen and setup wizard so the frontend refresh PR includes visual regression evidence.
+- `agent/job_manager.py` — async direct-chat agent job lifecycle with queued/running/succeeded/failed/cancelled states, heartbeat timestamps, and progress events.
+- `docs/architecture/runtime-model.md`, `docs/architecture/agent-job-lifecycle.md`, `docs/architecture/feature-maturity-matrix.md`, and `docs/runbooks/runtime-troubleshooting.md` — documented runtime preflight, async agent jobs, maturity tiers, and troubleshooting.
+
+### Changed
+- `frontend/src/index.css`, `frontend/src/pages/DashboardLayout.js`, and `frontend/src/pages/LoginPage.js` — introduced a unified mobile-first black design system with layered dark surfaces, safe-area-aware app chrome, thumb-friendly bottom navigation, and a denser native-style authentication shell.
+- `frontend/src/pages/SetupWizardPage.js` and `frontend/src/pages/AuthCallback.js` — removed the remaining light-theme onboarding/auth screens and aligned setup completion, step navigation, and OAuth callback states with the new dark mobile app shell.
+- `frontend/src/pages/ChatPage.js` — refined the chat surface into a native-feeling mobile layout with pill controls, elevated message bubbles, a card composer above the safe area, and cleaner modal/panel styling across mobile and tablet breakpoints.
+- `backend/server.py` / `agent/loop.py` / `setup/api.py` / `frontend/src/pages/SetupWizardPage.js` — hosted Direct Chat agent runs now queue asynchronous jobs instead of blocking the request, and agent role models are now configurable per role (planner, coder/executor, verifier, judge) with NVIDIA-first defaults.
+- `frontend/src/pages/ChatPage.js` — mobile Direct Chat now uses a safer dynamic viewport layout, auto-resizing composer, safe-area-aware sticky header/composer spacing, and a collapsible mobile agent workspace so progress/activity no longer consume the full chat surface.
+- `direct_chat.py` — split direct chat from async agent workflows; `agent_mode=true` now returns `202 Accepted` plus a pollable job id instead of blocking the request until the full tool loop completes.
+- `frontend/src/pages/ChatPage.js` — added a mobile-friendly agent job status card and polling flow for async agent runs.
+- `runtimes/base.py`, `runtimes/api.py`, and `runtimes/routing.py` — added runtime readiness/preflight validation so tasks fail early with structured diagnostics.
+
+### Fixed
+- `backend/server.py` / `tests/test_chat_mode_regressions.py` — hosted Direct Chat no longer relies on the fragile inline agent timeout fallback path; long-running complex tasks stay in progress through the new job lifecycle and can be polled/cancelled from the UI.
+- `agent/loop.py` / `backend/server.py` — planner/verifier/judge selection no longer collapses to a single requested model for every agent phase, so NVIDIA-backed coding flows can keep a Nemotron executor while using separate planner/judge defaults.
+- `agent/job_manager.py` / `tests/test_direct_chat_async.py` — direct-chat async agent workspaces now validate session/job ids and derive hashed directory names before creating directories, closing the CodeQL path-traversal finding on isolated workspace creation.
+- `proxy.py` / `tests/test_agent_api.py` — `/agent/run` and `/agent/sessions/{id}/run` no longer echo internal failure details back to API callers; they now return only a stable failure summary, resolving the CodeQL information-exposure findings.
+- runtime execution now surfaces actionable missing-binary errors, including `task-harness` configuration guidance, instead of late raw PATH failures.
+- planner/verifier/judge failures now surface phase-specific structured errors and BLOCKED fallback behavior instead of ambiguous downstream failures.
+- `tests/test_iteration_7_features.py` — fixed an accidental indentation error on a skipped test so CI syntax checks and CodeQL can parse the test suite again.
+- `tests/conftest.py` — restored a generic `client` fixture alias so `tests/test_v3_auth.py` can run under the shared test harness.
+- `tests/conftest.py` — set `V3_ADMIN_PASSWORD` in the shared test env so v3 auth tests use the same seeded admin credentials as the mocked backend.
+- `backend/server.py` — `/api/auth/login` now returns `token_type`, `expires_in`, and `id` alongside the tokens, restoring the response contract expected by the v3 auth tests.
+- `backend/server.py` — `/api/auth/me` now includes `id` as an alias of `_id`, matching the v3 auth API contract used by the tests and frontend.
+- `backend/server.py` — auth tokens now include `iat` and `jti`, so refreshing produces a distinct access token even when requests happen in the same second.
+- `backend/server.py` — `/api/auth/logout` now returns `status: "logged out"`, matching the v3 auth test and client expectations.
+- `backend/server.py` — `/api/auth/logout` now also returns the authenticated email, preserving the v3 auth response contract.
+- `backend/server.py` — `/api/auth/refresh` now falls back cleanly for the limited-mode admin user instead of crashing on a non-ObjectId test user id.
+- `Dockerfile.backend` — now copies `commercial_equivalent.py` into the backend image so `langfuse_obs.py` can import it in production; this fixes Render boot failure `ModuleNotFoundError: No module named 'commercial_equivalent'`.
+### Fixed
+- `frontend/src/pages/ChatPage.js` / `frontend/src/components/AgentStatusPanel.jsx` / `frontend/src/components/AgentActivityFeed.jsx` / `backend/server.py` / `frontend/src/__tests__/agentWorkspaceTransport.test.js` / `frontend/src/__tests__/chatPage.test.jsx` / `tests/test_chat_mode_regressions.py` — Direct Chat live agent workspace polling and streaming now authenticate correctly, fixing the `HTTP 401` agent-status / activity panes that appeared after login in hosted chat sessions.
+- `frontend/src/utils/agentWorkspaceTransport.js` / `frontend/src/pages/ChatPage.js` / `frontend/src/components/AgentStatusPanel.jsx` / `frontend/src/components/AgentActivityFeed.jsx` / `frontend/src/__tests__/agentWorkspaceTransport.test.js` / `frontend/src/__tests__/agentWorkspaceConsole.test.jsx` — the Direct Chat live workspace now uses a single control-plane transport path for snapshot polling and event streaming, eliminates duplicate status polling, and shows reconnect / auth-expired banners instead of leaving operators with a silent dead workspace.
+- `setup/api.py` / `tests/test_setup_api.py` — the setup wizard now persists through the hosted MongoDB path when available instead of relying only on local files, so admin setup survives Render restarts/redeploys and can be reopened for edits later.
+- `backend/server.py` / `langfuse_obs.py` / `tests/test_chat_mode_regressions.py` — hosted direct chat now emits Langfuse observations with token counts and latency metadata, and Langfuse URL detection now accepts `LANGFUSE_URL` alongside the existing host/base env names.
+- `tasks/store.py` / `tasks/service.py` / `tasks/dispatcher.py` / `agents/api.py` / `tests/test_task_dispatcher.py` / `tests/test_tasks_workflow.py` / `tests/test_agents_api.py` — task execution now fans out concurrently, auto-assignment prefers less-busy matching agents, and the Agents API reports running/open-task status so the roster no longer leaves free agents looking idle while work is queued.
+- `backend/server.py` / `frontend/src/pages/LogsPage.js` / `tests/test_activity_logs.py` — the activity/logs surface now includes recent in-process error logs and renders timestamps from `created_at`, making backend failures visible in the dashboard instead of disappearing silently.
+- `frontend/src/pages/SetupWizardPage.js` / `frontend/src/__tests__/setupWizard.test.js` — the setup wizard now has a mobile step toggle, stacked controls, and responsive navigation/action layouts so onboarding remains usable on narrow screens.
+
+### Security
+- `backend/server.py` — refreshed JWT access/refresh tokens now include unique `iat`/`jti` claims so a refresh always yields a distinct token even when requests land in the same second.
+
+### Changed
+- `frontend/src/pages/ControlPlanePage.js` / `frontend/src/pages/DashboardLayout.js` — replaced the root hosted dashboard with a more refined mobile-first workspace overview: usage and provider priority live at the top, task/routing/agent/provider/runtime/schedule sections are grouped into clearer operational cards, and the primary sidebar entry is now simply **Dashboard**. Legacy `/dashboard`, `/control-plane`, and `/llmrelay` URLs now funnel back to the root dashboard instead of leaving stale entry points behind.
+- `frontend/src/pages/SetupWizardPage.js` / `backend/server.py` / `provider_router.py` / `.github/scripts/implement_agent.py` / `.github/scripts/review_agent.py` — NVIDIA defaults now prioritize `nvidia/nemotron-3-super-120b-a12b` wherever the repo chooses a hosted default model, while still keeping the coder-specific Qwen path available for code-heavy execution.
+
+### Fixed
+- `backend/server.py` / `provider_router.py` / `tests/test_chat_mode_regressions.py` / `tests/test_provider_router.py` / `tests/test_provider_failover_integration.py` — direct chat now uses bounded per-provider timeouts, retries healthy fallbacks without keeping a broken model pin, and returns a stable in-chat recovery/diagnostic message instead of bubbling raw 502/503 failures when the first provider stalls or goes down.
+- `frontend/src/pages/AuthCallback.js` — both social-login callbacks and legacy token callbacks now return users to the root dashboard after auth state sync, avoiding the stale `/control-plane` destination.
+- `.github/workflows/ci.yml` — CI now runs the GitHub Pages frontend test suite and production build in addition to the Python suite, so mobile/dashboard regressions and auth UI regressions are caught before merge.
+- `tasks/service.py` / `tasks/api.py` / `frontend/src/pages/TasksPage.js` — task execution is now much less flaky in the Multica board: moving a task back to `in_progress` always requeues execution even without a manually assigned agent, duplicate overlapping runs are ignored safely, the API exposes an immediate `run` action, and the Tasks UI now lets users choose an agent/runtime/prompt and trigger `Create & run` / `Run now` flows without waiting on the background poller.
+
+### Added
+- `frontend/src/__tests__/controlPlanePage.test.js` / `frontend/src/__tests__/loginPage.test.js` / `frontend/src/__tests__/authCallback.test.js` / `tests/test_provider_router.py` — added regression coverage for the new dashboard summary, preserved GitHub/Google social login affordances, callback redirects, and the new NVIDIA Nemotron default-provider priority.
+- `frontend/src/__tests__/tasksPage.test.jsx` / `tests/test_tasks_workflow.py` — added regression coverage for immediate task execution from the Multica task board, no-agent requeue behavior, and duplicate-run suppression.
+
+### Changed
+- `README.md` — refined the human-first README again to improve page traction: replaced the potentially friction-heavy “5-year-old” phrasing, added clearer value framing, a simple benefits table, and more team/adoption-oriented positioning for non-technical readers.
 - `README.md` — rewrote the README again with a human-first, screenshot-rich product story aimed at non-technical readers: simpler language, clearer use cases, visual tour, friendlier setup path, and links out to technical docs instead of front-loading route details.
 - `docs/api-surfaces.md` — added a separate technical route map so API and surface details live outside the README.
 - `README.md` — rewrote the top-level documentation to reflect the current product surface: corrected startup and port guidance, documented the built-in admin/web UI and separate dashboard deployment modes, and added an end-to-end feature inventory covering proxy compatibility, routing, agents, workflows, schedules, GitHub, secrets, sync, observability, and operations.

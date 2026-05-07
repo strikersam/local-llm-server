@@ -210,7 +210,41 @@ def test_agent_run_returns_structured_failure(monkeypatch):
     resp = client.post("/agent/run", json={"instruction": "Do the thing", "max_steps": 1})
     assert resp.status_code == 200
     assert resp.json()["result"]["status"] == "failed"
-    assert "planner backend unavailable" in resp.json()["result"]["summary"]
+    assert resp.json()["result"]["summary"] == "Agent run failed. Check server logs for details."
+    assert "error" not in resp.json()["result"]
+
+    proxy.app.dependency_overrides.clear()
+
+
+def test_agent_session_run_redacts_internal_exception_details(monkeypatch):
+    def fake_verify():
+        return proxy.AuthContext(
+            key="test-key",
+            email="tester@example.com",
+            department="engineering",
+            key_id="kid_test",
+            source="legacy",
+        )
+
+    async def fake_run(**kwargs):
+        raise RuntimeError("planner backend unavailable")
+
+    proxy.app.dependency_overrides[proxy.verify_api_key] = fake_verify
+    monkeypatch.setattr(proxy, "AGENT_RUNNER", type("Runner", (), {"run": staticmethod(fake_run)})())
+
+    client = TestClient(proxy.app)
+    create = client.post("/agent/sessions", json={"title": "Test Session"})
+    session_id = create.json()["session_id"]
+
+    resp = client.post(
+        f"/agent/sessions/{session_id}/run",
+        json={"instruction": "Do the thing", "auto_commit": False, "max_steps": 1},
+    )
+
+    assert resp.status_code == 200
+    assert resp.json()["result"]["status"] == "failed"
+    assert resp.json()["result"]["summary"] == "Agent run failed. Check server logs for details."
+    assert "error" not in resp.json()["result"]
 
     proxy.app.dependency_overrides.clear()
 

@@ -180,15 +180,20 @@ def test_mask_observations_preserves_message_count():
 async def test_run_agent_loop_success(monkeypatch):
     """Verify _run_agent_loop calls AgentRunner.run and returns the summary."""
     mock_result = {"summary": "Agent reached a conclusion."}
+    captured: dict[str, object] = {}
     
     class MockRunner:
         def __init__(self, **kwargs):
             self.kwargs = kwargs
         async def run(self, **kwargs):
-            self.run_kwargs = kwargs
+            captured.update(kwargs)
             return mock_result
 
     monkeypatch.setattr("agent.loop.AgentRunner", MockRunner)
+    monkeypatch.setattr(
+        "backend.server._build_auto_skill_guidance",
+        lambda instruction: ("AUTO-SELECTED SKILLS\n- test-first-executor", [{"name": "test-first-executor", "description": "Run tests first"}]),
+    )
     
     provider = {"type": "ollama", "base_url": "http://localhost:11434", "api_key": None}
     result = await _run_agent_loop(
@@ -201,6 +206,7 @@ async def test_run_agent_loop_success(monkeypatch):
     )
     
     assert result == "Agent reached a conclusion."
+    assert "AUTO-SELECTED SKILLS" in captured["instruction"]
 
 @pytest.mark.anyio
 async def test_run_agent_loop_failure(monkeypatch):

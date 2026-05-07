@@ -117,7 +117,7 @@ class LocalLLMSetup:
         print("   (Planner, Executor, Verifier roles)")
         print()
 
-        default_model = "gemma4:latest"
+        default_model = "nemotron-3-super-120b-a12b"
         model_choice = input(
             f"Model to use [{default_model}]: "
         ).strip()
@@ -266,7 +266,7 @@ class LocalLLMSetup:
         print("  4. Use with Claude Code:")
         print("     ANTHROPIC_BASE_URL=http://localhost:8000 claude code")
         print()
-        print("Documentation: See QUICK_START.md")
+        print("Documentation: See docs/README.md")
         print()
 
     def run(self):

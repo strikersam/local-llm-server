@@ -9,10 +9,10 @@ import { getSetupState, getBackendUrl } from './api';
 
 function LoadingScreen({ message }) {
   return (
-    <div className="min-h-[100dvh] flex items-center justify-center bg-background-base">
-      <div className="flex flex-col items-center gap-3">
+    <div className="app-shell min-h-[100dvh] flex items-center justify-center px-4">
+      <div className="app-panel-elevated flex flex-col items-center gap-3 px-8 py-8 text-center">
         <div className="w-8 h-8 border-2 border-t-transparent rounded-full animate-spin" style={{ borderColor: "var(--accent)" }} />
-        <p className="text-[#555555] text-xs font-mono tracking-widest uppercase">{message}</p>
+        <p className="text-[var(--text-muted)] text-xs font-mono tracking-[0.18em] uppercase">{message}</p>
       </div>
     </div>
   );
