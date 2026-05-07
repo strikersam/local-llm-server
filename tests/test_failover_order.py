@@ -98,7 +98,9 @@ def test_access_tier_anthropic():
 
 
 def test_from_env_provider_order_local_first(monkeypatch):
-    """from_env() must put local Ollama first regardless of how env vars are set."""
+    """When INCLUDE_LOCAL_FALLBACK=true, local Ollama must be first."""
+    monkeypatch.setenv("INCLUDE_LOCAL_FALLBACK", "true")
+    monkeypatch.delenv("NVIDIA_API_KEY", raising=False)
     monkeypatch.delenv("OLLAMA_WINDOWS_SERVER", raising=False)
     monkeypatch.delenv("HF_TOKEN", raising=False)
     monkeypatch.delenv("DEEPSEEK_API_KEY", raising=False)
@@ -106,6 +108,20 @@ def test_from_env_provider_order_local_first(monkeypatch):
 
     router = ProviderRouter.from_env()
     assert router.providers[0].provider_id == "ollama-local"
+
+
+def test_from_env_excludes_ollama_by_default(monkeypatch):
+    """ollama-local must NOT be included unless INCLUDE_LOCAL_FALLBACK=true."""
+    monkeypatch.delenv("INCLUDE_LOCAL_FALLBACK", raising=False)
+    monkeypatch.delenv("NVIDIA_API_KEY", raising=False)
+    monkeypatch.delenv("OLLAMA_WINDOWS_SERVER", raising=False)
+    monkeypatch.delenv("HF_TOKEN", raising=False)
+    monkeypatch.delenv("DEEPSEEK_API_KEY", raising=False)
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+
+    router = ProviderRouter.from_env()
+    ids = [p.provider_id for p in router.providers]
+    assert "ollama-local" not in ids
 
 
 def test_from_env_windows_comes_before_huggingface(monkeypatch):

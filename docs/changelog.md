@@ -2,6 +2,11 @@
 
 ## [Unreleased]
 
+### Changed
+- `provider_router.py` — `ollama-local` is now only included in the provider chain when `INCLUDE_LOCAL_FALLBACK=true` is explicitly set; removes automatic Ollama fallback that caused agent errors when Ollama is not running.
+- `.github/scripts/implement_agent.py` — switched primary NVIDIA NIM model to `nvidia/qwen3-coder-480b-a35b-instruct` (Qwen3-Coder 480B) with Nemotron Ultra 253B, Llama 3.3 70B, and Qwen2.5 Coder 32B as fallbacks.
+- `.github/scripts/review_agent.py` — switched council review model to `nvidia/qwen3-coder-480b-a35b-instruct`; fixed `subprocess.run` duplicate-arg bug in `get_pr_diff`/`get_pr_files`.
+
 ## [4.0.0] - 2026-05-06
 
 ### Added
