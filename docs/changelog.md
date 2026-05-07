@@ -3,8 +3,8 @@
 ## [Unreleased]
 
 ### Changed
-- `.github/scripts/implement_agent.py` — switched primary NVIDIA NIM model to `nvidia/qwen3-coder-480b-a35b-instruct` (Qwen3-Coder 480B) with Nemotron Ultra 253B, Llama 3.3 70B, and Qwen2.5 Coder 32B as fallbacks; pipeline now uses NVIDIA APIs exclusively for agentic implementation.
-- `.github/scripts/review_agent.py` — switched council review model to `nvidia/qwen3-coder-480b-a35b-instruct`; fixed `subprocess.run` duplicate-arg bug in `get_pr_diff`/`get_pr_files`; added `subprocess.TimeoutExpired` handling so the result file is always written on timeout.
+- `.github/scripts/implement_agent.py` — switched primary NVIDIA NIM model to `qwen/qwen3-coder-480b-a35b-instruct` (correct publisher namespace); fixed `tool_list_files` duplicate-arg `subprocess.run` bug; pipeline now uses NVIDIA APIs for agentic implementation.
+- `.github/scripts/review_agent.py` — switched council review model to `qwen/qwen3-coder-480b-a35b-instruct`; fixed `subprocess.run` duplicate-arg bug; added `subprocess.TimeoutExpired` and non-zero returncode handling; wrapped API call in try/except so the result file is always written on failure.
 - `provider_router.py` — `ollama-local` is excluded from the provider chain when `NVIDIA_API_KEY` is set (hosted mode); set `INCLUDE_LOCAL_FALLBACK=true` to force-include it even in hosted deployments.
 
 ## [4.0.0] - 2026-05-06

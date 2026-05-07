@@ -35,6 +35,8 @@ def get_pr_diff(pr_num: str) -> str:
             ["gh", "pr", "diff", pr_num, "--patch"],
             capture_output=True, text=True, timeout=30,
         )
+        if result.returncode != 0:
+            return f"[diff unavailable: gh exited {result.returncode}: {result.stderr.strip()[:200]}]"
         diff = result.stdout
     except subprocess.TimeoutExpired:
         return "[diff unavailable: gh timed out]"
@@ -49,6 +51,8 @@ def get_pr_files(pr_num: str) -> str:
             ["gh", "pr", "view", pr_num, "--json", "files", "-q", ".files[].path"],
             capture_output=True, text=True, timeout=30,
         )
+        if result.returncode != 0:
+            return f"[files unavailable: gh exited {result.returncode}: {result.stderr.strip()[:200]}]"
         return result.stdout.strip()
     except subprocess.TimeoutExpired:
         return "[files unavailable: gh timed out]"
@@ -111,12 +115,19 @@ def main() -> None:
         base_url="https://integrate.api.nvidia.com/v1",
         api_key=api_key,
     )
-    response = client.chat.completions.create(
-        model="nvidia/qwen3-coder-480b-a35b-instruct",
-        max_tokens=2048,
-        messages=[{"role": "user", "content": prompt}],
-    )
-    text = response.choices[0].message.content or ""
+    try:
+        response = client.chat.completions.create(
+            model="qwen/qwen3-coder-480b-a35b-instruct",
+            max_tokens=2048,
+            messages=[{"role": "user", "content": prompt}],
+        )
+        text = response.choices[0].message.content or ""
+    except Exception as exc:
+        print(f"ERROR: API call failed: {exc}", file=sys.stderr)
+        result = {"verdict": "FAIL", "summary": f"Review failed: {exc}", "details": ""}
+        with open(RESULT_FILE, "w") as f:
+            json.dump(result, f)
+        sys.exit(1)
     print(text)
 
     # Parse verdict — fail closed if output is unparseable

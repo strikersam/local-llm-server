@@ -225,6 +225,8 @@ async def test_from_env_includes_windows_server(monkeypatch):
     monkeypatch.delenv("HF_TOKEN", raising=False)
     monkeypatch.delenv("DEEPSEEK_API_KEY", raising=False)
     monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    monkeypatch.delenv("NVIDIA_API_KEY", raising=False)
+    monkeypatch.delenv("INCLUDE_LOCAL_FALLBACK", raising=False)
 
     router = ProviderRouter.from_env()
     ids = [p.provider_id for p in router.providers]
