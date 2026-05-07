@@ -30,22 +30,28 @@ RESULT_FILE = "/tmp/review_result.json"  # nosec: B108 - Predictable temp file p
 
 
 def get_pr_diff(pr_num: str) -> str:
-    result = subprocess.run(
-        ["gh", "pr", "diff", pr_num, "--patch"],
-        capture_output=True, text=True, timeout=30,
-    )
-    diff = result.stdout
+    try:
+        result = subprocess.run(
+            ["gh", "pr", "diff", pr_num, "--patch"],
+            capture_output=True, text=True, timeout=30,
+        )
+        diff = result.stdout
+    except subprocess.TimeoutExpired:
+        return "[diff unavailable: gh timed out]"
     if len(diff) > 12000:
         diff = diff[:12000] + "\n...[diff truncated]"
     return diff
 
 
 def get_pr_files(pr_num: str) -> str:
-    result = subprocess.run(
-        ["gh", "pr", "view", pr_num, "--json", "files", "-q", ".files[].path"],
-        capture_output=True, text=True, timeout=30,
-    )
-    return result.stdout.strip()
+    try:
+        result = subprocess.run(
+            ["gh", "pr", "view", pr_num, "--json", "files", "-q", ".files[].path"],
+            capture_output=True, text=True, timeout=30,
+        )
+        return result.stdout.strip()
+    except subprocess.TimeoutExpired:
+        return "[files unavailable: gh timed out]"
 
 
 def load_council_skill() -> str:

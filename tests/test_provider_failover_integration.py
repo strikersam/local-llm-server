@@ -228,6 +228,8 @@ async def test_from_env_includes_windows_server(monkeypatch):
 
     router = ProviderRouter.from_env()
     ids = [p.provider_id for p in router.providers]
-    # ollama-local should NOT be included unless explicitly opted in
-    assert "ollama-local" not in ids
+    assert "ollama-local" in ids
     assert "ollama-windows-server" in ids
+    local_idx = ids.index("ollama-local")
+    windows_idx = ids.index("ollama-windows-server")
+    assert local_idx < windows_idx, "Local Ollama must come before Windows server"
