@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Fixed
+- `.github/workflows/openclaw-security-automation.yml` — fixed `SyntaxError: Octal escape sequences are not allowed in template strings` in the "Create summary issue" step by replacing JS template literal interpolation with string concatenation for GitHub context values (`github.repository`, `github.sha`), and by using `\u{1F527}` Unicode escape instead of raw emoji for the issue title. Also fixed step output propagation: the Python script's alert count is now captured via `$(python ...)` command substitution instead of referencing an unset `$DEPENDABOT_COUNT` / `$CODEQL_COUNT` environment variable, so the summary issue step correctly receives the alert counts.
+
+
 ## [4.0.0] - 2026-05-06
 
 ### Added
