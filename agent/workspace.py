@@ -366,7 +366,11 @@ class WorkspaceManager:
         async with self._registry_lock:
             cached = self._open.get(session_id, {}).get(job_id)
             if cached is not None:
-                return cached
+                if cached.root.exists():
+                    return cached
+                # Directory was deleted (e.g. by cleanup_expired) — evict stale handle
+                self._open.get(session_id, {}).pop(job_id, None)
+                raise WorkspaceNotFoundError(session_id, job_id)
 
         root = self._make_root(session_id, job_id)
         self._assert_within_base(root)

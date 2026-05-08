@@ -331,6 +331,17 @@ class TestCleanup:
         assert result["skipped_active"] >= 1
         assert root.exists()
 
+    def test_open_after_cleanup_raises_not_found(self, mgr: WorkspaceManager):
+        """open() must evict the stale in-memory handle and raise WorkspaceNotFoundError
+        when cleanup_expired() has already deleted the workspace directory."""
+        ws = run(mgr.create("as_stale1", "aj_job001", ttl_hours=-1.0))
+        run(mgr.transition(ws, WorkspaceStatus.COMPLETED))
+        run(mgr.cleanup_expired())
+        assert not ws.root.exists()
+        # The stale handle is in _open — open() must detect and evict it
+        with pytest.raises(WorkspaceNotFoundError):
+            run(mgr.open("as_stale1", "aj_job001"))
+
     def test_cleanup_dry_run_does_not_delete(self, mgr: WorkspaceManager):
         ws = run(mgr.create("as_dry1", "aj_job001", ttl_hours=-1.0))
         run(mgr.transition(ws, WorkspaceStatus.COMPLETED))
