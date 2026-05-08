@@ -74,6 +74,26 @@ See [docs/claude-code-setup.md](claude-code-setup.md) for full Claude Code setup
 
 ---
 
+## Workspace Isolation
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `AGENT_WORKSPACE_BASE` | `.workspaces/` next to `proxy.py` | Base root for all per-job isolated workspaces.  All job directories are created as hashed subdirectories under this path. |
+| `WORKSPACE_TTL_HOURS` | `24` | Number of hours after job completion before the workspace becomes eligible for cleanup.  Workspaces in active states are never deleted regardless of TTL. |
+
+---
+
+## Feature Flags
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `FEATURE_DISABLE` | (none) | Comma-separated list of feature IDs to force-disable at startup (e.g. `async_agent_jobs,telegram_bot`).  Takes precedence over `FEATURE_ENABLE`. |
+| `FEATURE_ENABLE` | (none) | Comma-separated list of feature IDs to force-enable at startup.  Can enable `beta` or `experimental` features.  Cannot enable features with maturity=`disabled`. |
+
+See [docs/support-matrix.md](support-matrix.md) for the full list of feature IDs.
+
+---
+
 ## Web UI (Claude Code–style)
 
 | Variable | Default | Description |

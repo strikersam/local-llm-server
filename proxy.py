@@ -98,6 +98,8 @@ from webui.config_store import JsonConfigStore
 from webui.providers import ProviderManager
 from webui.router import register_webui
 from webui.workspaces import WorkspaceManager
+from features.matrix import get_matrix, FeatureUnavailableError
+from agent.workspace import get_workspace_manager
 from workflow import WorkflowEngine, workflow_router
 from workflow.engine import get_engine
 from workflow.ide_bridge import handle_workflow_ide_chat
@@ -1047,6 +1049,35 @@ async def admin_rotate_user(
             "created": rec.created,
         },
         "admin": {"username": admin.username},
+    }
+
+
+@app.get("/admin/api/features")
+async def admin_list_features(
+    admin: AdminIdentity = Depends(_get_admin_identity_from_request),
+):
+    """Return the full feature support matrix.
+
+    Shows maturity tier, enabled state, dependencies, and config flags for
+    every feature.  Operators can see what is stable, beta, experimental, or
+    disabled at a glance.
+    """
+    return get_matrix().as_dict(admin_only=True)
+
+
+@app.get("/admin/api/workspaces/metrics")
+async def admin_workspace_metrics(
+    admin: AdminIdentity = Depends(_get_admin_identity_from_request),
+):
+    """Return workspace lifecycle metrics (counts by status).
+
+    Scans the workspace base directory and aggregates by status without loading
+    every manifest's full content.  Useful for detecting orphaned or stale jobs.
+    """
+    mgr = get_workspace_manager()
+    return {
+        "workspace_base": str(mgr._base),
+        "metrics": mgr.metrics(),
     }
 
 

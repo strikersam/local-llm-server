@@ -351,3 +351,109 @@ Ollama processes one request at a time by default. Queue depth increases with co
 - Consider running separate Ollama instances for different model tiers
 - Use smaller models for high-concurrency use cases
 - The proxy's rate limiting (`RATE_LIMIT_RPM`) helps prevent queue pile-up
+
+---
+
+## Workspace Issues
+
+### Workspace not found
+
+**Error code:** `workspace_not_found`
+
+**Symptom:** Agent resume fails with "Workspace not found".
+
+**Causes:**
+
+| Cause | Fix |
+|-------|-----|
+| `AGENT_WORKSPACE_BASE` changed between runs | Set it to the same path as the original run |
+| Workspace was cleaned up (expired TTL) | The job cannot be resumed; start a new job |
+| Session/job ID mismatch | Verify you are using the correct `session_id` and `job_id` |
+
+### Session/job mismatch (access denied)
+
+**Error code:** `workspace_access_denied`
+
+**Symptom:** "Session X cannot access workspace owned by Y".
+
+Only the session that created a workspace can resume or access it.  Cross-session
+access is explicitly blocked.  Start a new session if you need to continue
+unrelated work.
+
+### Invalid workspace manifest
+
+**Error code:** `workspace_manifest_corrupt`
+
+**Symptom:** Agent fails with manifest corruption error.
+
+**Cause:** The `workspace.json` file was truncated or corrupted (power loss, disk
+full, etc.).
+
+**Fix:** The workspace cannot be recovered automatically.  Either:
+1. Manually inspect `<AGENT_WORKSPACE_BASE>/<session_hash>/<job_hash>/workspace.json`
+2. Delete the workspace directory and retry the job
+3. Run `GET /admin/api/workspaces/metrics` to audit workspace states
+
+### Cleanup blocked due to active workspace
+
+**Error code:** `workspace_locked`
+
+**Symptom:** Cleanup tries to remove a workspace but a worker holds the lock.
+
+`cleanup_expired()` automatically skips workspaces in `creating` or `active`
+states.  Wait for the job to finish before cleanup applies.
+
+---
+
+## Feature Availability Issues
+
+### Feature is disabled / unavailable
+
+**Error code:** `feature_unavailable`
+
+**Symptom:** API returns `{"code": "feature_unavailable", "feature_id": "...", "maturity": "..."}`
+
+**Causes and fixes:**
+
+| Cause | Fix |
+|-------|-----|
+| Feature in `experimental` tier | Add its ID to `FEATURE_ENABLE` in `.env` |
+| Feature force-disabled via `FEATURE_DISABLE` | Remove its ID from `FEATURE_DISABLE` |
+| Feature depends on missing binary/service | Install the dependency listed in `dependencies` |
+| Feature has maturity=`disabled` | Cannot be enabled; it is permanently off |
+
+### Beta/experimental feature warning in logs
+
+```
+WARNING  qwen-proxy:matrix.py: Feature 'async_agent_jobs' is in BETA — behaviour may change
+```
+
+This is expected for beta and experimental features.  The feature works; the
+warning is informational.  Add the feature ID to `FEATURE_DISABLE` to turn it
+off completely, or suppress by setting `LOG_LEVEL=ERROR` (not recommended).
+
+### How to see which features are available
+
+```bash
+curl -H "x-admin-secret: $ADMIN_SECRET" http://localhost:8000/admin/api/features
+```
+
+Returns the full support matrix with maturity tiers, enabled state, and config flags.
+
+### Missing runtime dependency
+
+**Error code:** `missing_binary`
+
+**Symptom:** Preflight validation fails before a task starts.
+
+The preflight report `issues[]` array contains an entry with the missing binary
+name and a `fix_hint`.  Either install the binary or switch to a different runtime
+that doesn't require it.
+
+```json
+{
+  "code": "missing_binary",
+  "message": "Required binary 'aider' is not available",
+  "fix_hint": "Install aider: pip install aider-chat"
+}
+```
