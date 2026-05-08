@@ -44,7 +44,7 @@ LLM Relay tries to bring the important pieces together in one product:
 That means less setup pain, less tool sprawl, and fewer "wait, where did that answer come from?" moments.
 
 <p align="center">
-  <img src="docs/screenshots/readme/v3-control-plane.png" alt="LLM Relay control plane" width="100%"/>
+  <img src="docs/screenshots/readme/v4-control-plane.png" alt="LLM Relay control plane" width="100%"/>
   <br/>
   <sub><em>The main control plane: one screen for chat, tasks, agents, models, knowledge, and system health.</em></sub>
 </p>
