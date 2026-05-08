@@ -33,6 +33,7 @@ import logging
 import os
 import re
 import shutil
+import tempfile
 import time
 from dataclasses import dataclass, field
 from enum import Enum
@@ -302,12 +303,6 @@ class WorkspaceManager:
         root = self._make_root(session_id, job_id)
         self._assert_within_base(root)
 
-        # Guard against clobbering an existing workspace
-        if (root / _MANIFEST_NAME).exists():
-            raise WorkspaceError(
-                f"Workspace already exists for session={session_id!r} job={job_id!r}"
-            )
-
         now = _iso_now()
         effective_ttl = ttl_hours if ttl_hours is not None else self._default_ttl_hours
 
@@ -317,11 +312,20 @@ class WorkspaceManager:
         artifacts = root / "artifacts"
         tmp = root / "tmp"
 
-        def _makedirs() -> None:
+        def _claim_and_create_dirs() -> None:
+            # Atomically claim the root directory — exist_ok=False raises
+            # FileExistsError if another coroutine or process already created it,
+            # eliminating the TOCTOU window of the old preflight-check approach.
+            try:
+                root.mkdir(parents=True, exist_ok=False)
+            except FileExistsError as exc:
+                raise WorkspaceError(
+                    f"Workspace already exists for session={session_id!r} job={job_id!r}"
+                ) from exc
             for d in (source, checkpoints, logs_dir, artifacts, tmp):
-                d.mkdir(parents=True, exist_ok=True)
+                d.mkdir(exist_ok=False)
 
-        await asyncio.to_thread(_makedirs)
+        await asyncio.to_thread(_claim_and_create_dirs)
 
         manifest = WorkspaceManifest(
             session_id=session_id,
@@ -365,20 +369,24 @@ class WorkspaceManager:
 
         async with self._registry_lock:
             cached = self._open.get(session_id, {}).get(job_id)
-            if cached is not None:
-                if cached.root.exists():
-                    return cached
-                # Directory was deleted (e.g. by cleanup_expired) — evict stale handle
+
+        if cached is not None:
+            # Validate stale-cache: exists() check is outside the lock to avoid
+            # blocking the event loop while holding _registry_lock.
+            if await asyncio.to_thread(cached.root.exists):
+                return cached
+            # Directory was deleted (e.g. by cleanup_expired) — evict stale handle.
+            async with self._registry_lock:
                 self._open.get(session_id, {}).pop(job_id, None)
-                raise WorkspaceNotFoundError(session_id, job_id)
+            raise WorkspaceNotFoundError(session_id, job_id)
 
         root = self._make_root(session_id, job_id)
         self._assert_within_base(root)
 
-        if not root.exists():
+        if not await asyncio.to_thread(root.exists):
             raise WorkspaceNotFoundError(session_id, job_id)
 
-        manifest = _read_manifest(root, session_id, job_id)
+        manifest = await asyncio.to_thread(_read_manifest, root, session_id, job_id)
         ws = _load_workspace(root, manifest)
 
         async with self._registry_lock:
@@ -622,8 +630,19 @@ def _parse_iso(ts: str) -> float:
 
 
 def _write_manifest(root: Path, manifest: WorkspaceManifest) -> None:
-    tmp = root / (_MANIFEST_NAME + ".tmp")
-    tmp.write_text(manifest.model_dump_json(indent=2), encoding="utf-8")
+    # Write to a uniquely named temp file then atomically rename.
+    # Using a unique name avoids races when heartbeat/transition/second manager
+    # writes concurrently to the same workspace.json.tmp path.
+    with tempfile.NamedTemporaryFile(
+        "w",
+        dir=root,
+        prefix=f"{_MANIFEST_NAME}.",
+        suffix=".tmp",
+        delete=False,
+        encoding="utf-8",
+    ) as fh:
+        fh.write(manifest.model_dump_json(indent=2))
+        tmp = Path(fh.name)
     tmp.replace(root / _MANIFEST_NAME)
 
 
