@@ -224,11 +224,11 @@ _REGISTRY_SPEC: list[dict[str, Any]] = [
         "feature_id": "jcode_runtime",
         "display_name": "jcode runtime",
         "maturity": FeatureMaturity.EXPERIMENTAL,
-        "enabled": True,
+        "enabled": False,
         "default_available": False,
         "dependencies": ["jcode"],
         "config_flags": ["JCODE_BIN"],
-        "notes": "Requires jcode binary on PATH or JCODE_BIN env var.",
+        "notes": "Requires jcode binary on PATH or JCODE_BIN env var. Opt-in via FEATURE_ENABLE=jcode_runtime.",
     },
     {
         "feature_id": "openhands_runtime",
@@ -259,17 +259,17 @@ _REGISTRY_SPEC: list[dict[str, Any]] = [
         "feature_id": "opencode_runtime",
         "display_name": "OpenCode runtime (sidecar)",
         "maturity": FeatureMaturity.EXPERIMENTAL,
-        "enabled": True,
+        "enabled": False,
         "default_available": False,
-        "notes": "Requires OpenCode sidecar process.",
+        "notes": "Requires OpenCode sidecar process. Opt-in via FEATURE_ENABLE=opencode_runtime.",
     },
     {
         "feature_id": "goose_runtime",
         "display_name": "Goose runtime (sidecar)",
         "maturity": FeatureMaturity.EXPERIMENTAL,
-        "enabled": True,
+        "enabled": False,
         "default_available": False,
-        "notes": "Requires Goose sidecar process.",
+        "notes": "Requires Goose sidecar process. Opt-in via FEATURE_ENABLE=goose_runtime.",
     },
     # ── Integrations ───────────────────────────────────────────────────────
     {
@@ -311,25 +311,26 @@ _REGISTRY_SPEC: list[dict[str, Any]] = [
         "feature_id": "social_auth",
         "display_name": "Social / OAuth login",
         "maturity": FeatureMaturity.EXPERIMENTAL,
-        "enabled": True,
+        "enabled": False,
         "default_available": False,
         "config_flags": ["GOOGLE_CLIENT_ID", "GITHUB_CLIENT_ID"],
+        "notes": "Opt-in via FEATURE_ENABLE=social_auth.",
     },
     {
         "feature_id": "multi_agent_swarm",
         "display_name": "Multi-agent swarm orchestration",
         "maturity": FeatureMaturity.EXPERIMENTAL,
-        "enabled": True,
+        "enabled": False,
         "default_available": False,
-        "notes": "Agent coordinator + swarm. No dedicated config flag; use /agents/swarm API.",
+        "notes": "Agent coordinator + swarm. Opt-in via FEATURE_ENABLE=multi_agent_swarm.",
     },
     {
         "feature_id": "workflow_engine",
         "display_name": "CRISPY workflow engine",
         "maturity": FeatureMaturity.EXPERIMENTAL,
-        "enabled": True,
+        "enabled": False,
         "default_available": False,
-        "notes": "Gate / slice / phase workflow model.",
+        "notes": "Gate / slice / phase workflow model. Opt-in via FEATURE_ENABLE=workflow_engine.",
     },
     {
         "feature_id": "per_job_progress",
@@ -452,14 +453,24 @@ class FeatureMatrix:
         raw_disable = os.environ.get("FEATURE_DISABLE", "")
         raw_enable = os.environ.get("FEATURE_ENABLE", "")
 
+        # Collect explicitly-disabled IDs first so FEATURE_DISABLE always wins.
+        explicitly_disabled: set[str] = set()
         for fid in (f.strip() for f in raw_disable.split(",") if f.strip()):
             if fid in self._entries:
                 self._entries[fid].enabled = False
+                explicitly_disabled.add(fid)
                 log.info("Feature %r force-disabled via FEATURE_DISABLE", fid)
             else:
                 log.warning("FEATURE_DISABLE: unknown feature %r (ignored)", fid)
 
         for fid in (f.strip() for f in raw_enable.split(",") if f.strip()):
+            # FEATURE_DISABLE is authoritative — skip any ID it already disabled.
+            if fid in explicitly_disabled:
+                log.warning(
+                    "FEATURE_ENABLE: feature %r is in FEATURE_DISABLE — disable takes precedence",
+                    fid,
+                )
+                continue
             entry = self._entries.get(fid)
             if entry is None:
                 log.warning("FEATURE_ENABLE: unknown feature %r (ignored)", fid)

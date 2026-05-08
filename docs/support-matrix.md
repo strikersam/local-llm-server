@@ -108,7 +108,7 @@ Returns the full matrix as JSON:
 ```json
 {
   "schema_version": "1",
-  "total": 24,
+  "total": 27,
   "by_maturity": {
     "stable": 9,
     "beta": 11,

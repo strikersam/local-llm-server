@@ -172,12 +172,11 @@ class TestConfigOverrides:
     def test_feature_disable_takes_precedence(self, monkeypatch):
         monkeypatch.setenv("FEATURE_DISABLE", "async_agent_jobs")
         monkeypatch.setenv("FEATURE_ENABLE", "async_agent_jobs")
-        # FEATURE_DISABLE is applied first
         matrix = FeatureMatrix.load()
-        # disable applied first; enable then re-enables it for non-DISABLED maturity
-        # Actual result: disable runs first, enable runs second → re-enabled
-        # Both are "last write wins" style; test that we handle both without error
-        assert matrix.get("async_agent_jobs") is not None
+        entry = matrix.get("async_agent_jobs")
+        assert entry is not None
+        # FEATURE_DISABLE is authoritative — disable wins even when FEATURE_ENABLE lists the same ID
+        assert entry.enabled is False
 
     def test_feature_disable_multiple_features(self, monkeypatch):
         monkeypatch.setenv("FEATURE_DISABLE", "direct_chat,telegram_bot")

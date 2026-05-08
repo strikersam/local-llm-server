@@ -41,7 +41,7 @@ from typing import Any
 
 from pydantic import BaseModel, Field
 
-log = logging.getLogger("qwen-agent")
+log = logging.getLogger("qwen-proxy")
 
 # ---------------------------------------------------------------------------
 # ID validation
@@ -205,6 +205,7 @@ class WorkspaceManifest(BaseModel):
     source_repo: str | None = None
     cleanup_eligible: bool = False
     cleanup_after: str | None = None
+    ttl_hours: float = 24.0
     metadata: dict[str, Any] = Field(default_factory=dict)
 
 
@@ -301,9 +302,14 @@ class WorkspaceManager:
         root = self._make_root(session_id, job_id)
         self._assert_within_base(root)
 
+        # Guard against clobbering an existing workspace
+        if (root / _MANIFEST_NAME).exists():
+            raise WorkspaceError(
+                f"Workspace already exists for session={session_id!r} job={job_id!r}"
+            )
+
         now = _iso_now()
         effective_ttl = ttl_hours if ttl_hours is not None else self._default_ttl_hours
-        cleanup_after = _iso_offset_hours(effective_ttl)
 
         source = root / "source"
         checkpoints = root / "checkpoints"
@@ -311,8 +317,11 @@ class WorkspaceManager:
         artifacts = root / "artifacts"
         tmp = root / "tmp"
 
-        for d in (source, checkpoints, logs_dir, artifacts, tmp):
-            d.mkdir(parents=True, exist_ok=True)
+        def _makedirs() -> None:
+            for d in (source, checkpoints, logs_dir, artifacts, tmp):
+                d.mkdir(parents=True, exist_ok=True)
+
+        await asyncio.to_thread(_makedirs)
 
         manifest = WorkspaceManifest(
             session_id=session_id,
@@ -330,10 +339,11 @@ class WorkspaceManager:
             tmp_path=str(tmp),
             source_repo=source_repo,
             cleanup_eligible=False,
-            cleanup_after=cleanup_after,
+            cleanup_after=None,
+            ttl_hours=effective_ttl,
             metadata=metadata or {},
         )
-        _write_manifest(root, manifest)
+        await asyncio.to_thread(_write_manifest, root, manifest)
         ws = _ws_from_manifest(manifest, root, source, checkpoints, logs_dir, artifacts, tmp)
 
         async with self._registry_lock:
@@ -424,7 +434,9 @@ class WorkspaceManager:
         ws.manifest.last_heartbeat = now
         if new_status in _TERMINAL_STATES:
             ws.manifest.cleanup_eligible = True
-        _write_manifest(ws.root, ws.manifest)
+            # Anchor TTL clock to the moment the workspace enters a terminal state.
+            ws.manifest.cleanup_after = _iso_offset_hours(ws.manifest.ttl_hours)
+        await asyncio.to_thread(_write_manifest, ws.root, ws.manifest)
         log.debug(
             "Workspace transition: session=%s job=%s status=%s",
             ws.session_id,
@@ -435,7 +447,7 @@ class WorkspaceManager:
     async def heartbeat(self, ws: Workspace) -> None:
         """Update last_heartbeat timestamp and persist."""
         ws.manifest.last_heartbeat = _iso_now()
-        _write_manifest(ws.root, ws.manifest)
+        await asyncio.to_thread(_write_manifest, ws.root, ws.manifest)
 
     # ── Lock ──────────────────────────────────────────────────────────────────
 
@@ -460,7 +472,11 @@ class WorkspaceManager:
         """Remove expired workspaces that are cleanup_eligible and past cleanup_after.
 
         Active workspaces are never deleted.  Returns a summary dict with counts.
+        Delegates all blocking filesystem I/O to a thread pool.
         """
+        return await asyncio.to_thread(self._cleanup_expired_sync, dry_run)
+
+    def _cleanup_expired_sync(self, dry_run: bool = False) -> dict[str, int]:
         now_epoch = time.time()
         cleaned = 0
         skipped_active = 0
@@ -517,14 +533,20 @@ class WorkspaceManager:
 
     async def clean_tmp(self, ws: Workspace) -> None:
         """Remove and recreate the tmp directory for *ws*."""
-        if ws.tmp.exists():
-            shutil.rmtree(ws.tmp, ignore_errors=True)
-        ws.tmp.mkdir(parents=True, exist_ok=True)
+        def _do() -> None:
+            if ws.tmp.exists():
+                shutil.rmtree(ws.tmp, ignore_errors=True)
+            ws.tmp.mkdir(parents=True, exist_ok=True)
+
+        await asyncio.to_thread(_do)
 
     # ── Metrics ───────────────────────────────────────────────────────────────
 
     def metrics(self) -> dict[str, int]:
-        """Return counts of workspaces by status (scans disk)."""
+        """Return counts of workspaces by status (scans disk, sync).
+
+        Call ``await asyncio.to_thread(mgr.metrics)`` from async code.
+        """
         counts: dict[str, int] = {}
         if not self._base.exists():
             return counts

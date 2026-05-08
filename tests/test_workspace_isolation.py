@@ -36,7 +36,7 @@ from agent.workspace import (
 
 def run(coro):
     """Run a coroutine synchronously (test helper)."""
-    return asyncio.new_event_loop().run_until_complete(coro)
+    return asyncio.run(coro)
 
 
 @pytest.fixture()
@@ -256,7 +256,7 @@ class TestConcurrencyLock:
                 await mgr2.acquire_lock(ws)
             mgr.release_lock(ws)
 
-        asyncio.new_event_loop().run_until_complete(_run())
+        asyncio.run(_run())
 
     def test_lock_release_allows_reacquire(self, mgr: WorkspaceManager):
         async def _run():
@@ -267,7 +267,7 @@ class TestConcurrencyLock:
             await mgr.acquire_lock(ws)
             mgr.release_lock(ws)
 
-        asyncio.new_event_loop().run_until_complete(_run())
+        asyncio.run(_run())
 
 
 # ---------------------------------------------------------------------------

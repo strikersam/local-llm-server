@@ -60,7 +60,7 @@ class TestRuntimePreflight:
         async def run():
             return await adapter.readiness_check(spec)
 
-        report = asyncio.new_event_loop().run_until_complete(run())
+        report = asyncio.run(run())
         assert report.ready is False
         assert len(report.issues) > 0
         issue = report.issues[0]
@@ -176,15 +176,17 @@ class TestAgentModeQueuesJob:
         monkeypatch.setattr("agent.loop.AgentRunner", FakeRunner)
 
         client = TestClient(proxy.app)
-        resp = client.post(
-            "/api/chat/send",
-            json={"content": "Please implement this important new feature", "agent_mode": True},
-        )
-        assert resp.status_code == 202
-        body = resp.json()
-        assert "job_id" in body
-        assert body["status"] in {"queued", "running"}
-        proxy.app.dependency_overrides.clear()
+        try:
+            resp = client.post(
+                "/api/chat/send",
+                json={"content": "Please implement this important new feature", "agent_mode": True},
+            )
+            assert resp.status_code == 202
+            body = resp.json()
+            assert "job_id" in body
+            assert body["status"] in {"queued", "running"}
+        finally:
+            proxy.app.dependency_overrides.clear()
 
 
 # ---------------------------------------------------------------------------
@@ -212,7 +214,7 @@ class TestJobLifecycle:
                 if job.status in ("succeeded", "failed"):
                     break
 
-        asyncio.new_event_loop().run_until_complete(_run())
+        asyncio.run(_run())
         assert job.status == "succeeded"
         assert job.phase == "completed"
         assert len(job.progress_events) >= 1
@@ -241,7 +243,7 @@ class TestJobLifecycle:
                 if job.status in ("succeeded", "failed"):
                     break
 
-        asyncio.new_event_loop().run_until_complete(_run())
+        asyncio.run(_run())
         assert job.status == "failed"
         assert job.error is not None
         assert "RuntimeError" in job.error["type"]
@@ -363,12 +365,12 @@ class TestMakeIsolatedWorkspace:
 
     def test_traversal_in_session_id_rejected(self, tmp_path: Path):
         from agent.job_manager import make_isolated_workspace
-        with pytest.raises(Exception):
+        with pytest.raises(ValueError):
             make_isolated_workspace(tmp_path, "../../../etc", "aj_job1")
 
     def test_traversal_in_job_id_rejected(self, tmp_path: Path):
         from agent.job_manager import make_isolated_workspace
-        with pytest.raises(Exception):
+        with pytest.raises(ValueError):
             make_isolated_workspace(tmp_path, "as_sess1", "../../../etc")
 
 
@@ -382,7 +384,7 @@ class TestWorkspaceSecurityRegressions:
         from agent.workspace import WorkspaceManager, WorkspaceIDError
         mgr = WorkspaceManager(tmp_path / "ws")
         with pytest.raises(WorkspaceIDError):
-            asyncio.new_event_loop().run_until_complete(
+            asyncio.run(
                 mgr.create("../../etc/passwd", "aj_job001")
             )
 
@@ -390,17 +392,17 @@ class TestWorkspaceSecurityRegressions:
         from agent.workspace import WorkspaceManager, WorkspaceIDError
         mgr = WorkspaceManager(tmp_path / "ws")
         with pytest.raises(WorkspaceIDError):
-            asyncio.new_event_loop().run_until_complete(
+            asyncio.run(
                 mgr.create("as_sess1", "../../etc/shadow")
             )
 
     def test_workspace_error_dict_does_not_leak_base_path(self, tmp_path: Path):
         from agent.workspace import WorkspaceManager, WorkspaceEscapeError
         mgr = WorkspaceManager(tmp_path / "ws_secret_base")
-        asyncio.new_event_loop().run_until_complete(
+        asyncio.run(
             mgr.create("as_sess1", "aj_job001")
         )
-        ws = asyncio.new_event_loop().run_until_complete(
+        ws = asyncio.run(
             mgr.open("as_sess1", "aj_job001")
         )
         try:

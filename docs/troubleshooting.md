@@ -424,7 +424,7 @@ states.  Wait for the job to finish before cleanup applies.
 
 ### Beta/experimental feature warning in logs
 
-```
+```text
 WARNING  qwen-proxy:matrix.py: Feature 'async_agent_jobs' is in BETA — behaviour may change
 ```
 

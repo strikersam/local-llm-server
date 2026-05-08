@@ -8,7 +8,7 @@ logs directory, artifact output, or temp space.
 
 ## Directory Layout
 
-```
+```text
 <AGENT_WORKSPACE_BASE>/
   <session_hash>/              # SHA-256(session_id)[:24]
     <job_hash>/                # SHA-256(job_id)[:24]
@@ -30,7 +30,7 @@ filesystem path.
 
 Session IDs and job IDs are validated against a strict regex before use:
 
-```
+```text
 ^[A-Za-z0-9][A-Za-z0-9._-]{1,63}$
 ```
 
@@ -58,7 +58,7 @@ leaking server layout information through API error responses.
 
 ## Lifecycle States
 
-```
+```text
 creating → ready → active ↔ paused → completed ┐
                           → failed              ├→ archived → cleaned
                           → cancelling → cancelled ┘
@@ -88,7 +88,7 @@ set `cleanup_eligible = true` in the manifest.
 
 Each job root contains `workspace.json` with schema version `"1"`:
 
-```json
+```json5
 {
   "schema_version": "1",
   "session_id": "as_abc123",
@@ -173,7 +173,7 @@ All workspace errors carry a `code` field suitable for API error responses:
 | `WorkspaceAccessDeniedError` | `workspace_access_denied` | Session mismatch |
 | `WorkspaceNotResumableError` | `workspace_not_resumable` | Status is not READY/PAUSED |
 | `WorkspaceLockError` | `workspace_locked` | Lock timeout |
-| `WorkspaceManifestError` | `workspace_manifest_corrupt` | manifest.json parse failure |
+| `WorkspaceManifestError` | `workspace_manifest_corrupt` | workspace.json parse failure |
 
 ---
 
@@ -184,7 +184,7 @@ All workspace errors carry a `code` field suitable for API error responses:
 Returns workspace counts grouped by status — useful for detecting orphaned
 or stale jobs:
 
-```json
+```json5
 {
   "workspace_base": "/data/workspaces",
   "metrics": {
