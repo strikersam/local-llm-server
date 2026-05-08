@@ -3,6 +3,9 @@
 ## [Unreleased]
 
 ### Added
+- `scripts/fabric_cli.py` — Fabric-style prompt pattern CLI: `list`, `show`, `apply`, `stitch`, `save`, `new` commands. Surfaces the pattern engine already in `agent/tools.py` as a standalone tool. Ships with five bundled patterns: `summarize`, `extract_wisdom`, `code_review`, `improve_prompt`, `explain_code`.
+- `.claude/skills/fabric-patterns/patterns/` — Added `code_review.md`, `improve_prompt.md`, `explain_code.md` patterns.
+- `tests/test_fabric_patterns.py` — 12 tests covering CLI list/show/apply/stitch/save/new commands and pattern frontmatter validity.
 - `scripts/claude_setup_audit.py` — New audit script that checks Claude Code setup completeness: CLAUDE.md required sections, hooks directory and git activation, skills inventory (≥5 installed, 4 key skills required), state files, and agents config. Outputs 0-100% weighted score as text or `--json`. Exit 0 when all checks pass, 1 otherwise.
 - `tests/test_claude_setup_audit.py` — 12 tests covering all check functions, CLI text/JSON modes, and score arithmetic.
 - `runtimes/adapters/jcode.py` — First-class jcode runtime adapter (TIER_2). jcode is a high-performance Rust coding agent that connects to the local proxy as its OpenAI provider. Supports CLI and HTTP API modes; capabilities include MCP connectivity, semantic vector memory, multi-agent swarm, browser automation, repo editing, and streaming. Includes `write_mcp_config()` to generate `.jcode/mcp.json` for project-local MCP server registration.
