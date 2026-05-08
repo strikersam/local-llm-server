@@ -99,7 +99,7 @@ from webui.providers import ProviderManager
 from webui.router import register_webui
 from features.api import features_router
 from webui.workspaces import WorkspaceManager
-from features.matrix import get_matrix, FeatureUnavailableError
+from features.matrix import get_feature_matrix, FeatureUnavailableError
 from agent.workspace import get_workspace_manager
 from workflow import WorkflowEngine, workflow_router
 from workflow.engine import get_engine
@@ -1067,7 +1067,7 @@ async def admin_list_features(
     every feature.  Operators can see what is stable, beta, experimental, or
     disabled at a glance.
     """
-    return get_matrix().as_dict(admin_only=True)
+    return get_feature_matrix().as_dict(admin_only=True)
 
 
 @app.get("/admin/api/workspaces/metrics")
