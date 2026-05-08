@@ -152,6 +152,7 @@ The `commit-msg` hook will reject commits with no changelog update (unless the c
 | Session interrupted/resuming | `cooldown-resume` |
 | Adding/upgrading dependencies | `dependency-audit` |
 | Updating repo memory/CLAUDE.md | `repo-memory-updater` |
+| Deleting merged branches | `branch-cleanup` |
 
 ---
 

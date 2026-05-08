@@ -1,0 +1,41 @@
+name: Delete merged branch
+
+on:
+  pull_request:
+    types: [closed]
+
+jobs:
+  delete-branch:
+    # Only run when the PR was actually merged (not just closed/abandoned)
+    if: github.event.pull_request.merged == true
+
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write   # required to delete refs
+
+    steps:
+      - name: Delete source branch
+        env:
+          BRANCH: ${{ github.event.pull_request.head.ref }}
+          REPO:   ${{ github.repository }}
+          TOKEN:  ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          # Never delete master or gh-pages
+          if [[ "$BRANCH" == "master" || "$BRANCH" == "gh-pages" ]]; then
+            echo "Skipping protected branch: $BRANCH"
+            exit 0
+          fi
+
+          STATUS=$(curl -s -o /dev/null -w "%{http_code}" -X DELETE \
+            -H "Authorization: token $TOKEN" \
+            -H "Accept: application/vnd.github+json" \
+            "https://api.github.com/repos/$REPO/git/refs/heads/$BRANCH")
+
+          if [ "$STATUS" = "204" ]; then
+            echo "✓ Deleted branch: $BRANCH"
+          elif [ "$STATUS" = "422" ]; then
+            echo "Branch already deleted: $BRANCH"
+          else
+            echo "✗ Failed to delete branch: $BRANCH (HTTP $STATUS)"
+            exit 1
+          fi
