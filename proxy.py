@@ -98,6 +98,8 @@ from webui.config_store import JsonConfigStore
 from webui.providers import ProviderManager
 from webui.router import register_webui
 from webui.workspaces import WorkspaceManager
+from features.matrix import get_matrix, FeatureUnavailableError
+from agent.workspace import get_workspace_manager
 from workflow import WorkflowEngine, workflow_router
 from workflow.engine import get_engine
 from workflow.ide_bridge import handle_workflow_ide_chat
@@ -1047,6 +1049,52 @@ async def admin_rotate_user(
             "created": rec.created,
         },
         "admin": {"username": admin.username},
+    }
+
+
+@app.get("/admin/api/features")
+async def admin_list_features(
+    admin: AdminIdentity = Depends(_get_admin_identity_from_request),
+):
+    """Return the full feature support matrix.
+
+    Shows maturity tier, enabled state, dependencies, and config flags for
+    every feature.  Operators can see what is stable, beta, experimental, or
+    disabled at a glance.
+    """
+    return get_matrix().as_dict(admin_only=True)
+
+
+@app.get("/admin/api/workspaces/metrics")
+async def admin_workspace_metrics(
+    admin: AdminIdentity = Depends(_get_admin_identity_from_request),
+):
+    """Return workspace lifecycle metrics (counts by status).
+
+    Scans the workspace base directory and aggregates by status without loading
+    every manifest's full content.  Useful for detecting orphaned or stale jobs.
+    """
+    mgr = get_workspace_manager()
+    # direct_chat.py creates legacy workspaces (no manifests) under a separate root.
+    # Report both so the admin view is complete regardless of env var alignment.
+    legacy_root = Path(
+        os.environ.get("DIRECT_CHAT_AGENT_WORKSPACE_ROOT", ".data/direct-chat-agent-workspaces")
+    )
+
+    def _count_legacy() -> int:
+        if not legacy_root.exists():
+            return 0
+        return sum(1 for d in legacy_root.glob("*/*") if d.is_dir())
+
+    workspace_metrics, legacy_count = await asyncio.gather(
+        asyncio.to_thread(mgr.metrics),
+        asyncio.to_thread(_count_legacy),
+    )
+    return {
+        "workspace_base": str(mgr._base),
+        "metrics": workspace_metrics,
+        "legacy_workspace_root": str(legacy_root),
+        "legacy_workspace_count": legacy_count,
     }
 
 
