@@ -111,6 +111,28 @@ def test_new_scaffolds_pattern(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) 
     dest.unlink(missing_ok=True)
 
 
+def test_path_traversal_rejected_in_show() -> None:
+    for bad in ["../escape", "../../etc/passwd", "foo/bar", "FOO", ".hidden"]:
+        result = subprocess.run(CLI + ["show", bad], capture_output=True, text=True)
+        assert result.returncode != 0, f"Expected non-zero for name '{bad}'"
+
+
+def test_path_traversal_rejected_in_apply() -> None:
+    result = subprocess.run(
+        CLI + ["apply", "../escape", "--input", "x"],
+        capture_output=True, text=True,
+    )
+    assert result.returncode != 0
+
+
+def test_path_traversal_rejected_in_stitch() -> None:
+    result = subprocess.run(
+        CLI + ["stitch", "summarize", "../../hook", "--input", "x"],
+        capture_output=True, text=True,
+    )
+    assert result.returncode != 0
+
+
 def test_all_bundled_patterns_have_valid_frontmatter() -> None:
     for p in PATTERNS_DIR.glob("*.md"):
         content = p.read_text()

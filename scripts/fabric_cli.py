@@ -15,11 +15,25 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import re
 import sys
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).parent.parent
 PATTERNS_DIR = REPO_ROOT / ".claude" / "skills" / "fabric-patterns" / "patterns"
+
+_SAFE_NAME_RE = re.compile(r"^[a-z0-9][a-z0-9_-]{0,63}$")
+
+
+def _validate_name(name: str) -> None:
+    """Reject pattern names that contain path traversal or unsafe characters."""
+    if not _SAFE_NAME_RE.match(name):
+        print(
+            f"Invalid pattern name '{name}'. "
+            "Names must be lowercase alphanumeric, hyphens, or underscores (max 64 chars).",
+            file=sys.stderr,
+        )
+        sys.exit(1)
 
 
 def _ensure_patterns_dir() -> Path:
@@ -55,6 +69,7 @@ def cmd_list() -> None:
 
 
 def cmd_show(name: str) -> None:
+    _validate_name(name)
     path = PATTERNS_DIR / f"{name}.md"
     if not path.exists():
         print(f"Pattern '{name}' not found.", file=sys.stderr)
@@ -63,6 +78,7 @@ def cmd_show(name: str) -> None:
 
 
 def cmd_apply(name: str, variables: dict[str, str], input_text: str | None) -> None:
+    _validate_name(name)
     path = PATTERNS_DIR / f"{name}.md"
     if not path.exists():
         print(f"Pattern '{name}' not found.", file=sys.stderr)
@@ -80,6 +96,8 @@ def cmd_apply(name: str, variables: dict[str, str], input_text: str | None) -> N
 
 
 def cmd_stitch(pattern_names: list[str], input_text: str) -> None:
+    for name in pattern_names:
+        _validate_name(name)
     current = input_text
     for name in pattern_names:
         path = PATTERNS_DIR / f"{name}.md"
@@ -92,6 +110,7 @@ def cmd_stitch(pattern_names: list[str], input_text: str) -> None:
 
 
 def cmd_save(name: str, source: Path) -> None:
+    _validate_name(name)
     if not source.exists():
         print(f"File '{source}' not found.", file=sys.stderr)
         sys.exit(1)
@@ -102,6 +121,7 @@ def cmd_save(name: str, source: Path) -> None:
 
 
 def cmd_new(name: str, description: str) -> None:
+    _validate_name(name)
     _ensure_patterns_dir()
     dest = PATTERNS_DIR / f"{name}.md"
     if dest.exists():
