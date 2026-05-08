@@ -413,3 +413,65 @@ PROXY_INJECT_STREAM_USAGE=true   # default: true
 ```
 
 Disable if your Ollama build rejects the `stream_options` field.
+
+
+---
+
+## 17. Workspace Isolation
+
+**What it does:** Provides each agent session/job with its own isolated, validated workspace directory under a single configured base root.
+
+**Why it exists:** Without workspace isolation, agent jobs share filesystem state and can accidentally overwrite or read each other's artifacts. Path traversal and symlink attacks could expose the host filesystem.
+
+**How it works:**
+- Every session/job pair maps to a unique directory derived from a validated, hashed ID
+- Five standard subdirectories are created: `source/`, `checkpoints/`, `logs/`, `artifacts/`, `temp/`
+- A structured `manifest.json` tracks lifecycle state, heartbeat, and cleanup eligibility
+- Path traversal and symlink escape attempts are blocked
+- Workspace lifecycle is managed through explicit state transitions
+- Retention TTL and cleanup policies remove expired workspaces safely
+
+**Config:**
+```env
+WORKSPACE_BASE_ROOT=.data/workspaces
+WORKSPACE_RETENTION_TTL_SECONDS=604800
+```
+
+**Limitations:**
+- In-memory manifest cache resets on server restart (manifests are re-read from disk)
+- Cleanup only runs when explicitly triggered or via the cleanup API
+
+---
+
+## 18. Feature Maturity & Support Matrix
+
+**What it does:** Classifies every feature into a maturity tier (stable/beta/experimental/disabled) and provides a single source of truth for feature availability.
+
+**Why it exists:** Without a support matrix, operators cannot tell which features are production-ready vs. experimental. Disabled features fail silently instead of with actionable errors.
+
+**How it works:**
+- The `FeatureMatrix` in `features/matrix.py` is the canonical source
+- Features are gated: disabled features raise `FeatureUnavailableError` with fix hints
+- Beta/experimental features surface warnings in API responses
+- Config overrides (`FEATURE_<ID>=<tier>`) allow runtime adjustments
+- Admin API at `/admin/features` exposes the full matrix
+
+**Config overrides:**
+```env
+# Disable a feature
+FEATURE_TELEGRAM_BOT=disabled
+
+# Promote a feature to stable
+FEATURE_ASYNC_AGENT_JOBS=stable
+```
+
+**Admin API:**
+```
+GET  /admin/features           — full matrix with summary
+GET  /admin/features/{id}      — single feature + warnings
+POST /admin/features/check     — check availability
+```
+
+**Limitations:**
+- Config overrides are read at startup; changing them requires a restart
+- The matrix is a singleton — tests should use `reset_feature_matrix()`

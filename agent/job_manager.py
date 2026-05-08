@@ -1,3 +1,10 @@
+"""agent/job_manager.py — Async agent job lifecycle manager.
+
+Manages agent jobs with queued/running/succeeded/failed/cancelled states,
+heartbeat timestamps, and progress events.  Integrates with the
+WorkspaceManager for isolated per-session/job workspace provisioning.
+"""
+
 from __future__ import annotations
 
 import asyncio
@@ -60,9 +67,10 @@ class AgentJob:
 
 
 class AgentJobManager:
-    def __init__(self) -> None:
+    def __init__(self, workspace_manager: Any | None = None) -> None:
         self._jobs: dict[str, AgentJob] = {}
         self._tasks: dict[str, asyncio.Task[Any]] = {}
+        self._workspace_manager = workspace_manager
 
     def create_job(
         self,
@@ -86,6 +94,27 @@ class AgentJobManager:
             provider_id=provider_id,
         )
         self._jobs[job.job_id] = job
+
+        # If a workspace_manager is configured and no explicit workspace_path,
+        # provision an isolated workspace through it.
+        if workspace_path is None and self._workspace_manager is not None:
+            try:
+                from workspace.manager import validate_session_id, validate_job_id
+                validate_session_id(session_id)
+                validate_job_id(job.job_id)
+                manifest = self._workspace_manager.create_workspace(
+                    session_id=session_id,
+                    job_id=job.job_id,
+                    runtime_type=runtime_id,
+                )
+                job.workspace_path = manifest.root_path
+            except Exception as exc:
+                log.warning(
+                    "Failed to provision isolated workspace for job %s: %s — "
+                    "falling back to raw workspace_path",
+                    job.job_id, exc,
+                )
+
         self._append_event(job.job_id, phase="queued", message="Job queued")
         return job
 
@@ -106,6 +135,14 @@ class AgentJobManager:
         job = self._jobs[job_id]
         if job_id in self._tasks and not self._tasks[job_id].done():
             return job
+
+        # Activate workspace if manager is configured
+        if self._workspace_manager is not None and job.workspace_path:
+            try:
+                self._workspace_manager.activate(job.session_id, job.job_id)
+            except Exception:
+                pass
+
         self._tasks[job_id] = asyncio.create_task(self._run_job(job, runner))
         return job
 
@@ -121,6 +158,14 @@ class AgentJobManager:
         job.updated_at = _now()
         job.heartbeat_at = job.updated_at
         self._append_event(job_id, phase="cancelled", message="Job cancelled")
+
+        # Mark workspace as cancelled if manager is configured
+        if self._workspace_manager is not None and job.workspace_path:
+            try:
+                self._workspace_manager.cancel(job.session_id, job.job_id)
+            except Exception:
+                pass
+
         return job
 
     async def _run_job(
@@ -160,6 +205,16 @@ class AgentJobManager:
             job.updated_at = _now()
             job.heartbeat_at = job.updated_at
 
+            # Complete or fail the workspace
+            if self._workspace_manager is not None and job.workspace_path:
+                try:
+                    if job.status == "succeeded":
+                        self._workspace_manager.complete(job.session_id, job.job_id)
+                    elif job.status == "failed":
+                        self._workspace_manager.fail(job.session_id, job.job_id)
+                except Exception:
+                    pass
+
     def _append_event(self, job_id: str, *, phase: str, message: str) -> None:
         job = self._jobs[job_id]
         timestamp = _now()
@@ -169,7 +224,16 @@ class AgentJobManager:
         job.progress_events.append({"timestamp": timestamp, "phase": phase, "message": message})
 
 
+# ── Legacy workspace helpers (kept for backward compatibility) ────────────────
+
 def make_isolated_workspace(root: Path, session_id: str, job_id: str) -> Path:
+    """Create an isolated workspace directory under *root*.
+
+    This is the legacy path used before WorkspaceManager.  It still
+    validates IDs and hashes directory names, but the preferred path is
+    to use WorkspaceManager.create_workspace() which also produces
+    manifests, subdirectories, and lifecycle management.
+    """
     session_component = _workspace_component(session_id, field_name="session_id")
     job_component = _workspace_component(job_id, field_name="job_id")
     workspace = (root / session_component / job_component).resolve()

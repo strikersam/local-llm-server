@@ -19,7 +19,8 @@ from fastapi import APIRouter, Depends, HTTPException, Header, Request
 from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel
 
-from agent.job_manager import AgentJobManager, make_isolated_workspace
+from agent.job_manager import AgentJobManager
+from workspace.manager import WorkspaceManager
 from tokens import verify_token
 from provider_router import ProviderRouter
 from runtimes.adapters.internal_agent import InternalAgentAdapter
@@ -32,8 +33,9 @@ direct_chat_router = APIRouter(prefix="/api/chat", tags=["chat"])
 # Session store for direct chat
 from agent.state import AgentSessionStore
 _direct_chat_store = AgentSessionStore(db_path="direct_chat_sessions.db")
-_agent_jobs = AgentJobManager()
-_agent_workspace_root = Path(os.environ.get("DIRECT_CHAT_AGENT_WORKSPACE_ROOT", ".data/direct-chat-agent-workspaces"))
+_workspace_manager = WorkspaceManager(base_root=os.environ.get("DIRECT_CHAT_AGENT_WORKSPACE_ROOT", ".data/direct-chat-agent-workspaces"))
+_agent_jobs = AgentJobManager(workspace_manager=_workspace_manager)
+_agent_workspace_root = _workspace_manager.base_root
 
 
 def _ensure_session(session_id: str, user: UserInfo) -> None:
@@ -109,8 +111,6 @@ async def _get_github_token_for_user(user_email: str) -> str | None:
     return os.environ.get("GITHUB_TOKEN") or os.environ.get("GH_TOKEN")
 
 
-@direct_chat_router.post("/send")
-
 def _is_trivial_message(content: str) -> bool:
     """Determine if a message is trivial (e.g., greeting, short talk) that should bypass agent mode."""
     if not content or not isinstance(content, str):
@@ -130,6 +130,7 @@ def _is_trivial_message(content: str) -> bool:
 
 
 
+@direct_chat_router.post("/send")
 async def send_chat_message(
     req: ChatSendRequest,
     request: Request,
@@ -250,8 +251,10 @@ async def _handle_agent_mode(
         requested_model=req.model,
         provider_id=req.provider_id,
     )
-    workspace_root = make_isolated_workspace(_agent_workspace_root, session_id, job.job_id)
-    job.workspace_path = str(workspace_root)
+    if not job.workspace_path:
+        manifest = _workspace_manager.create_workspace(session_id=session_id, job_id=job.job_id, runtime_type="internal_agent")
+        job.workspace_path = manifest.root_path
+    workspace_root = Path(job.workspace_path)
 
     adapter = InternalAgentAdapter(config={"workspace_root": str(workspace_root)})
     spec = TaskSpec(

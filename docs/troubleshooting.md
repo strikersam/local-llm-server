@@ -351,3 +351,94 @@ Ollama processes one request at a time by default. Queue depth increases with co
 - Consider running separate Ollama instances for different model tiers
 - Use smaller models for high-concurrency use cases
 - The proxy's rate limiting (`RATE_LIMIT_RPM`) helps prevent queue pile-up
+
+
+---
+
+## Workspace Issues
+
+### "Workspace not found" error
+
+**Symptom:** API returns `workspace_not_found` when trying to access a session/job workspace.
+
+**Causes and fixes:**
+
+| Cause | Fix |
+|-------|-----|
+| Session/job ID is wrong | Verify the session ID and job ID in the request |
+| Workspace was cleaned up | Completed workspaces past the retention TTL are removed. Increase `WORKSPACE_RETENTION_TTL_SECONDS` if needed |
+| Server restarted after workspace was created in memory | Workspaces are persisted to disk. Check `WORKSPACE_BASE_ROOT` is persistent storage |
+
+### "Invalid session ID" or "Invalid job ID" error
+
+**Symptom:** API returns `invalid_session_id` or `invalid_job_id`.
+
+**Fix:** Session and job IDs must be 1–128 characters, start with an alphanumeric character, and contain only letters, numbers, dashes, underscores, and dots. Path traversal characters (`../`) and slashes are rejected.
+
+### "Workspace outside root" error
+
+**Symptom:** API returns `workspace_outside_root`.
+
+**Cause:** The resolved workspace path escaped the configured base root. This can happen if:
+- A symlink inside the workspace points outside the root
+- The base root configuration was changed after workspace creation
+
+**Fix:** Check for symlinks in the workspace directory. If the base root was moved, update `WORKSPACE_BASE_ROOT` to the correct location.
+
+### "Workspace not resumable" error
+
+**Symptom:** API returns `workspace_not_resumable` when trying to resume a session.
+
+**Cause:** Only workspaces in `ready`, `active`, or `paused` state can be resumed. Completed, failed, or cancelled workspaces cannot be resumed.
+
+**Fix:** Start a new session/job instead of trying to resume an old one.
+
+### "Workspace manifest corrupt" error
+
+**Symptom:** API returns `workspace_manifest_corrupt`.
+
+**Cause:** The `manifest.json` file in the workspace directory is invalid JSON or has unexpected fields.
+
+**Fix:** Delete the workspace directory and re-create the session/job. If you need to recover data, inspect the manifest file manually.
+
+### "Workspace cleanup blocked" error
+
+**Symptom:** API returns `workspace_cleanup_blocked`.
+
+**Cause:** The workspace is still in an active state (creating, ready, active, paused). Cleanup only works on completed/failed/cancelled/archived workspaces.
+
+**Fix:** Wait for the session/job to complete, or cancel it first.
+
+---
+
+## Feature Maturity Issues
+
+### "Feature unavailable" error
+
+**Symptom:** API returns `feature_unavailable` when trying to use a feature.
+
+**Causes and fixes:**
+
+| Cause | Fix |
+|-------|-----|
+| Feature is disabled in the support matrix | Set `FEATURE_<ID>=enabled` in `.env` to override |
+| Feature maturity is set to `disabled` | Change the tier: `FEATURE_<ID>=beta` or `FEATURE_<ID>=stable` |
+| Feature not found in matrix | Check the feature ID spelling. Use `GET /admin/features` to list all features |
+
+### Beta/experimental warning in API response
+
+**Symptom:** API responses include a `warning` field for certain features.
+
+**Cause:** The feature is classified as beta or experimental in the support matrix.
+
+**What it means:** The feature works but may have edge cases, behavioral changes, or higher operational risk. Not recommended for production without testing.
+
+**Action:** Acknowledge the warning. If the feature is critical for production, override its maturity: `FEATURE_<ID>=stable`.
+
+### Feature not appearing in admin UI
+
+**Symptom:** A feature is missing from the admin features list.
+
+**Cause:** The feature entry has `admin_visible: false`.
+
+**Fix:** This is by design — some internal features are hidden from the admin UI. Use the API directly: `GET /admin/features/<feature_id>`.

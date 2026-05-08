@@ -97,6 +97,7 @@ from tasks.store import get_task_store, set_task_store
 from webui.config_store import JsonConfigStore
 from webui.providers import ProviderManager
 from webui.router import register_webui
+from features.api import features_router
 from webui.workspaces import WorkspaceManager
 from workflow import WorkflowEngine, workflow_router
 from workflow.engine import get_engine
@@ -833,6 +834,10 @@ app.include_router(
     sync_router,
 )
 log.info("Workspace sync mounted at /api/sync/*")
+
+# ─── Admin: Feature support matrix ────────────────────────────────────────────
+app.include_router(features_router)
+log.info("Feature support matrix mounted at /admin/features/*")
 
 # ─── v2: Multi-agent coordinate ───────────────────────────────────────────────
 app.include_router(coordinate_v2_router)

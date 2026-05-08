@@ -4,6 +4,55 @@
 ### Fixed
 - Removed automatic Ollama fallback in provider router to prevent connection errors when Ollama is not running. Ollama is now only included when INCLUDE_LOCAL_FALLBACK=true is explicitly set, preserving NVIDIA NIM as highest priority when NVIDIA_API_KEY is set.
 
+
+## [Unreleased] — 2026-05-08
+
+### Added
+
+- **Workspace isolation model** (`workspace/`) — first-class isolated workspaces per session/job with:
+  - Deterministic workspace root derivation from validated, hashed session/job IDs
+  - Path safety: canonicalization, traversal rejection, symlink escape blocking
+  - Session/job ownership boundaries with RLock concurrency guards
+  - Explicit lifecycle states: creating → ready → active → paused → completed → failed → cancelling → cancelled → archived → cleaned
+  - Structured `manifest.json` per workspace with session ID, job ID, timestamps, paths, cleanup eligibility, and schema version
+  - Five standard subdirectories: `source/`, `checkpoints/`, `logs/`, `artifacts/`, `temp/`
+  - Retention TTL and safe cleanup policies that respect active locks
+  - Structured, actionable error codes for all failure modes
+  - Workspace metrics (active, expired, cleaned, resume success/failure)
+  - Admin diagnostics endpoint combining workspace and runtime health
+  - Runtime integration hooks in `AgentJobManager`
+
+- **Feature maturity tiers & support matrix** (`features/`) — real support classification:
+  - `FeatureMaturity` enum: stable, beta, experimental, disabled
+  - `FeatureMatrix` single source of truth with all features classified
+  - Enforcement: disabled features raise `FeatureUnavailableError`, beta/experimental surface warnings
+  - Config overrides via `FEATURE_<ID>=<tier>` environment variables
+  - Admin API at `/admin/features` (list, get, check)
+  - Markdown table generation for docs sync
+
+- `docs/architecture/workspace-isolation.md` — full workspace isolation architecture documentation
+- `docs/support-matrix.md` — generated feature support matrix documentation
+- `features/api.py` — admin API routes for feature support matrix
+
+### Changed
+
+- `agent/job_manager.py` — `AgentJobManager` now accepts an optional `workspace_manager` parameter; job creation automatically provisions isolated workspaces; job lifecycle transitions (start, cancel, complete, fail) update workspace state
+- `direct_chat.py` — now uses `WorkspaceManager` instead of legacy `make_isolated_workspace()` for agent mode workspace provisioning
+- `proxy.py` — mounts the features admin API router at `/admin/features/*`
+- `docs/architecture/overview.md` — added workspace isolation and feature maturity sections
+- `docs/architecture/feature-maturity-matrix.md` — updated to reference the canonical `features/matrix.py` source of truth
+- `docs/features.md` — added workspace isolation (§17) and feature maturity (§18) feature documentation
+- `docs/configuration-reference.md` — added workspace isolation and feature maturity override config sections
+- `docs/troubleshooting.md` — added sections for workspace errors and feature maturity issues
+
+### Tests
+
+- `tests/test_workspace_isolation.py` — comprehensive workspace isolation tests covering: ID validation, path derivation, traversal rejection, symlink escape blocking, lifecycle states, resume boundaries, cleanup policies, manifest creation/corruption, cross-session isolation, concurrency, metrics, diagnostics
+- `tests/test_feature_maturity.py` — feature maturity and support matrix tests covering: matrix loading, classification, disabled feature gating, maturity warnings, config overrides, serialization, admin API
+- `tests/test_v4_reliability_regression.py` — regression tests for claimed v4 behavior: runtime preflight structured errors, direct chat sync behavior, agent mode async 202, job lifecycle transitions, provider cooldown expiry, model role separation, structured runtime errors
+- `tests/test_workspace_security.py` — security-oriented tests: path traversal prevention, no internal path leakage, workspace hashing, cleanup isolation, symlink attack prevention
+- `tests/test_docs_config_sync.py` — lightweight docs/config sync checks: matrix markdown generation, config flag documentation, feature coverage
+
 ## [4.0.0] - 2026-05-06
 
 ### Added

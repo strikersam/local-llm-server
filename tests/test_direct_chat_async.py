@@ -33,6 +33,8 @@ class _FakeChatResult:
 
 
 def test_agent_mode_queues_async_job(monkeypatch, tmp_path: Path):
+    monkeypatch.setenv("INCLUDE_LOCAL_FALLBACK", "true")
+    monkeypatch.setenv("NVIDIA_API_KEY", "fake-key-for-testing")
     proxy.app.dependency_overrides[direct_chat._get_current_user] = _fake_user
     monkeypatch.setattr(direct_chat, "_direct_chat_store", AgentSessionStore(db_path=str(tmp_path / "chat.db")))
     monkeypatch.setattr(direct_chat, "_agent_jobs", AgentJobManager())
@@ -51,9 +53,18 @@ def test_agent_mode_queues_async_job(monkeypatch, tmp_path: Path):
     monkeypatch.setattr("runtimes.adapters.internal_agent.InternalAgentAdapter.readiness_check", fake_readiness)
     monkeypatch.setattr("agent.loop.AgentRunner", FakeRunner)
 
+    # Ensure PROVIDER_ROUTER exists even though agent mode shouldn't need it
+    # (protects against trivial-message fallback to regular chat)
+    if not hasattr(proxy.app.state, "PROVIDER_ROUTER") or proxy.app.state.PROVIDER_ROUTER is None:
+        class _FallbackRouter:
+            providers = []
+            async def chat_completion(self, payload):
+                return _FakeChatResult("Fallback response")
+        proxy.app.state.PROVIDER_ROUTER = _FallbackRouter()
+
     client = TestClient(proxy.app)
-    response = client.post("/api/chat/send", json={"content": "Implement feature", "agent_mode": True})
-    assert response.status_code == 202
+    response = client.post("/api/chat/send", json={"content": "Implement a Python function that calculates fibonacci numbers efficiently", "agent_mode": True})
+    assert response.status_code == 202, f"Expected 202, got {response.status_code}: {response.text}"
     body = response.json()
     assert body["status"] in {"queued", "running"}
     assert body["job_id"]
@@ -76,6 +87,7 @@ def test_agent_mode_returns_runtime_validation_errors(monkeypatch, tmp_path: Pat
     proxy.app.dependency_overrides[direct_chat._get_current_user] = _fake_user
     monkeypatch.setattr(direct_chat, "_direct_chat_store", AgentSessionStore(db_path=str(tmp_path / "chat2.db")))
     monkeypatch.setattr(direct_chat, "_agent_jobs", AgentJobManager())
+    monkeypatch.setattr(direct_chat, "_agent_workspace_root", tmp_path / "workspaces2")
 
     async def fake_readiness(self, spec):
         return RuntimeReadinessReport(
@@ -88,9 +100,17 @@ def test_agent_mode_returns_runtime_validation_errors(monkeypatch, tmp_path: Pat
 
     monkeypatch.setattr("runtimes.adapters.internal_agent.InternalAgentAdapter.readiness_check", fake_readiness)
 
+    # Ensure PROVIDER_ROUTER exists for fallback protection
+    if not hasattr(proxy.app.state, "PROVIDER_ROUTER") or proxy.app.state.PROVIDER_ROUTER is None:
+        class _FallbackRouter:
+            providers = []
+            async def chat_completion(self, payload):
+                return _FakeChatResult("Fallback response")
+        proxy.app.state.PROVIDER_ROUTER = _FallbackRouter()
+
     client = TestClient(proxy.app)
-    response = client.post("/api/chat/send", json={"content": "Implement feature", "agent_mode": True})
-    assert response.status_code == 412
+    response = client.post("/api/chat/send", json={"content": "Implement a Python function that calculates fibonacci numbers efficiently", "agent_mode": True})
+    assert response.status_code == 412, f"Expected 412, got {response.status_code}: {response.text}"
     assert response.json()["detail"]["ready"] is False
 
     proxy.app.dependency_overrides.clear()
