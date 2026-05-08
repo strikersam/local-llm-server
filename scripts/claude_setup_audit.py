@@ -71,8 +71,8 @@ def _check_claude_md_sections(path: Path) -> list[CheckResult]:
     return results
 
 
-def _check_hooks() -> list[CheckResult]:
-    hooks_dir = REPO_ROOT / ".claude" / "hooks"
+def _check_hooks(repo_root: Path = REPO_ROOT) -> list[CheckResult]:
+    hooks_dir = repo_root / ".claude" / "hooks"
     results = []
     if not hooks_dir.is_dir():
         return [CheckResult("hooks directory", False, f"{hooks_dir} not found")]
@@ -85,7 +85,7 @@ def _check_hooks() -> list[CheckResult]:
         f"{len(hook_files)} hook file(s) found",
     ))
 
-    git_config = REPO_ROOT / ".git" / "config"
+    git_config = repo_root / ".git" / "config"
     hooks_activated = False
     if git_config.exists():
         content = git_config.read_text()
@@ -98,8 +98,8 @@ def _check_hooks() -> list[CheckResult]:
     return results
 
 
-def _check_skills() -> list[CheckResult]:
-    skills_dir = REPO_ROOT / ".claude" / "skills"
+def _check_skills(repo_root: Path = REPO_ROOT) -> list[CheckResult]:
+    skills_dir = repo_root / ".claude" / "skills"
     results = []
     if not skills_dir.is_dir():
         return [CheckResult("skills directory", False, f"{skills_dir} not found")]
@@ -119,8 +119,8 @@ def _check_skills() -> list[CheckResult]:
     return results
 
 
-def _check_state() -> list[CheckResult]:
-    state_dir = REPO_ROOT / ".claude" / "state"
+def _check_state(repo_root: Path = REPO_ROOT) -> list[CheckResult]:
+    state_dir = repo_root / ".claude" / "state"
     results = []
     if not state_dir.is_dir():
         return [CheckResult("state directory", False, f"{state_dir} not found")]
@@ -135,8 +135,8 @@ def _check_state() -> list[CheckResult]:
     return results
 
 
-def _check_agents_config() -> list[CheckResult]:
-    agents_dir = REPO_ROOT / ".claude" / "agents"
+def _check_agents_config(repo_root: Path = REPO_ROOT) -> list[CheckResult]:
+    agents_dir = repo_root / ".claude" / "agents"
     if not agents_dir.is_dir():
         return [CheckResult("agents config", False, f"{agents_dir} not found")]
     agent_files = list(agents_dir.glob("*.md")) + list(agents_dir.glob("*.json"))
@@ -153,10 +153,10 @@ def _check_agents_config() -> list[CheckResult]:
 def run_audit(repo_root: Path = REPO_ROOT) -> AuditReport:
     report = AuditReport()
     report.results += _check_claude_md_sections(repo_root / "CLAUDE.md")
-    report.results += _check_hooks()
-    report.results += _check_skills()
-    report.results += _check_state()
-    report.results += _check_agents_config()
+    report.results += _check_hooks(repo_root)
+    report.results += _check_skills(repo_root)
+    report.results += _check_state(repo_root)
+    report.results += _check_agents_config(repo_root)
     return report
 
 

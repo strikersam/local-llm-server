@@ -43,12 +43,13 @@ def test_agent_mode_queues_async_job(monkeypatch, tmp_path: Path):
         priority = 1
         api_key = None
         normalized_base_url = "http://localhost:11434"
-        def auth_headers(self): return {}
+        def auth_headers(self) -> dict[str, str]:
+            return {}
 
     class _FakeRouter:
-        providers = [_FakeProvider()]
+        providers = (_FakeProvider(),)
 
-    proxy.app.state.PROVIDER_ROUTER = _FakeRouter()
+    monkeypatch.setattr(proxy.app.state, "PROVIDER_ROUTER", _FakeRouter(), raising=False)
 
     async def fake_readiness(self, spec):
         return RuntimeReadinessReport(runtime_id="internal_agent", ready=True, selected_runtime="internal_agent")
@@ -121,7 +122,7 @@ def test_regular_chat_remains_sync_and_does_not_queue_job(monkeypatch, tmp_path:
         async def chat_completion(self, payload):
             return _FakeChatResult("Direct response")
 
-    proxy.app.state.PROVIDER_ROUTER = FakeRouter()
+    monkeypatch.setattr(proxy.app.state, "PROVIDER_ROUTER", FakeRouter(), raising=False)
 
     client = TestClient(proxy.app)
     response = client.post("/api/chat/send", json={"content": "Hello", "agent_mode": False})

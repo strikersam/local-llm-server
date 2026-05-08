@@ -22,20 +22,20 @@ from scripts.claude_setup_audit import (
 )
 
 
-def test_run_audit_returns_report():
+def test_run_audit_returns_report() -> None:
     report = run_audit(REPO_ROOT)
     assert isinstance(report, AuditReport)
     assert len(report.results) > 0
     assert 0 <= report.score <= 100
 
 
-def test_check_claude_md_exists():
+def test_check_claude_md_exists() -> None:
     results = _check_claude_md_sections(REPO_ROOT / "CLAUDE.md")
     exists_check = next(r for r in results if r.name == "CLAUDE.md exists")
     assert exists_check.passed, "CLAUDE.md must exist at repo root"
 
 
-def test_check_claude_md_key_sections():
+def test_check_claude_md_key_sections() -> None:
     results = _check_claude_md_sections(REPO_ROOT / "CLAUDE.md")
     section_checks = [r for r in results if "CLAUDE.md:" in r.name]
     assert len(section_checks) >= 5
@@ -43,40 +43,40 @@ def test_check_claude_md_key_sections():
     assert not failed, f"Missing CLAUDE.md sections: {[r.name for r in failed]}"
 
 
-def test_check_claude_md_missing_file(tmp_path):
+def test_check_claude_md_missing_file(tmp_path: Path) -> None:
     results = _check_claude_md_sections(tmp_path / "CLAUDE.md")
     assert len(results) == 1
     assert not results[0].passed
     assert "not found" in results[0].message
 
 
-def test_hooks_directory_exists():
-    results = _check_hooks()
+def test_hooks_directory_exists() -> None:
+    results = _check_hooks(REPO_ROOT)
     dir_check = next(r for r in results if r.name == "hooks directory")
     assert dir_check.passed, ".claude/hooks directory must exist"
 
 
-def test_skills_directory_populated():
-    results = _check_skills()
+def test_skills_directory_populated() -> None:
+    results = _check_skills(REPO_ROOT)
     pop_check = next(r for r in results if r.name == "skills populated")
     assert pop_check.passed, "At least 5 skills must be installed"
 
 
-def test_key_skills_present():
-    results = _check_skills()
+def test_key_skills_present() -> None:
+    results = _check_skills(REPO_ROOT)
     for skill in ["council-review", "implementation-planner", "test-first-executor", "changelog-enforcer"]:
         check = next((r for r in results if r.name == f"skill: {skill}"), None)
         assert check is not None
         assert check.passed, f"Key skill '{skill}' must be installed"
 
 
-def test_state_directory_exists():
-    results = _check_state()
+def test_state_directory_exists() -> None:
+    results = _check_state(REPO_ROOT)
     dir_check = next(r for r in results if r.name == "state directory")
     assert dir_check.passed, ".claude/state directory must exist"
 
 
-def test_audit_report_score():
+def test_audit_report_score() -> None:
     report = AuditReport(results=[
         CheckResult("a", True, "ok", weight=2),
         CheckResult("b", False, "fail", weight=2),
@@ -85,7 +85,7 @@ def test_audit_report_score():
     assert not report.ok
 
 
-def test_audit_report_all_pass():
+def test_audit_report_all_pass() -> None:
     report = AuditReport(results=[
         CheckResult("a", True, "ok"),
         CheckResult("b", True, "ok"),
@@ -94,7 +94,7 @@ def test_audit_report_all_pass():
     assert report.ok
 
 
-def test_cli_json_output():
+def test_cli_json_output() -> None:
     result = subprocess.run(
         [sys.executable, "scripts/claude_setup_audit.py", "--json"],
         capture_output=True, text=True, cwd=REPO_ROOT,
@@ -104,9 +104,10 @@ def test_cli_json_output():
     assert "ok" in data
     assert "checks" in data
     assert isinstance(data["checks"], list)
+    assert result.returncode == (0 if data["ok"] else 1)
 
 
-def test_cli_text_output():
+def test_cli_text_output() -> None:
     result = subprocess.run(
         [sys.executable, "scripts/claude_setup_audit.py"],
         capture_output=True, text=True, cwd=REPO_ROOT,
