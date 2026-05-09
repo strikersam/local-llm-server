@@ -69,11 +69,20 @@ class TestRegistryLoads:
             assert entry.maturity == FeatureMaturity.STABLE, f"{fid} should be STABLE"
 
     def test_known_beta_features_are_beta(self):
+        # workspace_isolation and runtime_preflight were promoted to STABLE; only
+        # async_agent_jobs remains in beta.
         matrix = FeatureMatrix()
-        for fid in ("async_agent_jobs", "workspace_isolation", "runtime_preflight"):
+        for fid in ("async_agent_jobs",):
             entry = matrix.get(fid)
             assert entry is not None
             assert entry.maturity == FeatureMaturity.BETA
+
+    def test_promoted_features_are_stable(self):
+        matrix = FeatureMatrix()
+        for fid in ("workspace_isolation", "runtime_preflight"):
+            entry = matrix.get(fid)
+            assert entry is not None, f"Feature {fid!r} not in matrix"
+            assert entry.maturity == FeatureMaturity.STABLE, f"{fid} should be STABLE after promotion"
 
     def test_openhands_is_experimental(self):
         matrix = FeatureMatrix()
