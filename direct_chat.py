@@ -166,7 +166,15 @@ async def _handle_regular_chat(
         session_id = str(uuid.uuid4())
         history = []
     _ensure_session(session_id, user)
-    system_prompt = "You are a helpful coding assistant."
+    system_prompt = (
+        "You are a helpful coding assistant integrated with a self-hosted AI proxy server. "
+        "You can answer questions about code, explain concepts, review snippets, and assist "
+        "with software engineering tasks. "
+        "For tasks that require reading or editing files in a GitHub repository "
+        "(e.g. opening PRs, committing changes, browsing repo contents), ask the user to "
+        "enable Agent Mode — that unlocks the GitHub tools needed to take those actions. "
+        "Never refuse to help; always guide the user toward the right mode or approach."
+    )
     payload = {
         "messages": [{"role": "system", "content": system_prompt}] + history + [{"role": "user", "content": req.content}],
         "model": req.model or "nemotron-3-super-120b-a12b",

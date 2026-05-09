@@ -7,7 +7,7 @@ import os
 import re
 import subprocess
 from pathlib import Path
-typing import Any
+from typing import Any
 
 import time
 import asyncio
@@ -91,8 +91,11 @@ class AgentRunner:
         department: str | None = None,
         key_id: str | None = None,
     ) -> None:
+        # NOTE: "ollama_base" is kept for backwards compatibility; this runner only needs an
+        # OpenAI-compatible base URL with /v1/chat/completions.
         self.ollama_base = ollama_base.rstrip("/")
         self.provider_headers = dict(provider_headers or {})
+        # None = auto-discover from env (from_env()); [] = primary only; [...] = use this chain
         self.provider_chain: list[ProviderConfig] | None = (
             list(provider_chain) if provider_chain is not None else None
         )
@@ -102,11 +105,19 @@ class AgentRunner:
         from agent.github_tools import GitHubTools
         self.github = GitHubTools(github_token)
         self.ctx = ContextManager()
+        # Optional session store for event-log writes (append-only durable log).
+        # When provided the harness logs key events so the session is
+        # recoverable and queryable outside the LLM context window.
         self._session_store = session_store
+        # Legacy auth storage (prefer passing to run())
         self.email = email
         self.department = department
         self.key_id = key_id
 
+        # Build ProviderRouter once at init time rather than per LLM call.
+        # payload["model"] always overrides default_model at routing time
+        # (see provider_router.py L711), so a single cached router handles
+        # all model variants without rebuilding on every _chat_text() call.
         _is_ollama = (
             "11434" in self.ollama_base
             or "ollama" in self.ollama_base
@@ -126,11 +137,17 @@ class AgentRunner:
             default_model=None,
             priority=0,
         )
+        # None  → auto-discover all providers from env (standalone use)
+        # []    → primary only, no fallbacks (caller controls the chain)
+        # [...] → primary + explicit fallback chain
         self._router: ProviderRouter = (
             ProviderRouter([_primary, *self.provider_chain])
             if self.provider_chain is not None
             else ProviderRouter.from_env(primary_provider=_primary)
         )
+
+        # Inference cache: serves repeated identical prompts without hitting
+        # the LLM again.  Useful across retries and similar sequential tasks.
         self._inference_cache = InferenceCache()
 
     async def run(
@@ -149,6 +166,10 @@ class AgentRunner:
         session_id: str | None = None,
         metadata: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
+        # Context compaction: if history is long, summarise the old portion
+        # before planning so the planner doesn't spend tokens on verbatim
+        # repetition.  (Anthropic managed-agents: preserve architectural
+        # decisions, discard redundant tool outputs.)
         effective_history = history
         if self.ctx.needs_compaction(history):
             effective_history = await self._compact_history(
@@ -162,7 +183,9 @@ class AgentRunner:
         )
         self._log_event(session_id, "step_start", {"goal": plan.goal, "steps": len(plan.steps)})
 
-        def _step_touches_risky(step_files: list[str]) -> bool:
+        # Risky module detection: warn loudly if the plan touches security-sensitive files.
+        # Per risky-module-review skill and agent/CLAUDE.md.
+        def _step_touches_risky(step_files: list[str]) -> bool: 
             return any(
                 sf.replace("\\", "/") == rf or sf.replace("\\", "/").endswith(f"/{rf}")
                 for sf in step_files
@@ -221,6 +244,8 @@ class AgentRunner:
                 session_id=session_id,
                 metadata=metadata,
             )
+            # Sub-agent condensed summary: trim step results before storing so
+            # the orchestrator's context stays lean.  (1-2k token budget.)
             condensed = ContextManager.condense_step_result(result)
             self._log_event(session_id, "step_complete", condensed)
             step_results.append(result)
@@ -233,6 +258,8 @@ class AgentRunner:
         report  = self._build_rich_report(plan.goal, step_results, commits)
         self._log_event(session_id, "assistant_message", {"summary": summary})
 
+        # Judge gate: quick holistic review of all applied changes.
+        # Mirrors .claude/agents/judge.md — runs after all steps complete.
         judge_verdict = await self._run_judge(
             plan=plan,
             step_results=step_results,
@@ -241,6 +268,7 @@ class AgentRunner:
             session_id=session_id,
         )
 
+        # Update auth context if passed in run()
         if user_id:
             self.email = user_id
         if department:
@@ -298,21 +326,42 @@ class AgentRunner:
         return plan
 
     def _normalize_plan_response(self, raw: dict[str, Any], instruction: str) -> dict[str, Any]:
+        """Normalize an LLM planner response to match the AgentPlan schema.
+
+        Some models (especially those trained on workflow/slice terminology) return
+        'slices' instead of 'steps', omit 'goal', or omit 'type' on individual steps.
+        This method repairs those deviations so Pydantic validation never fails due to
+        schema mismatch alone.
+        """
         normalized = dict(raw)
+
+        # 'slices' is CRISPY-workflow terminology; map it to 'steps'
         if "steps" not in normalized and "slices" in normalized:
             normalized["steps"] = normalized.pop("slices")
+
+        # Derive goal from instruction when the model omits it
         if not normalized.get("goal"):
             normalized["goal"] = instruction[:200].strip() or "Complete the requested task"
+
+        # Ensure risks is a list
         if "risks" not in normalized or not isinstance(normalized["risks"], list):
             normalized["risks"] = []
+
+        # Ensure each step has a valid 'type' field (Literal on AgentStep requires it).
+        # Infer from context when absent: steps with files get "edit", others "analyze".
         valid_types = {"edit", "create", "analyze", "github"}
         for step in normalized.get("steps", []):
             if isinstance(step, dict) and step.get("type") not in valid_types:
                 step["type"] = "edit" if step.get("files") else "analyze"
+
+            # Ensure step description is non-empty
             if not isinstance(step.get("description"), str) or not step["description"].strip():
                 step["description"] = "Perform step"
+
+            # Ensure acceptance is a string
             if "acceptance" not in step or not isinstance(step["acceptance"], str):
                 step["acceptance"] = ""
+
         return normalized
 
     async def _execute_step(
@@ -331,10 +380,12 @@ class AgentRunner:
         changed_files: list[str] = []
         retries = 0
         target_files = list(step.get("files") or [])
+
         if not target_files and step.get("type") == "create":
             target_files = [f"generated/step_{step['id']}.txt"]
         elif not target_files and step.get("type") == "github":
             target_files = ["github_operation"]
+
         executor_decision = get_router().route(
             requested_model=requested_model,
             override_model=requested_model if requested_model else None,
@@ -344,6 +395,7 @@ class AgentRunner:
         executor_model = executor_override or executor_decision.resolved_model
         if not executor_model:
             executor_model = DEFAULT_EXECUTOR_MODEL
+
         verifier_decision = get_router().route(
             requested_model=requested_model,
             endpoint_type="agent_verify",
@@ -353,8 +405,16 @@ class AgentRunner:
         if not verifier_model:
             verifier_model = DEFAULT_VERIFIER_MODEL
 
+        log.debug(
+            "agent execute: executor=%s verifier=%s",
+            executor_model, verifier_model,
+        )
+
         for remaining in range(15, 0, -1):
             try:
+                # Observation masking: pass truncated older observations to
+                # keep the tool-selection prompt lean.  Recent observations are
+                # passed verbatim; older ones are summarised.
                 masked_obs = self.ctx.mask_observations(observations)
                 tool_call = await self._chat_json(
                     executor_model,
@@ -370,10 +430,31 @@ class AgentRunner:
                 observations.append({"tool": "finish", "result": call.args.get("reason", "done inspecting")})
                 break
             call_id = f"step-{step['id']}-tool-{16 - remaining}"
-            self._log_event(session_id, "tool_call", {"call_id": call_id, "tool_name": call.tool, "args": call.args, "step_id": step["id"], "status": "running"})
+            self._log_event(
+                session_id,
+                "tool_call",
+                {
+                    "call_id": call_id,
+                    "tool_name": call.tool,
+                    "args": call.args,
+                    "step_id": step["id"],
+                    "status": "running",
+                },
+            )
             result = await self._run_tool(call.tool, call.args, user_id=user_id, memory_store=memory_store, metadata=metadata)
             tool_failed = isinstance(result, str) and result.startswith("[tool error:")
-            self._log_event(session_id, "tool_result", {"call_id": call_id, "tool_name": call.tool, "args": call.args, "step_id": step["id"], "status": "error" if tool_failed else "success", "output": str(result)[:4000]})
+            self._log_event(
+                session_id,
+                "tool_result",
+                {
+                    "call_id": call_id,
+                    "tool_name": call.tool,
+                    "args": call.args,
+                    "step_id": step["id"],
+                    "status": "error" if tool_failed else "success",
+                    "output": str(result)[:4000],
+                },
+            )
             observations.append({"tool": call.tool, "args": call.args, "result": result})
             context_items.append({"tool": call.tool, "result": result})
 
@@ -382,11 +463,30 @@ class AgentRunner:
             target_files = [hit["path"] for hit in search_hits if isinstance(hit.get("path"), str)]
 
         if not target_files and step.get("type") not in ("github", "analyze"):
-            return {"step_id": step["id"], "description": step["description"], "status": "skipped", "reason": "No target files identified", "changed_files": [], "observations": observations, "models": {"executor": executor_model, "verifier": verifier_model}}
+            return {
+                "step_id": step["id"], 
+                "description": step["description"],
+                "status": "skipped",
+                "reason": "No target files identified",
+                "changed_files": [],
+                "observations": observations,
+                "models": {"executor": executor_model, "verifier": verifier_model},
+            }
 
         if step.get("type") in ("github", "analyze"):
-            answer = await self._synthesize_answer(goal, step, observations, executor_model)
-            return {"step_id": step["id"], "description": step["description"], "status": "applied", "changed_files": [], "observations": observations, "answer": answer, "models": {"executor": executor_model, "verifier": verifier_model}}
+            # For analysis/Q&A steps, synthesize a readable answer from observations.
+            answer = await self._synthesize_answer(
+                goal, step, observations, executor_model
+            )
+            return {
+                "step_id": step["id"],
+                "description": step["description"],
+                "status": "applied",
+                "changed_files": [],
+                "observations": observations,
+                "answer": answer,
+                "models": {"executor": executor_model, "verifier": verifier_model},
+            }
 
         for target_file in target_files:
             original_content = self._safe_read(target_file)
@@ -394,105 +494,837 @@ class AgentRunner:
             feedback_issues: list[str] = []
             file_applied = False
             while retries <= 4:
-                response = await self._chat_text(executor_model, build_execution_prompt(goal=goal, step=step, target_file=target_file, context_items=context_items, feedback_issues=feedback_issues))
+                response = await self._chat_text(
+                    executor_model,
+                    build_execution_prompt(
+                        goal=goal,
+                        step=step,
+                        target_file=target_file,
+                        context_items=context_items,
+                        feedback_issues=feedback_issues,
+                    ),
+                )
                 parsed = self._parse_execution_response(response, target_file)
                 if not parsed:
-                    repaired = await self._chat_text(executor_model, [{"role": "system", "content": "Convert the input into format: FILE: path ACTION: create|replace|append ```text
-<CONTENT>
-```"}, {"role": "user", "content": response}])
+                    repaired = await self._chat_text(
+                        executor_model,
+                        [
+                            {
+                                "role": "system",
+                                "content": (
+                                    "Convert the input into the required format only.\n"
+                                    "Return ONLY:\n"
+                                    "FILE: <path>\n"
+                                    "ACTION: <create|replace|append>\n"
+                                    "```text\n"
+                                    "<FULL FILE CONTENT>\n"
+                                    "```"
+                                ),
+                            },
+                            {"role": "user", "content": response},
+                        ],
+                    )
                     parsed = self._parse_execution_response(repaired, target_file)
                 if not parsed:
                     retries += 1
                     feedback_issues = ["You violated format. Fix only format."]
+                    if retries > 2:
+                        return {
+                            "step_id": step["id"],
+                            "description": step["description"],
+                            "status": "failed",
+                            "issues": feedback_issues,
+                            "changed_files": changed_files,
+                            "observations": observations,
+                            "models": {"executor": executor_model, "verifier": verifier_model},
+                        }
                     continue
 
                 out_path, new_content = parsed
                 new_content = self._clean_generated_file_content(new_content)
                 syntax_issues = self._local_syntax_check(out_path, new_content)
+                syntax_issues.extend(self._local_safety_check(out_path, new_content))
                 try:
-                    verification = await self._chat_json(verifier_model, build_verification_prompt(goal=goal, step=step, target_file=out_path, original_content=original_content, new_content=new_content, syntax_issues=syntax_issues))
+                    verification = await self._chat_json(
+                        verifier_model,
+                        build_verification_prompt(
+                            goal=goal,
+                            step=step,
+                            target_file=out_path,
+                            original_content=original_content,
+                            new_content=new_content,
+                            syntax_issues=syntax_issues,
+                        ),
+                    )
                     verdict = VerificationResult.model_validate(verification)
                 except Exception as exc:
-                    return {"step_id": step["id"], "description": step["description"], "status": "failed", "failure_phase": "verification", "issues": [f"verifier_output_invalid: {exc}"], "changed_files": changed_files, "observations": observations, "models": {"executor": executor_model, "verifier": verifier_model}}
+                    return {
+                        "step_id": step["id"],
+                        "description": step["description"],
+                        "status": "failed",
+                        "failure_phase": "verification",
+                        "issues": [f"verifier_output_invalid: {exc}"],
+                        "changed_files": changed_files,
+                        "observations": observations,
+                        "models": {"executor": executor_model, "verifier": verifier_model},
+                    }
                 if verdict.status == "pass" and not syntax_issues:
-                    self.tools.apply_diff(out_path, new_content)
+                    diff_result = self.tools.apply_diff(out_path, new_content)
                     changed_files.append(out_path)
+                    context_items.append({"tool": "apply_diff", "result": diff_result})
                     file_applied = True
                     break
+
                 retries += 1
                 feedback_issues = syntax_issues + verdict.issues
+                if retries > 2:
+                    return {
+                        "step_id": step["id"],
+                        "description": step["description"],
+                        "status": "failed",
+                        "issues": feedback_issues,
+                        "changed_files": changed_files,
+                        "observations": observations,
+                        "models": {"executor": executor_model, "verifier": verifier_model},
+                    }
             if not file_applied:
-                return {"step_id": step["id"], "description": step["description"], "status": "failed", "issues": ["Executor did not produce an applicable file update."], "changed_files": changed_files, "observations": observations, "models": {"executor": executor_model, "verifier": verifier_model}}
+                return {
+                    "step_id": step["id"],
+                    "description": step["description"],
+                    "status": "failed",
+                    "issues": ["Executor did not produce an applicable file update."],
+                    "changed_files": changed_files,
+                    "observations": observations,
+                    "models": {"executor": executor_model, "verifier": verifier_model},
+                }
 
-        return {"step_id": step["id"], "description": step["description"], "status": "applied", "changed_files": changed_files, "observations": observations, "models": {"executor": executor_model, "verifier": verifier_model}}
+        step_review_issues = self._review_step_result(step=step, changed_files=changed_files)
+        if step_review_issues:
+            return {
+                "step_id": step["id"],
+                "description": step["description"],
+                "status": "failed",
+                "issues": step_review_issues,
+                "changed_files": changed_files,
+                "observations": observations,
+                "models": {"executor": executor_model, "verifier": verifier_model},
+            }
 
-    async def _run_tool(self, tool: str, args: dict[str, Any], user_id: str | None = None, memory_store: UserMemoryStore | None = None, metadata: dict[str, Any] | None = None) -> Any:
+        return {
+            "step_id": step["id"],
+            "description": step["description"],
+            "status": "applied",
+            "changed_files": changed_files,
+            "observations": observations,
+            "models": {"executor": executor_model, "verifier": verifier_model},
+        }
+
+    async def _run_tool(
+        self,
+        tool: str,
+        args: dict[str, Any], 
+        user_id: str | None = None,
+        memory_store: UserMemoryStore | None = None,
+        metadata: dict[str, Any] | None = None,
+    ) -> Any:
         try:
             return await self._dispatch_tool(tool, args, user_id=user_id, memory_store=memory_store, metadata=metadata)
+        except CommercialFallbackRequiredError:
+            raise
         except Exception as exc:
+            # The harness catches tool failures as tool-call errors and feeds
+            # them back to the model — it never surfaces raw exceptions.
+            # (Anthropic managed-agents: decoupled sandbox; if the container
+            # dies the harness returns the failure as a tool result.)
             log.warning("tool %r failed: %s", tool, exc)
             return f"[tool error: {exc}]"
 
-    async def _dispatch_tool(self, tool: str, args: dict[str, Any], user_id: str | None = None, memory_store: UserMemoryStore | None = None, metadata: dict[str, Any] | None = None) -> Any:
-        if tool == "read_file": return self.tools.read_file(str(args.get("path", "")))
-        if tool == "head_file": return self.tools.head_file(str(args.get("path", "")), int(args.get("lines", 50)))
-        if tool == "file_index": return self.tools.file_index(str(args.get("path", ".")), int(args.get("max_entries", 100)))
-        if tool == "list_files": return self.tools.list_files(str(args.get("path", ".")), int(args.get("limit", 200)))
-        if tool == "search_code": return self.tools.search_code(str(args.get("query", "")), int(args.get("limit", 20)))
-        if tool == "recall_memory": return self.tools.recall_memory(str(args.get("key", "")), user_id=user_id, memory_store=memory_store)
-        if tool == "save_memory": return self.tools.save_memory(str(args.get("key", "")), str(args.get("value", "")), user_id=user_id, memory_store=memory_store)
-        if tool == "spawn_subagent": return await self._spawn_subagent(instruction=str(args.get("instruction", "")), requested_model=args.get("model") or None, max_steps=int(args.get("max_steps", 5)), user_id=user_id, memory_store=memory_store, metadata=metadata)
+    async def _dispatch_tool(
+        self,
+        tool: str,
+        args: dict[str, Any],
+        user_id: str | None = None,
+        memory_store: UserMemoryStore | None = None,
+        metadata: dict[str, Any] | None = None,
+    ) -> Any:
+        if tool == "read_file":
+            return self.tools.read_file(str(args.get("path", "")))
+        if tool == "head_file":
+            # JIT retrieval: read only the first N lines so the context window
+            # stays lean during the inspection phase.
+            return self.tools.head_file(str(args.get("path", "")), int(args.get("lines", 50)))
+        if tool == "file_index":
+            # Lightweight index tier: always-loaded, ~150 chars per entry.
+            return self.tools.file_index(str(args.get("path", ".")), int(args.get("max_entries", 100)))
+        if tool == "list_files":
+            return self.tools.list_files(str(args.get("path", ".")), int(args.get("limit", 200)))
+        if tool == "search_code":
+            return self.tools.search_code(str(args.get("query", "")), int(args.get("limit", 20)))
+        if tool == "recall_memory":
+            if not memory_store or not user_id:
+                return "(memory not available)"
+            return self.tools.recall_memory(str(args.get("key", "")), user_id=user_id, memory_store=memory_store)
+        if tool == "save_memory":
+            if not memory_store or not user_id:
+                return "(memory not available)"
+            return self.tools.save_memory(str(args.get("key", "")), str(args.get("value", "")), user_id=user_id, memory_store=memory_store)
+        
+        # GitHub Tools
+        if tool == "github_read_repo_file":
+            return await self.github.read_repo_file(
+                repo_name=str(args.get("repo_name", "")),
+                path=str(args.get("path", "")),
+                branch=str(args.get("branch", "main"))
+            )
+        if tool == "github_create_branch":
+            return await self.github.create_branch(
+                repo_name=str(args.get("repo_name", "")),
+                branch_name=str(args.get("branch_name", "")),
+                base_branch=str(args.get("base_branch", "main"))
+            )
+        if tool == "github_commit_changes":
+            return await self.github.commit_changes(
+                repo_name=str(args.get("repo_name", "")),
+                branch_name=str(args.get("branch_name", "")),
+                message=str(args.get("message", "agent commit")),
+                path=str(args.get("path", "")),
+                content=str(args.get("content", ""))
+            )
+        if tool == "github_open_pull_request":
+            return await self.github.open_pull_request(
+                repo_name=str(args.get("repo_name", "")),
+                title=str(args.get("title", "Pull Request from AI Agent")),
+                head=str(args.get("head", "")),
+                base=str(args.get("base", "main")),
+                body=str(args.get("body", ""))
+            )
+        if tool == "github_list_repos":
+            return await self.github.list_repos()
+        if tool == "github_list_branches":
+            return await self.github.list_branches(
+                repo_name=str(args.get("repo_name", ""))
+            )
+
+        if tool == "spawn_subagent":
+            return await self._spawn_subagent(
+                instruction=str(args.get("instruction", "")),
+                requested_model=args.get("model") or None,
+                max_steps=int(args.get("max_steps", 5)),
+                user_id=user_id,
+                memory_store=memory_store,
+                metadata=metadata,
+            )
+
         raise ValueError(f"Unsupported tool: {tool}")
 
-    async def _run_judge(self, *, plan: AgentPlan, step_results: list[dict[str, Any]], requested_model: str | None, model_overrides: dict[str, str | None] | None, session_id: str | None) -> dict[str, Any]:
+    # ------------------------------------------------------------------
+    # Judge gate  (.claude/agents/judge.md)
+    # ------------------------------------------------------------------
+
+    async def _run_judge(
+        self,
+        *,
+        plan: AgentPlan,
+        step_results: list[dict[str, Any]],
+        requested_model: str | None,
+        model_overrides: dict[str, str | None] | None,
+        session_id: str | None,
+    ) -> dict[str, Any]:
+        """Lightweight Judge agent: holistic review of completed work.
+
+        Produces a verdict (APPROVED / APPROVED_WITH_CONDITIONS / BLOCKED) mirroring
+        the .claude/agents/judge.md spec.  We use a single LLM call with the verifier
+        model rather than a full council-review run.
+        """
         applied = [s for s in step_results if s.get("status") == "applied"]
-        if not applied: return {"verdict": "APPROVED", "notes": "No changes made."}
-        return {"verdict": "APPROVED", "security": "PASS", "correctness": "PASS", "notes": "Automated check passed."}
+        failed  = [s for s in step_results if s.get("status") == "failed"]
+        all_files = sorted({f for s in applied for f in s.get("changed_files", [])})
+
+        if not applied and not failed:
+            # Nothing happened — no judgement needed
+            return {"verdict": "APPROVED", "notes": "No changes were made."}
+
+        judge_model = (model_overrides or {}).get("judge") or DEFAULT_JUDGE_MODEL
+        messages = [
+            {
+                "role": "system",
+                "content": (
+                    "You are the Judge agent. Perform a release-readiness check on the completed work.\n\n"
+                    "Return ONLY JSON:\n"
+                    "{\n"
+                    '  "verdict": "APPROVED | APPROVED_WITH_CONDITIONS | BLOCKED",\n'
+                    '  "security": "PASS | WARN | FAIL",\n'
+                    '  "correctness": "PASS | WARN | FAIL",\n'
+                    '  "notes": "brief explanation"\n'
+                    "}\n\n"
+                    "Verdict rules:\n"
+                    "- BLOCKED if: any applied file contains a hardcoded secret, a broken import, "
+                    "or a step explicitly failed on a risky module.\n"
+                    "- APPROVED_WITH_CONDITIONS if: warnings exist but nothing is blocking.\n"
+                    "- APPROVED if: all checks pass."
+                ),
+            },
+            {
+                "role": "user",
+                "content": (
+                    f"Goal: {plan.goal}\n"
+                    f"Steps applied: {len(applied)}/{len(plan.steps)}\n"
+                    f"Steps failed: {len(failed)}\n"
+                    f"Files changed: {all_files}\n"
+                    f"Plan risks: {plan.risks}\n"
+                    f"Requires risky review: {plan.requires_risky_review}\n"
+                    f"Failed steps: {[s.get('description') for s in failed]}"
+                ),
+            },
+        ]
+        _VALID_VERDICTS = {"APPROVED", "APPROVED_WITH_CONDITIONS", "BLOCKED"}
+        try:
+            raw = await self._chat_json(judge_model, messages)
+            verdict = raw.get("verdict", "")
+            if verdict not in _VALID_VERDICTS:
+                log.warning(
+                    "Judge returned invalid verdict %r for session %s; treating as BLOCKED",
+                    verdict, session_id,
+                )
+                raw["verdict"] = "BLOCKED"
+                raw.setdefault("notes", f"Verdict {verdict!r} is not a recognised value.")
+            if raw["verdict"] == "BLOCKED":
+                log.warning("Judge BLOCKED session %s: %s", session_id, raw.get("notes", ""))
+            self._log_event(session_id, "assistant_message", {"judge": raw})
+            return raw
+        except Exception as exc:
+            log.warning("Judge call failed; defaulting to BLOCKED: %s", exc)
+            fallback = {
+                "verdict": "BLOCKED",
+                "security": "WARN",
+                "correctness": "WARN",
+                "notes": f"Judge unavailable: {exc}",
+                "failure_phase": "judge",
+            }
+            self._log_event(session_id, "assistant_message", {"judge": fallback})
+            return fallback
+
+    # ------------------------------------------------------------------
+    # State checkpointing  (.claude/state/)
+    # ------------------------------------------------------------------
 
     def _write_checkpoint(self, session_id: str | None, plan: AgentPlan) -> None:
+        """Persist the current plan to .claude/state/agent-state-{session_id}.json.
+
+        Mirrors the planner.md spec: state is written before each handoff so
+        sessions are resumable via scripts/ai_runner.py resume.  Each session
+        gets its own file so concurrent sessions don't overwrite each other.
+        """
+        state_dir = self.tools.root / ".claude" / "state"
         try:
-            state_dir = self.tools.root / ".claude" / "state"
             state_dir.mkdir(parents=True, exist_ok=True)
+            state = {
+                "session_id": session_id or "unknown",
+                "status": "running",
+                "last_updated": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+                "goal": plan.goal,
+                "step_count": len(plan.steps),
+                "risks": plan.risks,
+                "requires_risky_review": plan.requires_risky_review,
+            }
+            # Sanitize the session_id to produce a safe filename component.
             safe_sid = re.sub(r"[^A-Za-z0-9_\-]", "_", session_id or "unknown")
-            (state_dir / f"agent-state-{safe_sid}.json").write_text(json.dumps({"goal": plan.goal}, indent=2))
-        except Exception: pass
+            state_file = state_dir / f"agent-state-{safe_sid}.json"
+            state_file.write_text(json.dumps(state, indent=2), encoding="utf-8")
+        except Exception as exc:
+            log.debug("Checkpoint write failed (non-fatal): %s", exc)
 
-    async def _spawn_subagent(self, *, instruction: str, requested_model: str | None, max_steps: int, user_id: str | None = None, memory_store: UserMemoryStore | None = None, metadata: dict[str, Any] | None = None) -> dict[str, Any]:
-        child = AgentRunner(ollama_base=self.ollama_base, workspace_root=self.tools.root)
-        return await child.run(instruction=instruction, history=[], requested_model=requested_model, auto_commit=False, max_steps=max_steps, user_id=user_id, memory_store=memory_store, metadata=metadata)
+    # ------------------------------------------------------------------
+    # Subagent delegation
+    # ------------------------------------------------------------------
 
-    async def _maybe_run_parallel(self, **kwargs) -> None: return None
+    async def _spawn_subagent(
+        self,
+        *,
+        instruction: str,
+        requested_model: str | None,
+        max_steps: int,
+        user_id: str | None = None,
+        memory_store: UserMemoryStore | None = None,
+        metadata: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        """Run a child AgentRunner for a self-contained subtask and return its condensed result."""
+        if not instruction.strip():
+            return {"error": "spawn_subagent: instruction is empty"}
+        child = AgentRunner(
+            ollama_base=self.ollama_base,
+            workspace_root=self.tools.root,
+            provider_headers=self.provider_headers,
+            provider_chain=self.provider_chain,
+            allow_commercial_fallback=self.allow_commercial_fallback,
+            provider_temperature=self.provider_temperature,
+            github_token=self.github.token if hasattr(self.github, "token") else None,
+            email=self.email,
+            department=self.department,
+            key_id=self.key_id,
+        )
+        result = await child.run(
+            instruction=instruction,
+            history=[],
+            requested_model=requested_model,
+            model_overrides=None,
+            auto_commit=False,
+            max_steps=max_steps,
+            user_id=user_id,
+            memory_store=memory_store,
+            metadata=metadata,
+        )
+        return ContextManager.condense_step_result(result)
 
-    def _log_event(self, session_id: str | None, event_type: str, payload: dict[str, Any]) -> None: pass
+    # ------------------------------------------------------------------
+    # Auto-parallelization
+    # ------------------------------------------------------------------
 
-    async def _compact_history(self, history: list[dict[str, Any]], model: str | None, session_id: str | None) -> list[dict[str, Any]]: return history
+    @staticmethod
+    def _steps_are_independent(steps: list[Any]) -> bool:
+        """Return True when no file appears in more than one step (safe to parallelize)."""
+        seen: set[str] = set()
+        for step in steps:
+            files = list(step.files) if hasattr(step, "files") else step.get("files") or []
+            for f in files:
+                if f in seen:
+                    return False
+                seen.add(f)
+        return True
+
+    async def _maybe_run_parallel(
+        self,
+        *,
+        plan: AgentPlan,
+        instruction: str,
+        requested_model: str | None,
+        model_overrides: dict[str, str | None] | None = None,
+        max_steps: int,
+        auto_commit: bool,
+        user_id: str | None,
+        memory_store: UserMemoryStore | None,
+        session_id: str | None,
+        department: str | None,
+        key_id: str | None,
+    ) -> dict[str, Any] | None:
+        """If plan steps are independent, run them concurrently via MultiAgentSwarm.
+
+        Returns a result dict (same shape as AgentRunner.run) when parallelism was
+        applied, or None to signal the caller should fall back to the sequential loop.
+        """
+        from agent.coordinator import AgentCoordinator, WorkerSpec
+
+        _PARALLEL_THRESHOLD = 3
+        if len(plan.steps) < _PARALLEL_THRESHOLD or not self._steps_are_independent(plan.steps):
+            return None
+
+        log.info(
+            "agent: %d independent steps detected — switching to MultiAgentSwarm",
+            len(plan.steps),
+        )
+        self._log_event(session_id, "step_start", {"parallel_steps": len(plan.steps), "mode": "swarm"})
+
+        coordinator = AgentCoordinator(
+            ollama_base=self.ollama_base,
+            workspace_root=str(self.tools.root),
+            github_token=self.github.token if hasattr(self.github, "token") else None,
+        )
+        worker_specs = [
+            WorkerSpec(
+                worker_id=f"step-{step.id}",
+                instruction=f"Goal: {plan.goal}\n\nStep: {step.description}\nFiles: {', '.join(step.files) or '(determine from context)'}",
+                model=requested_model or (model_overrides or {}).get("executor"),
+                max_steps=max(2, max_steps // len(plan.steps)),
+            )
+            for step in plan.steps[:max_steps]
+        ]
+        coord_result = await coordinator.run(
+            plan.goal,
+            worker_specs,
+            max_concurrent=min(len(worker_specs), 4),
+            email=user_id,
+            department=department,
+            key_id=key_id,
+        )
+
+        # Flatten worker results into the standard run() return shape
+        all_steps: list[dict[str, Any]] = []
+        all_commits: list[str] = []
+        for worker in coord_result.workers:
+            inner = worker.get("result") or {}
+            all_steps.extend(inner.get("steps", []))
+            all_commits.extend(inner.get("commits", []))
+
+        summary = coord_result.summary
+        self._log_event(session_id, "assistant_message", {"summary": summary, "mode": "swarm"})
+        return {
+            "goal": plan.goal,
+            "plan": plan.model_dump(),
+            "steps": all_steps,
+            "commits": all_commits,
+            "summary": summary,
+            "report": summary,
+        }
+
+    # ------------------------------------------------------------------
+    # Event log helpers  (stateless harness / durable session log)
+    # ------------------------------------------------------------------
+
+    def _log_event(self, session_id: str | None, event_type: str, payload: dict[str, Any]) -> None:
+        """Append an event to the durable session log if a store is wired in."""
+        if session_id and self._session_store:
+            try:
+                self._session_store.append_event(session_id, event_type, payload)
+            except Exception as exc:
+                log.debug("event log write failed (non-fatal): %s", exc)
+
+    # ------------------------------------------------------------------
+    # Context compaction
+    # ------------------------------------------------------------------
+
+    async def _compact_history(
+        self,
+        history: list[dict[str, Any]],
+        requested_model: str | None,
+        session_id: str | None,
+    ) -> list[dict[str, Any]]:
+        """Summarise a long history and compact it.
+
+        Asks the planner model to write a concise summary, then replaces the
+        old messages with that summary + the most recent context.
+        """
+        try:
+            summary_text = await self._chat_text(
+                requested_model or DEFAULT_PLANNER_MODEL,
+                build_compaction_prompt(history),
+            )
+            self._log_event(
+                session_id, "compaction",
+                {"original_length": len(history), "summary_length": len(summary_text)},
+            )
+            return self.ctx.compact_history(history, compaction_summary=summary_text)
+        except CommercialFallbackRequiredError:
+            raise
+        except Exception as exc:
+            log.warning("context compaction failed (continuing uncompacted): %s", exc)
+            return history
 
     async def _chat_text(self, model: str, messages: list[dict[str, str]]) -> str:
-        payload = {"model": model, "messages": messages, "stream": False}
-        result = await self._router.chat_completion(payload)
-        return result.response.json()["choices"][0]["message"]["content"]
+        payload: dict[str, Any] = {"model": model, "messages": messages, "stream": False}
+        if self.provider_temperature is not None:
+            payload["temperature"] = self.provider_temperature
+
+        # Fast path: return cached response without touching the LLM.
+        cache_kwargs: dict[str, Any] = {}
+        if self.provider_temperature is not None:
+            cache_kwargs["temperature"] = self.provider_temperature
+        cached = self._inference_cache.get(model=model, messages=messages, **cache_kwargs)
+        if cached is not None:
+            log.debug("_chat_text cache HIT model=%s", model)
+            return cached
+
+        start = time.perf_counter()
+        # Reuse the ProviderRouter built at __init__ time — avoids re-reading
+        # env vars and re-constructing ProviderConfig on every call.
+        result = await self._router.chat_completion(
+            payload,
+            allow_commercial_fallback=self.allow_commercial_fallback,
+        )
+        duration_ms = int((time.perf_counter() - start) * 1000)
+        data = result.response.json()
+        out_text = data["choices"][0]["message"]["content"]
+
+        # Store in inference cache so retries and similar tasks skip the LLM.
+        usage = data.get("usage", {})
+        tokens_used = int(
+            usage.get("total_tokens", 0)
+            or (usage.get("prompt_tokens", 0) + usage.get("completion_tokens", 0))
+        )
+        self._inference_cache.set(
+            model=model,
+            messages=messages,
+            response=out_text,
+            tokens_used=tokens_used,
+            **cache_kwargs,
+        )
+
+        # Emit Langfuse observation
+        if self.email:
+            usage = data.get("usage", {})
+            pt = int(usage.get("prompt_tokens") or 0)
+            ct = int(usage.get("completion_tokens") or 0)
+            try:
+                from langfuse_obs import emit_chat_observation
+                import asyncio
+                await asyncio.to_thread(
+                    emit_chat_observation,
+                    email=self.email,
+                    department=self.department or "agent",
+                    key_id=self.key_id,
+                    model=model,
+                    messages=messages,
+                    output_text=out_text,
+                    prompt_tokens=pt,
+                    completion_tokens=ct,
+                    latency_ms=duration_ms,
+                    task_name="agent-task",
+                )
+            except CommercialFallbackRequiredError:
+                raise
+            except Exception as exc:
+                log.debug("Agent Langfuse emit failed: %s", exc)
+
+        return out_text
 
     async def _chat_json(self, model: str, messages: list[dict[str, str]]) -> dict[str, Any]:
-        text = await self._chat_text(model, messages)
-        return json.loads(re.search(r"\{.*\}", text, re.S).group(0))
+        raw = await self._chat_text(model, messages)
+        for _ in range(3):
+            try:
+                parsed = self._extract_json(raw)
+                if not isinstance(parsed, dict):
+                    raise ValueError("Model did not return a JSON object")
+                return parsed
+            except CommercialFallbackRequiredError:
+                raise
+            except Exception:
+                raw = await self._chat_text(
+                    model,
+                    [
+                        {"role": "system", "content": "Return only a valid JSON object. No prose. No code fences."},
+                        {"role": "user", "content": raw},
+                    ],
+                )
+        parsed = self._extract_json(raw)
+        if not isinstance(parsed, dict):
+            raise ValueError("Model did not return a JSON object")
+        return parsed
+
+    def _extract_json(self, raw: str) -> Any:
+        raw = raw.strip()
+        try:
+            return json.loads(raw)
+        except json.JSONDecodeError:
+            match = re.search(r"\{.*\}", raw, re.S)
+            if not match:
+                raise
+            return json.loads(match.group(0))
 
     def _parse_execution_response(self, raw: str, fallback_path: str) -> tuple[str, str] | None:
-        m = re.search(r"FILE:\s*(?P<path>.*)\s*ACTION:\s*(?P<action>create|replace|append)\s*```.*\n(?P<content>.*?)\n```", raw, re.S)
-        if not m: return None
-        return m.group("path").strip() or fallback_path, m.group("content")
+        match = re.search(
+            r"FILE:\s*(?P<path>[^\r\n]+)\s*ACTION:\s*(?P<action>create|replace|append)\s*```[^\n]*\n(?P<content>.*?)\n```",
+            raw.strip(),
+            re.S,
+        )
+        if not match:
+            return None
+        path = match.group("path").strip() or fallback_path
+        action = match.group("action").strip()
+        content = match.group("content")
+        if action == "append":
+            existing = self._safe_read(path)
+            content = (existing + ("\n" if existing else "") + content).rstrip("\n") + "\n"
+        return path, content
 
-    def _clean_generated_file_content(self, c: str) -> str: return c.strip() + "\n"
+    def _clean_generated_file_content(self, content: str) -> str:
+        cleaned = content.replace("\r\n", "\n")
+        # Remove language identifier if it leaked into the content block
+        if cleaned.startswith("python\n") or cleaned.startswith("javascript\n") or cleaned.startswith("typescript\n") or cleaned.startswith("html\n") or cleaned.startswith("css\n") or cleaned.startswith("json\n") or cleaned.startswith("yaml\n") or cleaned.startswith("sh\n") or cleaned.startswith("bash\n") or cleaned.startswith("text\n"):
+            cleaned = cleaned.split("\n", 1)[1]
+        cleaned = cleaned.strip("\n")
+        if cleaned and not cleaned.endswith("\n"):
+            cleaned += "\n"
+        return cleaned
 
-    def _local_syntax_check(self, p: str, c: str) -> list[str]: return []
+    def _local_syntax_check(self, path: str, content: str) -> list[str]:
+        issues: list[str] = []
+        if path.endswith(".py"):
+            try:
+                ast.parse(content)
+            except SyntaxError as exc:
+                issues.append(f"Python syntax error: {exc.msg} at line {exc.lineno}")
+        return issues
 
-    def _safe_read(self, p: str) -> str: 
-        try: return Path(p).read_text()
-        except: return ""
+    def _local_safety_check(self, path: str, content: str) -> list[str]:
+        issues: list[str] = []
+        if not path.endswith(".py"):
+            return issues
 
-    def _commit_step(self, d: str, f: list[str]) -> str: return "commit-sha"
+        lowered = content.lower()
+        if "jwt" in lowered or "oauth2" in lowered or "authentication" in lowered:
+            if re.search(r"SECRET_KEY\s*=\s*[\"'][^\"']+[\"']", content):
+                issues.append("Auth/JWT code hardcodes SECRET_KEY instead of reading configuration from the environment.")
+            if "fake_users_db" in lowered:
+                issues.append("Auth/JWT code introduces fake in-memory users, which is not a safe default for real authentication work.")
+        return issues
 
-    async def _synthesize_answer(self, g, s, o, m) -> str: return "Step completed."
+    def _review_step_result(self, *, step: dict[str, Any], changed_files: list[str]) -> list[str]:
+        issues: list[str] = []
+        desc = str(step.get("description", "")).lower()
+        changed_set = {path.replace("\\", "/").lower() for path in changed_files}
 
-    def _build_summary(self, g, sr, c) -> str: return "Task completed."
+        if "across this module" in desc and len(changed_files) < 2:
+            issues.append("Module-wide change touched too few files to be complete.")
 
-    def _build_rich_report(self, g, sr, c) -> str: return "Rich report."
+        if "shared logger utility" in desc:
+            has_logger_utility = any(
+                path.endswith(("logger.py", "logging_utils.py", "logger_util.py"))
+                for path in changed_set
+            )
+            if not has_logger_utility:
+                issues.append("Shared logger utility was requested but no logger utility file was created or updated.")
+            if len(changed_files) < 2:
+                issues.append("Logging task changed too few files to count as a module-wide update.")
+
+        if "jwt" in desc or "authentication" in desc:
+            if not any(path.endswith(("requirements.txt", "pyproject.toml", "poetry.lock")) for path in changed_set):
+                issues.append("Auth task did not update dependency metadata for JWT/auth packages.")
+
+            hardcoded_secret = False
+            for path in changed_files:
+                content = self._safe_read(path)
+                if re.search(r"SECRET_KEY\s*=\s*[\"'][^\"']+[\"']", content):
+                    hardcoded_secret = True
+                    break
+            if hardcoded_secret:
+                issues.append("Auth task still contains a hardcoded SECRET_KEY.")
+
+        return issues
+
+    def _safe_read(self, path: str) -> str:
+        try:
+            return self.tools.read_file(path, max_chars=200000)
+        except Exception:
+            return ""
+
+    def _commit_step(self, description: str, changed_files: list[str]) -> str | None:
+        # Strip control characters (newlines, CR, tabs) so multi-line step
+        # descriptions don't create malformed git commit messages.
+        safe_description = " ".join(description.splitlines()).strip()[:200] or "agent change"
+        try:
+            subprocess.run(["git", "add", *changed_files], cwd=self.tools.root, check=True, capture_output=True, text=True)
+            subprocess.run(
+                ["git", "commit", "-m", f"agent: {safe_description}"],
+                cwd=self.tools.root,
+                check=True,
+                capture_output=True,
+                text=True,
+            )
+            proc = subprocess.run(
+                ["git", "rev-parse", "HEAD"],
+                cwd=self.tools.root,
+                check=True,
+                capture_output=True,
+                text=True,
+            )
+            return proc.stdout.strip()
+        except FileNotFoundError:
+            # git binary not available in this environment — skip auto-commit silently.
+            log.warning("Auto-commit skipped: git not found in PATH")
+            return None
+        except subprocess.CalledProcessError as exc:
+            log.warning("Auto-commit failed: %s", exc.stderr.strip() if exc.stderr else exc)
+            return None
+
+    async def _synthesize_answer(
+        self,
+        goal: str,
+        step: dict[str, Any],
+        observations: list[dict[str, Any]],
+        model: str,
+    ) -> str:
+        """Synthesize a human-readable answer for analyze/github steps from tool observations."""
+        obs_text = json.dumps(observations, indent=2)
+        messages = [
+            {
+                "role": "system",
+                "content": (
+                    "You are a helpful assistant. Based on the tool call results provided, "
+                    "give a clear, comprehensive answer. Be specific and include relevant details."
+                ),
+            },
+            {
+                "role": "user",
+                "content": (
+                    f"Goal: {goal}\n"
+                    f"Step: {step['description']}\n\n"
+                    f"Tool results gathered:\n{obs_text}\n\n"
+                    "Provide a complete, well-structured answer based on this information."
+                ),
+            },
+        ]
+        try:
+            return await self._chat_text(model, messages)
+        except Exception as exc:
+            log.warning("Answer synthesis failed: %s", exc)
+            # Fall back to the finish reason if the synthesis LLM call fails
+            for obs in reversed(observations):
+                if obs.get("tool") == "finish":
+                    return str(obs.get("result", ""))
+            return ""
+
+    def _build_summary(self, goal: str, step_results: list[dict[str, Any]], commits: list[str]) -> str:
+        applied = sum(1 for s in step_results if s.get("status") == "applied")
+        failed  = sum(1 for s in step_results if s.get("status") == "failed")
+        files_changed = sum(len(s.get("changed_files", [])) for s in step_results)
+
+        # Surface synthesized answers from analyze/github steps when present.
+        answers = [s.get("answer", "") for s in step_results if s.get("answer")]
+
+        meta_parts = [f"Goal: {goal}", f"Steps: {applied}/{len(step_results)}"]
+        if files_changed:
+            meta_parts.append(f"Files modified: {files_changed}")
+        if failed:
+            meta_parts.append(f"Failed: {failed}")
+        if commits:
+            meta_parts.append(f"Commits: {len(commits)}")
+        meta = " | ".join(meta_parts)
+
+        if answers:
+            return "\n\n".join(answers) + f"\n\n---\n_{meta}_"
+        return meta
+
+    def _build_rich_report(self, goal: str, step_results: list[dict[str, Any]], commits: list[str]) -> str:
+        """Build a detailed markdown execution report for the task discussion comment."""
+        lines: list[str] = [f"**Goal:** {goal}", ""]
+
+        all_changed: list[str] = []
+        for step in step_results:
+            status = step.get("status", "unknown")
+            icon = "✅" if status == "applied" else "❌" if status == "failed" else "⏭️"
+            desc = step.get("description", "")
+            lines.append(f"{icon} **Step {step.get('step_id', '?')}:** {desc}")
+
+            changed = step.get("changed_files", [])
+            if changed:
+                all_changed.extend(changed)
+                lines.append("   Files: " + ", ".join(f"`{f}`" for f in changed))
+            elif status == "applied":
+                answer = step.get("answer", "")
+                if answer:
+                    lines.append(f"   💬 {answer[:200]}")
+                else:
+                    lines.append("   *(analysis — no files modified)*")
+
+            if status == "failed":
+                for issue in step.get("issues", []):
+                    lines.append(f"   ⚠️ {issue}")
+
+            lines.append("")
+
+        unique_files = sorted(set(all_changed))
+        if unique_files:
+            lines.append("**Files modified:**")
+            for f in unique_files:
+                lines.append(f"- `{f}`")
+            lines.append("")
+        else:
+            lines.append("**No files were modified.** All steps were analysis only.")
+            lines.append("")
+
+        if commits:
+            lines.append(f"**Auto-committed:** {len(commits)} commit(s)")
+            lines.append("")
+
+        applied_count = sum(1 for s in step_results if s.get("status") == "applied")
+        lines.append(f"**Result:** {applied_count}/{len(step_results)} steps completed, {len(unique_files)} file(s) changed.")
+        return "\n".join(lines)
