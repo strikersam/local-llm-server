@@ -22,6 +22,8 @@
 
 ### Fixed
 
+- `agent/loop.py` — fixed an `IndentationError` in the step tool-selection loop by restoring the missing `try:` block around `_chat_json()` / `ToolCall` validation, unblocking test collection and backend startup/import paths.
+- `agent/loop.py` — removed a trailing duplicated method block that overrode the main implementations, and restored normal edit-step file application bookkeeping (`target_file` loop + `changed_files` tracking), fixing AgentRunner regressions in `spawn_subagent` and mocked edit-flow tests.
 - `tests/test_failover_order.py::test_from_env_provider_order_local_first` — test was asserting `ollama-local` is always present without setting `INCLUDE_LOCAL_FALLBACK=true`. Updated to explicitly opt in, matching the current explicit-opt-in behaviour introduced in the previous fix.
 - `direct_chat.py` — agent-mode direct chat now appends the user message before queueing the background job (preventing missing-session `KeyError` on async completion) and returns HTTP `202 Accepted` with `job_id` for proper async semantics.
 
