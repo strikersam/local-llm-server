@@ -47,14 +47,9 @@ def build_planning_prompt(
                 "- Max 15 steps.\n"
                 "- Each step touches limited files.\n"
                 "- No execution — planning only.\n"
-                "- Prefer existing files when possible.\n"
-                "- If a new file is needed, include the intended path.\n"
-                "- For module-wide tasks, include every file that must change for the result to work.\n"
-                "- If the task asks for a shared utility, include a create step or include the utility file in the edit step.\n"
-                "- If the task involves GitHub operations (commit, push, PR), include a step with type 'github' and leave files empty.\n"
-                "- Security-sensitive files: admin_auth.py, key_store.py, agent/tools.py, proxy.py (auth middleware).\n"
-                "  Set risky=true on any step touching these files and set requires_risky_review=true on the plan.\n"
-                "- Fill acceptance with a concrete, verifiable check (e.g. 'pytest tests/test_agent_tools.py passes')."
+                "- For GitHub issue tasks, include steps to comment on or close the issue using 'github' type.\n"
+                "- Security-sensitive files: admin_auth.py, key_store.py, agent/tools.py, proxy.py.\n"
+                "  Set risky=true on any step touching these files and set requires_risky_review=true on the plan."
                 f"{memory_section}"
                 f"{metadata_section}"
             ),
@@ -80,46 +75,21 @@ def build_tool_prompt(
             "content": (
                 "You are preparing to execute one coding step.\n"
                 "Inspect the workspace with tools before writing code.\n\n"
-                "Available tools — use the CHEAPEST one that answers your question:\n"
+                "Available tools:\n"
                 "- file_index(path='.', max_entries=100)\n"
-                "  → lightweight list of every text file with line counts; use this FIRST\n"
                 "- head_file(path, lines=50)\n"
-                "  → first N lines only; prefer this over read_file for large files\n"
                 "- read_file(path)\n"
-                "  → full file content; only use when you need the complete file\n"
                 "- list_files(path='.', limit=200)\n"
-                "  → raw filename list with no metadata\n"
                 "- search_code(query, limit=20)\n"
-                "  → grep-style keyword search across all text files\n"
-                "- recall_memory(key)\n"
-                "  → retrieve a saved user preference\n"
-                "- save_memory(key, value)\n"
-                "  → persist a user preference for future sessions\n"
-                "- github_read_repo_file(repo_name, path, branch='main')\n"
-                "  → read a file from a GitHub repository\n"
-                "- github_list_repos()\n"
-                "  → list all repositories accessible to you\n"
-                "- github_list_branches(repo_name)\n"
-                "  → list branches in a specific repository\n"
-                "- github_create_branch(repo_name, branch_name, base_branch='main')\n"
-                "  → create a new branch from a base branch\n"
-                "- github_commit_changes(repo_name, branch_name, message, path, content)\n"
-                "  → commit a change to a single file\n"
-                "- github_open_pull_request(repo_name, title, head, base='main', body='')\n"
-                "  → create a pull request\n"
-                "- spawn_subagent(instruction, model=None, max_steps=5)\n"
-                "  → delegate a self-contained subtask to a child agent; returns its condensed result\n"
-                "  → use when a subtask is independent and would otherwise bloat this step's context\n"
-                "- finish(reason)\n"
-                "  → stop inspecting and proceed to implementation\n\n"
+                "- github_get_issue(repo_name, issue_number)\n"
+                "- github_comment_on_issue(repo_name, issue_number, body)\n"
+                "- github_close_issue(repo_name, issue_number, comment=None)\n"
+                "- finish(reason)\n\n"
                 "Return ONLY JSON:\n"
                 '{ "tool": "<name>", "args": { ... } }\n\n'
                 "Rules:\n"
                 "- One tool per response.\n"
-                "- Start with file_index or search_code; escalate to head_file then read_file only if needed.\n"
-                "- Call finish as soon as you have enough context — do NOT read every file.\n"
-                f"- Remaining tool calls: {remaining_calls}.\n"
-                "- For multi-file tasks, verify enough files to avoid partial updates."
+                f"- Remaining tool calls: {remaining_calls}."
             ),
         },
         {
@@ -156,12 +126,7 @@ def build_execution_prompt(
                 "```\n\n"
                 "Rules:\n"
                 "- Always return a full file.\n"
-                "- No explanations.\n"
-                "- No markdown outside the required format.\n"
-                "- The FILE path must be the target file unless the step clearly needs a new file.\n"
-                "- Do not echo the language name before the file contents.\n"
-                "- If asked for a shared utility, create or update that utility instead of duplicating logic across files.\n"
-                "- For authentication or JWT changes, avoid hardcoded secrets and prefer configuration via environment variables."
+                "- No explanations."
             ),
         },
         {
@@ -176,37 +141,12 @@ def build_execution_prompt(
         },
     ]
 
-
 def build_compaction_prompt(history: list[dict[str, Any]]) -> list[dict[str, str]]:
-    history_text = "\n".join(
-        f"[{msg.get('role', 'unknown').upper()}] {msg.get('content', '')[:800]}"
-        for msg in history
-    )
+    history_text = "\n".join(f"[{msg.get('role', 'unknown').upper()}] {msg.get('content', '')[:800]}" for msg in history)
     return [
-        {
-            "role": "system",
-            "content": (
-                "You are a context compaction assistant.\n\n"
-                "Summarise the coding session below into a concise note (max 400 words).\n\n"
-                "You MUST preserve:\n"
-                "- The overall goal\n"
-                "- Architectural decisions and constraints discovered\n"
-                "- Which files were changed and what was done\n"
-                "- Any user preferences or rules found\n"
-                "- Current status and what still needs to be done\n\n"
-                "Discard:\n"
-                "- Verbatim file contents\n"
-                "- Redundant tool outputs\n"
-                "- Step-by-step retry details\n\n"
-                "Return ONLY the plain-text summary."
-            ),
-        },
-        {
-            "role": "user",
-            "content": f"Session history to compact:\n\n{history_text}",
-        },
+        {"role": "system", "content": "Summarise the coding session below into a concise note (max 400 words)."},
+        {"role": "user", "content": f"Session history to compact:\n\n{history_text}"},
     ]
-
 
 def build_verification_prompt(
     *,
@@ -219,28 +159,6 @@ def build_verification_prompt(
 ) -> list[dict[str, str]]:
     syntax = "\n".join(f"- {issue}" for issue in syntax_issues) or "(none)"
     return [
-        {
-            "role": "system",
-            "content": (
-                "Check:\n"
-                "- syntax correctness\n"
-                "- logical consistency\n"
-                "- does it satisfy the goal?\n"
-                "- for multi-file tasks, is this change consistent with the rest of the module?\n"
-                "- for auth/JWT tasks, are there obvious security smells like hardcoded secrets?\n\n"
-                "Return ONLY JSON:\n"
-                '{ "status": "pass | fail", "issues": [] }'
-            ),
-        },
-        {
-            "role": "user",
-            "content": (
-                f"Goal:\n{goal}\n\n"
-                f"Step:\n{json.dumps(step, indent=2)}\n\n"
-                f"File:\n{target_file}\n\n"
-                f"Syntax issues from local checks:\n{syntax}\n\n"
-                f"Original content:\n{original_content[:12000]}\n\n"
-                f"New content:\n{new_content[:12000]}"
-            ),
-        },
+        {"role": "system", "content": "Check syntax and logic. Return ONLY JSON: { \"status\": \"pass | fail\", \"issues\": [] }"},
+        {"role": "user", "content": f"Goal: {goal}\nStep: {json.dumps(step)}\nFile: {target_file}\nSyntax issues: {syntax}\nNew content: {new_content[:10000]}"},
     ]
