@@ -37,8 +37,7 @@ def _get_bearer_token(authorization: str | None = Header(None)) -> str:
 
 async def _get_current_user(token: Annotated[str, Depends(_get_bearer_token)]) -> UserInfo:
     payload = verify_token(token, token_type="access")
-    if not payload:
-        raise HTTPException(status_code=401, detail="Invalid token")
+    if not payload: raise HTTPException(status_code=401, detail="Invalid token")
     return UserInfo(id=payload.get("sub", ""), email=payload.get("email", ""))
 
 class ChatSendRequest(BaseModel):
@@ -66,7 +65,7 @@ async def _handle_regular_chat(req, user, request):
     _direct_chat_store.append_message(session_id, "assistant", ans)
     return JSONResponse({"session_id": session_id, "response": ans})
 
-async def _handle_agent_mode(req, user, request):
+async def _handle_agent_mode(req: ChatSendRequest, user: UserInfo, request: Request):
     session_id = req.session_id or str(uuid.uuid4())
     job = _agent_jobs.create_job(session_id=session_id, owner_id=user.email, instruction=req.content)
     workspace = make_isolated_workspace(_agent_workspace_root, session_id, job.job_id)
@@ -74,7 +73,17 @@ async def _handle_agent_mode(req, user, request):
     async def _run_agent_job(heartbeat):
         from agent.loop import AgentRunner
         runner = AgentRunner(ollama_base=OLLAMA_BASE, workspace_root=str(workspace))
-        result = await runner.run(instruction=req.content, history=[], metadata=req.metadata, max_steps=25)
+        result = await runner.run(
+            instruction=req.content, 
+            history=[], 
+            metadata=req.metadata, 
+            max_steps=25,
+            model_overrides={}, 
+            user_id=user.id,
+            department=None,
+            key_id=None,
+            session_id=session_id
+        )
         ans = result.get("summary", "Done")
         _direct_chat_store.append_message(session_id, "assistant", ans)
         return {"session_id": session_id, "response": ans}
@@ -85,13 +94,11 @@ async def _handle_agent_mode(req, user, request):
 @direct_chat_router.get("/agent-jobs/{job_id}")
 async def get_agent_job(job_id: str, user: Annotated[UserInfo, Depends(_get_current_user)]):
     job = _agent_jobs.get_job(job_id)
-    if not job:
-        raise HTTPException(status_code=404)
+    if not job: raise HTTPException(status_code=404)
     return job.as_dict()
 
 @direct_chat_router.get("/sessions/{session_id}")
 async def get_chat_session(session_id: str, user: Annotated[UserInfo, Depends(_get_current_user)]):
     history = _direct_chat_store.get(session_id)
-    if not history:
-        raise HTTPException(status_code=404)
+    if not history: raise HTTPException(status_code=404)
     return {"session_id": session_id, "history": [m.model_dump() for m in history.history]}
