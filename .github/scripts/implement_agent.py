@@ -1,1 +1,122 @@
-IiIiCkFnZW50aWMgaW1wbGVtZW50YXRpb24gbG9vcCB1c2luZyBOVklESUEgTklNIChPcGVuQUktY29tcGF0aWJsZSB0b29sIHVzZSkuCiIiIgpmcm9tIF9fZnV0dXJlX18gaW1wb3J0IGFubm90YXRpb25zCgppbXBvcnQganNvbgppbXBvcnQgb3MKaW1wb3J0IHN1YnByb2Nlc3MKaW1wb3J0IHN5cwppbXBvcnQgdGV4dHdyYXAKaW1wb3J0IHRpbWUKZnJvbSBwYXRobGliIGltcG9ydCBQYXRoCgpmcm9tIG9wZW5haSBpbXBvcnQgT3BlbkFJLCBOb3RGb3VuZEVycm9yLCBQZXJtaXNzaW9uRGVuaWVkRXJyb3IKClVSTCA9IHN5cy5hcmd2WzFdIGlmIGxlbihzeXMuYXJndikgPiAxIGVsc2UgIiIKSVNTVUVfTlVNID0gc3lzLmFyZ3ZbMl0gaWYgbGVuKHN5cy5hcmd2KSA+IDIgZWxzZSAiPyIKVEFTSyA9IHN5cy5hcmd2WzNdIGlmIGxlbihzeXMuYXJndikgPiAzIGVsc2UgIiIKUkVTVUxUX0ZJTEUgPSAiL3RtcC9pbXBsX3Jlc3VsdC5qc29uIgpNQVhfVFVSTlMgPSA1MAoKQ0FORElEQVRFX01PREVMUyA9IFsKICAgICgibnZpZGlhL2xsYW1hLTNfMS1uZW1vdHJvbi11bHRyYS0yNTNiLXYxIiwgInJlYXNvbmluZyAoTmVtb3Ryb24gVWx0cmEgMjUzQikiKSwKICAgICgicXdlbi9xd2VuMy1jb2Rlci00ODBiLWEzNWItaW5zdHJ1Y3QiLCAgICAgICJjb2RpbmcgKFF3ZW4zLUNvZGVyIDQ4MEIpIiksCiAgICAoInF3ZW4vcXdlbjIuNS1jb2Rlci0zMmItaW5zdHJ1Y3QiLCAgICAgICAgICJjb2RpbmcgKFF3ZW4yLjUgQ29kZXIgMzJCKSIpLApdCgpkZWYgdG9vbF9iYXNoKGNtZDogc3RyKSAtPiBzdHI6CiAgICB0cnk6CiAgICAgICAgcmVzdWx0ID0gc3VicHJvY2Vzcy5ydW4(Y21kLCBzaGVsbD1UcnVlLCBjYXB0dXJlX291dHB1dD1UcnVlLCB0ZXh0PVRydWUsIHRpbWVvdXQ9MTIwKQogICAgICAgIG91dCwgZXJyID0gcmVzdWx0LnN0ZG91dFstNjAwMDpdLCByZXN1bHQuc3RkZXJyWy0yMDAwOl0KICAgICAgICByZXR1cm4gZiJ7b3V0fVxuW3N0ZGVycl1cbntlcnJ9XG5bZXhpdCB7cmVzdWx0LnJldHVybmNvZGV9XSIKICAgIGV4Y2VwdCBFeGNlcHRpb24gYXMgZTogcmV0dXJuIGYiW2Vycm9yOiB7ZX1dIgoKZGVmIHRvb2xfcmVhZF9maWxlKHBhdGg6IHN0cikgLT4gc3RyOgogICAgdHJ5OiByZXR1cm4gUGF0aChwYXRoKS5yZWFkX3RleHQoZXJyb3JzPSJyZXBsYWNlIilbOjEyMDAwXQogICAgZXhjZXB0IEV4Y2VwdGlvbiBhcyBlOiByZXR1cm4gZiJbZXJyb3I6IHtlfV0iCgpkZWYgdG9vbF93cml0ZV9maWxlKHBhdGg6IHN0ciwgY29udGVudDogc3RyKSAtPiBzdHI6CiAgICB0cnk6CiAgICAgICAgcCA9IFBhdGgocGF0aCkKICAgICAgICBwLnBhcmVudC5ta2RpcihwYXJlbnRzPVRydWUsIGV4aXN0X29rPVRydWUpCiAgICAgICAgcC53cml0ZV90ZXh0KGNvbnRlbnQpCiAgICAgICAgcmV0dXJuIGYiV3JpdHRlbiB0byB7cGF0aH0iCiAgICBleGNlcHQgRXhjZXB0aW9uIGFzIGU6IHJldHVybiBmIltlcnJvcjoge2V9XSIKClRPT0xfRElTUEFUQ0ggPSB7CiAgICAiYmFzaCI6IGxhbWJkYSBpOiB0b29sX2Jhc2goaVsiY21kIl0pLAogICAgInJlYWRfZmlsZSI6IGxhbWJkYSBpOiB0b29sX3JlYWRfZmlsZShpWyJwYXRoIl0pLAogICAgIndyaXRlX2ZpbGUiOiBsYW1iZGEgaTogdG9vbF93cml0ZV9maWxlKGlbInBhdGgiXSwgaVsiY29udGVudCJdKSwKICAgICJsaXN0X2ZpbGVzIjogbGFtYmRhIGk6IHRvb2xfYmFzaChmImdpdCBscy1maWxlcyAtLSAne2kuZ2V0KCdwYXR0ZXJuJywgJyoqLyoucHknKX0nIHwgaGVhZCAtMTAwIiksCn0KClRPT0xTID0gWwogICAgeyJ0eXBlIjogImZ1bmN0aW9uIiwgImZ1bmN0aW9uIjogeyJuYW1lIjogImJhc2giLCAicGFyYW1ldGVycyI6IHsidHlwZSI6ICJvYmplY3QiLCAicHJvcGVydGllcyI6IHsiY21kIjogeyJ0eXBlIjogInN0cmluZyJ9fSwgInJlcXVpcmVkIjogWyJjbWQiXX19fSwKICAgIHsidHlwZSI6ICJmdW5jdGlvbiIsICJmdW5jdGlvbiI6IHsibmFtZSI6ICJyZWFkX2ZpbGUiLCAicGFyYW1ldGVycyI6IHsidHlwZSI6ICJvYmplY3QiLCAicHJvcGVydGllcyI6IHsicGF0aCI6IHsidHlwZSI6ICJzdHJpbmcifX0sICJyZXF1aXJlZCI6IFsicGF0aCJdfX19LAogICAgeyJ0eXBlIjogImZ1bmN0aW9uIiwgImZ1bmN0aW9uIjogeyJuYW1lIjogIndyaXRlX2ZpbGUiLCAicGFyYW1ldGVycyI6IHsidHlwZSI6ICJvYmplY3QiLCAicHJvcGVydGllcyI6IHsicGF0aCI6IHsidHlwZSI6ICJzdHJpbmcifSwgImNvbnRlbnQiOiB7InR5cGUiOiAic3RyaW5nIn19LCAicmVxdWlyZWQiOiBbInBhdGgiLCAiY29udGVudCJdfX19LAogICAgeyJ0eXBlIjogImZ1bmN0aW9uIiwgImZ1bmN0aW9uIjogeyJuYW1lIjogImxpc3RfZmlsZXMiLCAicGFyYW1ldGVycyI6IHsidHlwZSI6ICJvYmplY3QiLCAicHJvcGVydGllcyI6IHsicGF0dGVybiI6IHsidHlwZSI6ICJzdHJpbmcifX19fX0sCl0KClNZU1RFTSA9ICJZb3UgYXJlIGEgc2VuaW9yIHNvZnR3YXJlIGVuZ2luZWVyLiBJbXBsZW1lbnQgdGhlIGZlYXR1cmUsIHdyaXRlIHRlc3RzLCBhbmQgZW5zdXJlICdweXRlc3QgLXggLXEgLS10Yj1zaG9ydCcgcGFzc2VzLiBDYWxsIGJhc2goY21kPSdlY2hvIElNUExFTUVOVEFUSU9OX0NPTVBMRVRFJykgT05MWSB3aGVuIGFsbCB0ZXN0cyBwYXNzLiIKCmRlZiBtYWluKCk6CiAgICBjbGllbnQgPSBPcGVuQUkoYmFzZV91cmw9Imh0dHBzOi8vaW50ZWdyYXRlLmFwaS5udmlkaWEuY29tL3YxIiwgYXBpX2tleT1vcy5lbnZpcm9uWyJOVklESUFfQVBJX0tFWSJdKQogICAgCiAgICB1cmxfY29udGVudCA9IFBhdGgoIi90bXAvbm90ZV9jb250ZW50LnR4dCIpLnJlYWRfdGV4dCgpIGlmIFBhdGgoIi90bXAvbm90ZV9jb250ZW50LnR4dCIpLmV4aXN0cygpIGVsc2UgIiIKICAgIHVzZXJfbXNnID0gZiJJc3N1ZSAje0lTU1VFX05VTX1cblVSTDoge1VSTH1cblRhc2s6IHtUQVNLfVxuXG5Db250ZW50Olxue3VybF9jb250ZW50Wzo1MDAwXX0iCiAgICAKICAgIG1lc3NhZ2VzID0gW3sicm9sZSI6ICJzeXN0ZW0iLCAiY29udGVudCI6IFNZU1RFTX0sIHsicm9sZSI6ICJ1c2VyIiwgImNvbnRlbnQiOiB1c2VyX21zZ31dCiAgICBzdWNjZXNzLCBsYXN0X3B5dGVzdF9wYXNzZWQsIHR1cm5zID0gRmFsc2UsIEZhbHNlLCAwCgogICAgY3VycmVudF9tb2RlbF9pZHggPSAwCiAgICBtb2RlbCA9IENBTkRJREFURV9NT0RFTFNbY3VycmVudF9tb2RlbF9pZHhdWzBdCgogICAgd2hpbGUgdHVybnMgPCBNQVhfVFVSTlM6CiAgICAgICAgdHVybnMgKz0gMQogICAgICAgIHRyeToKICAgICAgICAgICAgcmVzID0gY2xpZW50LmNoYXQuY29tcGxldGlvbnMuY3JlYXRlKG1vZGVsPW1vZGVsLCB0b29scz1UT09MUywgbWVzc2FnZXM9bWVzc2FnZXMpCiAgICAgICAgZXhjZXB0IChOb3RGb3VuZEVycm9yLCBQZXJtaXNzaW9uRGVuaWVkRXJyb3IpIGFzIGU6CiAgICAgICAgICAgIHByaW50KGYiRXJyb3Igd2l0aCBtb2RlbCB7bW9kZWx9OiB7ZX0iLCBmaWxlPXN5cy5zdGRlcnIpCiAgICAgICAgICAgIGN1cnJlbnRfbW9kZWxfaWR4ICs9IDEKICAgICAgICAgICAgaWYgY3VycmVudF9tb2RlbF9pZHggPj0gbGVuKENBTkRJREFURV9NT0RFTFMpOgogICAgICAgICAgICAgICAgcHJpbnQoIkFsbCBjYW5kaWRhdGUgbW9kZWxzIGZhaWxlZC4iLCBmaWxlPXN5cy5zdGRlcnIpCiAgICAgICAgICAgICAgICBicmVhawogICAgICAgICAgICBtb2RlbCA9IENBTkRJREFURV9NT0RFTFNbY3VycmVudF9tb2RlbF9pZHhdWzBdCiAgICAgICAgICAgIHByaW50KGYiUmV0cnlpbmcgd2l0aCBmYWxsYmFjayBtb2RlbDoge21vZGVsfSIsIGZpbGU9c3lzLnN0ZGVycikKICAgICAgICAgICAgdHVybnMgLT0gMSAKICAgICAgICAgICAgY29udGludWUKICAgICAgICBleGNlcHQgRXhjZXB0aW9uIGFzIGU6CiAgICAgICAgICAgIHByaW50KGYiVW5leHBlY3RlZCBlcnJvcjoge2V9IiwgZmlsZT1zeXMuc3RkZXJyKQogICAgICAgICAgICBicmVhawoKICAgICAgICBtc2cgPSByZXMuY2hvaWNlc1swXS5tZXNzYWdlCiAgICAgICAgbWVzc2FnZXMuYXBwZW5kKG1zZy5tb2RlbF9kdW1wKGV4Y2x1ZGVfdW5zZXQ9RmFsc2UpKQogICAgICAgIAogICAgICAgIGlmIG5vdCBtc2cudG9vbF9jYWxsczoKICAgICAgICAgICAgaWYgbXNnLmNvbnRlbnQgYW5kICJJTVBMRU1FTlRBVElPTl9DT01QTEVURSIgaW4gbXNnLmNvbnRlbnQgYW5kIGxhc3RfcHl0ZXN0X3Bhc3NlZDogc3VjY2VzcyA9IFRydWUKICAgICAgICAgICAgYnJlYWsKCiAgICAgICAgZm9yIHRjIGluIG1zZy50b29sX2NhbGxzOgogICAgICAgICAgICBhcmdzID0ganNvbi5sb2Fkcyh0Yy5mdW5jdGlvbi5hcmd1bWVudHMpCiAgICAgICAgICAgIG91dCA9IFRPT0xfRElTUEFUQ0guZ2V0KHRjLmZ1bmN0aW9uLm5hbWUpKGFyZ3MpCiAgICAgICAgICAgIGlmIHRjLmZ1bmN0aW9uLm5hbWUgPT0gImJhc2giIGFuZCAicHl0ZXN0IiBpbiBhcmdzLmdldCgiY21kIiwgIiIpOiBsYXN0X3B5dGVzdF9wYXNzZWQgPSAiW2V4aXQgMF0iIGluIG91dAogICAgICAgICAgICBpZiB0Yy5mdW5jdGlvbi5uYW1lID09ICJiYXNoIiBhbmQgIklNUExFTUVOVEFUSU9OX0NPTVBMRVRFSIigaW4gb3V0OgogICAgICAgICAgICAgICAgaWYgbGFzdF9weXRlc3RfcGFzc2VkOiBzdWNjZXNzID0gVHJ1ZQogICAgICAgICAgICAgICAgZWxzZTogb3V0ID0gIltFUlJPUl0gUHl0ZXN0IGZhaWxlZC4gRml4IHRlc3RzIGJlZm9yZSBjb21wbGV0aW9uLiIKICAgICAgICAgICAgbWVzc2FnZXMuYXBwZW5kKHsicm9sZSI6ICJ0b29sIiwgInRvb2xfY2FsbF9pZCI6IHRjLmlkLCAiY29udGVudCI6IG91dH0pCiAgICAgICAgaWYgc3VjY2VzczogYnJlYWsKCiAgICB3aXRoIG9wZW4oUkVTVUxUX0ZJTEUsICJ3IikgYXMgZjoganNvbi5kdW1wKHsic3VjY2VzcyI6IHN1Y2Nlc3MsICJzdW1tYXJ5IjogbXNnLmNvbnRlbnQgaWYgJ21zZycgaW4gbG9jYWxzKCkgYW5kIG1zZy5jb250ZW50IGVsc2UgKCJEb25lIiBpZiBzdWNjZXNzIGVsc2UgIkZhaWxlZCIpfSwgZikKICAgIHN5cy5leGl0KDAgaWYgc3VjY2VzcyBlbHNlIDEpCgppZiBfX25hbWVfXyA9PSAiX19tYWluX18iOiBtYWluKCkK
+"""Agentic implementation loop using NVIDIA NIM (OpenAI-compatible tools API)."""
+from __future__ import annotations
+
+import json
+import os
+import subprocess
+import sys
+from pathlib import Path
+
+from openai import NotFoundError, OpenAI, PermissionDeniedError
+
+URL = sys.argv[1] if len(sys.argv) > 1 else ""
+ISSUE_NUM = sys.argv[2] if len(sys.argv) > 2 else "?"
+TASK = sys.argv[3] if len(sys.argv) > 3 else ""
+RESULT_FILE = "/tmp/impl_result.json"
+MAX_TURNS = 50
+
+CANDIDATE_MODELS = [
+    ("nvidia/llama-3_1-nemotron-ultra-253b-v1", "reasoning"),
+    ("qwen/qwen3-coder-480b-a35b-instruct", "coding"),
+    ("qwen/qwen2.5-coder-32b-instruct", "coding"),
+]
+
+
+def tool_bash(cmd: str) -> str:
+    try:
+        result = subprocess.run(cmd, shell=True, capture_output=True, text=True, timeout=120)
+        out, err = result.stdout[-6000:], result.stderr[-2000:]
+        return f"{out}\n[stderr]\n{err}\n[exit {result.returncode}]"
+    except Exception as exc:  # noqa: BLE001
+        return f"[error: {exc}]"
+
+
+def tool_read_file(path: str) -> str:
+    try:
+        return Path(path).read_text(errors="replace")[:12000]
+    except Exception as exc:  # noqa: BLE001
+        return f"[error: {exc}]"
+
+
+def tool_write_file(path: str, content: str) -> str:
+    try:
+        p = Path(path)
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_text(content)
+        return f"Written to {path}"
+    except Exception as exc:  # noqa: BLE001
+        return f"[error: {exc}]"
+
+
+TOOL_DISPATCH = {
+    "bash": lambda i: tool_bash(i["cmd"]),
+    "read_file": lambda i: tool_read_file(i["path"]),
+    "write_file": lambda i: tool_write_file(i["path"], i["content"]),
+    "list_files": lambda i: tool_bash(f"git ls-files -- '{i.get('pattern', '**/*.py')}' | head -100"),
+}
+
+TOOLS = [
+    {"type": "function", "function": {"name": "bash", "parameters": {"type": "object", "properties": {"cmd": {"type": "string"}}, "required": ["cmd"]}}},
+    {"type": "function", "function": {"name": "read_file", "parameters": {"type": "object", "properties": {"path": {"type": "string"}}, "required": ["path"]}}},
+    {"type": "function", "function": {"name": "write_file", "parameters": {"type": "object", "properties": {"path": {"type": "string"}, "content": {"type": "string"}}, "required": ["path", "content"]}}},
+    {"type": "function", "function": {"name": "list_files", "parameters": {"type": "object", "properties": {"pattern": {"type": "string"}}}}},
+]
+
+SYSTEM = (
+    "You are a senior software engineer. Implement the feature, write tests, and ensure "
+    "'pytest -x -q --tb=short' passes. Call bash(cmd='echo IMPLEMENTATION_COMPLETE') "
+    "ONLY when all tests pass."
+)
+
+
+def main() -> None:
+    client = OpenAI(base_url="https://integrate.api.nvidia.com/v1", api_key=os.environ["NVIDIA_API_KEY"])
+
+    note_path = Path("/tmp/note_content.txt")
+    url_content = note_path.read_text() if note_path.exists() else ""
+    user_msg = f"Issue #{ISSUE_NUM}\nURL: {URL}\nTask: {TASK}\n\nContent:\n{url_content[:5000]}"
+
+    messages = [{"role": "system", "content": SYSTEM}, {"role": "user", "content": user_msg}]
+    success = False
+    last_pytest_passed = False
+    turns = 0
+    model_idx = 0
+    model = CANDIDATE_MODELS[model_idx][0]
+    msg = None
+
+    while turns < MAX_TURNS:
+        turns += 1
+        try:
+            res = client.chat.completions.create(model=model, tools=TOOLS, messages=messages)
+        except (NotFoundError, PermissionDeniedError):
+            model_idx += 1
+            if model_idx >= len(CANDIDATE_MODELS):
+                break
+            model = CANDIDATE_MODELS[model_idx][0]
+            turns -= 1
+            continue
+
+        msg = res.choices[0].message
+        messages.append(msg.model_dump(exclude_unset=False))
+
+        if not msg.tool_calls:
+            if msg.content and "IMPLEMENTATION_COMPLETE" in msg.content and last_pytest_passed:
+                success = True
+            break
+
+        for tc in msg.tool_calls:
+            args = json.loads(tc.function.arguments)
+            out = TOOL_DISPATCH.get(tc.function.name, lambda _i: "[error: unknown tool]")(args)
+            if tc.function.name == "bash" and "pytest" in args.get("cmd", ""):
+                last_pytest_passed = "[exit 0]" in out
+            if tc.function.name == "bash" and "IMPLEMENTATION_COMPLETE" in out and not last_pytest_passed:
+                out = "[ERROR] Pytest failed. Fix tests before completion."
+            messages.append({"role": "tool", "tool_call_id": tc.id, "content": out})
+
+    with open(RESULT_FILE, "w", encoding="utf-8") as handle:
+        json.dump({"success": success, "summary": msg.content if msg and msg.content else ("Done" if success else "Failed")}, handle)
+    sys.exit(0 if success else 1)
+
+
+if __name__ == "__main__":
+    main()
