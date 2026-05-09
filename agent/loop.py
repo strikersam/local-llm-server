@@ -164,17 +164,18 @@ class AgentRunner:
             original_content = self._safe_read(target_file)
             response = context_items[-1]["result"] if context_items and "FILE:" in context_items[-1]["result"] else await self._chat_text(executor_model, build_execution_prompt(goal=goal, step=step, target_file=target_file, context_items=observations, feedback_issues=[]))
             parsed = self._parse_execution_response(response, target_file)
-            if parsed:
-                out_path, new_content = parsed
-                new_content = self._clean_generated_file_content(new_content)
-                try:
-                    raw_verify = await self._chat_json(verifier_model, build_verification_prompt(goal=goal, step=step, target_file=out_path, original_content=original_content, new_content=new_content, syntax_issues=[]))
-                    if raw_verify.get("status") == "pass":
-                        self.tools.apply_diff(out_path, new_content)
-                        changed_files.append(out_path)
-                except Exception:
+            if not parsed: continue
+            out_path, new_content = parsed
+            new_content = self._clean_generated_file_content(new_content)
+            try:
+                raw_verify = await self._chat_json(verifier_model, build_verification_prompt(goal=goal, step=step, target_file=out_path, original_content=original_content, new_content=new_content, syntax_issues=[]))
+                verdict = VerificationResult.model_validate(raw_verify)
+                if verdict.status == "pass":
                     self.tools.apply_diff(out_path, new_content)
                     changed_files.append(out_path)
+            except Exception:
+                self.tools.apply_diff(out_path, new_content)
+                changed_files.append(out_path)
         return {"step_id": step["id"], "description": step["description"], "status": "applied", "changed_files": changed_files, "observations": observations}
 
     async def _run_tool(self, tool, args, user_id, memory_store, metadata) -> Any:
@@ -185,20 +186,36 @@ class AgentRunner:
             if tool == "github_close_issue": return await self.github.close_issue(args["repo_name"], int(args["issue_number"]), args.get("comment"))
             if tool == "github_get_issue": return await self.github.get_issue(args["repo_name"], int(args["issue_number"]))
             if tool == "github_read_repo_file": return await self.github.read_repo_file(args["repo_name"], args["path"], args.get("branch", "main"))
+            if tool == "spawn_subagent": return await self._spawn_subagent(instruction=args["instruction"], requested_model=args.get("model"), max_steps=args.get("max_steps", 5), user_id=user_id, memory_store=memory_store, metadata=metadata)
             raise ValueError(f"Unknown tool: {tool}")
         except Exception as e: return f"[error: {e}]"
+
+    async def _spawn_subagent(self, instruction, requested_model, max_steps, user_id, memory_store, metadata) -> dict:
+        child = AgentRunner(ollama_base=self.ollama_base, workspace_root=self.tools.root)
+        return await child.run(instruction=instruction, history=[], requested_model=requested_model, auto_commit=False, max_steps=max_steps, user_id=user_id, memory_store=memory_store, metadata=metadata)
 
     async def _run_judge(self, *, plan, step_results, requested_model, model_overrides, session_id) -> dict:
         judge_verdict = {"verdict": "APPROVED", "notes": "Automated check passed."}
         try:
             judge_model = (model_overrides or {}).get("judge") or DEFAULT_JUDGE_MODEL
-            msg = [{"role": "system", "content": "Review the results. Return JSON: { \"verdict\": \"APPROVED | APPROVED_WITH_CONDITIONS | BLOCKED\", \"notes\": \"\" }"}, {"role": "user", "content": f"Results: {json.dumps(step_results)}"}]
+            msg = [{"role": "system", "content": "Review results. Return JSON: { \"verdict\": \"APPROVED | BLOCKED\", \"notes\": \"\" }"}, {"role": "user", "content": f"Results: {json.dumps(step_results)}"}]
             raw = await self._chat_json(judge_model, msg)
             if "verdict" in raw: judge_verdict = raw
         except Exception: pass
         return judge_verdict
 
     async def _maybe_run_parallel(self, **kwargs) -> Any: return None
+
+    @staticmethod
+    def _steps_are_independent(steps: list[Any]) -> bool:
+        seen = set()
+        for s in steps:
+            files = getattr(s, "files", []) if not isinstance(s, dict) else s.get("files", [])
+            for f in files:
+                if f in seen: return False
+                seen.add(f)
+        return True
+
     def _log_event(self, s_id, event, payload): pass
     def _write_checkpoint(self, s_id, plan): pass
 
@@ -206,7 +223,7 @@ class AgentRunner:
         try:
             summary = await self._chat_text(model or DEFAULT_PLANNER_MODEL, build_compaction_prompt(history))
             return [{"role": "system", "content": f"Summary: {summary}"}] + history[-4:]
-        except Exception: return history
+        except: return history
 
     async def _chat_text(self, model, messages) -> str:
         res = await self._router.chat_completion({"model": model, "messages": messages, "stream": False})
