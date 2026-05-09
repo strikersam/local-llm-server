@@ -51,6 +51,18 @@ That means less setup pain, less tool sprawl, and fewer "wait, where did that an
 
 ---
 
+## What's new (2026-05-09)
+
+**Vision routing, session-aware Langfuse traces, and feature flag bulk controls.**
+
+- **Vision routing** — the proxy automatically detects `image_url` content parts in requests and routes them to the best registered vision-capable model (Gemma4, Llama4, Qwen3.6). Set `VISION_MODEL=<name>` to pin. `X-Model-Override` still takes priority.
+- **`X-Session-Id` → Langfuse** — pass `X-Session-Id` or `X-Claude-Code-Session-Id` in any request and all turns from that session will cluster under one Langfuse trace with a `session:<id>` tag. Claude Code CLI sends this automatically.
+- **`FEATURE_DISABLE` / `FEATURE_ENABLE` bulk env vars** — disable or enable multiple features at once: `FEATURE_DISABLE=jcode_runtime,social_auth`. Previously only single-feature `FEATURE_<ID>=<tier>` overrides were supported.
+
+See `docs/changelog.md` for the full diff.
+
+---
+
 ## What's new in v4.0
 
 v4.0 is the biggest release yet — it ships a native-grade mobile experience, a non-blocking async agent engine, NVIDIA NIM as a first-class free provider, and a stack of reliability and observability improvements.

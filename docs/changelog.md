@@ -1,6 +1,33 @@
 # Changelog
 
-## [Unreleased]
+## [Unreleased] — 2026-05-09
+
+### Added
+
+- **Vision request routing** (`router/registry.py`, `router/model_router.py`) — the proxy now auto-detects `image_url` content parts in incoming chat requests and routes them to the highest-tier vision-capable model registered in the capability registry. Vision capability is declared via the new `vision: bool` field on `ModelCapability`. Affected models: `gemma4:27b`, `gemma4:9b`, `gemma4:latest`, `llama4-maverick:17b`, `llama4-scout:17b`, `qwen3.6:35b`. Set `VISION_MODEL=<name>` env var to pin to a specific vision model. Manual `X-Model-Override` header still takes priority.
+
+- **`CLAUDE_CODE_SESSION_ID` / `X-Session-Id` propagation in Langfuse traces** (`langfuse_obs.py`, `chat_handlers.py`) — the proxy now extracts `X-Session-Id` and `X-Claude-Code-Session-Id` request headers and attaches them to Langfuse traces as `sessionId` (groups all turns from one session under a single trace in Langfuse) and as a `session:<id>` tag. All streaming and non-streaming paths are covered. The `session_id` field also appears in the trace metadata dict.
+
+- **`FEATURE_DISABLE` / `FEATURE_ENABLE` bulk env vars** (`features/matrix.py`) — operators can now enable or disable multiple features at once via comma-separated lists, e.g. `FEATURE_DISABLE=jcode_runtime,social_auth`. `FEATURE_DISABLE` is authoritative (wins over `FEATURE_ENABLE` if both list the same ID). Unknown IDs in either list emit a WARNING log. Single-feature `FEATURE_<ID>=<tier>` overrides continue to work.
+
+- **`FeatureMatrix.check()` alias** (`features/matrix.py`) — adds `check(feature_id)` as a direct alias for `check_available()`, matching the originally-planned public API.
+
+- **`FeatureMatrix.summary()` method** (`features/matrix.py`) — returns a compact list of all features (feature_id, display_name, maturity, enabled) suitable for status endpoints and admin UI consumers.
+
+- **`proxy_endpoints` feature entry** (`features/matrix.py`) — added the missing stable `proxy_endpoints` registry entry so `FeatureMatrix.check("proxy_endpoints")` works correctly.
+
+- **`as_dict()` enhancements** (`features/matrix.py`) — `FeatureMatrix.as_dict()` now returns `schema_version: "1"`, a top-level `entries` list (for consumers that prefer arrays over keyed maps), and a top-level `by_maturity` dict alongside the existing `features` dict and `summary` block.
+
+- `tests/test_vision_routing.py` — 26 tests covering `has_image_content()`, `best_vision_model()`, `ModelRouter` vision routing, vision-capable registry entries, `emit_chat_observation()` session_id propagation, `_emit_langfuse_http` session tagging, and `_emit_sdk` signature.
+
+### Fixed
+
+- `tests/test_failover_order.py::test_from_env_provider_order_local_first` — test was asserting `ollama-local` is always present without setting `INCLUDE_LOCAL_FALLBACK=true`. Updated to explicitly opt in, matching the current explicit-opt-in behaviour introduced in the previous fix.
+
+- `tests/test_feature_matrix.py::TestRegistryLoads::test_known_beta_features_are_beta` — `workspace_isolation` and `runtime_preflight` were promoted to STABLE; test updated to reflect their current maturity. Added companion `test_promoted_features_are_stable` to assert the promotion explicitly.
+
+- `features/matrix.py` — `maturity_warning()` now returns `None` for features that are disabled (not just for non-beta/non-experimental features), fixing the contract expected by the test suite.
+
 ### Fixed
 - Removed automatic Ollama fallback in provider router to prevent connection errors when Ollama is not running. Ollama is now only included when INCLUDE_LOCAL_FALLBACK=true is explicitly set, preserving NVIDIA NIM as highest priority when NVIDIA_API_KEY is set.
 

@@ -61,7 +61,10 @@ class FeatureEntry(BaseModel):
     notes: str = Field(default="", description="Caveats, limitations, or guidance")
 
     def as_dict(self) -> dict[str, Any]:
-        return self.model_dump()
+        d = self.model_dump()
+        # Alias for backwards-compat with test contracts
+        d["default_available"] = d.get("default_availability")
+        return d
 
 
 # ── FeatureUnavailableError ────────────────────────────────────────────────────
@@ -103,6 +106,17 @@ class FeatureUnavailableError(Exception):
 
 _CANONICAL_FEATURES: list[dict[str, Any]] = [
     # ── Stable core ───────────────────────────────────────────────────────
+    {
+        "feature_id": "proxy_endpoints",
+        "display_name": "Proxy Endpoints",
+        "maturity": FeatureMaturity.STABLE,
+        "enabled": True,
+        "default_availability": FeatureMaturity.STABLE,
+        "key_dependencies": [],
+        "config_flags": [],
+        "admin_visible": True,
+        "notes": "Core OpenAI-compatible proxy endpoints (/v1/*).",
+    },
     {
         "feature_id": "direct_chat",
         "display_name": "Direct Chat",
@@ -443,17 +457,39 @@ class FeatureMatrix:
         self._load(config_overrides or {})
 
     def _load(self, config_overrides: dict[str, str]) -> None:
-        """Load canonical features and apply config overrides."""
+        """Load canonical features and apply per-feature then bulk env overrides."""
+        # Parse bulk FEATURE_ENABLE / FEATURE_DISABLE lists first (populated below)
+        disable_set: set[str] = set()
+        enable_set: set[str] = set()
+
+        raw_disable = os.environ.get("FEATURE_DISABLE", "").strip()
+        raw_enable = os.environ.get("FEATURE_ENABLE", "").strip()
+
+        if raw_disable:
+            disable_set = {s.strip() for s in raw_disable.split(",") if s.strip()}
+        if raw_enable:
+            enable_set = {s.strip() for s in raw_enable.split(",") if s.strip()}
+
         for raw in _CANONICAL_FEATURES:
             entry = FeatureEntry(**raw)
-            # Apply config overrides
+            # Apply per-feature env override (FEATURE_<ID>=<tier>)
             fid = entry.feature_id
             env_key = f"FEATURE_{fid.upper()}"
-            # Check explicit env override first, then passed-in overrides
             override = os.environ.get(env_key) or config_overrides.get(env_key)
             if override is not None:
                 self._apply_override(entry, override)
+            # Apply bulk enable/disable — FEATURE_DISABLE is authoritative
+            if fid in enable_set:
+                entry.enabled = True
+            if fid in disable_set:
+                entry.enabled = False
+                entry.maturity = FeatureMaturity.DISABLED
             self._entries[fid] = entry
+
+        # Warn about unknown IDs in bulk lists
+        known = set(self._entries.keys())
+        for fid in (disable_set | enable_set) - known:
+            log.warning("FEATURE env var references unknown feature_id %r — ignored", fid)
 
     @staticmethod
     def _apply_override(entry: FeatureEntry, override: str) -> None:
@@ -516,7 +552,7 @@ class FeatureMatrix:
     def maturity_warning(self, feature_id: str) -> str | None:
         """Return a warning string for beta/experimental features, or None."""
         entry = self._entries.get(feature_id)
-        if entry is None:
+        if entry is None or not entry.enabled:
             return None
         if entry.maturity == FeatureMaturity.BETA:
             return f"Feature '{feature_id}' is in BETA — behavior may change."
@@ -524,21 +560,41 @@ class FeatureMatrix:
             return f"Feature '{feature_id}' is EXPERIMENTAL — use with caution, may be unstable."
         return None
 
+    def check(self, feature_id: str) -> FeatureEntry:
+        """Alias for check_available() — returns the entry or raises FeatureUnavailableError."""
+        return self.check_available(feature_id)
+
     def require(self, feature_id: str) -> FeatureEntry:
         """Convenience: check_available, but returns the entry for chaining."""
         return self.check_available(feature_id)
 
     # ── Serialization ──────────────────────────────────────────────────────
 
+    def summary(self) -> list[dict[str, Any]]:
+        """Return a compact list of all feature entries (for admin/status endpoints)."""
+        return [
+            {
+                "feature_id": e.feature_id,
+                "display_name": e.display_name,
+                "maturity": e.maturity.value,
+                "enabled": e.enabled,
+            }
+            for e in self._entries.values()
+        ]
+
     def as_dict(self) -> dict[str, Any]:
+        by_maturity = {
+            m.value: len(self.list_by_maturity(m))
+            for m in FeatureMaturity
+        }
         return {
+            "schema_version": "1",
             "features": {fid: e.as_dict() for fid, e in self._entries.items()},
+            "entries": [e.as_dict() for e in self._entries.values()],
+            "by_maturity": by_maturity,
             "summary": {
                 "total": len(self._entries),
-                "by_maturity": {
-                    m.value: len(self.list_by_maturity(m))
-                    for m in FeatureMaturity
-                },
+                "by_maturity": by_maturity,
                 "enabled_count": len(self.list_enabled()),
             },
         }

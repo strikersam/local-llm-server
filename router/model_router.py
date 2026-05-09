@@ -34,7 +34,7 @@ from typing import Any
 
 from router.classifier import classify_task
 from router.health import is_model_available
-from router.registry import best_model_for, get_registry
+from router.registry import best_model_for, best_vision_model, get_registry, has_image_content
 
 log = logging.getLogger("qwen-proxy")
 
@@ -274,6 +274,21 @@ class ModelRouter:
                 selection_source="override",
                 fallback_chain=[_default_model()],
             )
+
+        # ── 1.5 Vision routing — if messages contain images, prefer a vision model ──
+        if has_image_content(messages):
+            registry = get_registry()
+            vision_model = best_vision_model(registry)
+            if vision_model:
+                return RoutingDecision(
+                    resolved_model=vision_model,
+                    requested_model=requested_model,
+                    mode="auto",
+                    routing_reason=f"Vision routing: request contains image_url → {vision_model}",
+                    task_category="multimodal",
+                    selection_source="vision",
+                    fallback_chain=[_default_model()],
+                )
 
         # ── 2. Classify the task ──────────────────────────────────────────────
         category = classify_task(
