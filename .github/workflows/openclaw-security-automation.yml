@@ -11,8 +11,9 @@ on:
       - '.github/scripts/security_fix_agent.py'
 
 permissions:
-  contents: read
+  contents: write
   issues: write
+  pull-requests: write
   dependabot-alerts: read
   security-events: read
 
@@ -35,10 +36,10 @@ jobs:
         with:
           node-version: '22'
 
-      - name: Install OpenClaw
+      - name: Setup OpenClaw
         run: |
-          npm install -g openclaw@latest
-          openclaw --version
+          # Use npx for robust execution without global install issues
+          npx openclaw@latest --version || true
 
       - name: Install Python dependencies
         run: |
