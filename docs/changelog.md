@@ -23,6 +23,7 @@
 ### Fixed
 
 - `tests/test_failover_order.py::test_from_env_provider_order_local_first` — test was asserting `ollama-local` is always present without setting `INCLUDE_LOCAL_FALLBACK=true`. Updated to explicitly opt in, matching the current explicit-opt-in behaviour introduced in the previous fix.
+- `direct_chat.py` — agent-mode direct chat now appends the user message before queueing the background job (preventing missing-session `KeyError` on async completion) and returns HTTP `202 Accepted` with `job_id` for proper async semantics.
 
 - `tests/test_feature_matrix.py::TestRegistryLoads::test_known_beta_features_are_beta` — `workspace_isolation` and `runtime_preflight` were promoted to STABLE; test updated to reflect their current maturity. Added companion `test_promoted_features_are_stable` to assert the promotion explicitly.
 
