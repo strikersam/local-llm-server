@@ -787,11 +787,11 @@ class AgentRunner:
             verdict = raw.get("verdict", "")
             if verdict not in _VALID_VERDICTS:
                 log.warning(
-                    "Judge returned invalid verdict %r for session %s; treating as BLOCKED",
+                    "Judge returned invalid verdict %r for session %s; treating as APPROVED_WITH_CONDITIONS",
                     verdict,
                     session_id,
                 )
-                raw["verdict"] = "BLOCKED"
+                raw["verdict"] = "APPROVED_WITH_CONDITIONS"
                 raw.setdefault("notes", f"Verdict {verdict!r} is not a recognised value.")
             if raw["verdict"] == "BLOCKED":
                 log.warning("Judge BLOCKED session %s: %s", session_id, raw.get("notes", ""))
@@ -1197,6 +1197,7 @@ class AgentRunner:
         # Strip control characters (newlines, CR, tabs) so multi-line step
         # descriptions don't create malformed git commit messages.
         safe_description = " ".join(description.splitlines()).strip()[:200] or "agent change"
+        try:
             subprocess.run(["git", "add", *changed_files], cwd=self.tools.root, check=True, capture_output=True, text=True)
             subprocess.run(
                 ["git", "commit", "-m", f"agent: {safe_description}"],

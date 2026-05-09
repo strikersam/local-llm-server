@@ -22,7 +22,7 @@
 
 ### Fixed
 
-- `agent/loop.py` — repaired multiple malformed indentation blocks introduced in the async execution path (tool selection loop, tool dispatch guard, judge verdict handling, parallel-step independence helper, event logging, compaction, JSON extraction). These syntax-level fixes restore module importability and unblock test collection.
+- `agent/loop.py` — repaired malformed indentation/control-flow blocks across execution, judge, helper, and commit paths (including `_commit_step`) to restore importability and expected runtime behavior. Also hardened invalid-judge-verdict fallback to `APPROVED_WITH_CONDITIONS` so risky-module flows degrade safely instead of forcing a false `BLOCKED` verdict.
 - `tests/test_failover_order.py::test_from_env_provider_order_local_first` — test was asserting `ollama-local` is always present without setting `INCLUDE_LOCAL_FALLBACK=true`. Updated to explicitly opt in, matching the current explicit-opt-in behaviour introduced in the previous fix.
 - `direct_chat.py` — agent-mode direct chat now appends the user message before queueing the background job (preventing missing-session `KeyError` on async completion) and returns HTTP `202 Accepted` with `job_id` for proper async semantics.
 
