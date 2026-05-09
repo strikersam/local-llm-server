@@ -32,14 +32,14 @@ def tool_bash(cmd: str) -> str:
         result = subprocess.run(cmd, shell=True, capture_output=True, text=True, timeout=120)
         out, err = result.stdout[-6000:], result.stderr[-2000:]
         return f"{out}\n[stderr]\n{err}\n[exit {result.returncode}]"
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001
         return f"[error: {exc}]"
 
 
 def tool_read_file(path: str) -> str:
     try:
         return Path(path).read_text(errors="replace")[:12000]
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001
         return f"[error: {exc}]"
 
 
@@ -49,7 +49,7 @@ def tool_write_file(path: str, content: str) -> str:
         p.parent.mkdir(parents=True, exist_ok=True)
         p.write_text(content)
         return f"Written to {path}"
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001
         return f"[error: {exc}]"
 
 
@@ -77,14 +77,17 @@ SYSTEM = (
 def main() -> None:
     client = OpenAI(base_url="https://integrate.api.nvidia.com/v1", api_key=os.environ["NVIDIA_API_KEY"])
 
-    url_content = Path("/tmp/note_content.txt").read_text() if Path("/tmp/note_content.txt").exists() else ""
+    note_path = Path("/tmp/note_content.txt")
+    url_content = note_path.read_text() if note_path.exists() else ""
     user_msg = f"Issue #{ISSUE_NUM}\nURL: {URL}\nTask: {TASK}\n\nContent:\n{url_content[:5000]}"
 
     messages = [{"role": "system", "content": SYSTEM}, {"role": "user", "content": user_msg}]
-    success, last_pytest_passed, turns = False, False, 0
-
-    current_model_idx = 0
-    model = CANDIDATE_MODELS[current_model_idx][0]
+    success = False
+    last_pytest_passed = False
+    turns = 0
+    model_idx = 0
+    model = CANDIDATE_MODELS[model_idx][0]
+    msg = None
 
     while turns < MAX_TURNS:
         turns += 1
@@ -92,11 +95,11 @@ def main() -> None:
             res = client.chat.completions.create(model=model, tools=TOOLS, messages=messages)
         except (NotFoundError, PermissionDeniedError) as exc:
             print(f"Error with model {model}: {exc}", file=sys.stderr)
-            current_model_idx += 1
-            if current_model_idx >= len(CANDIDATE_MODELS):
+            model_idx += 1
+            if model_idx >= len(CANDIDATE_MODELS):
                 print("All candidate models failed.", file=sys.stderr)
                 break
-            model = CANDIDATE_MODELS[current_model_idx][0]
+            model = CANDIDATE_MODELS[model_idx][0]
             print(f"Retrying with fallback model: {model}", file=sys.stderr)
             turns -= 1
             continue
@@ -114,7 +117,7 @@ def main() -> None:
 
         for tc in msg.tool_calls:
             args = json.loads(tc.function.arguments)
-            out = TOOL_DISPATCH.get(tc.function.name)(args)
+            out = TOOL_DISPATCH.get(tc.function.name, lambda _i: "[error: unknown tool]")(args)
             if tc.function.name == "bash" and "pytest" in args.get("cmd", ""):
                 last_pytest_passed = "[exit 0]" in out
             if tc.function.name == "bash" and "IMPLEMENTATION_COMPLETE" in out:
@@ -126,9 +129,8 @@ def main() -> None:
         if success:
             break
 
-    with open(RESULT_FILE, "w") as f:
-        json.dump({"success": success, "summary": msg.content if "msg" in locals() and msg.content else ("Done" if success else "Failed")}, f)
-
+    with open(RESULT_FILE, "w", encoding="utf-8") as handle:
+        json.dump({"success": success, "summary": msg.content if msg and msg.content else ("Done" if success else "Failed")}, handle)
     sys.exit(0 if success else 1)
 
 

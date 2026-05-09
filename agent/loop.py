@@ -595,6 +595,7 @@ class AgentRunner:
                     "observations": observations,
                     "models": {"executor": executor_model, "verifier": verifier_model},
                 }
+
         step_review_issues = self._review_step_result(step=step, changed_files=changed_files)
         if step_review_issues:
             return {
