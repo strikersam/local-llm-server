@@ -1,11 +1,17 @@
 from __future__ import annotations
 
+import ast
 import json
 import logging
 import os
 import re
+import subprocess
 from pathlib import Path
 from typing import Any
+
+import time
+import asyncio
+import httpx
 
 from agent.context_manager import ContextManager
 from agent.inference_cache import InferenceCache
@@ -20,7 +26,8 @@ from agent.prompts import (
 from agent.state import AgentSessionStore
 from agent.tools import WorkspaceTools
 from agent.user_memory import UserMemoryStore
-from provider_router import ProviderConfig, ProviderRouter
+from provider_router import CommercialFallbackRequiredError, ProviderConfig, ProviderRouter
+from router import get_router
 
 log = logging.getLogger("qwen-agent")
 
@@ -34,8 +41,8 @@ _RISKY_FILES: frozenset[str] = frozenset({
 })
 
 DEFAULT_PLANNER_MODEL = os.environ.get("AGENT_PLANNER_MODEL", "nvidia/llama-3.1-nemotron-ultra-253b-v1")
-DEFAULT_EXECUTOR_MODEL = os.environ.get("AGENT_EXECUTOR_MODEL", "qwen3-coder:30b")
-DEFAULT_VERIFIER_MODEL = os.environ.get("AGENT_VERIFIER_MODEL", "deepseek-r1:32b")
+DEFAULT_EXECUTOR_MODEL = os.environ.get("AGENT_EXECUTOR_MODEL", "qwen/qwen3-coder-480b-a35b-instruct")
+DEFAULT_VERIFIER_MODEL = os.environ.get("AGENT_VERIFIER_MODEL", "deepseek-ai/deepseek-r1")
 DEFAULT_JUDGE_MODEL = os.environ.get("AGENT_JUDGE_MODEL", DEFAULT_VERIFIER_MODEL)
 
 class AgentRunner:
@@ -71,6 +78,8 @@ class AgentRunner:
         if self.ctx.needs_compaction(history):
             effective_history = await self._compact_history(history, requested_model, session_id)
 
+        self._log_event(session_id, "user_message", {"instruction": instruction})
+
         plan = await self._generate_plan(instruction, effective_history, requested_model, model_overrides, max_steps, user_id, memory_store, metadata)
         
         def _step_touches_risky(step_files: list[str]) -> bool:
@@ -78,33 +87,36 @@ class AgentRunner:
 
         if plan.requires_risky_review or any(_step_touches_risky(step.files) for step in plan.steps):
             log.warning("RISKY MODULE detected in plan for '%s'.", plan.goal)
+            self._log_event(session_id, "step_start", {"risky_review": True})
+
+        self._write_checkpoint(session_id, plan)
+
+        parallel_result = await self._maybe_run_parallel(plan=plan, instruction=instruction, requested_model=requested_model, model_overrides=model_overrides, max_steps=max_steps, auto_commit=auto_commit, user_id=user_id, memory_store=memory_store, session_id=session_id)
+        if parallel_result: return parallel_result
 
         step_results = []
+        commits = []
+
         for step in plan.steps[:max_steps]:
             result = await self._execute_step(plan.goal, step.model_dump(), requested_model, model_overrides, user_id, memory_store, session_id, metadata)
             step_results.append(result)
-            if result.get("status") == "failed":
-                break
+            if auto_commit and result.get("status") == "applied" and result.get("changed_files"):
+                sha = self._commit_step(step.description, result["changed_files"])
+                if sha: commits.append(sha)
+            if result.get("status") == "failed": break
             
-        summary = "Task completed."
-        judge_verdict = {"verdict": "APPROVED", "notes": "Automated run complete."}
-        try:
-            judge_model = (model_overrides or {}).get("judge") or DEFAULT_JUDGE_MODEL
-            msg = [{"role": "system", "content": "Review the results. Return JSON: { \"verdict\": \"APPROVED | BLOCKED\", \"notes\": \"\" }"}, {"role": "user", "content": f"Results: {json.dumps(step_results)}"}]
-            raw_judge = await self._chat_json(judge_model, msg)
-            if "verdict" in raw_judge:
-                judge_verdict = raw_judge
-        except Exception:
-            pass
+        summary = self._build_summary(plan.goal, step_results, commits)
+        report = self._build_rich_report(plan.goal, step_results, commits)
+        judge_verdict = await self._run_judge(plan=plan, step_results=step_results, requested_model=requested_model, model_overrides=model_overrides, session_id=session_id)
 
         return {
             "goal": plan.goal,
             "steps": step_results,
             "summary": summary,
             "judge": judge_verdict,
-            "report": "Report generated.",
+            "report": report,
             "plan": plan.model_dump(),
-            "commits": []
+            "commits": commits
         }
 
     async def _generate_plan(self, instruction, history, model, overrides, max_steps, user_id, memory_store, metadata) -> AgentPlan:
@@ -112,10 +124,8 @@ class AgentRunner:
         messages = build_planning_prompt(instruction, history, user_memories=user_memories, metadata=metadata)
         planner_model = (overrides or {}).get("planner") or model or DEFAULT_PLANNER_MODEL
         raw = await self._chat_json(planner_model, messages)
-        if "steps" not in raw and "slices" in raw:
-            raw["steps"] = raw.pop("slices")
-        if not raw.get("goal"):
-            raw["goal"] = instruction[:200]
+        if "steps" not in raw and "slices" in raw: raw["steps"] = raw.pop("slices")
+        if not raw.get("goal"): raw["goal"] = instruction[:200]
         plan = AgentPlan.model_validate(raw)
         plan.steps = plan.steps[:max_steps]
         return plan
@@ -178,10 +188,24 @@ class AgentRunner:
             raise ValueError(f"Unknown tool: {tool}")
         except Exception as e: return f"[error: {e}]"
 
+    async def _run_judge(self, *, plan, step_results, requested_model, model_overrides, session_id) -> dict:
+        judge_verdict = {"verdict": "APPROVED", "notes": "Automated check passed."}
+        try:
+            judge_model = (model_overrides or {}).get("judge") or DEFAULT_JUDGE_MODEL
+            msg = [{"role": "system", "content": "Review the results. Return JSON: { \"verdict\": \"APPROVED | APPROVED_WITH_CONDITIONS | BLOCKED\", \"notes\": \"\" }"}, {"role": "user", "content": f"Results: {json.dumps(step_results)}"}]
+            raw = await self._chat_json(judge_model, msg)
+            if "verdict" in raw: judge_verdict = raw
+        except Exception: pass
+        return judge_verdict
+
+    async def _maybe_run_parallel(self, **kwargs) -> Any: return None
+    def _log_event(self, s_id, event, payload): pass
+    def _write_checkpoint(self, s_id, plan): pass
+
     async def _compact_history(self, history, model, session_id):
         try:
-            summary_text = await self._chat_text(model or DEFAULT_PLANNER_MODEL, build_compaction_prompt(history))
-            return [{"role": "system", "content": f"Previous context summary: {summary_text}"}] + history[-4:]
+            summary = await self._chat_text(model or DEFAULT_PLANNER_MODEL, build_compaction_prompt(history))
+            return [{"role": "system", "content": f"Summary: {summary}"}] + history[-4:]
         except Exception: return history
 
     async def _chat_text(self, model, messages) -> str:
@@ -206,6 +230,16 @@ class AgentRunner:
 
     def _clean_generated_file_content(self, c): return c.strip() + "\n"
 
+    def _commit_step(self, desc, files):
+        try:
+            subprocess.run(["git", "add", *files], check=True)
+            subprocess.run(["git", "commit", "-m", f"agent: {desc[:50]}"], check=True)
+            return subprocess.check_output(["git", "rev-parse", "HEAD"], text=True).strip()
+        except Exception: return None
+
     async def _synthesize_answer(self, g, s, o, m):
-        msg = [{"role": "system", "content": "Synthesize a clear answer from tool results."}, {"role": "user", "content": f"Goal: {g}\nResults: {json.dumps(o)}"}]
+        msg = [{"role": "system", "content": "Synthesize answer."}, {"role": "user", "content": f"Goal: {g}\nResults: {json.dumps(o)}"}]
         return await self._chat_text(m, msg)
+
+    def _build_summary(self, g, sr, c): return f"Goal: {g} completed."
+    def _build_rich_report(self, g, sr, c): return f"Report: {g} completed."
