@@ -486,6 +486,8 @@ class AgentRunner:
                 "models": {"executor": executor_model, "verifier": verifier_model},
             }
 
+        for target_file in target_files:
+            original_content = self._safe_read(target_file)
             retries = 0
             feedback_issues: list[str] = []
             file_applied = False
@@ -566,6 +568,8 @@ class AgentRunner:
                 if verdict.status == "pass" and not syntax_issues:
                     diff_result = self.tools.apply_diff(out_path, new_content)
                     context_items.append({"tool": "apply_diff", "result": diff_result})
+                    if out_path not in changed_files:
+                        changed_files.append(out_path)
                     file_applied = True
                     break
 
@@ -1308,36 +1312,3 @@ class AgentRunner:
         applied_count = sum(1 for s in step_results if s.get("status") == "applied")
         lines.append(f"**Result:** {applied_count}/{len(step_results)} steps completed, {len(unique_files)} file(s) changed.")
         return "\n".join(lines)
-        return self._extract_json(text)
-
-    def _extract_json(self, text: str) -> dict:
-        return json.loads(re.search(r"\{.*\}", text, re.S).group(0))
-
-    def _safe_read(self, p: str) -> str: 
-        try: return Path(p).read_text()
-        except Exception: return ""
-
-    def _parse_execution_response(self, raw, fallback):
-        m = re.search(r"FILE:\s*(?P<path>.*)\s*ACTION:\s*(?P<action>create|replace|append)\s*```.*?\n(?P<content>.*?)\n```", raw, re.S)
-        if not m: return None
-        return m.group("path").strip() or fallback, m.group("content")
-
-    def _clean_generated_file_content(self, c): return c.strip() + "\n"
-
-    def _commit_step(self, desc, files):
-        try:
-            subprocess.run(["git", "add", *files], check=True)
-            subprocess.run(["git", "commit", "-m", f"agent: {desc[:50]}"], check=True)
-            return subprocess.check_output(["git", "rev-parse", "HEAD"], text=True).strip()
-        except Exception: return None
-
-    async def _spawn_subagent(self, instruction, requested_model, max_steps, user_id, memory_store, metadata) -> dict:
-        child = AgentRunner(ollama_base=self.ollama_base, workspace_root=self.tools.root)
-        return await child.run(instruction=instruction, history=[], requested_model=requested_model, auto_commit=False, max_steps=max_steps, user_id=user_id, memory_store=memory_store, metadata=metadata)
-
-    async def _synthesize_answer(self, g, s, o, m):
-        msg = [{"role": "system", "content": "Synthesize answer."}, {"role": "user", "content": f"Goal: {g}\nResults: {json.dumps(o)}"}]
-        return await self._chat_text(mol, msg)
-
-    def _build_summary(self, g, sr, c): return f"Goal: {g} completed."
-    def _build_rich_report(self, g, sr, c): return f"Report: {g} completed."
