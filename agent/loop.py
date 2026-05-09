@@ -595,6 +595,7 @@ class AgentRunner:
                     "observations": observations,
                     "models": {"executor": executor_model, "verifier": verifier_model},
                 }
+
         step_review_issues = self._review_step_result(step=step, changed_files=changed_files)
         if step_review_issues:
             return {
@@ -875,7 +876,8 @@ class AgentRunner:
     # ------------------------------------------------------------------
     # Auto-parallelization
     # ------------------------------------------------------------------
-    def _steps_are_independent(self, steps: list[Any]) -> bool:
+    @staticmethod
+    def _steps_are_independent(steps: list[Any]) -> bool:
         """Return True when no file appears in more than one step (safe to parallelize)."""
         seen: set[str] = set()
         for step in steps:
