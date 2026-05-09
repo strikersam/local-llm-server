@@ -98,6 +98,7 @@ class AgentRunner:
         commits = []
 
         for step in plan.steps[:max_steps]:
+            self._log_event(session_id, "step_start", {"step_id": step.id, "description": step.description})
             result = await self._execute_step(plan.goal, step.model_dump(), requested_model, model_overrides, user_id, memory_store, session_id, metadata)
             step_results.append(result)
             if auto_commit and result.get("status") == "applied" and result.get("changed_files"):
@@ -107,6 +108,7 @@ class AgentRunner:
             
         summary = self._build_summary(plan.goal, step_results, commits)
         report = self._build_rich_report(plan.goal, step_results, commits)
+        self._log_event(session_id, "assistant_message", {"summary": summary})
         judge_verdict = await self._run_judge(plan=plan, step_results=step_results, requested_model=requested_model, model_overrides=model_overrides, session_id=session_id)
 
         return {
@@ -149,7 +151,11 @@ class AgentRunner:
                     context_items.append({"tool": "prose", "result": raw_text})
                     break
                 if call.tool == "finish": break
+                
+                call_id = f"step-{step['id']}-tool-{16 - remaining}"
+                self._log_event(session_id, "tool_call", {"call_id": call_id, "tool_name": call.tool, "args": call.args})
                 result = await self._run_tool(call.tool, call.args, user_id, memory_store, metadata)
+                self._log_event(session_id, "tool_result", {"call_id": call_id, "tool_name": call.tool, "output": str(result)[:1000]})
                 observations.append({"tool": call.tool, "args": call.args, "result": result})
                 context_items.append({"tool": call.tool, "result": result})
             except Exception as e: observations.append({"tool": "error", "result": str(e)})
@@ -190,15 +196,11 @@ class AgentRunner:
             raise ValueError(f"Unknown tool: {tool}")
         except Exception as e: return f"[error: {e}]"
 
-    async def _spawn_subagent(self, instruction, requested_model, max_steps, user_id, memory_store, metadata) -> dict:
-        child = AgentRunner(ollama_base=self.ollama_base, workspace_root=self.tools.root)
-        return await child.run(instruction=instruction, history=[], requested_model=requested_model, auto_commit=False, max_steps=max_steps, user_id=user_id, memory_store=memory_store, metadata=metadata)
-
     async def _run_judge(self, *, plan, step_results, requested_model, model_overrides, session_id) -> dict:
         judge_verdict = {"verdict": "APPROVED", "notes": "Automated check passed."}
         try:
             judge_model = (model_overrides or {}).get("judge") or DEFAULT_JUDGE_MODEL
-            msg = [{"role": "system", "content": "Review results. Return JSON: { \"verdict\": \"APPROVED | BLOCKED\", \"notes\": \"\" }"}, {"role": "user", "content": f"Results: {json.dumps(step_results)}"}]
+            msg = [{"role": "system", "content": "Review results. Return JSON: { \"verdict\": \"APPROVED | APPROVED_WITH_CONDITIONS | BLOCKED\", \"notes\": \"\" }"}, {"role": "user", "content": f"Results: {json.dumps(step_results)}"}]
             raw = await self._chat_json(judge_model, msg)
             if "verdict" in raw: judge_verdict = raw
         except Exception: pass
@@ -216,14 +218,24 @@ class AgentRunner:
                 seen.add(f)
         return True
 
-    def _log_event(self, s_id, event, payload): pass
-    def _write_checkpoint(self, s_id, plan): pass
+    def _log_event(self, session_id: str | None, event_type: str, payload: dict[str, Any]) -> None:
+        if session_id and self._session_store:
+            try: self._session_store.append_event(session_id, event_type, payload)
+            except Exception: pass
+
+    def _write_checkpoint(self, session_id: str | None, plan: AgentPlan) -> None:
+        try:
+            state_dir = self.tools.root / ".claude" / "state"
+            state_dir.mkdir(parents=True, exist_ok=True)
+            safe_sid = re.sub(r"[^A-Za-z0-9_\-]", "_", session_id or "unknown")
+            (state_dir / f"agent-state-{safe_sid}.json").write_text(json.dumps({"goal": plan.goal}, indent=2))
+        except Exception: pass
 
     async def _compact_history(self, history, model, session_id):
         try:
             summary = await self._chat_text(model or DEFAULT_PLANNER_MODEL, build_compaction_prompt(history))
             return [{"role": "system", "content": f"Summary: {summary}"}] + history[-4:]
-        except: return history
+        except Exception: return history
 
     async def _chat_text(self, model, messages) -> str:
         res = await self._router.chat_completion({"model": model, "messages": messages, "stream": False})
@@ -253,6 +265,10 @@ class AgentRunner:
             subprocess.run(["git", "commit", "-m", f"agent: {desc[:50]}"], check=True)
             return subprocess.check_output(["git", "rev-parse", "HEAD"], text=True).strip()
         except Exception: return None
+
+    async def _spawn_subagent(self, instruction, requested_model, max_steps, user_id, memory_store, metadata) -> dict:
+        child = AgentRunner(ollama_base=self.ollama_base, workspace_root=self.tools.root)
+        return await child.run(instruction=instruction, history=[], requested_model=requested_model, auto_commit=False, max_steps=max_steps, user_id=user_id, memory_store=memory_store, metadata=metadata)
 
     async def _synthesize_answer(self, g, s, o, m):
         msg = [{"role": "system", "content": "Synthesize answer."}, {"role": "user", "content": f"Goal: {g}\nResults: {json.dumps(o)}"}]
