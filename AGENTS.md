@@ -19,6 +19,15 @@ running Ollama models.
 | Judge | `.claude/agents/judge.md` | deepseek-r1:32b | Release gate |
 | OpenClaw | `N/A` | `N/A` | Maintenance: vulnerability fixes, code scan fixes, daily quality scans, regular smoke regression tests with bug reporting, issue raising and fixing |
 
+
+## Repowise Intelligence
+
+The workspace supports repowise-inspired intelligence tools for deeper codebase understanding:
+- `get_overview()`: Architecture summary, module map, and git health.
+- `get_context(targets, include=['source'])`: Structured context packing for files/symbols.
+- `get_risk(targets, changed_files)`: Hotspot and impact analysis.
+- `get_why(target)`: Architectural decisions from git history.
+
 ## Operating Instructions
 
 1. **Always read CLAUDE.md first** — it contains the operating guide.
