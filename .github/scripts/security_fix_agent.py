@@ -49,6 +49,7 @@ def codeql_count() -> int:
 
 
 def main() -> int:
+    import subprocess
     if len(sys.argv) < 2:
         print(__doc__)
         return 1
@@ -63,11 +64,11 @@ def main() -> int:
 
         if cmd == "--fix-dependabot":
             print("Running OpenClaw for Dependabot alerts...")
-            os.system("npx openclaw --fix dependabot")
+            subprocess.run(["npx", "openclaw", "--fix", "dependabot"], check=False)
             return 0
         if cmd == "--fix-codeql":
             print("Running OpenClaw for CodeQL alerts...")
-            os.system("npx openclaw --fix codeql")
+            subprocess.run(["npx", "openclaw", "--fix", "codeql"], check=False)
             return 0
 
         print(f"Unknown argument: {cmd}")

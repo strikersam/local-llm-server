@@ -25,7 +25,6 @@ import asyncio
 import base64
 import logging
 import os
-import re
 import shlex
 import subprocess
 import time
@@ -58,6 +57,13 @@ class GitHubTools:
         self.token = token
         self.base_url = "https://api.github.com"
 
+    def _validate_repo_parts(self, owner: str, repo: str) -> None:
+        """Strictly validate owner and repo names to prevent URL injection."""
+        if not re.match(r"^[a-zA-Z0-9._-]+$", owner):
+            raise ValueError(f"Invalid GitHub owner name: {owner}")
+        if not re.match(r"^[a-zA-Z0-9._-]+$", repo):
+            raise ValueError(f"Invalid GitHub repository name: {repo}")
+
     def _headers(self) -> dict[str, str]:
         if not self.token:
             raise ValueError("GitHub token not provided. Please add a GitHub token in Settings → Secrets.")
@@ -86,6 +92,7 @@ class GitHubTools:
             return resp.json()
 
     async def get_repo(self, owner: str, repo: str) -> dict[str, Any]:
+        self._validate_repo_parts(owner, repo)
         """Get repository metadata."""
         async with httpx.AsyncClient(timeout=10) as client:
             resp = await client.get(
@@ -96,6 +103,7 @@ class GitHubTools:
             return resp.json()
 
     async def list_branches(self, owner: str, repo: str) -> list[dict[str, Any]]:
+        self._validate_repo_parts(owner, repo)
         """List branches in a repository."""
         async with httpx.AsyncClient(timeout=10) as client:
             resp = await client.get(
@@ -105,13 +113,8 @@ class GitHubTools:
             resp.raise_for_status()
             return resp.json()
 
-    async def read_repo_file(
-        self,
-        owner: str,
-        repo: str,
-        path: str,
-        branch: str = "main",
-    ) -> str:
+    async def read_repo_file(self, owner: str, repo: str, path: str, branch: str = "main") -> str:
+        self._validate_repo_parts(owner, repo)
         """Read a single file from a GitHub repository (API method)."""
         async with httpx.AsyncClient(timeout=10) as client:
             url  = f"{self.base_url}/repos/{owner}/{repo}/contents/{path}?ref={branch}"
@@ -122,13 +125,8 @@ class GitHubTools:
                 return base64.b64decode(data["content"]).decode("utf-8")
             return data.get("content", "")
 
-    async def create_branch(
-        self,
-        owner: str,
-        repo: str,
-        branch_name: str,
-        base_branch: str = "main",
-    ) -> dict[str, Any]:
+    async def create_branch(self, owner: str, repo: str, branch_name: str, base_branch: str = "main") -> dict[str, Any]:
+        self._validate_repo_parts(owner, repo)
         """Create a new branch from base_branch."""
         async with httpx.AsyncClient(timeout=10) as client:
             # Get base SHA
@@ -147,16 +145,8 @@ class GitHubTools:
             resp.raise_for_status()
             return resp.json()
 
-    async def commit_file(
-        self,
-        owner: str,
-        repo: str,
-        path: str,
-        content: str,
-        message: str,
-        branch: str,
-    ) -> dict[str, Any]:
-        """Create or update a single file on a branch."""
+    async def commit_file(self, owner: str, repo: str, path: str, content: str, message: str, branch: str = "main") -> dict[str, Any]:
+        self._validate_repo_parts(owner, repo)
         async with httpx.AsyncClient(timeout=10) as client:
             # Get existing SHA if file exists
             sha = None
@@ -186,15 +176,8 @@ class GitHubTools:
             resp.raise_for_status()
             return resp.json()
 
-    async def open_pull_request(
-        self,
-        owner: str,
-        repo: str,
-        title: str,
-        head: str,
-        base: str = "main",
-        body: str = "",
-    ) -> dict[str, Any]:
+    async def open_pull_request(self, owner: str, repo: str, title: str, head: str, base: str = "main", body: str = "") -> dict[str, Any]:
+        self._validate_repo_parts(owner, repo)
         """Open a pull request."""
         async with httpx.AsyncClient(timeout=10) as client:
             resp = await client.post(
@@ -222,6 +205,7 @@ class GitHubTools:
 
 
     async def get_issue(self, owner: str, repo: str, issue_number: int) -> dict[str, Any]:
+        self._validate_repo_parts(owner, repo)
         """Fetch a single GitHub issue."""
         async with httpx.AsyncClient(timeout=10) as client:
             resp = await client.get(
@@ -232,6 +216,7 @@ class GitHubTools:
             return resp.json()
 
     async def comment_on_issue(self, owner: str, repo: str, issue_number: int, body: str) -> dict[str, Any]:
+        self._validate_repo_parts(owner, repo)
         """Post a comment on a GitHub issue."""
         async with httpx.AsyncClient(timeout=10) as client:
             resp = await client.post(
@@ -243,6 +228,7 @@ class GitHubTools:
             return resp.json()
 
     async def close_issue(self, owner: str, repo: str, issue_number: int, comment: str | None = None) -> dict[str, Any]:
+        self._validate_repo_parts(owner, repo)
         """Close a GitHub issue, optionally adding a comment first."""
         if comment:
             await self.comment_on_issue(owner, repo, issue_number, comment)
@@ -278,14 +264,13 @@ class LocalWorkspace:
 
     def __init__(self, owner: str, repo: str, token: str | None = None) -> None:
         # Strictly validate inputs to prevent path injection
-        if not re.fullmatch(r"[a-zA-Z0-9_-]+", owner):
+        if not re.match(r"^[a-zA-Z0-9_-]+$", owner):
             raise ValueError("Invalid owner name")
-        if not re.fullmatch(r"[a-zA-Z0-9_-]+", repo):
+        if not re.match(r"^[a-zA-Z0-9_-]+$", repo):
             raise ValueError("Invalid repository name")
 
         self.owner = owner
         self.repo  = repo
-        self.token = token
 
         # Build path using os.path.join and absolute base for safety
         base_abs = str(WORKSPACE_BASE_DIR.resolve())
@@ -362,14 +347,8 @@ class LocalWorkspace:
         _, out, _ = await self._run("git", "status", "--short")
         return out
 
-    async def create_branch(self, branch_name: str) -> dict[str, Any]:
-        rc, out, err = await self._run("git", "checkout", "-b", branch_name)
-        if rc != 0:
-            raise RuntimeError(f"git checkout -b failed: {err}")
-        return {"branch": branch_name, "created": True}
-
-    async def stage_and_commit(self, message: str, paths: list[str] | None = None) -> dict[str, Any]:
-        """Stage files and commit.  Stages all tracked changes if paths is None."""
+    async def create_branch(self, owner: str, repo: str, branch_name: str, base_branch: str = "main") -> dict[str, Any]:
+        self._validate_repo_parts(owner, repo)
         if paths:
             for p in paths:
                 await self._run("git", "add", p)

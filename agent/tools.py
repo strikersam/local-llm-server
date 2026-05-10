@@ -21,10 +21,26 @@ class WorkspaceTools:
         self.root = Path(root or os.environ.get("AGENT_WORKSPACE_ROOT") or ".").resolve()
 
     def _resolve_path(self, path: str) -> Path:
+        # Basic sanity check for common traversal patterns
+        if ".." in path:
+            raise ValueError(f"Path contains forbidden \"..\" pattern: {path}")
+
+        # Absolute paths are not allowed (must be relative to root)
+        if os.path.isabs(path) or path.startswith("/") or ":" in path:
+             # Some users might provide absolute-looking paths that are actually subpaths.
+             # We strip the leading separator if it exists to try and resolve relative to root.
+             path = path.lstrip("/").lstrip("\\")
+
         cleaned = path.strip().replace("/", os.sep)
-        resolved = (self.root / cleaned).resolve()
-        if self.root not in resolved.parents and resolved != self.root:
-            raise ValueError("Path escapes workspace root")
+        # Ensure root is absolute for the prefix check
+        root_abs = self.root.resolve()
+        resolved = (root_abs / cleaned).resolve()
+
+        # Robust prefix check to satisfy static analysis (CodeQL path injection)
+        # The path must either be the root itself or reside strictly within it.
+        prefix = str(root_abs) if str(root_abs).endswith(os.sep) else str(root_abs) + os.sep
+        if not str(resolved).startswith(prefix) and resolved != root_abs:
+            raise ValueError(f"Path escapes workspace root: {path}")
         return resolved
 
     def list_files(self, path: str = ".", limit: int = 200) -> list[str]:
