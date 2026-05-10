@@ -15,7 +15,7 @@ URL = sys.argv[1] if len(sys.argv) > 1 else ""
 ISSUE_NUM = sys.argv[2] if len(sys.argv) > 2 else "?"
 TASK = sys.argv[3] if len(sys.argv) > 3 else ""
 RESULT_FILE = "/tmp/impl_result.json"
-MAX_TURNS = 50
+MAX_TURNS = 100
 
 CANDIDATE_MODELS = [
     ("nvidia/llama-3.1-nemotron-ultra-253b-v1", "reasoning (Nemotron Ultra 253B)"),
@@ -53,11 +53,16 @@ def tool_write_file(path: str, content: str) -> str:
         return f"[error: {exc}]"
 
 
+def tool_search(query: str) -> str:
+    return tool_bash(f"grep -rnE '{query}' . | head -50")
+
+
 TOOL_DISPATCH = {
     "bash": lambda i: tool_bash(i["cmd"]),
     "read_file": lambda i: tool_read_file(i["path"]),
     "write_file": lambda i: tool_write_file(i["path"], i["content"]),
-    "list_files": lambda i: tool_bash(f"git ls-files -- '{i.get('pattern', '**/*.py')}' | head -100"),
+    "list_files": lambda i: tool_bash(f"git ls-files -- '{i.get('pattern', '**/*')}' | head -200"),
+    "search_code": lambda i: tool_search(i["query"]),
 }
 
 TOOLS = [
@@ -65,6 +70,7 @@ TOOLS = [
     {"type": "function", "function": {"name": "read_file", "parameters": {"type": "object", "properties": {"path": {"type": "string"}}, "required": ["path"]}}},
     {"type": "function", "function": {"name": "write_file", "parameters": {"type": "object", "properties": {"path": {"type": "string"}, "content": {"type": "string"}}, "required": ["path", "content"]}}},
     {"type": "function", "function": {"name": "list_files", "parameters": {"type": "object", "properties": {"pattern": {"type": "string"}}}}},
+    {"type": "function", "function": {"name": "search_code", "parameters": {"type": "object", "properties": {"query": {"type": "string"}}, "required": ["query"]}}},
 ]
 
 SYSTEM = (

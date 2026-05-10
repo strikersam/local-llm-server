@@ -147,10 +147,11 @@ class RuntimeHealthService:
             else:
                 circuit.record_failure()
         except Exception as exc:
-            log.debug("Health check failed for %s: %s", runtime_id, exc)
+            log.error("Health check failed for %s: %s (circuit failures: %d)",
+                      runtime_id, exc, circuit.consecutive_failures + 1)
             circuit.record_failure()
             self._cache[runtime_id] = RuntimeHealth(
                 runtime_id=runtime_id,
                 available=False,
-                error=str(exc),
+                error=f"{type(exc).__name__}: {exc}",
             )

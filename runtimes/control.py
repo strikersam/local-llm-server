@@ -133,6 +133,15 @@ async def _start_local_runtime(runtime_id: str) -> dict[str, Any]:
             "error": "agent_runtime.py wrapper script not found",
         }
 
+    # Attempt to kill any existing process on the target port before starting
+    try:
+        if sys.platform == "win32":
+            subprocess.run(["powershell", "-Command", f"Stop-Process -Id (Get-NetTCPConnection -LocalPort {port}).OwningProcess -Force"], capture_output=True, check=False)
+        else:
+            subprocess.run(["bash", "-c", f"lsof -ti:{port} | xargs kill -9"], capture_output=True, check=False)
+    except Exception as e:
+        log.debug("Cleanup of port %d failed: %s", port, e)
+
     python_exe = sys.executable
     env = os.environ.copy()
     env["RUNTIME_NAME"] = runtime_id
@@ -255,6 +264,8 @@ def _is_docker_unavailable(error_lower: str) -> bool:
         "docker.sock",
         "daemon is running",
         "failed to connect to the docker",
+        "failed to solve: mount source",
+        "err: invalid argument",
     )
     return any(p in error_lower for p in patterns)
 

@@ -178,8 +178,9 @@ async def run_task_on_runtime(
 async def start_runtime_container(runtime_id: str) -> dict:
     """Start a stopped runtime container."""
     result = await start_runtime(runtime_id)
-    if result.get("docker_unavailable"):
-        return result  # 200 with informational payload — not an error
+    # 200 with informational payload — not an error (allows UI to show remote/local info)
+    if result.get("docker_unavailable") or result.get("remote_managed"):
+        return result
     if result.get("status") == "error":
         raise HTTPException(status_code=500, detail=result.get("error", "Failed to start runtime"))
     return result

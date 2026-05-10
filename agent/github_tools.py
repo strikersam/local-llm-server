@@ -274,7 +274,7 @@ class LocalWorkspace:
         """Clone the repo if it doesn't exist; pull if it does."""
         if not self.exists():
             WORKSPACE_BASE_DIR.mkdir(parents=True, exist_ok=True)
-            (WORKSPACE_BASE_DIR / self.owner).mkdir(exist_ok=True)
+            (WORKSPACE_BASE_DIR / self.owner).mkdir(parents=True, exist_ok=True)
             rc, out, err = await self._run(
                 "git", "clone", "--depth=10", self.clone_url, str(self.path),
                 cwd=WORKSPACE_BASE_DIR / self.owner,
