@@ -45,7 +45,7 @@ _RISKY_FILES: frozenset[str] = frozenset({
 # These are overridden by env vars when local Ollama models are preferred.
 DEFAULT_PLANNER_MODEL = os.environ.get(
     "AGENT_PLANNER_MODEL",
-    "nvidia/llama-3.1-nemotron-70b-instruct"
+    "nvidia/nemotron-3-super-120b-a12b"
     if (os.environ.get("NVIDIA_API_KEY") or os.environ.get("NVidiaApiKey"))
     else "deepseek-r1:32b",
 )
@@ -63,7 +63,7 @@ DEFAULT_VERIFIER_MODEL = os.environ.get(
 )
 DEFAULT_JUDGE_MODEL = os.environ.get(
     "AGENT_JUDGE_MODEL",
-    "nvidia/llama-3.1-nemotron-70b-instruct"
+    "nvidia/nemotron-3-super-120b-a12b"
     if (os.environ.get("NVIDIA_API_KEY") or os.environ.get("NVidiaApiKey"))
     else DEFAULT_VERIFIER_MODEL,
 )
@@ -681,6 +681,15 @@ class AgentRunner:
             return self.tools.list_files(str(args.get("path", ".")), int(args.get("limit", 200)))
         if tool == "search_code":
             return self.tools.search_code(str(args.get("query", "")), int(args.get("limit", 20)))
+
+        if tool == "get_overview":
+            return self.tools.get_overview()
+        if tool == "get_context":
+            return self.tools.get_context(args.get("targets", []), args.get("include", ["source"]))
+        if tool == "get_risk":
+            return self.tools.get_risk(args.get("targets"), args.get("changed_files"))
+        if tool == "get_why":
+            return self.tools.get_why(str(args.get("target", "")))
         if tool == "recall_memory":
             if not memory_store or not user_id:
                 return "(memory not available)"

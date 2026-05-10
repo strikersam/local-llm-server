@@ -3,6 +3,8 @@ from __future__ import annotations
 import difflib
 import os
 from pathlib import Path
+from agent.repowise import RepowiseIntelligence
+
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
@@ -19,6 +21,8 @@ TEXT_EXTENSIONS = {
 class WorkspaceTools:
     def __init__(self, root: str | Path | None = None) -> None:
         self.root = Path(root or os.environ.get("AGENT_WORKSPACE_ROOT") or ".").resolve()
+        self.repowise = RepowiseIntelligence(self.root)
+
 
     def _resolve_path(self, path: str) -> Path:
         # Strictly validate input for any suspicious traversal patterns
@@ -251,3 +255,19 @@ class WorkspaceTools:
             current_input = self.apply_pattern(pattern_name, variables)
         
         return current_input
+
+    def get_overview(self) -> dict[str, Any]:
+        """Provides an architecture summary, module map, and git health."""
+        return self.repowise.get_overview()
+
+    def get_context(self, targets: list[str], include: list[str] = ["source"]) -> str:
+        """Workhorse tool for packing content and metrics of target files."""
+        return self.repowise.get_context(targets, include)
+
+    def get_risk(self, targets: list[str] | None = None, changed_files: list[str] | None = None) -> dict[str, Any]:
+        """Hotspot scores and potential impact analysis."""
+        return self.repowise.get_risk(targets, changed_files)
+
+    def get_why(self, target: str) -> str:
+        """Extracts architectural decisions related to target from git history."""
+        return self.repowise.get_why(target)

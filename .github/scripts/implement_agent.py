@@ -18,7 +18,7 @@ RESULT_FILE = "/tmp/impl_result.json"
 MAX_TURNS = 100
 
 CANDIDATE_MODELS = [
-    ("nvidia/llama-3.1-nemotron-70b-instruct", "reasoning (Nemotron 70B)"),
+    ("nvidia/nemotron-3-super-120b-a12b", "reasoning (Nemotron 120B)"),
     ("nvidia/qwen2.5-coder-32b-instruct", "coding (Qwen2.5-Coder 32B)"),
     ("qwen/qwen2.5-coder-32b-instruct", "coding (Qwen2.5 Coder 32B)"),
 ]
