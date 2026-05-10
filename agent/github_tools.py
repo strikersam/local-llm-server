@@ -25,6 +25,7 @@ import asyncio
 import base64
 import logging
 import os
+import re
 import shlex
 import subprocess
 import time
@@ -277,9 +278,9 @@ class LocalWorkspace:
 
     def __init__(self, owner: str, repo: str, token: str | None = None) -> None:
         # Strictly validate inputs to prevent path injection
-        if not re.match(r"^[a-zA-Z0-9_-]+$", owner):
+        if not re.fullmatch(r"[a-zA-Z0-9_-]+", owner):
             raise ValueError("Invalid owner name")
-        if not re.match(r"^[a-zA-Z0-9_-]+$", repo):
+        if not re.fullmatch(r"[a-zA-Z0-9_-]+", repo):
             raise ValueError("Invalid repository name")
 
         self.owner = owner
