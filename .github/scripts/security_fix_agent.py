@@ -49,10 +49,16 @@ def codeql_count() -> int:
 
 
 def main() -> int:
+    import subprocess
     if len(sys.argv) < 2:
         print(__doc__)
         return 1
     cmd = sys.argv[1]
+    # Allowed arguments only
+    if cmd not in ("--check-dependabot", "--check-codeql", "--fix-dependabot", "--fix-codeql"):
+        print(f"Unknown argument: {cmd}")
+        return 1
+
     try:
         if cmd == "--check-dependabot":
             print(dependabot_count())
@@ -60,12 +66,25 @@ def main() -> int:
         if cmd == "--check-codeql":
             print(codeql_count())
             return 0
-        if cmd in {"--fix-dependabot", "--fix-codeql"}:
-            # Best-effort placeholder: avoid failing workflow when no automatic patch is possible.
-            print(f"No-op {cmd}: auto-fix requires repository-specific logic.")
+
+        # For fixes, we use subprocess.run with shell=False (default) and list of args
+        if cmd == "--fix-dependabot":
+            print("Running OpenClaw for Dependabot alerts...")
+            # Use the local index.js if it exists, otherwise fall back to npx
+            if os.path.exists("/app/openclaw/index.js"):
+                subprocess.run(["node", "/app/openclaw/index.js", "--fix", "dependabot"], check=False)
+            else:
+                subprocess.run(["npx", "openclaw", "--fix", "dependabot"], check=False)
             return 0
-        print(f"Unknown argument: {cmd}")
-        return 1
+        if cmd == "--fix-codeql":
+            print("Running OpenClaw for CodeQL alerts...")
+            if os.path.exists("/app/openclaw/index.js"):
+                subprocess.run(["node", "/app/openclaw/index.js", "--fix", "codeql"], check=False)
+            else:
+                subprocess.run(["npx", "openclaw", "--fix", "codeql"], check=False)
+            return 0
+
+        return 0
     except Exception as exc:  # noqa: BLE001
         print(f"security_fix_agent error: {exc}", file=sys.stderr)
         # Keep fix invocations non-fatal

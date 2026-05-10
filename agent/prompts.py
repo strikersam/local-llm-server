@@ -44,7 +44,7 @@ def build_planning_prompt(
                 '  "requires_risky_review": false\n'
                 "}\n\n"
                 "Rules:\n"
-                "- Max 15 steps.\n"
+                "- Max 30 steps.\n"
                 "- Each step touches limited files.\n"
                 "- No execution — planning only.\n"
                 "- For GitHub issue tasks, include steps to comment on or close the issue using 'github' type.\n"

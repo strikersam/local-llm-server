@@ -228,9 +228,13 @@ class Workspace:
 
     def safe_path(self, relative: str) -> Path:
         """Resolve *relative* inside source dir and reject traversal/symlink escapes."""
-        candidate = (self.source / relative).resolve()
+        if ".." in relative:
+            raise WorkspaceEscapeError(relative)
+        source_abs = self.source.resolve()
+        candidate = (source_abs / relative.lstrip("/").lstrip("\\")).resolve()
         try:
-            candidate.relative_to(self.source.resolve())
+            if os.path.commonpath([str(source_abs), str(candidate)]) != str(source_abs):
+                raise WorkspaceEscapeError(relative)
         except ValueError:
             raise WorkspaceEscapeError(relative)
         return candidate
@@ -429,9 +433,13 @@ class WorkspaceManager:
         caught by the relative_to() check.  Absolute paths passed as *relative*
         are also caught because Path(source) / "/abs" == Path("/abs").
         """
-        candidate = (ws.source / relative).resolve()
+        if ".." in relative:
+            raise WorkspaceEscapeError(relative)
+        source_abs = ws.source.resolve()
+        candidate = (source_abs / relative.lstrip("/").lstrip("\\")).resolve()
         try:
-            candidate.relative_to(ws.source.resolve())
+            if os.path.commonpath([str(source_abs), str(candidate)]) != str(source_abs):
+                raise WorkspaceEscapeError(relative)
         except ValueError:
             raise WorkspaceEscapeError(relative)
         return candidate

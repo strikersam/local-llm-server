@@ -410,7 +410,7 @@ class AgentRunner:
             executor_model, verifier_model,
         )
 
-        for remaining in range(15, 0, -1):
+        for remaining in range(30, 0, -1):
             try:
                 # Observation masking: pass truncated older observations to
                 # keep the tool-selection prompt lean.  Recent observations are
@@ -461,7 +461,13 @@ class AgentRunner:
             search_hits = self.tools.search_code(step["description"], limit=3)
             target_files = [hit["path"] for hit in search_hits if isinstance(hit.get("path"), str)]
 
-        if not target_files and step.get("type") not in ("github", "analyze"):
+        # Check if any non-inspection tools were called (e.g. run_command, write_file)
+        non_inspection_called = any(
+            obs.get("tool") in ("run_command", "write_file", "apply_diff", "github_comment_on_issue", "github_close_issue")
+            for obs in observations
+        )
+
+        if not target_files and step.get("type") not in ("github", "analyze") and not non_inspection_called:
             return {
                 "step_id": step["id"], 
                 "description": step["description"],
@@ -471,8 +477,8 @@ class AgentRunner:
                 "observations": observations,
                 "models": {"executor": executor_model, "verifier": verifier_model},
             }
-        if step.get("type") in ("github", "analyze"):
-            # For analysis/Q&A steps, synthesize a readable answer from observations.
+        if step.get("type") in ("github", "analyze") or (not target_files and non_inspection_called):
+            # For analysis, Q&A, or purely command-based steps, synthesize a readable answer from observations.
             answer = await self._synthesize_answer(
                 goal, step, observations, executor_model
             )
@@ -617,6 +623,23 @@ class AgentRunner:
             "models": {"executor": executor_model, "verifier": verifier_model},
         }
 
+
+    async def _run_command(self, cmd: str, timeout: int = 120) -> str:
+        """Execute a shell command within the workspace root."""
+        try:
+            proc = await asyncio.create_subprocess_shell(
+                cmd,
+                cwd=str(self.tools.root),
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+            )
+            stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=timeout)
+            out_text = stdout.decode(errors="replace")
+            err_text = stderr.decode(errors="replace")
+            return f"{out_text}\n[stderr]\n{err_text}\n[exit {proc.returncode}]"
+        except Exception as exc:
+            return f"[command error: {exc}]"
+
     async def _run_tool(
         self,
         tool: str,
@@ -667,7 +690,25 @@ class AgentRunner:
                 return "(memory not available)"
             return self.tools.save_memory(str(args.get("key", "")), str(args.get("value", "")), user_id=user_id, memory_store=memory_store)
         
+
+        if tool == "run_command":
+            return await self._run_command(str(args.get("cmd", "")))
+        if tool == "write_file":
+            return self.tools.write_file(str(args.get("path", "")), str(args.get("content", "")))
+        if tool == "apply_diff":
+            return self.tools.apply_diff(str(args.get("path", "")), str(args.get("content", "")))
+
         # GitHub Tools
+        if tool == "github_get_issue":
+            owner, repo = str(args.get("repo_name", "owner/repo")).split("/", 1)
+            return await self.github.get_issue(owner, repo, int(args.get("issue_number", 0)))
+        if tool == "github_comment_on_issue":
+            owner, repo = str(args.get("repo_name", "owner/repo")).split("/", 1)
+            return await self.github.comment_on_issue(owner, repo, int(args.get("issue_number", 0)), str(args.get("body", "")))
+        if tool == "github_close_issue":
+            owner, repo = str(args.get("repo_name", "owner/repo")).split("/", 1)
+            return await self.github.close_issue(owner, repo, int(args.get("issue_number", 0)), args.get("comment"))
+
         if tool == "github_read_repo_file":
             return await self.github.read_repo_file(
                 repo_name=str(args.get("repo_name", "")),

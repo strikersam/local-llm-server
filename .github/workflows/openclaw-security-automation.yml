@@ -1,1 +1,67 @@
-bmFtZTogT3BlbkNsYXcgU2VjdXJpdHkgQXV0b21hdGlvbgoKb246CiAgc2NoZWR1bGU6CiAgICAtIGNyb246ICcwICogKiAqIConICMgSG91cmx5CiAgd29ya2Zsb3dfZGlzcGF0Y2g6CiAgcHVzaDoKICAgIGJyYW5jaGVzOiBbbWFzdGVyXQogICAgcGF0aHM6CiAgICAgIC0gJy5naXRodWIvd29ya2Zsb3dzL29wZW5jbGF3LXNlY3VyaXR5LWF1dG9tYXRpb24ueW1sJwogICAgICAtICcuZ2l0aHViL3NjcmlwdHMvc2VjdXJpdHlfZml4X2FnZW50LnB5JwoKcGVybWlzc2lvbnM6CiAgY29udGVudHM6IHdyaXRlCiAgaXNzdWVzOiB3cml0ZQogIHB1bGwtcmVxdWVzdHM6IHdyaXRlCiAgc2VjdXJpdHktZXZlbnRzOiB3cml0ZQogIGFkbWluaXN0cmF0aW9uOiByZWFkCgpqb2JzOgogIHNlY3VyaXR5LWF1dG9tYXRpb246CiAgICBydW5zLW9uOiB1YnVudHUtbGF0ZXN0CiAgICB0aW1lb3V0LW1pbnV0ZXM6IDMwCiAgICBlbnY6CiAgICAgIEdJVEhVQl9UT0tFTjogJHt7IHNlY3JldHMuR0lUSFVCX1RPS0VOIH19CiAgICAgIEdJVEhVQl9SRVBPU0lUT1JZOiAke3sgZ2l0aHViLnJlcG9zaXRvcnkgfX0KICAgIHN0ZXBzOgogICAgICAtIG5hbWU6IENoZWNrb3V0IHJlcG9zaXRvcnkKICAgICAgICB1c2VzOiBhY3Rpb25zL2NoZWNrb3V0QHY0CiAgICAgICAgd2l0aDoKICAgICAgICAgIHRva2VuOiAke3sgc2VjcmV0cy5HSVRIVUJfVE9LRU4gfX0KICAgICAgICAgIGZldGNoLWRlcHRoOiAwCgogICAgICAtIG5hbWU6IFNldHVwIE5vZGUuanMKICAgICAgICB1c2VzOiBhY3Rpb25zL3NldHVwLW5vZGVAdjQKICAgICAgICB3aXRoOgogICAgICAgICAgbm9kZS12ZXJzaW9uOiAnMjInCgogICAgICAtIG5hbWU6IFNldHVwIE9wZW5DbGF3CiAgICAgICAgcnVuOiB8CiAgICAgICAgICBucHggb3BlbmNsYXdAbGF0ZXN0IC0tdmVyc2lvbiB8fCB0cnVlCgogICAgICAtIG5hbWU6IEluc3RhbGwgUHl0aG9uIGRlcGVuZGVuY2llcwogICAgICAgIHJ1bjogfAogICAgICAgICAgcGlwIGluc3RhbGwgZ2l0aHViMy5weSByZXF1ZXN0cyB0cWRtCgogICAgICAtIG5hbWU6IENoZWNrIGZvciBEZXBlbmRhYm90IGFsZXJ0cwogICAgICAgIGlkOiBkZXBlbmRhYm90LWNoZWNrCiAgICAgICAgcnVuOiB8CiAgICAgICAgICBlY2hvICJDaGVja2luZyBmb3IgRGVwZW5kYWJvdCBhbGVydHMuLi4iCiAgICAgICAgICBjb3VudD0kKHB5dGhvbiAuZ2l0aHViL3NjcmlwdHMvc2VjdXJpdHlfZml4X2FnZW50LnB5IC0tY2hlY2stZGVwZW5kYWJvdCkKICAgICAgICAgIGVjaG8gImRlcGVuZGFib3RfY291bnQ9JGNvdW50IiA+PiAkR0lUSFVCX09VVFBVVAoKICAgICAgLSBuYW1lOiBDaGVjayBmb3IgQ29kZVFMIGFsZXJ0cwogICAgICAgIGlkOiBjb2RlcWwtY2hlY2sKICAgICAgICBydW46IHwKICAgICAgICAgIGVjaG8gIkNoZWNraW5nIGZvciBDb2RlUUwgYWxlcnRzLi4uIgogICAgICAgICAgY291bnQ9JChweXRob24gLmdpdGh1Yi9zY3JpcHRzL3NlY3VyaXR5X2ZpeF9hZ2VudC5weSAtLWNoZWNrLWNvZGVxbCkKICAgICAgICAgIGVjaG8gImNvZGVxbF9jb3VudD0kY291bnQiID4+ICRHSVRIVUJfT1VUUFVUCgogICAgICAtIG5hbWU6IEZpeCBEZXBlbmRhYm90IGFsZXJ0cwogICAgICAgIGlmOiBzdGVwcy5kZXBlbmRhYm90LWNoZWNrLm91dHB1dHMuZGVwZW5kYWJvdF9jb3VudCAhPSAnMCcKICAgICAgICBjb250aW51ZS1vbi1lcnJvcjogdHJ1ZQogICAgICAgIHJ1bjogfAogICAgICAgICAgZWNobyAiRml4aW5nIERlcGVuZGFib3QgYWxlcnRzLi4uIgogICAgICAgICAgcHl0aG9uIC5naXRodWIvc2NyaXB0cy9zZWN1cml0eV9maXhfYWdlbnQucHkgLS1maXgtZGVwZW5kYWJvdAoKICAgICAgLSBuYW1lOiBGaXggQ29kZVFMIGFsZXJ0cwogICAgICAgIGlmOiBzdGVwcy5jb2RlcWwtY2hlY2sub3V0cHV0cy5jb2RlcWxfY291bnQgIT0gJzAnCiAgICAgICAgY29udGludWUtb24tZXJyb3I6IHRydWUKICAgICAgICBydW46IHwKICAgICAgICAgIGVjaG8gIkZpeGluZyBDb2RlUUwgYWxlcnRzLi4uIgogICAgICAgICAgcHl0aG9uIC5naXRodWIvc2NyaXB0cy9zZWN1cml0eV9maXhfYWdlbnQucHkgLS1maXgtY29kZXFsCgogICAgICAtIG5hbWU6IEdldCBjdXJyZW50IHRpbWVzdGFtcAogICAgICAgIGlkOiB0aW1lc3RhbXAKICAgICAgICBydW46IGVjaG8gInRpbWVzdGFtcD0kKGRhdGUgLXUgKyclWS0lbS0lZFQlSDolTTolU1onKSIgPj4gJEdJVEhVQl9PVVRQVVQKCiAgICAgIC0gbmFtZTogQ3JlYXRlIHN1bW1hcnkgaXNzdWUKICAgICAgICBpZjogKHN0ZXBzLmRlcGVuZGFib3QtY2hlY2sub3V0cHV0cy5kZXBlbmRhYm90X2NvdW50ICE9ICcwJyB8fCBzdGVwcy5jb2RlcWwtY2hlY2sub3V0cHV0cy5jb2RlcWxfY291bnQgIT0gJzAnKQogICAgICAgIHVzZXM6IGFjdGlvbnMvZ2l0aHViLXNjcmlwdEB2NwogICAgICAgIHdpdGg6CiAgICAgICAgICBzY3JpcHQ6IHwKICAgICAgICAgICAgY29uc3QgZGVwZW5kYWJvdENvdW50ID0gcGFyc2VJbnQoIiR7eyBzdGVwcy5kZXBlbmRhYm90LWNoZWNrLm91dHB1dHMuZGVwZW5kYWJvdF9jb3VudCB9fSIpIHx8IDA7CiAgICAgICAgICAgIGNvbnN0IGNvZGVxbENvdW50ID0gcGFyc2VJbnQoIiR7eyBzdGVwcy5jb2RlcWwtY2hlY2sub3V0cHV0cy5jb2RlcWxfY291bnQgfX0iKSB8fCAwOwogIC2AgICAgY29uc3QgcmVwb3NpdG9yeSA9ICIke3sgZ2l0aHViLnJlcG9zaXRvcnkgfX0iOwogICAgICAgICAgICBjb25zdCBjb21taXRTaGEgPSAiJHt7IGdpdGh1Yi5zaGEgfX0iOwogICAgICAgICAgICBjb25zdCB0aW1lc3RhbXAgPSAiJHt7IHN0ZXBzLnRpbWVzdGFtcC5vdXRwdXRzLnRpbWVzdGFtcCB9fSI7CiAgICAgICAgICAgIGlmIChkZXBlbmRhYm90Q291bnQgPiAwIHx8IGNvZGVxbENvdW50ID4gMCkgewogICAgICAgICAgICAgIGNvbnN0IGlzc3VlVGl0bGUgPSAiXHV7MUY1Mjd9IE9wZW5DbGF3IFNlY3VyaXR5IEF1dG9tYXRpb24gUmVwb3J0IjsKICAgICAgICAgICAgICBjb25zdCBpc3N1ZUJvZHkgPSBbCiAgICAgICAgICAgICAgICAiIyMgU2VjdXJpdHkgQXV0b21hdGlvbiBTdW1tYXJ5IiwKICAgICAgICAgICAgICAgICIiLAogICAgICAgICAgICAgICAgIlRoZSBPcGVuQ2xhdyBzZWN1cml0ySBhdXRvbWF0aW9uIHdvcmtmbG93IGhhcyBjb21wbGV0ZWQuIiwKICAgICAgICAgICAgICAgICIiLAogICAgICAgICAgICAgICAgIiMjIyMgRmluZGluZ3M6IiwKICAgICAgICAgICAgICAgICItIERlcGVuZGFib3QgYWxlcnRzOiBgIiArIGRlcGVuZGFib3RDb3VudCArICJgIiwKICAgICAgICAgICAgICAgICItIENvZGVRTCBhbGVydHM6IGAiICsgY29kZXFsQ291bnQgKyAiYCIsCiAgICAgICAgICAgICAgICAiIiwKICAgICAgICAgICAgICAgICIjIyMjIEFjdGlvbnMgVGFrZW46IiwKICAgICAgICAgICAgICAgICItIEF1dG9tYXRlZCBmaXhlcyBhdHRlbXB0ZWQgZm9yIGFsbCBkZXRlY3RhYmxlIGlzc3VlcyIsCiAgICAgICAgICAgICAgICAiLSBNYW51YWwgcmV2aWV3IG1heSBiZSByZXF1aXJlZCBmb3IgY29tcGxleCBmaXhlcyIsCiAgICAgICAgICAgICAgICAiIiwKICAgICAgICAgICAgICAgICIjIyMjIFdvcmtmbG93IERldGFpbHM6IiwKICAgICAgICAgICAgICAgICItIFdvcmtmbG93OiBPcGVuQ2xhdyBTZWN1cml0eSBBdXRvbWF0aW9uIiwKICAgICAgICAgICAgICAgICItIFJlcG9zaXRvcnk6ICIgKyByZXBvc2l0b3J5LAogICAgICAgICAgICAgICAgIi0gQ29tbWl0OiAiICsgY29tbWl0U2hhLAogICAgICAgICAgICAgICAgIi0gVGltZXN0YW1wOiAiICsgdGltZXN0YW1wLAogICAgICAgICAgICAgICAgIiIsCiAgICAgICAgICAgICAgICAiRm9yIG1vcmUgZGV0YWlscywgY2hlY2sgdGhlIHdvcmtmbG93IHJ1biBsb2dzLiIsCiAgICAgICAgICAgICAgXS5qb2luKCJcbiIpOwogICAgICAgICAgICAgIGF3YWl0IGdpdGh1Yi5yZXN0Lmlzc3Vlcy5jcmVhdGUoewogICAgICAgICAgICAgICAgb3duZXI6IGNvbnRleHQucmVwby5vd25lciwKICAgIC2AgICAgICAgcmVwbzogY29udGV4dC5yZXBvLnJlcG8sCiAgICAgICAgICAgICAgICB0aXRsZTogaXNzdWVUaXRsZSwKICAgICAgICAgICAgICAgIGJvZHk6IGlzc3VlQm9keSwKICAgICAgICAgICAgICAgIGxhYmVsczogWydzZWN1cml0eScsICdhdXRvbWF0aW9uJ10KICAgICAgICAgICAgICB9KTsKICAgICAgICAgICAgfQo=
+name: OpenClaw Security Automation
+
+on:
+  schedule:
+    - cron: '0 * * * *' # Hourly
+  workflow_dispatch:
+  push:
+    branches: [master]
+    paths:
+      - '.github/workflows/openclaw-security-automation.yml'
+      - '.github/scripts/security_fix_agent.py'
+
+permissions:
+  contents: write
+  issues: write
+  pull-requests: write
+  security-events: write
+  administration: read
+
+jobs:
+  security-automation:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      GITHUB_REPOSITORY: ${{ github.repository }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          token: ${{ \xd9Xܙ]ˑ\xd2UP\x97\xd5\xd2\xd1S\x88_B\x88\x99]\xdaY\\x88\x82\x88H\x98[YN\x88\xd9]\\x9b\xd9K\x9a\x9c\\xd9\ΈX\xdd[ۜ\xcb\xdc\xd9]\[\x9b\xd9P\x8d\x88\xda]\x82\x88\x9b\xd9K]\x99\\x9c\xda[ێ\x88	̌\x89\x88H\x98[YN\x88\xd9]\\xdc[\x90\xdb]\x9d[\x8e\x88\x88\x9c\xdc[\x98\xdb]\xd0]\\xddK]\x99\\x9c\xda[ۈ\x9dYB\x82\x88H\x98[YN\x88[\x9c\xdd[]ۈ\[\x99[\x98\xdaY\\x9d[\x8e\x88\x88\[\x9c\xdd[\xda]X\x8c˜H\x99\]Y\\xdd\xc8YB\x82\x88H\x98[YN\x88\xdaX\xda\xc8\x9b܈\[\x99X\x9b\xdd[\\x9dY\x88\[\x99X\x9b\xddX\xdaX\xda\x9d[\x8e\x88\x88X\xda\xc8\x90\xdaX\xda\xda[\x99\xc8\x9b܈\[\x99X\x9b\xdd[\\x9dˋ\x8b\x88\x82\x88\xdb\xdd[\x9dI
+]ۈ\x99\xda]X\x8b\xdc\xd8ܚ\\xcb\xdc\xd9X\xdd\\x9a]Wٚ^\xd8Y\xd9[\x9d\x9cHKX\xdaX\xda\xcbY\[\x99X\x9b\xdd
+B\x88X\xda\xc8\x99\[\x99X\x9b\xdd\xd8\xdb\xdd[\x9dI\xdb\xdd[\x9d\x88\x8f\x88	\xd2UP\x97\xd3\xd5UU\x82\x88H\x98[YN\x88\xdaX\xda\xc8\x9b܈\xdb\xd9TS[\\x9dY\x88\xdb\xd9\[X\xdaX\xda\x9d[\x8e\x88\x88X\xda\xc8\x90\xdaX\xda\xda[\x99\xc8\x9b܈\xdb\xd9TS[\\x9dˋ\x8b\x88\x82\x88\xdb\xdd[\x9dI
+]ۈ\x99\xda]X\x8b\xdc\xd8ܚ\\xcb\xdc\xd9X\xdd\\x9a]Wٚ^\xd8Y\xd9[\x9d\x9cHKX\xdaX\xda\xcbX\xdb\xd9\[
+B\x88X\xda\xc8\x98\xdb\xd9\[\xd8\xdb\xdd[\x9dI\xdb\xdd[\x9d\x88\x8f\x88	\xd2UP\x97\xd3\xd5UU\x82\x88H\x98[YN\x88\x9a^\[\x99X\x9b\xdd[\\x9dY\x8e\x88\xdd\˙\[\x99X\x9b\xddX\xdaX\xda˛\xdd]]˙\[\x99X\x9b\xdd\xd8\xdb\xdd[\x9dOH	\xcc	\xdb۝[\x9dYK[ۋY\\x9c\x9b܎\x88\x9dYB\x88\x9d[\x8e\x88\x88X\xda\xc8\x91\x9a^[\x99\xc8\[\x99X\x9b\xdd[\\x9dˋ\x8b\x88\x82\x88]ۈ\x99\xda]X\x8b\xdc\xd8ܚ\\xcb\xdc\xd9X\xdd\\x9a]Wٚ^\xd8Y\xd9[\x9d\x9cHKY\x9a^Y\[\x99X\x9b\xdd\x82\x88H\x98[YN\x88\x9a^\xdb\xd9TS[\\x9dY\x8e\x88\xdd\˘\xdb\xd9\[X\xdaX\xda˛\xdd]]˘\xdb\xd9\[\xd8\xdb\xdd[\x9dOH	\xcc	\xdb۝[\x9dYK[ۋY\\x9c\x9b܎\x88\x9dYB\x88\x9d[\x8e\x88\x88X\xda\xc8\x91\x9a^[\x99\xc8\xdb\xd9TS[\\x9dˋ\x8b\x88\x82\x88]ۈ\x99\xda]X\x8b\xdc\xd8ܚ\\xcb\xdc\xd9X\xdd\\x9a]Wٚ^\xd8Y\xd9[\x9d\x9cHKY\x9a^X\xdb\xd9\[\x82\x88H\x98[YN\x88\xd9]\xdd\\x9c\x99[\x9d[Y\\xdd[\\x88Y\x88[Y\\xdd[\\x88\x9d[\x8e\x88X\xda\xc8\x9d[Y\\xdd[\I
+]H]H
+\xc9\xc9VKI[KIY	R\x89SN\x89T։\xcaH\x88\x8f\x88	\xd2UP\x97\xd3\xd5UU\x82\x88H\x98[YN\x88ܙX]H\xdd[[X\\x9eH\\xdc\xddYB\x88Y\x8e\x88
+\xdd\˙\[\x99X\x9b\xddX\xdaX\xda˛\xdd]]˙\[\x99X\x9b\xdd\xd8\xdb\xdd[\x9dOH	\xcc	\xc8\xdd\˘\xdb\xd9\[X\xdaX\xda˛\xdd]]˘\xdb\xd9\[\xd8\xdb\xdd[\x9dOH	\xcc	\xcaB\x88\\xd9\ΈX\xdd[ۜ\xcb\xd9\xda]X\x8b\\xd8ܚ\\x8d\xda]\x82\x88\xd8ܚ\\x88\x88\xdbۜ\xdd\[\x99X\x9b\xdd\xdb\xdd[\x9dH\\x9c\xd9R[\x9d
+\x89\xde\xc8\xdd\˙\[\x99X\x9b\xddX\xdaX\xda˛\xdd]]˙\[\x99X\x9b\xdd\xd8\xdb\xdd[\x9d_H\x8aH\xdbۜ\xdd\xdb\xd9\[\xdb\xdd[\x9dH\\x9c\xd9R[\x9d
+\x89\xde\xc8\xdd\˘\xdb\xd9\[X\xdaX\xda˛\xdd]]˘\xdb\xd9\[\xd8\xdb\xdd[\x9d_H\x8aH`    const repository = "${{ github.repository }}";
+            const commitSha = "${{ github.sha }}";
+            const timestamp = "${{ steps.timestamp.outputs.timestamp }}";
+            if (dependabotCount > 0 || codeqlCount > 0) {
+              const issueTitle = "\u{1F527} OpenClaw Security Automation Report";
+              const issueBody = [
+                "## Security Automation Summary",
+                "",
+                "The OpenClaw securit\xc9 automation workflow has completed.",
+                "",
+                "#### Findings:",
+                "- Dependabot alerts: `" + dependabotCount + "`",
+                "- CodeQL alerts: `" + codeqlCount + "`",
+                "",
+                "#### Actions Taken:",
+                "- Automated fixes attempted for all detectable issues",
+                "- Manual review may be required for complex fixes",
+                "",
+                "#### Workflow Details:",
+                "- Workflow: OpenClaw Security Automation",
+                "- Repository: " + repository,
+                "- Commit: " + commitSha,
+                "- Timestamp: " + timestamp,
+                "",
+                "For more details, check the workflow run logs.",
+              ].join("\n");
+              await github.rest.issues.create({
+  -\x80\x80\x80\x80\x80\x80\x80\x80\x80\x80\x80\x80\x80\x80\x81\xbdݹ\x95\xc8聍\xbd\xb9ѕ\xe1йɕ\xc1\xbc\xb9\xbdݹ\x95Ȱ(\x80\x80\x80\x80\x80\x80\x80\x80\x80\x80\x80\x80\x80\x80\x80\x81ɕ\xc1\xbc聍\xbd\xb9ѕ\xe1йɕ\xc1\xbc\xb9ɕ\xc1\xbc\xb0(\x80\x80\x80\x80\x80\x80\x80\x80\x80\x80\x80\x80\x80\x80\x80\x81ѥѱ\x94聥\xcd\xcdՕQ\xa5ѱ\x94\xb0(\x80\x80\x80\x80\x80\x80\x80\x80\x80\x80\x80\x80\x80\x80\x80\x81\x89\xbd\x91\xe4聥\xcd\xcdՕ	\xbd\x91\xe4\xb0(\x80\x80\x80\x80\x80\x80\x80\x80\x80\x80\x80\x80\x80\x80\x80\x81\xb1\x85\x89\x95\xb1\xcc\xe8\x81l\x9d͕\x8d\xd5ɥ\xd1䜰\x80\x9d\x85\xd5ѽ\xb5\x85ѥ\xbd\xb8\x9dt(\x80\x80\x80\x80\x80\x80\x80\x80\x80\x80\x80\x80\x80\x81\xf4\xa4\xec(\x80\x80\x80\x80\x80\x80\x80\x80\x80\x80\x80\x81\xf4((

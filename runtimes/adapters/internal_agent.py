@@ -154,7 +154,7 @@ class InternalAgentAdapter(RuntimeAdapter):
                 history=list(spec.context.get("conversation", [])),
                 requested_model=model,
                 auto_commit=auto_commit,
-                max_steps=int(spec.context.get("max_steps", 8)),
+                max_steps=int(spec.context.get("max_steps", 30)),
                 user_id=str(spec.context.get("owner_id") or ""),
                 department=spec.context.get("department"),
                 key_id=spec.context.get("key_id"),
@@ -190,9 +190,9 @@ class InternalAgentAdapter(RuntimeAdapter):
         applied_steps = [s for s in steps if s.get("status") == "applied"]
         output_text = result.get("report") or result.get("summary") or ""
         judge_verdict = str((result.get("judge") or {}).get("verdict") or "").upper()
-        # A bare summary/report without file edits is not meaningful work; require
-        # actual applied steps or changed files to consider the run a success.
-        did_work = bool(unique_files or applied_steps) and judge_verdict != "BLOCKED"
+        # Actual work is considered done if files were modified, steps were applied,
+        # or if the agent produced a meaningful informational report/answer.
+        did_work = (bool(unique_files or applied_steps) or len(output_text.strip()) > 20) and judge_verdict != "BLOCKED"
 
         provider_label = "nvidia-nim" if nvidia_chain else "ollama"
         return TaskResult(

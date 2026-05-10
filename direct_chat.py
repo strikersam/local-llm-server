@@ -1,3 +1,5 @@
+from __future__ import annotations
+from agent.user_memory import UserMemoryStore
 """direct_chat.py — Direct chat endpoints for v3 dashboard.
 
 Handles chat sessions and message sending for the Direct Chat feature.
@@ -5,7 +7,6 @@ Protected by JWT authentication (v3 auth system).
 Delegates to LLM providers via the proxy's routing system.
 """
 
-from __future__ import annotations
 
 import json
 import logging
@@ -135,6 +136,9 @@ def _is_trivial_message(content: str) -> bool:
         )
     ):
         return True
+    # If the message contains specific coding keywords and is short, it is NOT trivial
+    if len(words) <= 10 and any(kw in lowered for kw in ("fix", "bug", "implement", "create", "edit", "code")):
+        return False
     return False
 
 
@@ -230,7 +234,7 @@ async def _handle_agent_mode(
         timeout_sec=int(os.environ.get("DIRECT_CHAT_AGENT_TIMEOUT_SEC", "1800")),
         context={
             "conversation": history,
-            "max_steps": 25,
+            "max_steps": 30,
             "owner_id": user.id,
             "user_email": user.email,
             "session_id": session_id,
@@ -249,7 +253,7 @@ async def _handle_agent_mode(
         primary_headers = primary_provider.auth_headers() if primary_provider and primary_provider.api_key else {}
         runner = AgentRunner(ollama_base=ollama_base, workspace_root=str(workspace_root), provider_headers=primary_headers, provider_chain=sorted_providers[1:], allow_commercial_fallback=req.allow_commercial_fallback_once, provider_temperature=req.temperature, session_store=None, github_token=github_token, email=user.email, department=None, key_id=None)
         heartbeat("execution", "Agent execution started")
-        result = await runner.run(metadata=spec.context.get("metadata", {}), instruction=req.content, history=history, requested_model=req.model, auto_commit=True, max_steps=25, user_id=user.id, department=None, key_id=None, memory_store=None, session_id=session_id)
+        result = await runner.run(metadata=spec.context.get("metadata", {}), instruction=req.content, history=history, requested_model=req.model, auto_commit=True, max_steps=30, user_id=user.id, department=None, key_id=None, memory_store=UserMemoryStore(), session_id=session_id)
         heartbeat("verification", "Planner/executor/verifier flow completed")
         assistant_message = result.get("summary", "Agent completed")
         _direct_chat_store.append_message(session_id, "assistant", assistant_message)
