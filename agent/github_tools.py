@@ -57,12 +57,16 @@ class GitHubTools:
         self.token = token
         self.base_url = "https://api.github.com"
 
-    def _validate_repo_parts(self, owner: str, repo: str) -> None:
-        """Strictly validate owner and repo names to prevent URL injection."""
+    def _validate_repo_parts(self, owner: str, repo: str, branch: str | None = None, path: str | None = None) -> None:
+        """Strictly validate GitHub parameters to prevent URL injection or SSRF."""
         if not re.match(r"^[a-zA-Z0-9._-]+$", owner):
             raise ValueError(f"Invalid GitHub owner name: {owner}")
         if not re.match(r"^[a-zA-Z0-9._-]+$", repo):
             raise ValueError(f"Invalid GitHub repository name: {repo}")
+        if branch and not re.match(r"^[a-zA-Z0-9._/\-]+$", branch):
+            raise ValueError(f"Invalid branch name: {branch}")
+        if path and (".." in path or not re.match(r"^[a-zA-Z0-9._/\-]*$", path)):
+            raise ValueError(f"Invalid file path: {path}")
 
     def _headers(self) -> dict[str, str]:
         if not self.token:
@@ -114,7 +118,7 @@ class GitHubTools:
             return resp.json()
 
     async def read_repo_file(self, owner: str, repo: str, path: str, branch: str = "main") -> str:
-        self._validate_repo_parts(owner, repo)
+        self._validate_repo_parts(owner, repo, branch=branch, path=path)
         """Read a single file from a GitHub repository (API method)."""
         async with httpx.AsyncClient(timeout=10) as client:
             url  = f"{self.base_url}/repos/{owner}/{repo}/contents/{path}?ref={branch}"
@@ -126,7 +130,7 @@ class GitHubTools:
             return data.get("content", "")
 
     async def create_branch(self, owner: str, repo: str, branch_name: str, base_branch: str = "main") -> dict[str, Any]:
-        self._validate_repo_parts(owner, repo)
+        self._validate_repo_parts(owner, repo, branch=base_branch)
         """Create a new branch from base_branch."""
         async with httpx.AsyncClient(timeout=10) as client:
             # Get base SHA
@@ -146,7 +150,7 @@ class GitHubTools:
             return resp.json()
 
     async def commit_file(self, owner: str, repo: str, path: str, content: str, message: str, branch: str = "main") -> dict[str, Any]:
-        self._validate_repo_parts(owner, repo)
+        self._validate_repo_parts(owner, repo, branch=branch, path=path)
         async with httpx.AsyncClient(timeout=10) as client:
             # Get existing SHA if file exists
             sha = None
@@ -177,7 +181,7 @@ class GitHubTools:
             return resp.json()
 
     async def open_pull_request(self, owner: str, repo: str, title: str, head: str, base: str = "main", body: str = "") -> dict[str, Any]:
-        self._validate_repo_parts(owner, repo)
+        self._validate_repo_parts(owner, repo, branch=head)
         """Open a pull request."""
         async with httpx.AsyncClient(timeout=10) as client:
             resp = await client.post(
@@ -348,7 +352,7 @@ class LocalWorkspace:
         return out
 
     async def create_branch(self, owner: str, repo: str, branch_name: str, base_branch: str = "main") -> dict[str, Any]:
-        self._validate_repo_parts(owner, repo)
+        self._validate_repo_parts(owner, repo, branch=base_branch)
         if paths:
             for p in paths:
                 await self._run("git", "add", p)

@@ -21,26 +21,28 @@ class WorkspaceTools:
         self.root = Path(root or os.environ.get("AGENT_WORKSPACE_ROOT") or ".").resolve()
 
     def _resolve_path(self, path: str) -> Path:
-        # Basic sanity check for common traversal patterns
+        # Strictly validate input for any suspicious traversal patterns
         if ".." in path:
-            raise ValueError(f"Path contains forbidden \"..\" pattern: {path}")
+             raise ValueError(f"Traversal attempt detected: {path}")
 
-        # Absolute paths are not allowed (must be relative to root)
-        if os.path.isabs(path) or path.startswith("/") or ":" in path:
-             # Some users might provide absolute-looking paths that are actually subpaths.
-             # We strip the leading separator if it exists to try and resolve relative to root.
-             path = path.lstrip("/").lstrip("\\")
-
-        cleaned = path.strip().replace("/", os.sep)
-        # Ensure root is absolute for the prefix check
+        # Ensure root is absolute
         root_abs = self.root.resolve()
-        resolved = (root_abs / cleaned).resolve()
+
+        # Combine and normalize. We strip leading separators to ensure
+        # the path is treated as relative to the root.
+        safe_relative = path.lstrip("/").lstrip("\\")
+        full_path = os.path.normpath(os.path.join(str(root_abs), safe_relative))
+        resolved = Path(full_path).resolve()
 
         # Robust prefix check to satisfy static analysis (CodeQL path injection)
-        # The path must either be the root itself or reside strictly within it.
-        prefix = str(root_abs) if str(root_abs).endswith(os.sep) else str(root_abs) + os.sep
-        if not str(resolved).startswith(prefix) and resolved != root_abs:
-            raise ValueError(f"Path escapes workspace root: {path}")
+        # os.path.commonpath is the most reliable way to check for path containment.
+        try:
+            if os.path.commonpath([str(root_abs), str(resolved)]) != str(root_abs):
+                raise ValueError(f"Path escapes workspace root: {path}")
+        except ValueError:
+            # commonpath raises ValueError if paths are on different drives (Windows)
+            raise ValueError(f"Path escapes workspace root (different drive): {path}")
+
         return resolved
 
     def list_files(self, path: str = ".", limit: int = 200) -> list[str]:
