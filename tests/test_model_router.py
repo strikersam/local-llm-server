@@ -529,3 +529,99 @@ def test_qwen3_coder_235b_in_registry():
     cap = reg["qwen3-coder:235b"]
     assert cap.cost_tier == 3
     assert "data_analysis" in cap.strengths
+
+
+# ── Nemotron-Ultra model name update (PR: model upgrades) ────────────────────
+
+def test_nemotron_ultra_alias_maps_to_253b_model():
+    """'nemotron-ultra' short alias must resolve to the updated 253B model."""
+    from router.model_router import _build_builtin_model_map
+    model_map = _build_builtin_model_map()
+    assert model_map["nemotron-ultra"] == "nvidia/llama-3.1-nemotron-ultra-253b-v1"
+
+
+def test_nemotron_ultra_alias_routing(monkeypatch):
+    """Route by 'nemotron-ultra' alias resolves to the 253B model name."""
+    reset_router()
+    decision = _router().route(requested_model="nemotron-ultra")
+    assert decision.resolved_model == "nvidia/llama-3.1-nemotron-ultra-253b-v1"
+    assert decision.selection_source == "model_map"
+
+
+def test_claude_opus_maps_to_nemotron_ultra_when_nvidia_key_set(monkeypatch):
+    """claude-opus-4-6 should resolve to nemotron-ultra-253b-v1 when NVIDIA_API_KEY is set."""
+    monkeypatch.setenv("NVIDIA_API_KEY", "test-nvidia-key")
+    monkeypatch.delenv("NVidiaApiKey", raising=False)
+    reset_router()
+    decision = _router().route(requested_model="claude-opus-4-6")
+    assert decision.resolved_model == "nvidia/llama-3.1-nemotron-ultra-253b-v1"
+    assert decision.selection_source == "model_map"
+
+
+def test_claude_opus_47_maps_to_nemotron_ultra_when_nvidia_key_set(monkeypatch):
+    """claude-opus-4-7 (flagship) should also resolve to nemotron-ultra-253b-v1 with NVIDIA key."""
+    monkeypatch.setenv("NVIDIA_API_KEY", "test-nvidia-key")
+    monkeypatch.delenv("NVidiaApiKey", raising=False)
+    reset_router()
+    decision = _router().route(requested_model="claude-opus-4-7")
+    assert decision.resolved_model == "nvidia/llama-3.1-nemotron-ultra-253b-v1"
+    assert decision.selection_source == "model_map"
+
+
+def test_build_builtin_model_map_heavy_model_with_nvidia_key(monkeypatch):
+    """_build_builtin_model_map must use nemotron-ultra-253b-v1 as the heavy model when nvidia key present."""
+    monkeypatch.setenv("NVIDIA_API_KEY", "test-nvidia-key")
+    monkeypatch.delenv("NVidiaApiKey", raising=False)
+    from router.model_router import _build_builtin_model_map
+    model_map = _build_builtin_model_map()
+    # claude-opus-4-6 maps to _heavy which should be nemotron-ultra-253b-v1
+    assert model_map["claude-opus-4-6"] == "nvidia/llama-3.1-nemotron-ultra-253b-v1"
+    # claude-opus-4-7 maps to _largest which should also be nemotron-ultra-253b-v1 when nvidia key set
+    assert model_map["claude-opus-4-7"] == "nvidia/llama-3.1-nemotron-ultra-253b-v1"
+
+
+def test_build_builtin_model_map_heavy_model_without_nvidia_key(monkeypatch):
+    """Without a nvidia key, _heavy must fall back to deepseek-r1:32b."""
+    monkeypatch.delenv("NVIDIA_API_KEY", raising=False)
+    monkeypatch.delenv("NVidiaApiKey", raising=False)
+    from router.model_router import _build_builtin_model_map
+    model_map = _build_builtin_model_map()
+    assert model_map["claude-opus-4-6"] == "deepseek-r1:32b"
+
+
+def test_default_reasoning_model_with_nvidia_key(monkeypatch):
+    """_default_reasoning_model must return nemotron-ultra-253b-v1 when NVIDIA_API_KEY is set."""
+    monkeypatch.setenv("NVIDIA_API_KEY", "test-nvidia-key")
+    monkeypatch.delenv("NVidiaApiKey", raising=False)
+    monkeypatch.delenv("AGENT_PLANNER_MODEL", raising=False)
+    from router.model_router import _default_reasoning_model
+    assert _default_reasoning_model() == "nvidia/llama-3.1-nemotron-ultra-253b-v1"
+
+
+def test_default_reasoning_model_without_nvidia_key(monkeypatch):
+    """_default_reasoning_model falls back to deepseek-r1:32b when no nvidia key is set."""
+    monkeypatch.delenv("NVIDIA_API_KEY", raising=False)
+    monkeypatch.delenv("NVidiaApiKey", raising=False)
+    monkeypatch.delenv("AGENT_PLANNER_MODEL", raising=False)
+    from router.model_router import _default_reasoning_model
+    assert _default_reasoning_model() == "deepseek-r1:32b"
+
+
+def test_default_reasoning_model_respects_env_override(monkeypatch):
+    """AGENT_PLANNER_MODEL env var takes precedence over auto-selection in _default_reasoning_model."""
+    monkeypatch.setenv("NVIDIA_API_KEY", "test-nvidia-key")
+    monkeypatch.setenv("AGENT_PLANNER_MODEL", "custom-planner-model:7b")
+    from router.model_router import _default_reasoning_model
+    assert _default_reasoning_model() == "custom-planner-model:7b"
+
+
+def test_build_builtin_model_map_nemotron_ultra_is_not_old_70b(monkeypatch):
+    """Ensure the old nemotron-70b model name is NOT used when nvidia key is present."""
+    monkeypatch.setenv("NVIDIA_API_KEY", "test-nvidia-key")
+    monkeypatch.delenv("NVidiaApiKey", raising=False)
+    from router.model_router import _build_builtin_model_map
+    model_map = _build_builtin_model_map()
+    for alias, resolved in model_map.items():
+        assert "nemotron-70b" not in resolved, (
+            f"Alias '{alias}' still points to old nemotron-70b model: {resolved}"
+        )

@@ -396,3 +396,75 @@ describe('Done screen', () => {
     expect(screen.getByText(/update your saved setup anytime/i)).toBeInTheDocument();
   });
 });
+
+// ─── NVIDIA_MODELS defaults (PR: model upgrades) ─────────────────────────────
+
+describe('NVIDIA_MODELS default values on Step 2', () => {
+  test('step 2 planner input defaults to nemotron-ultra-253b-v1 when no saved state', async () => {
+    mockHealthyBackend();
+    mockSetupState({ current_step: 2, step2_model: {} });
+    renderWizard();
+
+    // The planner input should be pre-filled with the NVIDIA default
+    await screen.findByDisplayValue('nvidia/llama-3.1-nemotron-ultra-253b-v1');
+  });
+
+  test('step 2 executor input defaults to nemotron-3-super-120b-a12b when no saved state', async () => {
+    mockHealthyBackend();
+    mockSetupState({ current_step: 2, step2_model: {} });
+    renderWizard();
+
+    // Multiple inputs use the nemotron-3-super-120b-a12b model (default, executor, verifier)
+    const superInputs = await screen.findAllByDisplayValue('nvidia/nemotron-3-super-120b-a12b');
+    expect(superInputs.length).toBeGreaterThanOrEqual(1);
+  });
+
+  test('step 2 judge input defaults to nemotron-ultra-253b-v1 when no saved state', async () => {
+    mockHealthyBackend();
+    mockSetupState({ current_step: 2, step2_model: {} });
+    renderWizard();
+
+    // There should be at least two inputs with the ultra model (planner + judge)
+    await screen.findAllByDisplayValue('nvidia/llama-3.1-nemotron-ultra-253b-v1');
+    const ultraInputs = screen.getAllByDisplayValue('nvidia/llama-3.1-nemotron-ultra-253b-v1');
+    expect(ultraInputs.length).toBeGreaterThanOrEqual(2);
+  });
+
+  test('step 2 planner placeholder is nemotron-ultra-253b-v1', async () => {
+    mockHealthyBackend();
+    mockSetupState({ current_step: 2, step2_model: {} });
+    renderWizard();
+
+    await screen.findByRole('heading', { name: /model selection/i });
+
+    const plannerInput = screen.getByPlaceholderText('nvidia/llama-3.1-nemotron-ultra-253b-v1');
+    expect(plannerInput).toBeInTheDocument();
+  });
+
+  test('step 2 default-model placeholder is nemotron-3-super-120b-a12b', async () => {
+    mockHealthyBackend();
+    mockSetupState({ current_step: 2, step2_model: {} });
+    renderWizard();
+
+    await screen.findByRole('heading', { name: /model selection/i });
+
+    const defaultInput = screen.getByPlaceholderText('nvidia/nemotron-3-super-120b-a12b');
+    expect(defaultInput).toBeInTheDocument();
+  });
+
+  test('no step 2 input defaults to old nemotron-70b model', async () => {
+    mockHealthyBackend();
+    mockSetupState({ current_step: 2, step2_model: {} });
+    renderWizard();
+
+    // Wait for the step to render
+    await screen.findByRole('heading', { name: /model selection/i });
+
+    // No input should have the old retired model as a value or placeholder
+    const allInputs = document.querySelectorAll('input[type="text"], input:not([type])');
+    allInputs.forEach((input) => {
+      expect(input.value).not.toContain('nemotron-70b');
+      expect(input.placeholder).not.toContain('nemotron-70b');
+    });
+  });
+});

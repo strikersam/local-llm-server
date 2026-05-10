@@ -228,3 +228,114 @@ async def test_run_agent_loop_failure(monkeypatch):
     )
     
     assert "Agent error: Crash" in result
+
+
+# ── _default_agent_role_models (PR: model upgrades) ──────────────────────────
+
+def test_default_agent_role_models_with_nvidia_key_uses_nemotron_ultra(monkeypatch):
+    """When NVIDIA_API_KEY is set, planner and judge must use nemotron-ultra-253b-v1."""
+    monkeypatch.setenv("NVIDIA_API_KEY", "test-nvidia-key")
+    monkeypatch.delenv("NVidiaApiKey", raising=False)
+    monkeypatch.delenv("AGENT_PLANNER_MODEL", raising=False)
+    monkeypatch.delenv("AGENT_JUDGE_MODEL", raising=False)
+    monkeypatch.delenv("NVIDIA_DEFAULT_MODEL", raising=False)
+    monkeypatch.delenv("AGENT_EXECUTOR_MODEL", raising=False)
+    monkeypatch.delenv("AGENT_VERIFIER_MODEL", raising=False)
+
+    from backend.server import _default_agent_role_models
+    models = _default_agent_role_models()
+
+    assert models["planner"] == "nvidia/llama-3.1-nemotron-ultra-253b-v1"
+    assert models["judge"] == "nvidia/llama-3.1-nemotron-ultra-253b-v1"
+
+
+def test_default_agent_role_models_with_nvidia_key_uses_nemotron_super_for_default(monkeypatch):
+    """With NVIDIA key, default/executor/verifier must use nemotron-3-super-120b-a12b."""
+    monkeypatch.setenv("NVIDIA_API_KEY", "test-nvidia-key")
+    monkeypatch.delenv("NVidiaApiKey", raising=False)
+    monkeypatch.delenv("NVIDIA_DEFAULT_MODEL", raising=False)
+    monkeypatch.delenv("AGENT_EXECUTOR_MODEL", raising=False)
+    monkeypatch.delenv("AGENT_VERIFIER_MODEL", raising=False)
+
+    from backend.server import _default_agent_role_models
+    models = _default_agent_role_models()
+
+    assert models["default"] == "nvidia/nemotron-3-super-120b-a12b"
+    assert models["executor"] == "nvidia/nemotron-3-super-120b-a12b"
+    assert models["verifier"] == "nvidia/nemotron-3-super-120b-a12b"
+
+
+def test_default_agent_role_models_without_nvidia_key(monkeypatch):
+    """Without NVIDIA key, planner must fall back to deepseek-r1:32b."""
+    monkeypatch.delenv("NVIDIA_API_KEY", raising=False)
+    monkeypatch.delenv("NVidiaApiKey", raising=False)
+    monkeypatch.delenv("AGENT_PLANNER_MODEL", raising=False)
+    monkeypatch.delenv("AGENT_JUDGE_MODEL", raising=False)
+
+    from backend.server import _default_agent_role_models
+    models = _default_agent_role_models()
+
+    assert models["planner"] == "deepseek-r1:32b"
+    assert models["judge"] == "deepseek-r1:32b"
+
+
+def test_default_agent_role_models_env_overrides_nvidia_planner(monkeypatch):
+    """AGENT_PLANNER_MODEL env var takes precedence over the hardcoded NIM default."""
+    monkeypatch.setenv("NVIDIA_API_KEY", "test-nvidia-key")
+    monkeypatch.setenv("AGENT_PLANNER_MODEL", "my-custom-planner:8b")
+
+    from backend.server import _default_agent_role_models
+    models = _default_agent_role_models()
+
+    assert models["planner"] == "my-custom-planner:8b"
+
+
+def test_default_agent_role_models_no_old_nemotron_70b(monkeypatch):
+    """Regression: none of the default models should reference the retired nemotron-70b."""
+    monkeypatch.setenv("NVIDIA_API_KEY", "test-nvidia-key")
+    monkeypatch.delenv("NVidiaApiKey", raising=False)
+    monkeypatch.delenv("NVIDIA_DEFAULT_MODEL", raising=False)
+    monkeypatch.delenv("AGENT_PLANNER_MODEL", raising=False)
+    monkeypatch.delenv("AGENT_EXECUTOR_MODEL", raising=False)
+    monkeypatch.delenv("AGENT_VERIFIER_MODEL", raising=False)
+    monkeypatch.delenv("AGENT_JUDGE_MODEL", raising=False)
+
+    from backend.server import _default_agent_role_models
+    models = _default_agent_role_models()
+
+    for role, model_name in models.items():
+        assert "nemotron-70b" not in model_name, (
+            f"Role '{role}' still references old nemotron-70b: {model_name}"
+        )
+
+
+def test_nvidia_nim_provider_record_uses_nemotron_super_default(monkeypatch):
+    """_nvidia_nim_provider_record must use nemotron-3-super-120b-a12b as default model."""
+    monkeypatch.setenv("NVIDIA_API_KEY", "test-nvidia-key")
+    monkeypatch.delenv("NVIDIA_DEFAULT_MODEL", raising=False)
+
+    from backend.server import _nvidia_nim_provider_record
+    record = _nvidia_nim_provider_record()
+
+    assert record is not None
+    assert record["default_model"] == "nvidia/nemotron-3-super-120b-a12b"
+
+
+def test_nvidia_nim_provider_record_returns_none_without_key(monkeypatch):
+    """_nvidia_nim_provider_record must return None when no API key is configured."""
+    monkeypatch.delenv("NVIDIA_API_KEY", raising=False)
+    monkeypatch.delenv("NVidiaApiKey", raising=False)
+
+    from backend.server import _nvidia_nim_provider_record
+    assert _nvidia_nim_provider_record() is None
+
+
+def test_nvidia_nim_provider_record_env_override_respected(monkeypatch):
+    """NVIDIA_DEFAULT_MODEL env var overrides the hardcoded nemotron-3-super-120b-a12b default."""
+    monkeypatch.setenv("NVIDIA_API_KEY", "test-nvidia-key")
+    monkeypatch.setenv("NVIDIA_DEFAULT_MODEL", "nvidia/custom-model:latest")
+
+    from backend.server import _nvidia_nim_provider_record
+    record = _nvidia_nim_provider_record()
+
+    assert record["default_model"] == "nvidia/custom-model:latest"
