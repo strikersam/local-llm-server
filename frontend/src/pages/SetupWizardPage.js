@@ -58,9 +58,9 @@ const STEPS = [
 // Nvidia NIM free models
 const NVIDIA_MODELS = {
   executor: 'nvidia/nemotron-3-super-120b-a12b',
-  planner:  'nvidia/llama-3.1-nemotron-ultra-253b-v1',
+  planner:  'nvidia/nemotron-3-super-120b-a12b',
   verifier: 'nvidia/nemotron-3-super-120b-a12b',
-  judge: 'nvidia/llama-3.1-nemotron-ultra-253b-v1',
+  judge: 'nvidia/nemotron-3-super-120b-a12b',
   default:  'nvidia/nemotron-3-super-120b-a12b',
 };
 const LOCAL_MODELS = {
@@ -1089,7 +1089,7 @@ export default function SetupWizardPage({ onComplete }) {
                       <label className="text-sm font-medium text-gray-700">Planner model</label>
                       <input className="w-full mt-1 border border-gray-300 rounded-lg px-3 py-2 text-base text-gray-900 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200 focus:outline-none"
                         value={plannerModel} onChange={e => setPlannerModel(e.target.value)}
-                        placeholder="nvidia/llama-3.1-nemotron-ultra-253b-v1" />
+                        placeholder="nvidia/nemotron-3-super-120b-a12b" />
                     </div>
                     <div>
                       <label className="text-sm font-medium text-gray-700">Coder / executor model</label>
@@ -1107,7 +1107,7 @@ export default function SetupWizardPage({ onComplete }) {
                       <label className="text-sm font-medium text-gray-700">Judge model</label>
                       <input className="w-full mt-1 border border-gray-300 rounded-lg px-3 py-2 text-base text-gray-900 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200 focus:outline-none"
                         value={judgeModel} onChange={e => setJudgeModel(e.target.value)}
-                        placeholder="nvidia/llama-3.1-nemotron-ultra-253b-v1" />
+                        placeholder="nvidia/nemotron-3-super-120b-a12b" />
                     </div>
                   </div>
                 </div>

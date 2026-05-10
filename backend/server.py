@@ -251,10 +251,10 @@ def _default_agent_role_models() -> dict[str, str]:
     if nim_enabled:
         return {
             "default": os.environ.get("NVIDIA_DEFAULT_MODEL") or "nvidia/nemotron-3-super-120b-a12b",
-            "planner": os.environ.get("AGENT_PLANNER_MODEL") or "nvidia/llama-3.1-nemotron-ultra-253b-v1",
+            "planner": os.environ.get("AGENT_PLANNER_MODEL") or "nvidia/nemotron-3-super-120b-a12b",
             "executor": os.environ.get("AGENT_EXECUTOR_MODEL") or "nvidia/nemotron-3-super-120b-a12b",
             "verifier": os.environ.get("AGENT_VERIFIER_MODEL") or "nvidia/nemotron-3-super-120b-a12b",
-            "judge": os.environ.get("AGENT_JUDGE_MODEL") or "nvidia/llama-3.1-nemotron-ultra-253b-v1",
+            "judge": os.environ.get("AGENT_JUDGE_MODEL") or "nvidia/nemotron-3-super-120b-a12b",
         }
     return {
         "default": os.environ.get("OLLAMA_MODEL") or "qwen3-coder:30b",
@@ -1055,8 +1055,8 @@ PREDEFINED_MODELS: dict[str, list[dict]] = {
     ],
     "moonshot": [
         {
-            "id": "kimi-k2.5",
-            "name": "Kimi-K2.5",
+            "id": "kimi-k2.6",
+            "name": "Kimi-K2.6",
             "role": ["planner", "executor", "verifier"],
             "tier": "flagship",
         },
@@ -1112,9 +1112,9 @@ AGENT_ROLE_MODELS: dict[str, dict[str, str]] = {
         "verifier": "gemma-4",
     },
     "moonshot": {
-        "planner": "kimi-k2.5",
-        "executor": "kimi-k2.5",
-        "verifier": "kimi-k2.5",
+        "planner": "kimi-k2.6",
+        "executor": "kimi-k2.6",
+        "verifier": "kimi-k2.6",
     },
 }
 
@@ -2115,9 +2115,9 @@ async def seed_default_providers():
             "type": "openai-compatible",
             "base_url": MOONSHOT_BASE_URL,
             "api_key": MOONSHOT_API_KEY,
-            "default_model": "kimi-k2.5",
+            "default_model": "kimi-k2.6",
             "is_default": LLM_PROVIDER == "moonshot",
-            "priority": 80,
+            "priority": 10,
             "status": "configured" if MOONSHOT_API_KEY else "unconfigured",
         },
         {

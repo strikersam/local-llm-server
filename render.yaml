@@ -33,7 +33,7 @@ services:
 
       # Agent model defaults (Nvidia NIM free models)
       - key: AGENT_PLANNER_MODEL
-        value: "nvidia/llama-3.1-nemotron-ultra-253b-v1"
+        value: "nvidia/nemotron-3-super-120b-a12b"
       - key: AGENT_EXECUTOR_MODEL
         value: "qwen/qwen2.5-coder-32b-instruct"
       - key: AGENT_VERIFIER_MODEL
@@ -130,6 +130,6 @@ services:
       - key: GOOSE_PROFILE
         value: "default"
       - key: AIDER_MODEL
-        value: "nvidia/llama-3.1-nemotron-ultra-253b-v1"
+        value: "nvidia/nemotron-3-super-120b-a12b"
       - key: AIDER_NO_AUTO_COMMIT
         value: "false"

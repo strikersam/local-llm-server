@@ -134,8 +134,8 @@ def _load_from_env() -> dict[str, CommercialEquivalent]:
             input_per_million_usd=0.15,
             output_per_million_usd=0.15,
         ),
-        "kimi-k2.5": CommercialEquivalent(
-            commercial_name="Kimi-K2.5 API (Moonshot flagship)",
+        "kimi-k2.6": CommercialEquivalent(
+            commercial_name="Kimi-K2.6 API (Moonshot flagship)",
             input_per_million_usd=0.20,
             output_per_million_usd=0.60,
         ),
