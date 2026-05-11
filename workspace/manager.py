@@ -267,6 +267,65 @@ class WorkspaceManager:
         except Exception as e:
             return {"ok": False, "error": str(e)}
 
+    def validate_repo_ref(self, repo_url: str, ref: str, token: str | None = None, timeout: int = 8) -> dict[str, object]:
+        """Validate that the given ref/branch exists in the remote repository.
+
+        Uses `git ls-remote --heads <repo> <ref>` to check presence of the ref.
+        Returns {ok: bool, error: str|None}
+        """
+        if not repo_url or not ref:
+            return {"ok": False, "error": "missing_repo_or_ref"}
+        try:
+            import subprocess
+            env = dict(**os.environ)
+            env.setdefault("GIT_TERMINAL_PROMPT", "0")
+            auth_url = repo_url
+            if token and repo_url.startswith("https://"):
+                auth_url = repo_url.replace("https://", f"https://{token}@")
+            proc = subprocess.run(["git", "ls-remote", "--heads", auth_url, ref], stdout=subprocess.PIPE, stderr=subprocess.PIPE, env=env, timeout=timeout)
+            if proc.returncode == 0 and proc.stdout:
+                # stdout contains lines like '<sha>\trefs/heads/<ref>' when found
+                return {"ok": True, "error": None}
+            err = (proc.stderr.decode("utf-8", errors="ignore") or proc.stdout.decode("utf-8", errors="ignore"))[:1000]
+            return {"ok": False, "error": err or "ref_not_found"}
+        except Exception as e:
+            return {"ok": False, "error": str(e)}
+
+    def validate_repo_path(self, repo_url: str, ref: str, path: str, token: str | None = None, timeout: int = 8) -> dict[str, object]:
+        """Validate that *path* exists at *ref* in a GitHub repository using the
+        GitHub Contents API when the repo appears to be hosted on github.com.
+
+        For non-GitHub hosts this check is not guaranteed and will return a
+        not-supported error.
+        """
+        if not repo_url or not path:
+            return {"ok": False, "error": "missing_repo_or_path"}
+        # Try GitHub API when possible
+        try:
+            if repo_url.startswith("https://github.com/") or repo_url.startswith("http://github.com/"):
+                # Parse owner/repo from https URL
+                stripped = repo_url.rstrip("/ ")
+                if stripped.endswith(".git"): stripped = stripped[:-4]
+                parts = stripped.split("/")
+                if len(parts) >= 5:
+                    owner = parts[3]
+                    repo = parts[4]
+                    import httpx
+                    headers = {}
+                    if token:
+                        headers["Authorization"] = f"token {token}"
+                    url = f"https://api.github.com/repos/{owner}/{repo}/contents/{path}"
+                    params = {"ref": ref} if ref else {}
+                    resp = httpx.get(url, headers=headers, params=params, timeout=4.0)
+                    if resp.status_code == 200:
+                        return {"ok": True, "error": None}
+                    return {"ok": False, "error": f"http_{resp.status_code}"}
+        except Exception as e:
+            return {"ok": False, "error": str(e)}
+
+        # If not GitHub or GitHub check failed, we cannot reliably check remote path
+        return {"ok": False, "error": "path_check_not_supported_without_github"}
+
     # ── Lookup ─────────────────────────────────────────────────────────────
 
     def get_workspace(

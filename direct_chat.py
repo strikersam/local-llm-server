@@ -265,6 +265,36 @@ async def _handle_agent_mode(
                         "fix_hint": "Verify the repository URL and ensure the GitHub token has access; ensure network egress to git hosts.",
                         "details": {"error": pre.get("error")},
                     })
+                # Branch/ref validation if provided in metadata
+                repo_ref = None
+                try:
+                    repo_ref = req.metadata.get("repo_ref") or req.metadata.get("branch") or req.metadata.get("ref") if req.metadata and isinstance(req.metadata, dict) else None
+                except Exception:
+                    repo_ref = None
+                if repo_ref:
+                    ref_check = mgr.validate_repo_ref(repo_url, repo_ref, github_token)
+                    if not ref_check.get("ok"):
+                        issues.append({
+                            "code": "git_repo_ref",
+                            "message": f"Could not find ref/branch '{repo_ref}' in repository {repo_url}.",
+                            "fix_hint": "Verify the branch/ref name and that the token has repo access.",
+                            "details": {"error": ref_check.get("error")},
+                        })
+                # Path validation if provided
+                repo_path = None
+                try:
+                    repo_path = req.metadata.get("repo_path") or req.metadata.get("path") if req.metadata and isinstance(req.metadata, dict) else None
+                except Exception:
+                    repo_path = None
+                if repo_path:
+                    path_check = mgr.validate_repo_path(repo_url, repo_ref or "HEAD", repo_path, github_token)
+                    if not path_check.get("ok"):
+                        issues.append({
+                            "code": "git_repo_path",
+                            "message": f"Could not find path '{repo_path}' at ref '{repo_ref or 'HEAD'}' in repository {repo_url}.",
+                            "fix_hint": "Verify path and ref; note path checks are GitHub-only unless host supports remote APIs.",
+                            "details": {"error": path_check.get("error")},
+                        })
             except Exception as e:
                 # Fallback: surface an error indicating workspace preflight could not run.
                 issues.append({
