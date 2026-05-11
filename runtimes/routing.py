@@ -136,9 +136,20 @@ class RuntimeRoutingPolicyEngine:
     # ── Main routing entry point ──────────────────────────────────────────────
 
     async def route_and_execute(self, spec: TaskSpec) -> tuple[TaskResult, RoutingDecision]:
-        """Route the task and execute it.  Returns (result, decision).
-
-        Implements the 8-step flow with full logging.
+        """
+        Selects a runtime for the given task, executes the task (including readiness checks, configured fallbacks, and optional paid escalation), and records the routing decision.
+        
+        Parameters:
+            spec (TaskSpec): Task specification including task_id, task_type, model/provider preferences, and escalation flags.
+        
+        Returns:
+            tuple[TaskResult, RoutingDecision]: The execution result and a RoutingDecision containing the selected runtime, model/provider used, reasons, and any fallback or escalation details.
+        
+        Raises:
+            RuntimeUnavailableError: If no healthy runtime is available for the task type.
+            
+        Side effects:
+            Appends the produced RoutingDecision to the engine's internal decision log.
         """
         task_type = spec.task_type or "general"
 
@@ -148,9 +159,10 @@ class RuntimeRoutingPolicyEngine:
             or spec.provider_preference
             or self._policy.preferred_runtime_id
         )
-        runtime = self._pick_runtime(task_type, preferred_id)
+        runtime, candidates_info = self._pick_runtime(task_type, preferred_id)
 
         if runtime is None:
+            log.warning("No healthy runtime candidates for task_type=%s; candidates: %s", task_type, candidates_info)
             raise RuntimeUnavailableError("*", f"No healthy runtime found for task type '{task_type}'")
 
         decision = RoutingDecision(
@@ -161,6 +173,11 @@ class RuntimeRoutingPolicyEngine:
             provider_used=spec.provider_preference,
             reason=f"Best-fit runtime for task_type='{task_type}' (tier={runtime.TIER.value})",
         )
+        # Append audit detail to decision.reason for observability
+        try:
+            decision.reason += f"; candidates={candidates_info}"
+        except Exception:
+            pass
 
         # Step 4–6: Execute with retry/fallback
         result = await self._execute_with_fallback(spec, runtime, decision)
@@ -173,20 +190,49 @@ class RuntimeRoutingPolicyEngine:
         self,
         task_type: str,
         preferred_id: str | None,
-    ) -> RuntimeAdapter | None:
-        """Pick the best available (health-checked) runtime."""
+    ) -> tuple[RuntimeAdapter | None, list[dict[str, object]]]:
+        """
+        Selects an available runtime for the given task type, preferring a specified runtime when available.
+        
+        Parameters:
+            task_type (str): The task type to match against runtime capabilities.
+            preferred_id (str | None): Optional runtime ID to prefer if that runtime is available.
+        
+        Returns:
+            tuple[selected_runtime, candidates_info]:
+                selected_runtime (RuntimeAdapter | None): The chosen runtime adapter, or `None` if no capable runtime is currently available.
+                candidates_info (list[dict[str, object]]): An ordered list of candidate metadata dictionaries containing:
+                    - "runtime_id": runtime identifier (str)
+                    - "tier": runtime tier value (str)
+                    - "available": availability boolean
+                    - "health": health snapshot as a dict or `None`
+        """
         candidates = self._registry.capable_of(task_type)
-        available = [
-            a for a in candidates
-            if self._health.is_available(a.RUNTIME_ID)
-        ]
+        candidates_info: list[dict[str, object]] = []
+        available = []
+        for a in candidates:
+            health = self._health.get_health(a.RUNTIME_ID)
+            is_avail = self._health.is_available(a.RUNTIME_ID)
+            candidates_info.append({
+                "runtime_id": a.RUNTIME_ID,
+                "tier": a.TIER.value,
+                "available": is_avail,
+                "health": health.as_dict() if health else None,
+            })
+            if is_avail:
+                available.append(a)
+        log.info("Runtime candidate scan for task_type=%s: %s", task_type, candidates_info)
         if not available:
-            return None
+            return None, candidates_info
         if preferred_id:
             for a in available:
                 if a.RUNTIME_ID == preferred_id:
-                    return a
-        return available[0]
+                    log.info("Preferred runtime %s selected for task_type=%s", preferred_id, task_type)
+                    return a, candidates_info
+            log.info("Preferred runtime %s not available; falling back", preferred_id)
+        selected = available[0]
+        log.info("Selected runtime %s for task_type=%s (tier=%s)", selected.RUNTIME_ID, task_type, selected.TIER.value)
+        return selected, candidates_info
 
     async def _execute_with_fallback(
         self,
@@ -194,7 +240,20 @@ class RuntimeRoutingPolicyEngine:
         primary_runtime: RuntimeAdapter,
         decision: RoutingDecision,
     ) -> TaskResult:
-        """Try primary runtime; fall back to alternatives on failure."""
+        """
+        Execute the given task spec on the primary runtime, attempt configured fallback runtimes on failures, and optionally perform paid escalation.
+        
+        Mutates `decision` with execution metadata (e.g., `model_used`, `provider_used`, `fallback_attempted`, `fallback_runtime_id`, `reason`, and escalation fields) when a runtime succeeds or an escalation occurs.
+        
+        Parameters:
+            decision (RoutingDecision): Routing decision record that will be updated with outcome details.
+        
+        Returns:
+            TaskResult: The successful execution result from the primary runtime, a fallback runtime, or a paid escalation.
+        
+        Raises:
+            RuntimeUnavailableError: If all runtime attempts fail, if paid escalation requires approval, or if paid escalation is blocked by daily budget limits.
+        """
         last_exec_error: str = ""
         try:
             report = await primary_runtime.readiness_check(spec)

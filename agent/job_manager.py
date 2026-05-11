@@ -46,6 +46,17 @@ class AgentJob:
     error: dict[str, Any] | None = None
 
     def as_dict(self) -> dict[str, Any]:
+        """
+        Serialize the AgentJob to a JSON-serializable dictionary for external clients.
+        
+        Returns:
+            dict: Mapping containing job identity, metadata, state, timestamps, progress, execution outcome, and a convenience `final_message`.
+            The dictionary includes these keys: `job_id`, `session_id`, `instruction`, `owner_id`, `status`, `phase`,
+            `created_at`, `updated_at`, `heartbeat_at`, `runtime_id`, `workspace_path`, `requested_model`, `provider_id`,
+            `progress_events`, `result`, `error`, and `final_message`.
+            `final_message` is set to `result["response"]` when `result` is a dict containing that key; otherwise, it is set
+            to `error["message"]` when `error` is a dict containing that key; if neither is present, `final_message` is `None`.
+        """
         return {
             "job_id": self.job_id,
             "session_id": self.session_id,
@@ -63,6 +74,11 @@ class AgentJob:
             "progress_events": self.progress_events,
             "result": self.result,
             "error": self.error,
+            # Convenience field for clients: a canonical final assistant-facing message
+            "final_message": (
+                (self.result.get("response") if isinstance(self.result, dict) else None)
+                or (self.error.get("message") if isinstance(self.error, dict) else None)
+            ),
         }
 
 
@@ -173,6 +189,27 @@ class AgentJobManager:
         job: AgentJob,
         runner: Callable[[Callable[[str, str], None]], Awaitable[dict[str, Any]]],
     ) -> None:
+        """
+        Run a job using the provided runner and update the job's lifecycle, progress, result, and workspace state.
+        
+        Parameters:
+            job (AgentJob): The job object to run and update in-place.
+            runner (Callable[[Callable[[str, str], None]], Awaitable[dict[str, Any] | Any]]):
+                Async callable invoked as await runner(heartbeat). It receives a heartbeat callback
+                of signature (phase: str, message: str) -> None and should return either a dict
+                payload or any value. If a dict is returned, a canonical `response` is selected
+                from common keys (`response`, `summary`, `output`, or string `report`) and stored
+                alongside the raw payload under `job.result["raw"]`; non-dict returns are converted
+                to a string `response`.
+        
+        Behavior:
+            - Sets job status/phase to running/starting, appends a starting heartbeat, and invokes the runner.
+            - On successful completion, normalizes and stores the result, sets status to succeeded and phase to completed, and emits a completed heartbeat.
+            - On asyncio.CancelledError, marks the job cancelled, emits a cancelled heartbeat, and re-raises the CancelledError.
+            - On other exceptions, logs the failure, marks the job failed, and populates `job.error` with a structured object. For runtime-specific exceptions the `error` includes a `code` (`runtime_preflight`, `runtime_unavailable`, `runtime_execution_error`), `type`, `message`, and optionally a serialized `report`; other exceptions include `type` and `message`.
+            - Always updates `job.updated_at` and `job.heartbeat_at` when finished.
+            - If a workspace manager and `job.workspace_path` are configured, calls its `complete` method on success or `fail` on failure; workspace calls tolerate and suppress exceptions.
+        """
         def heartbeat(phase: str, message: str) -> None:
             self._append_event(job.job_id, phase=phase, message=message)
 
@@ -183,7 +220,21 @@ class AgentJobManager:
         heartbeat("starting", "Job started")
         try:
             result = await runner(heartbeat)
-            job.result = result
+            # Normalize result to expose a canonical assistant-facing message
+            # while preserving the raw runtime/runner payload under 'raw'.
+            normalized_response = None
+            if isinstance(result, dict):
+                # Prefer common keys in descending priority
+                normalized_response = (
+                    result.get("response")
+                    or result.get("summary")
+                    or result.get("output")
+                    or (result.get("report") if isinstance(result.get("report"), str) else None)
+                )
+                job.result = {"response": normalized_response, "raw": result}
+            else:
+                # Non-dict runners may return simple strings
+                job.result = {"response": str(result), "raw": result}
             job.status = "succeeded"
             job.phase = "completed"
             heartbeat("completed", "Job completed")
@@ -193,13 +244,40 @@ class AgentJobManager:
             heartbeat("cancelled", "Job cancelled")
             raise
         except Exception as exc:
+            # Provide structured, phase-specific failure details when possible
+            from runtimes.base import (
+                RuntimePreflightError,
+                RuntimeUnavailableError,
+                RuntimeExecutionError,
+            )
+
             log.exception("Agent job %s failed", job.job_id)
             job.status = "failed"
             job.phase = "failed"
-            job.error = {
-                "type": exc.__class__.__name__,
-                "message": str(exc),
-            }
+            if isinstance(exc, RuntimePreflightError):
+                job.error = {
+                    "code": "runtime_preflight",
+                    "type": exc.__class__.__name__,
+                    "message": str(exc),
+                    "report": exc.report.as_dict() if hasattr(exc, "report") else None,
+                }
+            elif isinstance(exc, RuntimeUnavailableError):
+                job.error = {
+                    "code": "runtime_unavailable",
+                    "type": exc.__class__.__name__,
+                    "message": str(exc),
+                }
+            elif isinstance(exc, RuntimeExecutionError):
+                job.error = {
+                    "code": "runtime_execution_error",
+                    "type": exc.__class__.__name__,
+                    "message": str(exc),
+                }
+            else:
+                job.error = {
+                    "type": exc.__class__.__name__,
+                    "message": str(exc),
+                }
             heartbeat("failed", str(exc))
         finally:
             job.updated_at = _now()

@@ -217,6 +217,27 @@ async def _handle_agent_mode(
     user: UserInfo,
     request: Request,
 ):
+    """
+    Initiates and queues an agent-mode workflow for a direct chat message, performing repository and GitHub preflight checks before starting an asynchronous job.
+    
+    Performs:
+    - repo_ref validation via the workspace manager,
+    - optional Git/GitHub checks when the prompt suggests repository operations (missing token, missing git binary, repo/ref/path access, GitHub token validity and scopes),
+    - readiness check using an internal agent adapter,
+    - job creation, isolated workspace setup, and asynchronous agent execution.
+    
+    Parameters:
+        req (ChatSendRequest): Incoming chat request including content, agent_mode controls, repo metadata, and provider/model hints.
+        user (UserInfo): Authenticated user information (id and email) used for ownership and token lookup.
+        request (Request): FastAPI request object; used to access application state (workspaces, provider router).
+    
+    Returns:
+        JSONResponse: HTTP 202 response containing an AcceptedJob envelope with `session_id`, `job_id`, `status`, `phase`, and `message` when the agent job is successfully queued.
+    
+    Raises:
+        HTTPException(412): If workspace repo validation fails, if Git/GitHub preflight issues are detected (returns structured `issues`), or if the adapter readiness check reports not ready.
+        HTTPException(404/500/etc.): Propagated for other unexpected failures from downstream components.
+    """
     log.info(f"Agent mode chat from {user.email}: {req.content[:50]}...")
     session_id = req.session_id
     if session_id: history = _session_history(session_id)
@@ -231,7 +252,131 @@ async def _handle_agent_mode(
 
     _ensure_session(session_id, user)
     _direct_chat_store.append_message(session_id, "user", req.content)
-    github_token = await _get_github_token_for_user(user.email)
+    # Accept sync or async _get_github_token_for_user implementations (tests patch a sync lambda)
+    import inspect
+    _token_res = _get_github_token_for_user(user.email)
+    if inspect.isawaitable(_token_res):
+        github_token = await _token_res
+    else:
+        github_token = _token_res
+
+    # GitHub preflight: for prompts that appear to require repo/git access, ensure
+    # a token and git binary are available and provide structured actionable errors
+    # rather than letting the job enter a vague failing state.
+    import shutil
+    import httpx
+    lc = req.content.lower()
+    repo_keywords = ("repo", "git", "pull request", "pull-request", "pr", "commit", "push", "clone", "checkout", "branch")
+    if any(kw in lc for kw in repo_keywords):
+        issues = []
+        if not github_token:
+            issues.append({
+                "code": "missing_github_token",
+                "message": "No GitHub token available for this user.",
+                "fix_hint": "Add a GitHub token in Settings or set GH_TOKEN/GITHUB_TOKEN.",
+            })
+        # Validate git binary
+        if not shutil.which("git"):
+            issues.append({
+                "code": "missing_git_binary",
+                "message": "'git' binary not found on PATH.",
+                "fix_hint": "Install git and ensure it is on PATH.",
+            })
+
+        # If metadata provides an explicit repo_url, attempt a non-destructive access check
+        repo_url = None
+        try:
+            if req.metadata and isinstance(req.metadata, dict):
+                repo_url = req.metadata.get("repo_url") or req.metadata.get("repository")
+        except Exception:
+            repo_url = None
+
+        if repo_url:
+            try:
+                from workspace.manager import WorkspaceManager
+                mgr = WorkspaceManager()
+                pre = mgr.repo_access_preflight(repo_url, github_token)
+                if not pre.get("ok"):
+                    issues.append({
+                        "code": "git_repo_access",
+                        "message": f"Could not access repository at {repo_url}.",
+                        "fix_hint": "Verify the repository URL and ensure the GitHub token has access; ensure network egress to git hosts.",
+                        "details": {"error": pre.get("error")},
+                    })
+                # Branch/ref validation if provided in metadata
+                repo_ref = None
+                try:
+                    repo_ref = req.metadata.get("repo_ref") or req.metadata.get("branch") or req.metadata.get("ref") if req.metadata and isinstance(req.metadata, dict) else None
+                except Exception:
+                    repo_ref = None
+                if repo_ref:
+                    ref_check = mgr.validate_repo_ref(repo_url, repo_ref, github_token)
+                    if not ref_check.get("ok"):
+                        issues.append({
+                            "code": "git_repo_ref",
+                            "message": f"Could not find ref/branch '{repo_ref}' in repository {repo_url}.",
+                            "fix_hint": "Verify the branch/ref name and that the token has repo access.",
+                            "details": {"error": ref_check.get("error")},
+                        })
+                # Path validation if provided
+                repo_path = None
+                try:
+                    repo_path = req.metadata.get("repo_path") or req.metadata.get("path") if req.metadata and isinstance(req.metadata, dict) else None
+                except Exception:
+                    repo_path = None
+                if repo_path:
+                    path_check = mgr.validate_repo_path(repo_url, repo_ref or "HEAD", repo_path, github_token)
+                    if not path_check.get("ok"):
+                        issues.append({
+                            "code": "git_repo_path",
+                            "message": f"Could not find path '{repo_path}' at ref '{repo_ref or 'HEAD'}' in repository {repo_url}.",
+                            "fix_hint": "Verify path and ref; note path checks are GitHub-only unless host supports remote APIs.",
+                            "details": {"error": path_check.get("error")},
+                        })
+            except Exception as e:
+                # Fallback: surface an error indicating workspace preflight could not run.
+                issues.append({
+                    "code": "repo_preflight_failed",
+                    "message": "Repository preflight check failed to run.",
+                    "fix_hint": "Ensure the server environment allows git checks and WorkspaceManager is available.",
+                    "details": {"error": str(e)},
+                })
+
+        # If a token exists, do a best-effort validation against GitHub API to detect
+        # invalid tokens or insufficient scopes (we require 'repo' for repo edits).
+        if github_token:
+            try:
+                headers = {
+                    "Authorization": f"token {github_token}",
+                    "Accept": "application/vnd.github+json",
+                }
+                resp = httpx.get("https://api.github.com/user", headers=headers, timeout=2.0)
+                if resp.status_code != 200:
+                    issues.append({
+                        "code": "invalid_github_token",
+                        "message": "GitHub token rejected by GitHub API.",
+                        "fix_hint": "Reconnect GitHub in Settings or set a valid token with repo scopes.",
+                        "details": {"status_code": resp.status_code},
+                    })
+                else:
+                    scopes = resp.headers.get("X-OAuth-Scopes", "").lower()
+                    if any(kw in lc for kw in ("repo", "pull", "commit", "push")) and "repo" not in scopes:
+                        issues.append({
+                            "code": "insufficient_github_scopes",
+                            "message": "GitHub token may be missing 'repo' scope required for repository edits.",
+                            "fix_hint": "Grant 'repo' scope or use a token with repository access.",
+                            "details": {"scopes": scopes},
+                        })
+            except Exception as e:
+                issues.append({
+                    "code": "github_api_unreachable",
+                    "message": "Could not validate GitHub token due to network error.",
+                    "fix_hint": "Ensure the server can reach api.github.com or validate token in Settings.",
+                    "details": {"error": str(e)},
+                })
+        if issues:
+            raise HTTPException(status_code=412, detail={"ready": False, "issues": issues, "summary": "Git/GitHub preflight failed"})
+
     job = _agent_jobs.create_job(session_id=session_id, owner_id=user.email, instruction=req.content, requested_model=req.model, provider_id=req.provider_id)
     workspace_root = make_isolated_workspace(_agent_workspace_root, session_id, job.job_id)
     job.workspace_path = str(workspace_root)
@@ -255,6 +400,15 @@ async def _handle_agent_mode(
     report = await adapter.readiness_check(spec)
     if not report.ready: raise HTTPException(status_code=412, detail=report.as_dict())
     async def _run_agent_job(heartbeat):
+        """
+        Run the agent job workflow and persist its final assistant message to the session store.
+        
+        Parameters:
+            heartbeat (Callable[[str, str], None]): Callback to report job phase and a short message; invoked with phase names like "planning", "execution", and "verification".
+        
+        Returns:
+            dict: Envelope containing `session_id` (str) and `response` (str) with the assistant's final message.
+        """
         from agent.loop import AgentRunner
         heartbeat("planning", "Runtime preflight passed")
         app_router: ProviderRouter = request.app.state.PROVIDER_ROUTER
@@ -270,12 +424,66 @@ async def _handle_agent_mode(
         _direct_chat_store.append_message(session_id, "assistant", assistant_message)
         return {"session_id": session_id, "response": assistant_message}
     _agent_jobs.start_job(job.job_id, _run_agent_job)
-    return JSONResponse(status_code=202, content={"session_id": session_id, "job_id": job.job_id, "status": job.status, "phase": job.phase, "message": "Agent workflow queued."})
+
+    # Return a typed accepted job envelope — transport-level acknowledgement only.
+    from agent.schemas import AcceptedJob
+    accepted = AcceptedJob(
+        session_id=session_id,
+        job_id=job.job_id,
+        status=job.status,
+        phase=job.phase,
+        message="Agent workflow queued.",
+    )
+    return JSONResponse(status_code=202, content=accepted.model_dump())
 
 
 @direct_chat_router.get("/agent-jobs/{job_id}")
 async def get_agent_job(job_id: str):
+    """
+    Retrieve a typed representation of an agent job by its job ID.
+    
+    Raises an HTTP 404 if the job does not exist. Depending on the job's status, returns a dictionary matching one of the agent job schemas:
+    - For a running job: keys include `job_id`, `session_id`, `status`, `phase`, `progress_events`, and `workspace_path`.
+    - For a succeeded job: keys include `job_id`, `session_id`, `status`, `phase`, `final_message`, and `result`.
+    - For any other status: keys include `job_id`, `session_id`, `status`, `phase`, and `error` (an object, empty if absent).
+    
+    Parameters:
+        job_id (str): The unique identifier of the agent job.
+    
+    Returns:
+        dict: A serialized job representation matching `RunningJob`, `CompletedJob`, or `FailedJob` schema depending on job status.
+    """
     job = _agent_jobs.get_job(job_id)
     if not job:
         raise HTTPException(status_code=404, detail="Job not found")
-    return job.as_dict()
+    from agent.schemas import RunningJob, CompletedJob, FailedJob
+    jd = job.as_dict()
+    if job.status == "running":
+        running = RunningJob(
+            job_id=jd["job_id"],
+            session_id=jd["session_id"],
+            status=jd["status"],
+            phase=jd["phase"],
+            progress_events=jd.get("progress_events", []),
+            workspace_path=jd.get("workspace_path"),
+        )
+        return running.model_dump()
+    elif job.status == "succeeded":
+        completed = CompletedJob(
+            job_id=jd["job_id"],
+            session_id=jd["session_id"],
+            status=jd["status"],
+            phase=jd["phase"],
+            final_message=jd.get("final_message"),
+            result=jd.get("result"),
+        )
+        return completed.model_dump()
+    else:
+        failed = FailedJob(
+            job_id=jd["job_id"],
+            session_id=jd["session_id"],
+            status=jd["status"],
+            phase=jd["phase"],
+            error=jd.get("error") or {},
+        )
+        return failed.model_dump()
