@@ -298,14 +298,18 @@ class WorkspaceManager:
 
     def validate_repo_ref(self, repo_url: str, ref: str, token: str | None = None, timeout: int = 8) -> dict[str, object]:
         """
-        Check whether a specific ref or branch exists in a remote Git repository.
+        Determine whether the given Git ref or branch exists in the remote repository.
         
         Parameters:
+            repo_url (str): Remote repository URL (HTTPS or other git remote formats).
+            ref (str): Reference name to check (branch or ref pattern).
             token (str | None): Optional personal access token injected into HTTPS URLs for authentication.
-            timeout (int): Command timeout in seconds.
+            timeout (int): Command timeout in seconds for the git subprocess.
         
         Returns:
-            dict[str, object]: {"ok": True, "error": None} when the ref is found; {"ok": False, "error": <message>} otherwise.
+            dict[str, object]: A result mapping with keys:
+                - "ok": `True` if the ref was found, `False` otherwise.
+                - "error": `None` when found; otherwise an error message or `"ref_not_found"`.
         """
         if not repo_url or not ref:
             return {"ok": False, "error": "missing_repo_or_ref"}
@@ -327,15 +331,19 @@ class WorkspaceManager:
 
     async def validate_repo_path(self, repo_url: str, ref: str, path: str, token: str | None = None, timeout: int = 8) -> dict[str, object]:
         """
-        Checks whether a given path exists at a specific ref in a GitHub-hosted repository.
-
-        If `repo_url` is a GitHub HTTPS/HTTP URL, this uses the GitHub Contents API to verify the path at `ref`. For non-GitHub hosts (or when the GitHub check cannot be performed) the function returns a not-supported error.
-
+        Verify whether a path exists at a specific ref in a GitHub-hosted repository.
+        
+        Uses the GitHub Contents API for HTTP(S) GitHub repository URLs to check the existence of `path` at `ref`. For non-GitHub URLs or when the check cannot be performed, returns a not-supported error result.
+        
         Parameters:
-            token (str | None): Optional GitHub personal access token sent as an Authorization header.
-
+            repo_url (str): Repository URL (expected form: https://github.com/<owner>/<repo>[.git]).
+            ref (str): Git ref (branch, tag, or commit) to check; may be empty to use default branch.
+            path (str): Repository path to verify (file or directory).
+            token (str | None): Optional GitHub personal access token sent as `Authorization: token <token>`.
+            timeout (int): Request timeout in seconds (used for the HTTP request).
+        
         Returns:
-            dict[str, object]: `{"ok": True, "error": None}` when the path is found; otherwise `{"ok": False, "error": "<reason>"}` where `error` is an error code or message (e.g., `"http_404"`, `"missing_repo_or_path"`, or another error string).
+            dict[str, object]: `{"ok": True, "error": None}` if the path exists at the specified ref; otherwise `{"ok": False, "error": "<reason>"}` where `<reason>` is an error code or message such as `"http_404"`, `"missing_repo_or_path"`, `"path_check_not_supported_without_github"`, or another error string.
         """
         if not repo_url or not path:
             return {"ok": False, "error": "missing_repo_or_path"}
@@ -368,12 +376,12 @@ class WorkspaceManager:
 
     def dry_clone_preflight(self, repo_url: str, token: str | None = None, timeout: int = 20) -> dict[str, object]:
         """
-        Perform a shallow, non-checkout clone to validate repository access for hosts that do not support a Contents API.
+        Validate repository access by performing a shallow, non-checkout clone when lighter checks are insufficient.
         
-        This is a heavier access check than `ls-remote`; it always removes any temporary files it creates and should be used only when lighter checks are insufficient.
+        This performs a temporary shallow clone and removes any created files; use only if simpler preflight checks (e.g., ls-remote) are not adequate.
         
         Returns:
-            result (dict[str, object]): A dictionary with `ok` (`True` if access validated, `False` otherwise) and `error` (an error message string or `None`).
+            dict[str, object]: `ok` is `True` if access is validated, `False` otherwise; `error` is an error message string or `None`.
         """
         try:
             from workspace.dry_clone import dry_clone_repo

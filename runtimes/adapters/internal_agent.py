@@ -77,6 +77,18 @@ class InternalAgentAdapter(RuntimeAdapter):
     )
 
     def __init__(self, config: dict[str, Any] | None = None) -> None:
+        """
+        Initialize the adapter and configure base endpoints and runtime flags.
+        
+        Parameters:
+            config (dict[str, Any] | None): Optional configuration overrides. Recognized keys:
+                - "ollama_base": base URL for the local Ollama endpoint; falls back to the
+                  OLLAMA_BASE / OLLAMA_BASE_URL environment variables or "http://localhost:11434".
+                - "workspace_root": filesystem path to the workspace; falls back to the repository
+                  root computed from the package location.
+                - "task_harness_required": truthy string (case-insensitive) to require the external
+                  task harness; if omitted, the TASK_HARNESS_REQUIRED environment variable is used.
+        """
         super().__init__(config)
         self._ollama_base = (
             (config or {}).get("ollama_base")
@@ -94,12 +106,12 @@ class InternalAgentAdapter(RuntimeAdapter):
 
     def required_dependencies(self) -> list[RuntimeDependency]:
         """
-        Determine which external dependencies are required by this runtime adapter.
+        Return runtime dependencies required by this adapter.
         
-        If the adapter configuration indicates a task harness is required, returns a single RuntimeDependency describing the harness (name "task-harness" and config variable "TASK_HARNESS_BIN"); otherwise returns an empty list.
+        If the adapter's configuration indicates a task harness is required, returns a list containing a RuntimeDependency for the harness (name "task-harness" and config var "TASK_HARNESS_BIN"); otherwise returns an empty list.
         
         Returns:
-            list[RuntimeDependency]: A list of runtime dependencies to check or install (empty if none).
+            list[RuntimeDependency]: The list of required runtime dependencies; empty when no external dependencies are needed.
         """
         if not self._task_harness_required:
             return []
@@ -113,12 +125,12 @@ class InternalAgentAdapter(RuntimeAdapter):
 
     async def health_check(self) -> RuntimeHealth:
         """
-        Check whether the internal agent runtime is available and report provider details.
+        Check whether the internal agent runtime is available and which provider will be used.
         
-        When an NVIDIA API key is configured, the runtime is considered available and reports the provider as "nvidia-nim". Otherwise, performs a short HTTP probe of the local Ollama endpoint and reports availability based on the probe result; when reachable the provider is reported as "ollama".
+        Performs a quick configuration check: if an NVIDIA API key is present, reports the runtime as available and the provider as "nvidia-nim"; otherwise performs a short HTTP probe of the local Ollama endpoint and reports availability based on the probe result, using provider "ollama" when reachable.
         
         Returns:
-            RuntimeHealth: Object indicating availability. On success includes `details` with `workspace_root` and `provider` (and `probe_url` when Ollama was probed). On failure `available` is `False` and `error` is set to "Local Ollama not reachable".
+            RuntimeHealth: Availability result. On success `details` contains `workspace_root` and `provider`; when Ollama was probed `details` also includes `probe_url`. On failure `available` is `False` and `error` is set to "Local Ollama not reachable".
         """
         nvidia_key = (
             os.environ.get("NVIDIA_API_KEY")
@@ -160,12 +172,15 @@ class InternalAgentAdapter(RuntimeAdapter):
 
     async def execute(self, spec: TaskSpec) -> TaskResult:
         """
-        Execute the given TaskSpec via an AgentRunner and produce a TaskResult summarizing the run.
+        Run the provided TaskSpec with an AgentRunner and produce a TaskResult summarizing the execution.
         
-        Selects Nvidia NIM as the primary provider when configured, otherwise uses the configured Ollama base. Resolves the model preference (prefers spec.model_preference, then Nvidia default, otherwise lets the runner auto-select), runs the agent, aggregates changed files and a metadata blob (including the raw runner result and agent comment), and determines success when files were modified, steps were applied, or a substantive textual report/summary was produced and the judge verdict is not "BLOCKED". Exceptions raised by the runner are rethrown as RuntimeExecutionError. The returned result includes timing, provider and model information, and collected artifacts.
+        Selects Nvidia NIM as the primary provider when configured (otherwise uses the adapter's Ollama base), resolves the effective model preference, executes the agent, aggregates disk-write artifacts and metadata (including the raw runner result and an agent comment), and determines success when files were modified, steps were applied, or a substantive textual report/summary was produced and the judge verdict is not "BLOCKED". Exceptions raised by the runner are rethrown as RuntimeExecutionError.
+        
+        Parameters:
+            spec (TaskSpec): Task execution specification containing instruction, context, optional model_preference, optional workspace_path, and task_id.
         
         Returns:
-            TaskResult: Summary of the execution containing runtime_id, task_id, success flag, output text, artifacts (changed files), model_used, provider_used, execution_time_ms, and metadata (including raw_result and changed_files).
+            TaskResult: Execution summary with runtime_id, task_id, success flag, output text, artifacts (changed files), model_used, provider_used, execution_time_ms, and metadata (includes `raw_result` and `changed_files`).
         """
         nvidia_chain = _nvidia_provider_chain()
 

@@ -315,6 +315,18 @@ function ModelPickerModal({ providers, onConfirm, onClose, initialProvider, init
   );
 }
 
+/**
+ * Render a modal prompting the user to approve switching to a commercial provider for a specific request.
+ *
+ * Displays an explanatory message, a list of candidate providers, and a preview of the request content,
+ * and exposes "Approve" and "Stay on local/free" actions.
+ *
+ * @param {{ approval: { message?: string, candidates?: string[], content: string } | null, onApprove: () => void, onCancel: () => void }} props
+ * @param {{ message?: string, candidates?: string[], content: string } | null} props.approval - Approval payload; when `null` the component renders `null`.
+ * @param {() => void} props.onApprove - Callback invoked when the user approves using a commercial provider.
+ * @param {() => void} props.onCancel - Callback invoked when the user cancels and chooses to stay on local/free.
+ * @returns {JSX.Element|null} The modal element when `approval` is provided, or `null` otherwise.
+ */
 function CommercialApprovalModal({ approval, onApprove, onCancel }) {
   if (!approval) return null;
 

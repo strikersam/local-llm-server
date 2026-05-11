@@ -15,9 +15,21 @@ async def test_dry_clone_repo_handles_subprocess_failure(monkeypatch):
     class FakeProc:
         returncode = 128
         async def communicate(self):
+            """
+            Return simulated subprocess output for stdout and stderr.
+            
+            Returns:
+                (bytes, bytes): A tuple where the first element is empty stdout (b'') and the second is stderr containing the authentication failure message (b'Authentication failed').
+            """
             return b'', b'Authentication failed'
 
     async def fake_create(*args, **kwargs):
+        """
+        Return a FakeProc instance regardless of provided arguments.
+        
+        Returns:
+            FakeProc: An object that simulates an async subprocess (predefined `returncode` and `communicate()` behavior) for testing.
+        """
         return FakeProc()
 
     monkeypatch.setattr('asyncio.create_subprocess_exec', fake_create)

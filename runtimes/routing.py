@@ -137,16 +137,18 @@ class RuntimeRoutingPolicyEngine:
 
     async def route_and_execute(self, spec: TaskSpec) -> tuple[TaskResult, RoutingDecision]:
         """
-        Selects a runtime for the given TaskSpec, executes the task according to the routing, fallback, and paid-escalation policy, and records an audit RoutingDecision.
+        Selects and routes a TaskSpec to an appropriate runtime, executes it with local retries/fallbacks and optional paid escalation per policy, and records the routing decision.
+        
+        Executes the task using the chosen runtime; if the primary runtime fails, attempts configured fallback runtimes, and—if permitted by the task and policy—attempts paid provider escalation. Appends a RoutingDecision audit entry to the engine's decision log describing the chosen runtime, any fallback or escalation, and the reason.
         
         Parameters:
-            spec (TaskSpec): Task specification including task_id, task_type, model/provider preferences, and escalation flags.
+            spec (TaskSpec): Task specification. Relevant fields: `task_id`, `task_type`, `model_preference`, `provider_preference`, and `allow_paid_escalation`.
         
         Returns:
             tuple[TaskResult, RoutingDecision]: The execution result and the final routing decision record.
         
         Raises:
-            RuntimeUnavailableError: If no healthy runtime is available or if routing/escalation is blocked by policy (for example when paid escalation is required but disallowed or approval is required).
+            RuntimeUnavailableError: If no healthy runtime is available, or if execution/escalation is blocked by policy (for example when paid escalation is required but disallowed or approval is required).
         """
         task_type = spec.task_type or "general"
 
@@ -189,16 +191,16 @@ class RuntimeRoutingPolicyEngine:
         preferred_id: str | None,
     ) -> tuple[RuntimeAdapter | None, list[dict[str, object]]]:
         """
-        Select a healthy runtime capable of the given task type and return it along with metadata about all scanned candidates.
+        Selects a healthy runtime capable of the given task type and returns it along with metadata about all scanned candidates.
         
         Parameters:
             task_type (str): Task classification used to filter capable runtimes.
-            preferred_id (str | None): Optional runtime ID to prefer; it is selected only if it is available.
+            preferred_id (str | None): Optional runtime ID to prefer; selected only if it is present among available runtimes.
         
         Returns:
             tuple[RuntimeAdapter | None, list[dict[str, object]]]:
-                - The chosen RuntimeAdapter instance, or `None` if no available runtimes were found.
-                - `candidates_info`: a list of per-candidate dictionaries with keys:
+                The chosen RuntimeAdapter instance, or `None` if no available runtimes were found.
+                `candidates_info`: list of per-candidate dictionaries with keys:
                     - `runtime_id` (str): runtime identifier
                     - `tier` (str): runtime tier value
                     - `available` (bool): whether the runtime was considered available
@@ -238,24 +240,21 @@ class RuntimeRoutingPolicyEngine:
         decision: RoutingDecision,
     ) -> TaskResult:
         """
-        Attempt execution on the primary runtime, then try configured fallbacks, and finally perform an optional paid escalation.
+        Attempt execution on the primary runtime, try configured fallback runtimes on failure, and optionally escalate to paid providers under policy constraints.
         
-        Attempts the following in order:
-        1. Run readiness check and execute on `primary_runtime`.
-        2. On failure, iterate `self._policy.fallback_runtime_ids` and attempt readiness check and execute on each available fallback runtime.
-        3. If local attempts fail and paid escalation is allowed by `spec` and policy, optionally escalate via provider managers subject to policy guards (approval requirement and daily budget).
+        Updates the provided RoutingDecision with execution outcome, fallback markers, and escalation metadata as attempts proceed.
         
         Parameters:
-            spec (TaskSpec): Task specification controlling execution and escalation permissions.
+            spec (TaskSpec): Task specification that controls execution behavior and whether paid escalation is permitted.
             primary_runtime (RuntimeAdapter): The primary runtime adapter to attempt first.
-            decision (RoutingDecision): Mutable routing audit record updated with execution outcomes, fallback markers, and escalation metadata.
+            decision (RoutingDecision): Mutable audit record updated with selected runtime, model/provider used, fallback and escalation details.
         
         Returns:
-            TaskResult: The successful execution result from the primary runtime, a fallback runtime, or a paid provider.
+            TaskResult: The successful execution result returned by the primary runtime, a fallback runtime, or a paid provider.
         
         Raises:
-            RuntimeUnavailableError: When no runtime succeeds, when paid escalation is disallowed by policy, when approval is required for paid escalation, or when paid escalation budget is exhausted.
-            RuntimePreflightError: If a runtime readiness check reports not ready during an attempted execution.
+            RuntimeUnavailableError: When no runtime succeeds, when paid escalation is disallowed by policy or requires approval, or when the daily paid-escalation budget is exhausted.
+            RuntimePreflightError: If any attempted runtime readiness check reports not ready during an attempted execution.
         """
         last_exec_error: str = ""
         try:

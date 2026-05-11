@@ -51,18 +51,36 @@ class DockerAgentAdapter(RuntimeAdapter):
     })
 
     def __init__(self, config: dict[str, Any] | None = None) -> None:
+        """
+        Initialize the adapter and resolve Docker image and network settings.
+        
+        Parameters:
+            config (dict[str, Any] | None): Optional configuration. Recognized keys:
+                - "image": Docker image to run for tasks.
+                - "network": Docker network to attach containers to.
+        
+        Behavior:
+            - Resolves the Docker image by using `config["image"]` if present, otherwise
+              the `AGENT_DOCKER_IMAGE` environment variable, otherwise
+              "local-llm-server-runtime:latest".
+            - Resolves the Docker network by using `config["network"]` if present,
+              otherwise the `AGENT_DOCKER_NETWORK` environment variable, otherwise "host".
+        
+        Side effects:
+            - Sets `self._image` and `self._network` accordingly.
+        """
         super().__init__(config)
         self._image = (config or {}).get("image") or os.environ.get("AGENT_DOCKER_IMAGE", "local-llm-server-runtime:latest")
         self._network = (config or {}).get("network") or os.environ.get("AGENT_DOCKER_NETWORK", "host")
 
     async def health_check(self) -> RuntimeHealth:
         """
-        Check whether the Docker runtime is available and report its health.
+        Check whether the Docker runtime is available for use.
         
-        Calls a preflight check for the `docker` executable on PATH and, if found, runs `docker version` to determine availability. Returns a RuntimeHealth with `available` set to True when the command succeeds; when the binary is missing or an error occurs, `available` is False and `error` contains a short message. On successful checks `details` includes the configured image under the `"image"` key.
+        Returns a RuntimeHealth where `available` is True if Docker is usable on the host; otherwise `available` is False and `error` contains an explanatory message. On success `details` includes `{"image": <configured image>}`.
         
         Returns:
-            RuntimeHealth: Health status for this runtime — `available` is True if Docker is usable, `False` otherwise; `details` contains `{"image": <image>}` on success, and `error` contains an explanatory string on failure.
+            RuntimeHealth: Health status for this runtime — `available` is True if Docker is usable, `False` otherwise; `details` contains `{"image": <image>}` on success and `error` contains an explanatory string on failure.
         """
         try:
             import shutil

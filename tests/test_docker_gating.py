@@ -12,19 +12,19 @@ async def test_docker_health_unavailable(monkeypatch):
     class FakeProc:
         def __init__(self):
             """
-            Initialize a fake subprocess result representing a failed Docker invocation.
+            Create a fake subprocess result that simulates a failed Docker invocation.
             
-            Sets:
-                returncode (int): Exit code 1 indicating failure.
-                _stdout (bytes): Empty standard output.
-                _stderr (bytes): Standard error bytes containing b"docker not found".
+            Sets the following attributes:
+            - returncode: 1 (indicates failure)
+            - _stdout: b"" (empty standard output)
+            - _stderr: b"docker not found" (standard error bytes)
             """
             self.returncode = 1
             self._stdout = b""
             self._stderr = b"docker not found"
         async def communicate(self):
             """
-            Provide captured stdout and stderr from the fake subprocess.
+            Return captured stdout and stderr from the fake subprocess.
             
             Returns:
                 tuple[bytes, bytes]: A tuple (stdout, stderr) containing the subprocess output and error streams as raw bytes.
@@ -35,10 +35,11 @@ async def test_docker_health_unavailable(monkeypatch):
         """
         Create and return a fake subprocess-like object that simulates a failed Docker process.
         
-        The function ignores any positional or keyword arguments.
+        This function ignores all positional and keyword arguments and returns a FakeProc instance whose
+        `returncode` is 1 and whose async `communicate()` method returns `(b'', b'docker not found')`.
         
         Returns:
-            FakeProc: A `FakeProc` instance with `returncode == 1` and an async `communicate()` that returns `(b'', b'docker not found')`.
+            FakeProc: A subprocess-like object representing a failed Docker invocation.
         """
         return FakeProc()
 

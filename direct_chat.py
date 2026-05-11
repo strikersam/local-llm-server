@@ -372,13 +372,13 @@ async def _handle_agent_mode(
     if not report.ready: raise HTTPException(status_code=412, detail=report.as_dict())
     async def _run_agent_job(heartbeat):
         """
-        Run the agent workflow for a queued job, emit progress heartbeats, persist the final assistant message to the direct chat store, and return the session envelope.
+        Execute a queued agent workflow, emit progress heartbeats, persist the final assistant message, and return a session envelope.
         
         Parameters:
-            heartbeat (Callable[[str, str], None]): Progress callback invoked with a phase identifier and a short status message (e.g., heartbeat("planning", "…")).
+            heartbeat (Callable[[str, str], None]): Callback invoked with a phase identifier and a short status message (e.g., heartbeat("planning", "…")) to report progress.
         
         Returns:
-            dict: An envelope containing `session_id` (str) and `response` (str) with the assistant's final message.
+            dict: Envelope with `session_id` (str) and `response` (str) containing the assistant's final message.
         """
         from agent.loop import AgentRunner
         heartbeat("planning", "Runtime preflight passed")
@@ -411,19 +411,19 @@ async def _handle_agent_mode(
 @direct_chat_router.get("/agent-jobs/{job_id}")
 async def get_agent_job(job_id: str):
     """
-    Retrieve the current status and a typed payload for the agent job identified by `job_id`.
+    Retrieve the typed status payload for the agent job identified by job_id.
     
     Parameters:
-        job_id (str): The unique identifier of the agent job.
+        job_id (str): Unique identifier of the agent job to query.
     
     Returns:
-        dict: A serialized job payload:
-            - If the job is running: fields from `RunningJob` (including `progress_events` and `workspace_path`).
-            - If the job succeeded: fields from `CompletedJob` (including `final_message` and `result`).
-            - If the job failed: fields from `FailedJob` (including `error`).
+        dict: Serialized job payload matching one of the agent.schemas response shapes:
+            - RunningJob fields when the job is running (includes `progress_events` and `workspace_path`).
+            - CompletedJob fields when the job succeeded (includes `final_message` and `result`).
+            - FailedJob fields otherwise (includes `error`).
     
     Raises:
-        HTTPException: Raised with status_code=404 if no job exists with the given `job_id`.
+        HTTPException: Raised with status_code=404 if no job exists with the given job_id.
     """
     job = _agent_jobs.get_job(job_id)
     if not job:

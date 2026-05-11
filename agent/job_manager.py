@@ -207,6 +207,13 @@ class AgentJobManager:
             asyncio.CancelledError: Re-raised when the running task is cancelled; the job will be marked cancelled before re-raising.
         """
         def heartbeat(phase: str, message: str) -> None:
+            """
+            Record a progress event for the current job with the given phase and message.
+            
+            Parameters:
+                phase (str): Short phase identifier (e.g., "starting", "completed", "failed").
+                message (str): Human-readable message describing the event.
+            """
             self._append_event(job.job_id, phase=phase, message=message)
 
         job.status = "running"

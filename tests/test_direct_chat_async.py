@@ -165,6 +165,15 @@ def test_agent_mode_github_preflight_missing_token(monkeypatch, tmp_path: Path):
     import shutil
     monkeypatch.setattr(shutil, "which", lambda name: "/usr/bin/git")
     async def fake_get_token(email):
+        """
+        Stub replacement for token lookup that accepts a user email and always returns no token.
+        
+        Parameters:
+            email (str): User email address to look up.
+        
+        Returns:
+            None: Indicates no token was found.
+        """
         return None
     monkeypatch.setattr(direct_chat, "_get_github_token_for_user", fake_get_token)
 
@@ -174,10 +183,10 @@ def test_agent_mode_github_preflight_missing_token(monkeypatch, tmp_path: Path):
         normalized_base_url = "http://localhost:11434"
         def auth_headers(self) -> dict[str, str]:
             """
-            Return HTTP authentication headers for the provider.
+            Provide HTTP authentication headers required by the provider.
             
             Returns:
-                dict[str, str]: Mapping of header names to header values; empty when no authentication headers are provided.
+                dict[str, str]: A mapping of header names to header values. Empty dict if no authentication is needed.
             """
             return {}
 
@@ -200,6 +209,11 @@ def test_agent_mode_github_preflight_missing_token(monkeypatch, tmp_path: Path):
 
 @pytest.mark.asyncio
 async def test_job_result_normalizes_and_exposes_final_message():
+    """
+    Verifies that AgentJobManager normalizes a job's final run summary into job.result["response"] and exposes it as as_dict()["final_message"].
+    
+    Creates a job, starts a runner that emits a heartbeat and returns a final textual summary, waits for the job to complete, and asserts the job succeeded and the final summary appears in both the job's result and its serialized representation.
+    """
     import asyncio
     from agent.job_manager import AgentJobManager
 
@@ -208,15 +222,13 @@ async def test_job_result_normalizes_and_exposes_final_message():
 
     async def runner(heartbeat):
         """
-        Reports an initial "planning" heartbeat and returns a final run summary.
-
+        Emit an initial "planning" heartbeat and produce a final run summary.
+        
         Parameters:
-            heartbeat (Callable[[str, str], None]): Function used to emit progress updates; called with a status and a message.
-
+            heartbeat (Callable[[str, str], None]): Function to emit progress updates; called with (status, message).
+        
         Returns:
-            dict: A result mapping with keys:
-                - "summary": final textual summary string,
-                - "steps": list of step records (empty list in this runner).
+            dict: Result with keys "summary" (final textual summary) and "steps" (list of step records).
         """
         heartbeat("planning", "planning")
         return {"summary": "Final textual summary", "steps": []}
@@ -237,6 +249,11 @@ async def test_job_result_normalizes_and_exposes_final_message():
 
 @pytest.mark.asyncio
 async def test_job_failure_structures_runtime_preflight(monkeypatch):
+    """
+    Validates that a runtime preflight failure raised during agent job execution is converted into a structured job error.
+    
+    Starts an AgentJobManager job whose runner immediately raises RuntimePreflightError and asserts the job transitions to "failed" with an error dict containing `"code": "runtime_preflight"` and a `"report"` key whose value is a dict.
+    """
     from runtimes.base import RuntimePreflightError, RuntimeReadinessReport
     mgr = AgentJobManager()
     job = mgr.create_job(session_id="s2", instruction="run git ops")
@@ -244,12 +261,13 @@ async def test_job_failure_structures_runtime_preflight(monkeypatch):
     class DummyReport:
         def __init__(self):
             """
-            Initialize a DummyReport representing an unavailable internal agent runtime.
+            Create a DummyReport representing an unavailable internal-agent runtime.
             
             Attributes:
                 runtime_id (str): Identifier of the runtime, set to "internal_agent".
-                ready (bool): Indicates readiness; set to False.
+                ready (bool): Readiness flag, set to False.
                 selected_runtime (str): Chosen runtime identifier, set to "internal_agent".
+                summary (str): Short explanation of the failure, set to "docker missing".
             """
             self.runtime_id = "internal_agent"
             self.ready = False
@@ -257,10 +275,13 @@ async def test_job_failure_structures_runtime_preflight(monkeypatch):
             self.summary = "docker missing"
         def as_dict(self):
             """
-            Return a dictionary representation of the readiness report.
+            Convert the readiness report to a plain dictionary.
             
             Returns:
-                dict: A mapping with keys `runtime_id` (str), `ready` (bool), and `summary` (str) describing the runtime readiness.
+                dict: Mapping with keys:
+                    - `runtime_id` (str): Identifier of the runtime.
+                    - `ready` (bool): Whether the runtime is ready.
+                    - `summary` (str): Human-readable summary of the readiness state.
             """
             return {"runtime_id": self.runtime_id, "ready": self.ready, "summary": "docker missing"}
 
@@ -270,11 +291,10 @@ async def test_job_failure_structures_runtime_preflight(monkeypatch):
         Simulated agent runner that immediately fails with a runtime preflight error.
         
         Parameters:
-            heartbeat (callable): Callback used to emit progress heartbeats (ignored by this simulated runner).
+            heartbeat (callable): Progress heartbeat callback; ignored by this simulated runner.
         
         Raises:
-            RuntimePreflightError: Indicates the runtime identified by `"internal_agent"` failed preflight;
-            the exception carries a report object describing the readiness failure.
+            RuntimePreflightError: Raised for runtime "internal_agent" and carrying a report that describes the readiness failure.
         """
         raise RuntimePreflightError("internal_agent", DummyReport())
 
