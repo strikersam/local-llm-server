@@ -37,13 +37,13 @@ PROVIDERS = {
 
 def tool_bash(cmd: str) -> str:
     """
-    Run a shell command and return its combined output, stderr, and exit code as a single string.
+    Execute a shell command and return its stdout, stderr, and exit code formatted into a single string.
     
     Parameters:
-    	cmd (str): Shell command to execute.
+        cmd (str): Shell command to execute.
     
     Returns:
-    	result (str): A string containing the command's stdout (truncated to the last 6000 characters), followed by "[stderr]" and the command's stderr (truncated to the last 2000 characters), and ending with "[exit N]" where N is the process exit code. If an exception occurs while running the command, returns a string in the format "[error: <exception>]".
+        str: The command's stdout (truncated to the last 6000 characters), followed by "[stderr]" and the command's stderr (truncated to the last 2000 characters), and ending with "[exit N]" where N is the process exit code. If an exception occurs, returns a string in the format "[error: <exception>]".
     """
     try:
         result = subprocess.run(cmd, shell=True, capture_output=True, text=True, timeout=120)
@@ -88,13 +88,13 @@ def tool_write_file(path: str, content: str) -> str:
 
 def tool_search(query: str) -> str:
     """
-    Searches the current directory recursively for lines matching the given regular expression and returns up to 50 matching lines.
+    Search the repository tree for lines matching a regular-expression query.
     
     Parameters:
-        query (str): A regular expression to search for (passed to grep -E).
+        query (str): Regular expression to search for.
     
     Returns:
-        str: The grep output limited to the first 50 matches; includes any stderr and the exit code appended, or an error string on failure.
+        str: Combined command output containing up to 50 matching lines; includes any stderr and an "[exit N]" exit-code suffix as produced by the underlying command, or an error string beginning with "[error:" on failure.
     """
     return tool_bash(f"grep -rnE '{query}' . | head -50")
 
@@ -122,14 +122,9 @@ SYSTEM = (
 
 def main() -> None:
     """
-    Run the agent loop that queries candidate models, executes requested tools, and produce a final result file.
+    Run the agent loop that queries candidate LLM models, executes requested tool calls, and writes a JSON result file.
     
-    The function iterates through CANDIDATE_MODELS (using provider configuration from PROVIDERS), sending system and user messages and allowing models to request tool calls defined in TOOLS. Tool calls are executed via TOOL_DISPATCH; bash tool outputs that run `pytest` update an internal `last_pytest_passed` flag when the output contains "[exit 0]". The run is marked successful only when an `IMPLEMENTATION_COMPLETE` signal is observed after tests have passed. The function writes a JSON summary to RESULT_FILE with keys "success" and "summary", and then exits the process with code 0 on success or 1 on failure.
-    
-    Side effects:
-    - May print error/status messages to stderr.
-    - Writes RESULT_FILE.
-    - Calls sys.exit(...) to terminate the process.
+    Iteratively queries models from CANDIDATE_MODELS using provider configs from PROVIDERS, appends model responses to the conversation, executes tool calls via TOOL_DISPATCH, and tracks pytest results from bash outputs. The run is marked successful only when an IMPLEMENTATION_COMPLETE signal is produced after pytest has passed. Writes a JSON summary {"success": ..., "summary": ...} to RESULT_FILE and terminates the process with exit code 0 on success or 1 on failure. Prints status and error messages to stderr as needed.
     """
     note_path = Path("/tmp/note_content.txt")
     url_content = note_path.read_text() if note_path.exists() else ""

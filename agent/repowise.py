@@ -9,10 +9,10 @@ from typing import List, Dict, Any, Optional
 class RepowiseIntelligence:
     def __init__(self, root: Path):
         """
-        Initialize the RepowiseIntelligence instance with the repository root.
+        Store the repository root path on the instance.
         
         Parameters:
-            root (Path | str): Filesystem path to the repository root; it is converted to a pathlib.Path and stored on the instance as `self.root`.
+            root (Path | str): Filesystem path to the repository root; converted to a `pathlib.Path` and assigned to `self.root`.
         """
         self.root = Path(root)
 
@@ -38,15 +38,13 @@ class RepowiseIntelligence:
 
     def get_repository_map(self, max_depth: int = 3) -> str:
         """
-        Builds a rendered directory/file tree for the repository rooted at self.root, limited to the specified depth.
-        
-        Attempts to list tracked files via `git ls-files`; if that fails, falls back to walking the filesystem (skipping paths that include `.git`, `__pycache__`, `.venv`, or `node_modules`). Files deeper than `max_depth` (counting path parts) are omitted. The returned string renders each directory or file as a line prefixed with `- ` and indentation representing hierarchy.
+        Builds a textual tree of files and directories under the repository root.
         
         Parameters:
-            max_depth (int): Maximum directory depth to include (root-level files count as depth 0).
+            max_depth (int): Maximum directory depth to include; root-level files count as depth 0.
         
         Returns:
-            str: Textual tree representation of the repository with one `- name` entry per file or directory, indented to show nesting.
+            str: A newline-separated tree where each entry is prefixed with `- ` and indented to indicate hierarchy.
         """
         try:
             cmd = ["git", "ls-files"]
@@ -96,7 +94,12 @@ class RepowiseIntelligence:
             return []
 
     def find_entry_points(self) -> List[str]:
-        """Guesses entry points based on file names and common patterns."""
+        """
+        Finds candidate repository entry point files by searching for common filenames in the repository root and its immediate subdirectories.
+        
+        Returns:
+            List[str]: Unique file paths, relative to the repository root, matching common entry-point filenames.
+        """
         entry_patterns = ["main.py", "app.py", "server.py", "proxy.py", "index.js", "index.ts", "run.sh", "Makefile"]
         found = []
         for pattern in entry_patterns:
@@ -251,16 +254,16 @@ class RepowiseIntelligence:
 
     def _get_dependencies(self, path: Path, include: List[str]) -> str:
         """
-        Collect dependency references for a source file, returning lines that list its callees and/or callers.
+        Collect dependency references for a source file as formatted callee and caller lines.
         
         Parameters:
-        	path (Path): Path to the source file to analyze (relative to the repository root).
-        	include (List[str]): List controlling which dependency types to include. Recognized values:
-        		- "callees": include imported modules found in the file as `- callee: <module>`.
-        		- "callers": include files that import this module as `- caller: <path>`.
+            path (Path): Path to the source file to analyze; interpreted relative to the repository root.
+            include (List[str]): Controls which dependency types to include. Recognized values:
+                - "callees": include imported modules as `  - callee: <module>`.
+                - "callers": include files that import this module as `  - caller: <path>`.
         
         Returns:
-        	deps (str): Newline-separated entries like `  - callee: <module>` and `  - caller: <path>`. Returns an empty string if no dependencies are found.
+            str: Newline-separated entries such as `  - callee: <module>` and `  - caller: <path>`. Returns an empty string if no dependencies are found.
         """
         deps = []
         rel_path = str(path.relative_to(self.root))
@@ -292,17 +295,17 @@ class RepowiseIntelligence:
 
     def _extract_symbol(self, path: Path, symbol: str, include: List[str]) -> str:
         """
-        Extracts the source block (class/function/variable declaration and its indented body) for a named symbol from a file.
+        Locate and extract the source declaration block for a named symbol from a file and return it as an XML-like element.
         
-        Searches the file for a declaration matching the given symbol (supports Python `class`, `def`, `async def`, JavaScript `function`, and `const|let|var` assignment patterns). If a match is found, returns an XML-like element containing the symbol name, the file path relative to the instance root, and the matched source lines (preserving internal blank lines but trimming trailing empty lines). If no match is found, returns a self-closing `<symbol ... status="not_found" />` element. On error, returns a self-closing `<symbol ... error="..."/>` element.
+        Searches the file for a top-level declaration matching the given symbol (supports Python declarations `class`, `def`, `async def` and common JavaScript declaration/assignment forms `function`, `const/let/var <name> =`). If found, returns an XML-like `<symbol>` element containing the symbol name, the file path relative to the instance root, and the declaration plus its indented body (internal blank lines preserved; trailing blank lines removed). If the symbol is not found, returns a self-closing `<symbol ... status="not_found" />` element. On error, returns a self-closing `<symbol ... error="..."/>` element.
         
         Parameters:
             path (Path): Path to the source file to search.
             symbol (str): The symbol name to locate.
-            include (List[str]): Unused in this extraction routine (accepted for interface compatibility).
+            include (List[str]): Ignored by this routine; accepted for interface compatibility.
         
         Returns:
-            str: An XML-like string:
+            str: One of:
                 - `<symbol name="..." path="...">...source...</symbol>` when the symbol is found;
                 - `<symbol name="..." path="..." status="not_found" />` when not found;
                 - `<symbol name="..." path="..." error="..."/>` on exception.
