@@ -179,6 +179,22 @@ class WorkspaceManager:
         out = self._git_pull(root, ref=ws.git_ref)
         return {"workspace_id": ws.workspace_id, "output": out}
 
+    async def validate_repo_ref(self, repo_url: str | None, repo_ref: str | None) -> dict[str, Any]:
+        issues = []
+        if repo_url:
+            try:
+                validate_outbound_url(repo_url, scheme="git")
+            except ValueError as e:
+                issues.append({"code": "invalid_repo_url", "message": str(e)})
+
+        if repo_ref:
+            try:
+                validate_git_ref(repo_ref)
+            except ValueError as e:
+                issues.append({"code": "invalid_repo_ref", "message": str(e)})
+
+        return {"ok": len(issues) == 0, "issues": issues}
+
     def _items(self) -> list[dict[str, Any]]:
         raw = self._store.load("workspaces")
         items = raw.get("items")

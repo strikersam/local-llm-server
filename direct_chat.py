@@ -89,6 +89,8 @@ class ChatSendRequest(BaseModel):
     agent_mode: bool = False
     metadata: dict[str, Any] | None = None
     allow_commercial_fallback_once: bool = False
+    repo_url: str | None = None
+    repo_ref: str | None = None
 
 
 async def _get_github_token_for_user(user_email: str) -> str | None:
@@ -181,7 +183,7 @@ async def _handle_regular_chat(
     )
     payload = {
         "messages": [{"role": "system", "content": system_prompt}] + history + [{"role": "user", "content": req.content}],
-        "model": req.model or "nemotron-3-super-120b-a12b",
+        "model": req.model or "nvidia/nemotron-3-super-120b-a12b",
         "stream": False,
     }
     if req.temperature is not None:
@@ -196,6 +198,9 @@ async def _handle_regular_chat(
                     break
         if provider: result = await ProviderRouter([provider]).chat_completion(payload)
         else: result = await router.chat_completion(payload)
+        if not hasattr(result, "response"):
+            log.error(f"Provider response object missing response: {type(result)}")
+            raise HTTPException(status_code=500, detail="Invalid provider response format")
         assistant_message = result.response.json()["choices"][0]["message"]["content"]
         _direct_chat_store.append_message(session_id, "user", req.content)
         _direct_chat_store.append_message(session_id, "assistant", assistant_message)
@@ -218,6 +223,12 @@ async def _handle_agent_mode(
     else:
         session_id = str(uuid.uuid4())
         history = []
+    # Preflight validation for repo_ref/repo_url
+    ws_mgr = request.app.state.webui_workspaces
+    validation = await ws_mgr.validate_repo_ref(req.repo_url, req.repo_ref)
+    if not validation["ok"]:
+        raise HTTPException(status_code=412, detail={"ready": False, "issues": validation["issues"]})
+
     _ensure_session(session_id, user)
     _direct_chat_store.append_message(session_id, "user", req.content)
     github_token = await _get_github_token_for_user(user.email)

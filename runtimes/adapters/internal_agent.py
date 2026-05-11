@@ -27,7 +27,7 @@ from runtimes.base import (
 
 # Nvidia NIM endpoint — OpenAI-compatible, free tier
 _NVIDIA_BASE_URL = "https://integrate.api.nvidia.com/v1"
-_NVIDIA_DEFAULT_MODEL = "meta/llama-3.3-70b-instruct"
+_NVIDIA_DEFAULT_MODEL = "nvidia/nemotron-3-super-120b-a12b"
 
 
 def _nvidia_provider_chain() -> list[ProviderConfig]:
