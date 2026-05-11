@@ -40,9 +40,24 @@ class _StubAdapter(RuntimeAdapter):
     })
 
     async def health_check(self) -> RuntimeHealth:
+        """
+        Report this adapter's health as available.
+        
+        Returns:
+            RuntimeHealth: An object containing this adapter's `runtime_id` and `available=True`.
+        """
         return RuntimeHealth(runtime_id=self.RUNTIME_ID, available=True)
 
     async def execute(self, spec: TaskSpec) -> TaskResult:
+        """
+        Execute the given task specification and return a successful TaskResult from this adapter.
+        
+        Parameters:
+            spec (TaskSpec): Task specification whose `task_id` will be propagated into the result.
+        
+        Returns:
+            TaskResult: A successful result with `runtime_id` set to this adapter's `RUNTIME_ID`, `task_id` taken from `spec.task_id`, `success` equal to `True`, and `output` equal to `"ok"`.
+        """
         return TaskResult(
             runtime_id=self.RUNTIME_ID,
             task_id=spec.task_id,
@@ -64,9 +79,24 @@ class _AltAdapter(RuntimeAdapter):
     })
 
     async def health_check(self) -> RuntimeHealth:
+        """
+        Report this adapter's health as available.
+        
+        Returns:
+            RuntimeHealth: An object containing this adapter's `runtime_id` and `available=True`.
+        """
         return RuntimeHealth(runtime_id=self.RUNTIME_ID, available=True)
 
     async def execute(self, spec: TaskSpec) -> TaskResult:
+        """
+        Execute the given task spec and return a successful TaskResult for the alternative adapter.
+        
+        Parameters:
+            spec (TaskSpec): Task specification; `task_id` from this spec will be used in the result.
+        
+        Returns:
+            TaskResult: A successful result with `runtime_id` set to this adapter's `RUNTIME_ID`, `task_id` copied from `spec.task_id`, `success` true, and `output` set to "alt ok".
+        """
         return TaskResult(
             runtime_id=self.RUNTIME_ID,
             task_id=spec.task_id,
@@ -76,6 +106,16 @@ class _AltAdapter(RuntimeAdapter):
 
 
 def _make_engine(adapters, availability_map: dict[str, bool]) -> RuntimeRoutingPolicyEngine:
+    """
+    Create a RuntimeRoutingPolicyEngine populated with the provided adapters and a deterministic health cache for tests.
+    
+    Parameters:
+        adapters (iterable[RuntimeAdapter]): Adapter classes to register with the engine's capability registry.
+        availability_map (dict[str, bool]): Mapping from adapter RUNTIME_ID to its seeded availability; if an ID is missing, availability defaults to True.
+    
+    Returns:
+        RuntimeRoutingPolicyEngine: Engine whose registry contains the provided adapters, whose RuntimeHealthService cache is seeded according to availability_map, and whose RoutingPolicy is configured with never_use_paid_providers=True.
+    """
     registry = RuntimeCapabilityRegistry()
     for adapter in adapters:
         registry.register(adapter)
@@ -104,6 +144,11 @@ def test_pick_runtime_returns_tuple():
 
 
 def test_pick_runtime_returns_adapter_when_available():
+    """
+    Verifies that _pick_runtime selects and returns the registered adapter when its health indicates it is available.
+    
+    The test seeds the engine's health cache with the stub adapter marked available and asserts the returned adapter is the same stub instance.
+    """
     stub = _StubAdapter()
     engine = _make_engine([stub], {stub.RUNTIME_ID: True})
     adapter, candidates_info = engine._pick_runtime("code_generation", None)

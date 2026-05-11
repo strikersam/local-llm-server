@@ -104,6 +104,9 @@ class TestCompletedJob:
 
 class TestFailedJob:
     def test_valid_with_error(self):
+        """
+        Validates that a FailedJob constructed with an error dictionary preserves the error code.
+        """
         job = FailedJob(
             job_id="j3",
             session_id="s3",
@@ -128,6 +131,9 @@ class TestFailedJob:
 
 class TestAgentJobEnvelope:
     def test_envelope_with_only_accepted(self):
+        """
+        Verifies that an AgentJobEnvelope created with only an AcceptedJob stores the accepted job and leaves running, completed, and failed set to None.
+        """
         accepted = AcceptedJob(
             session_id="s", job_id="j", status="queued", phase="queued",
             message="queued",

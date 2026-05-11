@@ -52,22 +52,17 @@ class DockerAgentAdapter(RuntimeAdapter):
 
     def __init__(self, config: dict[str, Any] | None = None) -> None:
         """
-        Initialize the adapter and resolve Docker image and network settings.
+        Initialize the adapter and resolve the Docker image and network to use for task containers.
         
         Parameters:
             config (dict[str, Any] | None): Optional configuration. Recognized keys:
-                - "image": Docker image to run for tasks.
-                - "network": Docker network to attach containers to.
-        
-        Behavior:
-            - Resolves the Docker image by using `config["image"]` if present, otherwise
-              the `AGENT_DOCKER_IMAGE` environment variable, otherwise
-              "local-llm-server-runtime:latest".
-            - Resolves the Docker network by using `config["network"]` if present,
-              otherwise the `AGENT_DOCKER_NETWORK` environment variable, otherwise "host".
+                - "image": Docker image to run for tasks; falls back to the `AGENT_DOCKER_IMAGE`
+                  environment variable, then to "local-llm-server-runtime:latest".
+                - "network": Docker network to attach containers to; falls back to the
+                  `AGENT_DOCKER_NETWORK` environment variable, then to "host".
         
         Side effects:
-            - Sets `self._image` and `self._network` accordingly.
+            Sets `self._image` and `self._network` based on the resolved configuration.
         """
         super().__init__(config)
         self._image = (config or {}).get("image") or os.environ.get("AGENT_DOCKER_IMAGE", "local-llm-server-runtime:latest")
@@ -75,12 +70,12 @@ class DockerAgentAdapter(RuntimeAdapter):
 
     async def health_check(self) -> RuntimeHealth:
         """
-        Check whether the Docker runtime is available for use.
+        Determine whether the Docker runtime is available on the host.
         
-        Returns a RuntimeHealth where `available` is True if Docker is usable on the host; otherwise `available` is False and `error` contains an explanatory message. On success `details` includes `{"image": <configured image>}`.
+        Checks that the `docker` executable exists on PATH and that `docker version` runs successfully. On success `details` includes `{"image": <configured image>}`.
         
         Returns:
-            RuntimeHealth: Health status for this runtime — `available` is True if Docker is usable, `False` otherwise; `details` contains `{"image": <image>}` on success and `error` contains an explanatory string on failure.
+            RuntimeHealth: `available` is `True` if Docker is usable, `False` otherwise. On failure `error` contains an explanatory message; on success `details` contains `{"image": <image>}`.
         """
         try:
             import shutil

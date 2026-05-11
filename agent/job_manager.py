@@ -195,20 +195,18 @@ class AgentJobManager:
         runner: Callable[[Callable[[str, str], None]], Awaitable[dict[str, Any]]],
     ) -> None:
         """
-        Run a job using the provided runner and update the job's lifecycle state and progress events.
-        
-        This coroutine executes `runner`, providing it a heartbeat callback to record progress. On success it normalizes the runner's output into `job.result` (a dict with `response` and `raw`), sets the job status to succeeded, and appends a completion event. On failure it sets `job.error` with structured failure details when available, marks the job as failed, and appends a failure event. The job's timing fields (`updated_at`, `heartbeat_at`) and `phase` are updated throughout. If a workspace manager is configured and the job has a workspace, the workspace is finalized according to the job outcome.
+        Execute a job runner, record progress events and timing, normalize the runner's output into `job.result`, and finalize job status and workspace according to the outcome.
         
         Parameters:
-            job (AgentJob): The job record to update.
-            runner (Callable[[Callable[[str, str], None]], Awaitable[dict[str, Any]]]): Async callable invoked to perform the job. It receives a heartbeat callback (phase, message) that the runner may call to emit progress events. The runner's return value is preserved under `job.result["raw"]`; a canonical message is placed under `job.result["response"]` when possible.
+            job (AgentJob): Job record to update in-place.
+            runner (Callable[[Callable[[str, str], None]], Awaitable[dict[str, Any]]]): Async callable invoked to perform the job. It receives a heartbeat callback (phase, message) the runner can call to emit progress events. The runner's raw return value is preserved as `job.result["raw"]`; a canonical message (when available) is placed in `job.result["response"]`.
         
         Raises:
-            asyncio.CancelledError: Re-raised when the running task is cancelled; the job will be marked cancelled before re-raising.
+            asyncio.CancelledError: Re-raised when the task is cancelled after the job is marked cancelled.
         """
         def heartbeat(phase: str, message: str) -> None:
             """
-            Record a progress event for the current job with the given phase and message.
+            Append a progress event to the current job using the provided phase and message.
             
             Parameters:
                 phase (str): Short phase identifier (e.g., "starting", "completed", "failed").

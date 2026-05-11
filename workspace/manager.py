@@ -257,16 +257,15 @@ class WorkspaceManager:
 
     async def repo_access_preflight(self, repo_url: str, token: str | None = None, timeout: int = 8) -> dict[str, object]:
         """
-        Checks access to a remote Git repository using `git ls-remote --heads`.
-
-        Parameters:
-        	repo_url (str): Repository URL to check.
-        	token (str | None): Optional token to inject into HTTPS URLs for authentication.
-        	timeout (int): Operation timeout in seconds.
-
+        Check whether the current process can access the given Git repository by running `git ls-remote --heads`.
+        
         Returns:
-        	result (dict[str, object]): `{'ok': True, 'error': None}` when access succeeds;
-        	`{'ok': False, 'error': <message>}` when access fails or an error occurs.
+            dict[str, object]: `{"ok": True, "error": None}` if the command succeeds; otherwise `{"ok": False, "error": <message>}` where `<message>` may be `"no_repo_url"`, `"timeout"`, a truncated stderr string, or the stringified exception.
+        
+        Parameters:
+            repo_url (str): Repository URL to check.
+            token (str | None): Optional token injected into HTTPS URLs as credentials when provided.
+            timeout (int): Maximum time in seconds to wait for the `git ls-remote` command.
         """
         if not repo_url or not isinstance(repo_url, str):
             return {"ok": False, "error": "no_repo_url"}
@@ -298,18 +297,19 @@ class WorkspaceManager:
 
     def validate_repo_ref(self, repo_url: str, ref: str, token: str | None = None, timeout: int = 8) -> dict[str, object]:
         """
-        Determine whether the given Git ref or branch exists in the remote repository.
+        Check whether the specified Git ref (branch or ref pattern) exists in the remote repository.
         
         Parameters:
-            repo_url (str): Remote repository URL (HTTPS or other git remote formats).
-            ref (str): Reference name to check (branch or ref pattern).
-            token (str | None): Optional personal access token injected into HTTPS URLs for authentication.
-            timeout (int): Command timeout in seconds for the git subprocess.
+            repo_url (str): Remote repository URL.
+            ref (str): Reference name to check (e.g., branch name).
+            token (str | None): Optional token injected into HTTPS URLs for authentication.
+            timeout (int): Subprocess timeout in seconds when querying the remote.
         
         Returns:
-            dict[str, object]: A result mapping with keys:
+            dict[str, object]: Result mapping with keys:
                 - "ok": `True` if the ref was found, `False` otherwise.
-                - "error": `None` when found; otherwise an error message or `"ref_not_found"`.
+                - "error": `None` when found; otherwise an error string such as
+                  "missing_repo_or_ref", "ref_not_found", or a subprocess/error message.
         """
         if not repo_url or not ref:
             return {"ok": False, "error": "missing_repo_or_ref"}
@@ -376,12 +376,12 @@ class WorkspaceManager:
 
     def dry_clone_preflight(self, repo_url: str, token: str | None = None, timeout: int = 20) -> dict[str, object]:
         """
-        Validate repository access by performing a shallow, non-checkout clone when lighter checks are insufficient.
+        Perform a non-destructive shallow clone to validate access to a repository.
         
-        This performs a temporary shallow clone and removes any created files; use only if simpler preflight checks (e.g., ls-remote) are not adequate.
+        This attempts a temporary shallow clone (no full checkout) and removes any created files; use for access validation when lighter checks are insufficient.
         
         Returns:
-            dict[str, object]: `ok` is `True` if access is validated, `False` otherwise; `error` is an error message string or `None`.
+            dict[str, object]: `ok` is `True` if repository access was validated, `False` otherwise; `error` is an error message string or `None`.
         """
         try:
             from workspace.dry_clone import dry_clone_repo

@@ -207,7 +207,16 @@ function ThinkingBubble({ elapsed, agentMode }) {
   );
 }
 
-// ── ModelPickerModal ──────────────────────────────────────────────────────────
+/**
+ * Modal that lets the user pick a provider and one of its models.
+ *
+ * @param {Array<{provider_id: string, name: string}>} providers - Available providers to choose from.
+ * @param {(providerId: string, model: string) => void} onConfirm - Called when the user confirms selection with the chosen provider id and model name.
+ * @param {() => void} onClose - Called to close the modal without making a selection.
+ * @param {string} [initialProvider] - Optional provider id to preselect when the modal opens.
+ * @param {string} [initialModel] - Optional model name to preselect when the modal opens.
+ * @returns {JSX.Element} The rendered provider/model picker modal.
+ */
 function ModelPickerModal({ providers, onConfirm, onClose, initialProvider, initialModel }) {
   const [pickerProvider, setPickerProvider] = useState(initialProvider || providers[0]?.provider_id || '');
   const [pickerModels,   setPickerModels]   = useState([]);

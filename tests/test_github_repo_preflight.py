@@ -31,10 +31,10 @@ def test_repo_access_preflight_fails_when_git_ls_remote_fails(monkeypatch, tmp_p
     # Return a token
     async def fake_get_token(email):
         """
-        Return a fake GitHub personal access token for the given email.
+        Provide a fake GitHub personal access token for the given email.
         
         Parameters:
-            email (str): User email address (unused; present to match production signature)
+            email (str): User email address; unused but kept to match the production signature.
         
         Returns:
             str: The placeholder token 'ghp_FAKE'.
@@ -46,17 +46,15 @@ def test_repo_access_preflight_fails_when_git_ls_remote_fails(monkeypatch, tmp_p
     from workspace.manager import WorkspaceManager
     async def fake_repo_access(self, repo_url, token=None, timeout=8):
         """
-        Simulates a repository access preflight that fails due to authentication.
+        Simulate a repository access preflight that always fails with an authentication error.
         
         Parameters:
-            repo_url (str): URL of the repository to check.
-            token (str | None): Optional authentication token used for access.
+            repo_url (str): Repository URL to check.
+            token (str | None): Optional authentication token.
             timeout (int): Timeout in seconds for the preflight check.
         
         Returns:
-            dict: A result object with keys:
-                - `ok` (bool): Always `False`.
-                - `error` (str): Error message describing the failure ("fatal: Authentication failed").
+            dict: Result with `ok` set to False and `error` set to "fatal: Authentication failed".
         """
         return {"ok": False, "error": "fatal: Authentication failed"}
     monkeypatch.setattr(WorkspaceManager, "repo_access_preflight", fake_repo_access)

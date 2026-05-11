@@ -9,7 +9,7 @@ from agent.job_manager import AgentJobManager
 
 def _fake_user():
     """
-    Provide a fixed test user for authentication overrides used in integration tests.
+    Provide a fixed test user used to override authentication in integration tests.
     
     Returns:
         direct_chat.UserInfo: A UserInfo with id "u1" and email "refpath-tester@example.com".
@@ -31,10 +31,10 @@ def test_repo_ref_preflight_fails(monkeypatch, tmp_path: Path):
     monkeypatch.setattr(shutil, "which", lambda name: "/usr/bin/git")
     async def fake_get_token(email):
         """
-        Provide a fixed GitHub token for tests.
+        Return a fixed GitHub token used by tests.
         
         Parameters:
-            email (str): The user's email (ignored by this test helper).
+            email (str): Ignored; included to match the real function signature.
         
         Returns:
             str: The fake GitHub token "ghp_FAKE".
@@ -46,15 +46,15 @@ def test_repo_ref_preflight_fails(monkeypatch, tmp_path: Path):
     from workspace.manager import WorkspaceManager
     async def fake_validate_ref(self, repo, ref, token=None):
         """
-        Simulated repository-ref validation that always reports the ref as missing.
+        Report that the given repository ref does not exist.
         
         Parameters:
-            repo (str): Repository URL or identifier to validate.
-            ref (str): Branch, tag, or commit reference to validate.
-            token (Optional[str]): Optional access token used for validation; ignored.
+            repo (str): Repository URL or identifier.
+            ref (str): Branch, tag, or commit reference.
+            token (Optional[str]): Ignored access token.
         
         Returns:
-            dict: `{'ok': False, 'error': 'ref_not_found'}` indicating the requested ref was not found.
+            dict: `{'ok': False, 'error': 'ref_not_found'}` indicating the ref was not found.
         """
         return {"ok": False, "error": "ref_not_found"}
     monkeypatch.setattr(WorkspaceManager, "validate_repo_ref", fake_validate_ref)
@@ -72,6 +72,11 @@ def test_repo_ref_preflight_fails(monkeypatch, tmp_path: Path):
 
 
 def test_repo_path_preflight_fails(monkeypatch, tmp_path: Path):
+    """
+    Verifies that the agent-mode `POST /api/chat/send` endpoint rejects requests when repository path preflight validation fails.
+    
+    Sets up the test environment to force `validate_repo_path` to fail, sends a request containing `repo_url`, `repo_ref`, and a non-existent `repo_path`, and asserts the endpoint responds with HTTP 412. Confirms the response `detail` object has `ready` equal to False and that one of the reported issue `code` values is `"git_repo_path"`.
+    """
     monkeypatch.setattr(direct_chat, "_direct_chat_store", AgentSessionStore(db_path=str(tmp_path / "chat_path.db")))
     monkeypatch.setattr(direct_chat, "_agent_jobs", AgentJobManager())
     proxy.app.dependency_overrides[direct_chat._get_current_user] = _fake_user
@@ -80,13 +85,15 @@ def test_repo_path_preflight_fails(monkeypatch, tmp_path: Path):
     monkeypatch.setattr(shutil, "which", lambda name: "/usr/bin/git")
     async def fake_get_token_2(email):
         """
-        Return a fake GitHub token for the given user email.
+        Provide a fixed fake GitHub token for testing.
+        
+        This stub ignores the input email and always returns the same token.
         
         Parameters:
-            email (str): User email address for which the token is requested; ignored by this stub.
+            email (str): User email address (ignored by this stub).
         
         Returns:
-            str: A fixed fake GitHub token ("ghp_FAKE").
+            str: Fixed fake GitHub token "ghp_FAKE".
         """
         return "ghp_FAKE"
     monkeypatch.setattr(direct_chat, "_get_github_token_for_user", fake_get_token_2)
@@ -94,17 +101,10 @@ def test_repo_path_preflight_fails(monkeypatch, tmp_path: Path):
     from workspace.manager import WorkspaceManager
     async def fake_validate_path(self, repo, ref, path, token=None):
         """
-        Force-fails repository path validation and returns an HTTP 404-style failure payload.
-        
-        Parameters:
-            self: The WorkspaceManager instance (unused).
-            repo (str): Repository URL or identifier to validate.
-            ref (str): Git ref (branch, tag, or commit) to validate against.
-            path (str): Repository path to validate.
-            token (Optional[str]): Optional access token used for validation.
+        Force-fails repository path validation to simulate an HTTP 404 error.
         
         Returns:
-            dict: A failure payload: `{"ok": False, "error": "http_404"}`.
+            dict: Failure payload `{'ok': False, 'error': 'http_404'}`.
         """
         return {"ok": False, "error": "http_404"}
     monkeypatch.setattr(WorkspaceManager, "validate_repo_path", fake_validate_path)

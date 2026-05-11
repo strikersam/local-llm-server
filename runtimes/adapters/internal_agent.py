@@ -106,12 +106,14 @@ class InternalAgentAdapter(RuntimeAdapter):
 
     def required_dependencies(self) -> list[RuntimeDependency]:
         """
-        Return runtime dependencies required by this adapter.
+        Determine required runtime dependencies for this adapter.
         
-        If the adapter's configuration indicates a task harness is required, returns a list containing a RuntimeDependency for the harness (name "task-harness" and config var "TASK_HARNESS_BIN"); otherwise returns an empty list.
+        When the adapter is configured to require a task harness, returns a single
+        RuntimeDependency describing the harness (name "task-harness", config_var
+        "TASK_HARNESS_BIN", and an install hint). Otherwise returns an empty list.
         
         Returns:
-            list[RuntimeDependency]: The list of required runtime dependencies; empty when no external dependencies are needed.
+            list[RuntimeDependency]: Required runtime dependencies, or an empty list if none.
         """
         if not self._task_harness_required:
             return []
@@ -127,10 +129,10 @@ class InternalAgentAdapter(RuntimeAdapter):
         """
         Check whether the internal agent runtime is available and which provider will be used.
         
-        Performs a quick configuration check: if an NVIDIA API key is present, reports the runtime as available and the provider as "nvidia-nim"; otherwise performs a short HTTP probe of the local Ollama endpoint and reports availability based on the probe result, using provider "ollama" when reachable.
+        Performs a configuration check: if an NVIDIA API key is configured, reports the runtime as available and the provider as "nvidia-nim"; otherwise performs a short HTTP probe of the local Ollama base URL and reports availability with provider "ollama" when the probe succeeds.
         
         Returns:
-            RuntimeHealth: Availability result. On success `details` contains `workspace_root` and `provider`; when Ollama was probed `details` also includes `probe_url`. On failure `available` is `False` and `error` is set to "Local Ollama not reachable".
+            RuntimeHealth: Health result where `available` indicates reachability. On success `details` contains `workspace_root` and `provider`; when Ollama is probed `details` also includes `probe_url`. On failure `available` is `False` and `error` is set to "Local Ollama not reachable".
         """
         nvidia_key = (
             os.environ.get("NVIDIA_API_KEY")

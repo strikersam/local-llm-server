@@ -166,13 +166,12 @@ def test_agent_mode_github_preflight_missing_token(monkeypatch, tmp_path: Path):
     monkeypatch.setattr(shutil, "which", lambda name: "/usr/bin/git")
     async def fake_get_token(email):
         """
-        Stub replacement for token lookup that accepts a user email and always returns no token.
+        Always indicate that no token exists for the provided email.
         
-        Parameters:
-            email (str): User email address to look up.
+        This test stub simulates a token lookup that never finds a token.
         
         Returns:
-            None: Indicates no token was found.
+            None: No token found for the provided email.
         """
         return None
     monkeypatch.setattr(direct_chat, "_get_github_token_for_user", fake_get_token)
@@ -186,7 +185,7 @@ def test_agent_mode_github_preflight_missing_token(monkeypatch, tmp_path: Path):
             Provide HTTP authentication headers required by the provider.
             
             Returns:
-                dict[str, str]: A mapping of header names to header values. Empty dict if no authentication is needed.
+                dict: Mapping of header names to header values. Empty dict if no authentication is needed.
             """
             return {}
 
@@ -261,13 +260,15 @@ async def test_job_failure_structures_runtime_preflight(monkeypatch):
     class DummyReport:
         def __init__(self):
             """
-            Create a DummyReport representing an unavailable internal-agent runtime.
+            Initialize a DummyReport describing an unavailable internal-agent runtime.
+            
+            Sets attributes that represent a runtime readiness failure.
             
             Attributes:
-                runtime_id (str): Identifier of the runtime, set to "internal_agent".
-                ready (bool): Readiness flag, set to False.
-                selected_runtime (str): Chosen runtime identifier, set to "internal_agent".
-                summary (str): Short explanation of the failure, set to "docker missing".
+                runtime_id (str): Identifier of the runtime; "internal_agent".
+                ready (bool): Readiness flag; False.
+                selected_runtime (str): Chosen runtime identifier; "internal_agent".
+                summary (str): Short explanation of the failure; "docker missing".
             """
             self.runtime_id = "internal_agent"
             self.ready = False
@@ -275,26 +276,26 @@ async def test_job_failure_structures_runtime_preflight(monkeypatch):
             self.summary = "docker missing"
         def as_dict(self):
             """
-            Convert the readiness report to a plain dictionary.
+            Return this readiness report as a plain dictionary.
             
             Returns:
-                dict: Mapping with keys:
-                    - `runtime_id` (str): Identifier of the runtime.
-                    - `ready` (bool): Whether the runtime is ready.
-                    - `summary` (str): Human-readable summary of the readiness state.
+                dict: Dictionary with keys:
+                    - runtime_id (str): Identifier of the runtime.
+                    - ready (bool): Whether the runtime is ready.
+                    - summary (str): Human-readable summary of the readiness state.
             """
             return {"runtime_id": self.runtime_id, "ready": self.ready, "summary": "docker missing"}
 
     async def runner(heartbeat):
         # Simulate runtime preflight failure thrown during execution
         """
-        Simulated agent runner that immediately fails with a runtime preflight error.
+        Simulated agent runner that immediately raises a runtime preflight error for the "internal_agent" runtime.
         
         Parameters:
             heartbeat (callable): Progress heartbeat callback; ignored by this simulated runner.
         
         Raises:
-            RuntimePreflightError: Raised for runtime "internal_agent" and carrying a report that describes the readiness failure.
+            RuntimePreflightError: Raised for runtime "internal_agent" with a report describing the readiness failure.
         """
         raise RuntimePreflightError("internal_agent", DummyReport())
 

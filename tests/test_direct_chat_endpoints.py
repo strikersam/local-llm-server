@@ -22,6 +22,12 @@ from runtimes.base import RuntimeReadinessReport
 
 
 def _fake_user() -> direct_chat.UserInfo:
+    """
+    Create a fixed test UserInfo used by endpoint tests.
+    
+    Returns:
+        direct_chat.UserInfo: A UserInfo with id "u-ep" and email "endpoints-tester@example.com".
+    """
     return direct_chat.UserInfo(id="u-ep", email="endpoints-tester@example.com")
 
 
@@ -132,6 +138,12 @@ def test_agent_mode_response_has_accepted_job_shape(monkeypatch, tmp_path: Path)
         api_key = None
         normalized_base_url = "http://localhost:11434"
         def auth_headers(self):
+            """
+            Return authentication headers to include in HTTP requests.
+            
+            Returns:
+                dict: Mapping of HTTP header names to values. Empty dict when no authentication is configured.
+            """
             return {}
 
     class _FakeRouter:
@@ -140,14 +152,40 @@ def test_agent_mode_response_has_accepted_job_shape(monkeypatch, tmp_path: Path)
     monkeypatch.setattr(proxy.app.state, "PROVIDER_ROUTER", _FakeRouter(), raising=False)
 
     async def fake_readiness(self, spec):
+        """
+        Report readiness for the internal agent runtime.
+        
+        Parameters:
+            spec: Ignored runtime specification.
+        
+        Returns:
+            RuntimeReadinessReport: A report with `runtime_id` set to "internal_agent", `ready` set to True, and `selected_runtime` set to "internal_agent".
+        """
         return RuntimeReadinessReport(
             runtime_id="internal_agent", ready=True, selected_runtime="internal_agent"
         )
 
     class FakeRunner:
         def __init__(self, **kwargs):
+            """
+            Initialize a new instance.
+            
+            Parameters:
+                **kwargs: Arbitrary keyword arguments accepted for compatibility; this initializer does not use them.
+            """
             pass
         async def run(self, **kwargs):
+            """
+            Run the agent runner and produce its final result payload.
+            
+            Parameters:
+                **kwargs: Arbitrary runner options and context passed through to the runner.
+            
+            Returns:
+                result (dict): Payload containing:
+                    - "response" (str): Final textual response produced by the runner.
+                    - "steps" (list): List of execution step records (empty list when no steps).
+            """
             return {"response": "done", "steps": []}
 
     monkeypatch.setattr(
@@ -158,6 +196,15 @@ def test_agent_mode_response_has_accepted_job_shape(monkeypatch, tmp_path: Path)
 
     # Patch out github token so preflight doesn't block (content has no repo keywords)
     async def fake_get_token(email):
+        """
+        Simulate a GitHub token lookup in tests where no token is available.
+        
+        Parameters:
+            email (str): User email to query for a token; ignored by this fake implementation.
+        
+        Returns:
+            None: Indicates that no token was found.
+        """
         return None
     monkeypatch.setattr(direct_chat, "_get_github_token_for_user", fake_get_token)
 
@@ -194,6 +241,15 @@ def test_agent_mode_missing_git_binary_preflight_error(monkeypatch, tmp_path: Pa
     monkeypatch.setattr(shutil, "which", lambda name: None)  # no git, no docker
 
     async def fake_get_token(email):
+        """
+        Simulate a token lookup that always yields no token for the given user email.
+        
+        Parameters:
+            email (str): User email whose token would be looked up.
+        
+        Returns:
+            None: Indicates no token is available.
+        """
         return None  # no token either
     monkeypatch.setattr(direct_chat, "_get_github_token_for_user", fake_get_token)
 
@@ -227,6 +283,15 @@ def test_agent_mode_multiple_preflight_issues(monkeypatch, tmp_path: Path):
     monkeypatch.setattr(shutil, "which", lambda name: None)
 
     async def fake_get_token(email):
+        """
+        Simulate a GitHub token lookup in tests where no token is available.
+        
+        Parameters:
+            email (str): User email to query for a token; ignored by this fake implementation.
+        
+        Returns:
+            None: Indicates that no token was found.
+        """
         return None
     monkeypatch.setattr(direct_chat, "_get_github_token_for_user", fake_get_token)
 
@@ -263,6 +328,12 @@ def test_non_git_content_skips_github_preflight(monkeypatch, tmp_path: Path):
         api_key = None
         normalized_base_url = "http://localhost:11434"
         def auth_headers(self):
+            """
+            Return authentication headers to include in HTTP requests.
+            
+            Returns:
+                dict: Mapping of HTTP header names to values. Empty dict when no authentication is configured.
+            """
             return {}
 
     class _FakeRouter:
@@ -271,14 +342,40 @@ def test_non_git_content_skips_github_preflight(monkeypatch, tmp_path: Path):
     monkeypatch.setattr(proxy.app.state, "PROVIDER_ROUTER", _FakeRouter(), raising=False)
 
     async def fake_readiness(self, spec):
+        """
+        Report readiness for the internal agent runtime.
+        
+        Parameters:
+            spec: Ignored runtime specification.
+        
+        Returns:
+            RuntimeReadinessReport: A report with `runtime_id` set to "internal_agent", `ready` set to True, and `selected_runtime` set to "internal_agent".
+        """
         return RuntimeReadinessReport(
             runtime_id="internal_agent", ready=True, selected_runtime="internal_agent"
         )
 
     class FakeRunner:
         def __init__(self, **kwargs):
+            """
+            Initialize a new instance.
+            
+            Parameters:
+                **kwargs: Arbitrary keyword arguments accepted for compatibility; this initializer does not use them.
+            """
             pass
         async def run(self, **kwargs):
+            """
+            Run a fake agent execution that returns a canned summary and an empty step list.
+            
+            Parameters:
+                **kwargs: Ignored. Accepts arbitrary keyword arguments for compatibility.
+            
+            Returns:
+                dict: A result object with keys:
+                    - "response" (str): A short summary message.
+                    - "steps" (list): A list of execution step records (empty in this implementation).
+            """
             return {"response": "Summarized.", "steps": []}
 
     monkeypatch.setattr(
@@ -288,6 +385,15 @@ def test_non_git_content_skips_github_preflight(monkeypatch, tmp_path: Path):
     monkeypatch.setattr("agent.loop.AgentRunner", FakeRunner)
 
     async def fake_get_token(email):
+        """
+        Simulate a GitHub token lookup in tests where no token is available.
+        
+        Parameters:
+            email (str): User email to query for a token; ignored by this fake implementation.
+        
+        Returns:
+            None: Indicates that no token was found.
+        """
         return None
     monkeypatch.setattr(direct_chat, "_get_github_token_for_user", fake_get_token)
 

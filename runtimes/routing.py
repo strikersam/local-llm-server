@@ -240,12 +240,12 @@ class RuntimeRoutingPolicyEngine:
         decision: RoutingDecision,
     ) -> TaskResult:
         """
-        Attempt execution on the primary runtime, try configured fallback runtimes on failure, and optionally escalate to paid providers under policy constraints.
+        Execute a task on the primary runtime, try configured fallback runtimes on failure, and optionally escalate to paid providers according to policy.
         
         Updates the provided RoutingDecision with execution outcome, fallback markers, and escalation metadata as attempts proceed.
         
         Parameters:
-            spec (TaskSpec): Task specification that controls execution behavior and whether paid escalation is permitted.
+            spec (TaskSpec): Task specification controlling execution behavior and whether paid escalation is allowed.
             primary_runtime (RuntimeAdapter): The primary runtime adapter to attempt first.
             decision (RoutingDecision): Mutable audit record updated with selected runtime, model/provider used, fallback and escalation details.
         

@@ -12,6 +12,15 @@ from agent.job_manager import AgentJob, AgentJobManager
 
 class TestAgentJobAsDictFinalMessage:
     def _make_job(self, **kwargs) -> AgentJob:
+        """
+        Create a preconfigured AgentJob for tests, applying any provided attributes.
+        
+        Parameters:
+            **kwargs: Arbitrary attributes to set on the created AgentJob (e.g., status, result, error, phase, progress_events).
+        
+        Returns:
+            AgentJob: An AgentJob with job_id "aj_test01", session_id "sess-test", instruction "do something", and any attributes from `kwargs` applied.
+        """
         job = AgentJob(
             job_id="aj_test01",
             session_id="sess-test",
@@ -77,6 +86,15 @@ async def test_run_job_normalizes_response_key():
     job = mgr.create_job(session_id="s-resp", instruction="respond")
 
     async def runner(heartbeat):
+        """
+        Test runner used in tests that returns a normalized response dictionary.
+        
+        Parameters:
+            heartbeat (callable): Progress callback that accepts phase and data; not used by this runner.
+        
+        Returns:
+            dict: A dictionary containing a "response" string used as the job's normalized response; may include other keys in `raw`.
+        """
         return {"response": "Direct response text", "other": "ignored"}
 
     mgr.start_job(job.job_id, runner)
@@ -98,6 +116,15 @@ async def test_run_job_normalizes_output_key():
     job = mgr.create_job(session_id="s-out", instruction="output test")
 
     async def runner(heartbeat):
+        """
+        Test runner that returns a mapping with an 'output' message.
+        
+        Parameters:
+            heartbeat: Callable used to emit progress events; this runner does not call it.
+        
+        Returns:
+            dict: A mapping with an `output` key containing the runner's message.
+        """
         return {"output": "Output text from runner"}
 
     mgr.start_job(job.job_id, runner)
@@ -117,6 +144,15 @@ async def test_run_job_normalizes_string_report_key():
     job = mgr.create_job(session_id="s-rep", instruction="report test")
 
     async def runner(heartbeat):
+        """
+        Produce a result dictionary containing a string `report` entry.
+        
+        Parameters:
+        	heartbeat (callable): A progress-reporting callback the runner can call to emit heartbeat events.
+        
+        Returns:
+        	result (dict): Dictionary with a `report` key whose value is a string (e.g., {"report": "String report content"}).
+        """
         return {"report": "String report content"}
 
     mgr.start_job(job.job_id, runner)
@@ -136,6 +172,15 @@ async def test_run_job_handles_non_dict_string_result():
     job = mgr.create_job(session_id="s-str", instruction="plain string")
 
     async def runner(heartbeat):
+        """
+        A simple runner used in tests that produces a plain string result.
+        
+        Parameters:
+            heartbeat (callable): Progress callback that accepts heartbeat events; ignored by this runner.
+        
+        Returns:
+            str: A plain string containing the runner result.
+        """
         return "plain string result"
 
     mgr.start_job(job.job_id, runner)
@@ -160,6 +205,15 @@ async def test_run_job_runtime_unavailable_error_structured():
     job = mgr.create_job(session_id="s-unav", instruction="unavailable test")
 
     async def runner(heartbeat):
+        """
+        Simulate a job runner that immediately raises a RuntimeUnavailableError for testing runtime-unavailable handling.
+        
+        Parameters:
+            heartbeat: Callable used by runners to emit progress events (ignored).
+        
+        Raises:
+            RuntimeUnavailableError: Indicates the runtime "docker_agent" is unavailable with message "Docker daemon not running".
+        """
         raise RuntimeUnavailableError("docker_agent", "Docker daemon not running")
 
     mgr.start_job(job.job_id, runner)
@@ -182,6 +236,15 @@ async def test_run_job_runtime_execution_error_structured():
     job = mgr.create_job(session_id="s-exec", instruction="execution error test")
 
     async def runner(heartbeat):
+        """
+        Simulates a job runner that immediately fails by raising a RuntimeExecutionError.
+        
+        Parameters:
+            heartbeat: Callable used to report progress (unused by this runner).
+        
+        Raises:
+            RuntimeExecutionError: Always raised with runtime_id "internal_agent", message "Subprocess failed", and task_id "task-123".
+        """
         raise RuntimeExecutionError("internal_agent", "Subprocess failed", "task-123")
 
     mgr.start_job(job.job_id, runner)
@@ -202,6 +265,15 @@ async def test_run_job_generic_exception_has_no_structured_code():
     job = mgr.create_job(session_id="s-gen", instruction="generic error test")
 
     async def runner(heartbeat):
+        """
+        Simulated job runner that immediately raises a ValueError to mimic an unexpected runtime error.
+        
+        Parameters:
+            heartbeat (Callable[[str, dict], None]): Progress callback used by runners to emit phase updates.
+        
+        Raises:
+            ValueError: with message "Something unexpected".
+        """
         raise ValueError("Something unexpected")
 
     mgr.start_job(job.job_id, runner)
@@ -224,6 +296,15 @@ async def test_run_job_appends_progress_events():
     job = mgr.create_job(session_id="s-ev", instruction="events test")
 
     async def runner(heartbeat):
+        """
+        Simulated job runner that emits progress heartbeats for planning and executing phases and produces a final response.
+        
+        Parameters:
+            heartbeat (Callable[[str, str], None]): Callback invoked with a phase name and a human-readable message to record progress events.
+        
+        Returns:
+            dict: A result object with a `"response"` key containing the final message `"done"`.
+        """
         heartbeat("planning", "Starting planning phase")
         heartbeat("executing", "Executing step 1")
         return {"response": "done"}
@@ -250,6 +331,15 @@ async def test_run_job_sets_status_transitions():
     assert job.status == "queued"
 
     async def runner(heartbeat):
+        """
+        A simple test runner that returns a normalized response payload.
+        
+        Parameters:
+            heartbeat (Callable): Optional callback for reporting progress events; ignored by this runner.
+        
+        Returns:
+            dict: A result dictionary containing the key `"response"` with the value `"ok"`.
+        """
         return {"response": "ok"}
 
     mgr.start_job(job.job_id, runner)

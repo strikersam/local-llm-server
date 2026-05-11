@@ -17,6 +17,16 @@ def test_internal_agent_health_reports_unavailable_when_ollama_unreachable(monke
     import httpx
 
     def fake_get(url, timeout=1.0):
+        """
+        Simulates an HTTP GET request that always fails with a connection error.
+        
+        Parameters:
+            url (str): The target URL for the simulated request.
+            timeout (float): The request timeout in seconds (ignored).
+        
+        Raises:
+            httpx.ConnectError: Always raised to simulate a failed connection.
+        """
         raise httpx.ConnectError("failed to connect")
 
     monkeypatch.setattr(httpx, "get", fake_get)
@@ -54,10 +64,30 @@ async def test_internal_agent_health_available_when_ollama_reachable(monkeypatch
 
     class FakeAsyncClient:
         async def __aenter__(self):
+            """
+            Enter the asynchronous context manager and provide the adapter instance.
+            
+            Returns:
+                self: The context manager instance to be used within the async with block.
+            """
             return self
         async def __aexit__(self, *args):
+            """
+            Async context manager exit hook that performs no cleanup.
+            
+            This method does nothing and does not suppress exceptions raised inside the context.
+            
+            Returns:
+                None
+            """
             pass
         async def get(self, url, timeout=None):
+            """
+            Provide a FakeResponse instance simulating an HTTP response.
+            
+            Returns:
+                FakeResponse: A fake response object representing the result of an HTTP GET request.
+            """
             return FakeResponse()
 
     monkeypatch.setattr(httpx, "AsyncClient", lambda: FakeAsyncClient())
@@ -78,10 +108,34 @@ async def test_internal_agent_health_unavailable_error_message(monkeypatch):
 
     class FakeAsyncClient:
         async def __aenter__(self):
+            """
+            Enter the asynchronous context manager and provide the adapter instance.
+            
+            Returns:
+                self: The context manager instance to be used within the async with block.
+            """
             return self
         async def __aexit__(self, *args):
+            """
+            Async context manager exit hook that performs no cleanup.
+            
+            This method does nothing and does not suppress exceptions raised inside the context.
+            
+            Returns:
+                None
+            """
             pass
         async def get(self, url, timeout=None):
+            """
+            Simulated asynchronous HTTP GET that always fails with a connection error to emulate an unreachable service.
+            
+            Parameters:
+                url (str): The request URL that would be contacted.
+                timeout (float | None): Optional request timeout in seconds.
+            
+            Raises:
+                httpx.ConnectError: Always raised with message "refused" to simulate a refused connection.
+            """
             raise httpx.ConnectError("refused")
 
     monkeypatch.setattr(httpx, "AsyncClient", lambda: FakeAsyncClient())
