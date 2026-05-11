@@ -94,7 +94,17 @@ class ChatSendRequest(BaseModel):
 
 
 async def _get_github_token_for_user(user_email: str) -> str | None:
-    """Fetch GitHub token for user from secrets store or environment."""
+    """
+    Attempt to obtain a GitHub access token for the specified user.
+    
+    Tries to read a user-scoped secret (preferentially any secret tagged or named for GitHub) from the application's secrets store. If that lookup fails or yields no token, returns the first available environment variable value from GITHUB_TOKEN or GH_TOKEN.
+    
+    Parameters:
+        user_email (str): Email address identifying the user whose token to retrieve.
+    
+    Returns:
+        str | None: The GitHub token if found in the secrets store or environment, otherwise `None`.
+    """
     try:
         from secrets_store import get_secrets_store
         from rbac import get_user_role
@@ -164,6 +174,17 @@ async def _handle_regular_chat(
     user: UserInfo,
     request: Request,
 ):
+    """
+    Handle a regular (non-agent) chat message: send it to the configured provider, persist the conversation, and return the assistant reply.
+    
+    Sends a user message (from `req`) to the provider router, selects a specific provider when `req.provider_id` is given, and verifies the provider response format. Ensures a session exists (creating one when `req.session_id` is absent), appends the user and assistant messages to the session store, and returns the assistant's text.
+    
+    Returns:
+        JSONResponse: A JSON object with `session_id` and `response` (assistant message).
+    
+    Raises:
+        HTTPException: With status 500 if the provider response format is invalid or if contacting the provider fails.
+    """
     log.info(f"Chat message from {user.email}: {req.content[:50]}...")
     session_id = req.session_id
     if session_id:
@@ -217,6 +238,17 @@ async def _handle_agent_mode(
     user: UserInfo,
     request: Request,
 ):
+    """
+    Start an agent-mode workflow for the incoming chat message: validate repository inputs, create a job and isolated workspace, perform readiness checks, enqueue a background agent runner, and append the user message to the session history.
+    
+    Performs a preflight validation of req.repo_url and req.repo_ref, ensures the session exists, persists the user's message, creates an agent job and workspace, runs an adapter readiness check, and schedules the agent execution to run in the background.
+    
+    Returns:
+        JSONResponse: 202 response containing `session_id`, `job_id`, `status`, `phase`, and a `message` indicating the agent workflow was queued.
+    
+    Raises:
+        HTTPException: 412 if repository validation fails or the adapter readiness check reports not ready.
+    """
     log.info(f"Agent mode chat from {user.email}: {req.content[:50]}...")
     session_id = req.session_id
     if session_id: history = _session_history(session_id)

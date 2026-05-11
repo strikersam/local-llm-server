@@ -154,6 +154,20 @@ def test_repo_ref_preflight_fails(monkeypatch, tmp_path: Path):
 
     class FakeWSMgr:
         async def validate_repo_ref(self, url, ref):
+            """
+            Validate a repository URL and revision/ref, returning any validation issues.
+            
+            Parameters:
+                url (str): Repository URL to validate.
+                ref (str): Branch name, tag, or commit-ish to validate for the repository.
+            
+            Returns:
+                dict: Validation result with keys:
+                    - `ok` (bool): `True` if the repository and ref are valid, `False` otherwise.
+                    - `issues` (list): List of issue objects; each issue is a dict with:
+                        - `code` (str): Short machine-readable error code.
+                        - `message` (str): Human-readable explanation of the issue.
+            """
             return {"ok": False, "issues": [{"code": "invalid_ref", "message": "Branch not found"}]}
 
     monkeypatch.setattr(proxy.app.state, "webui_workspaces", FakeWSMgr(), raising=False)
