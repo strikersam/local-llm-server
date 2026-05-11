@@ -8,8 +8,9 @@ def tools(tmp_path):
     (tmp_path / "app.py").write_text("def main(): pass")
     return WorkspaceTools(tmp_path)
 
-def test_get_overview_integration(tools):
-    overview = tools.get_overview()
+@pytest.mark.asyncio
+async def test_get_overview_integration(tools):
+    overview = await tools.get_overview()
     assert "repository_map" in overview
     assert "hotspots" in overview
 

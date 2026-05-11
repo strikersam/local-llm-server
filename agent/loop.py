@@ -683,7 +683,7 @@ class AgentRunner:
             return self.tools.search_code(str(args.get("query", "")), int(args.get("limit", 20)))
 
         if tool == "get_overview":
-            return self.tools.get_overview()
+            return await self.tools.get_overview()
         if tool == "get_context":
             return self.tools.get_context(args.get("targets", []), args.get("include", ["source"]))
         if tool == "get_risk":

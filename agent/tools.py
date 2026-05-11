@@ -256,9 +256,9 @@ class WorkspaceTools:
         
         return current_input
 
-    def get_overview(self) -> dict[str, Any]:
+    async def get_overview(self) -> dict[str, Any]:
         """Provides an architecture summary, module map, and git health."""
-        return self.repowise.get_overview()
+        return await self.repowise.get_overview()
 
     def get_context(self, targets: list[str], include: list[str] = ["source"]) -> str:
         """Workhorse tool for packing content and metrics of target files."""

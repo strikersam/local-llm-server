@@ -1,4 +1,5 @@
 from __future__ import annotations
+import asyncio
 import os
 import subprocess
 import json
@@ -16,10 +17,10 @@ class RepowiseIntelligence:
         """
         self.root = Path(root)
 
-    def get_overview(self) -> Dict[str, Any]:
+    async def get_overview(self) -> Dict[str, Any]:
         """
         Aggregate repository inspection results including the repository map, hotspots, entry points, git health, and architecture summary.
-        
+
         Returns:
             overview (Dict[str, Any]): Dictionary with the following keys:
                 - repository_map: Rendered directory/file tree limited by depth.
@@ -33,7 +34,7 @@ class RepowiseIntelligence:
             "hotspots": self.get_hotspots(limit=5),
             "entry_points": self.find_entry_points(),
             "git_health": self.get_git_health(),
-            "architecture": self.get_architecture_summary()
+            "architecture": await self.get_architecture_summary()
         }
 
     def get_repository_map(self, max_depth: int = 3) -> str:
@@ -132,47 +133,73 @@ class RepowiseIntelligence:
         except Exception:
             return {"total_commits": 0, "total_authors": 0}
 
-    def get_architecture_summary(self) -> Dict[str, Any]:
+    async def get_architecture_summary(self) -> Dict[str, Any]:
         """
         Summarizes repository key modules and detected architectural patterns.
-        
+
         Scans immediate subdirectories and records those that contain more than two source files as key modules (name and file count). Searches repository source and manifest files for keywords that indicate common architectural or tooling patterns and returns the matching pattern labels.
-        
+
         Returns:
             summary (dict): {
                 "key_modules": List[dict] — each dict has "name" (str) and "files" (int),
                 "patterns": List[str] — detected pattern labels (e.g., "FastAPI/REST", "React/Frontend", "Docker", "Agentic")
             }
         """
-        summary = {
-            "key_modules": [],
-            "patterns": []
-        }
+        def _scan_architecture() -> Dict[str, Any]:
+            """Inner sync function to perform blocking filesystem and content scanning."""
+            summary = {
+                "key_modules": [],
+                "patterns": []
+            }
 
-        # Look for directories with many files as key modules
-        dirs = [d for d in self.root.iterdir() if d.is_dir() and not d.name.startswith((".", "_"))]
-        for d in dirs:
-            file_count = len(list(d.glob("**/*.py"))) + len(list(d.glob("**/*.js"))) + len(list(d.glob("**/*.ts")))
-            if file_count > 2:
-                summary["key_modules"].append({"name": d.name, "files": file_count})
+            # Look for directories with many files as key modules
+            dirs = [d for d in self.root.iterdir() if d.is_dir() and not d.name.startswith((".", "_"))]
+            for d in dirs:
+                file_count = len(list(d.glob("**/*.py"))) + len(list(d.glob("**/*.js"))) + len(list(d.glob("**/*.ts")))
+                if file_count > 2:
+                    summary["key_modules"].append({"name": d.name, "files": file_count})
 
-        # Look for common patterns
-        pattern_indicators = {
-            "FastAPI/REST": ["FastAPI", "router", "endpoint"],
-            "React/Frontend": ["react", "component", "useState"],
-            "Docker": ["Dockerfile", "docker-compose"],
-            "Agentic": ["agent", "loop", "tool", "prompt"]
-        }
+            # Look for common patterns by scanning files in-memory
+            pattern_indicators = {
+                "FastAPI/REST": ["FastAPI", "router", "endpoint"],
+                "React/Frontend": ["react", "component", "useState"],
+                "Docker": ["Dockerfile", "docker-compose"],
+                "Agentic": ["agent", "loop", "tool", "prompt"]
+            }
 
-        for name, keywords in pattern_indicators.items():
-            for kw in keywords:
-                cmd = f"grep -ri '{kw}' . --include='*.py' --include='*.js' --include='*.ts' --include='Dockerfile' --include='*.yaml' --exclude-dir={{.git,__pycache__,.venv,node_modules}} | head -n 1"
-                result = subprocess.run(cmd, shell=True, cwd=self.root, capture_output=True, text=True)
-                if result.stdout.strip():
-                    summary["patterns"].append(name)
-                    break
+            # Collect all relevant files to scan
+            extensions = ["*.py", "*.js", "*.ts", "Dockerfile", "*.yaml", "*.yml"]
+            exclude_dirs = {".git", "__pycache__", ".venv", "node_modules"}
 
-        return summary
+            files_to_scan = []
+            for ext in extensions:
+                for file_path in self.root.rglob(ext):
+                    # Skip excluded directories
+                    if any(excluded in file_path.parts for excluded in exclude_dirs):
+                        continue
+                    files_to_scan.append(file_path)
+
+            # Scan files for pattern indicators
+            patterns_found = set()
+            for pattern_name, keywords in pattern_indicators.items():
+                if pattern_name in patterns_found:
+                    continue
+
+                for file_path in files_to_scan:
+                    try:
+                        content = file_path.read_text(errors="ignore").lower()
+                        # Check if any keyword is present (case-insensitive)
+                        if any(kw.lower() in content for kw in keywords):
+                            patterns_found.add(pattern_name)
+                            break
+                    except Exception:
+                        continue
+
+            summary["patterns"] = list(patterns_found)
+            return summary
+
+        # Run the blocking work in a background thread
+        return await asyncio.to_thread(_scan_architecture)
 
     def get_context(self, targets: List[str], include: List[str] = ["source"]) -> str:
         """

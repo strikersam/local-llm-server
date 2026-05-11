@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import json
 import os
+import shlex
 import subprocess
 import sys
 import time
@@ -20,7 +21,7 @@ MAX_TURNS = 100
 
 CANDIDATE_MODELS = [
     ("nvidia/nemotron-3-super-120b-a12b", "nvidia"),
-    ("nvidia/qwen2.5-coder-32b-instruct", "nvidia"),
+    ("qwen/qwen2.5-coder-32b-instruct", "nvidia"),
     ("kimi-k2.6", "moonshot"),
 ]
 
@@ -30,7 +31,7 @@ PROVIDERS = {
         "api_key": os.environ.get("NVIDIA_API_KEY"),
     },
     "moonshot": {
-        "base_url": "https://api.moonshot.cn/v1",
+        "base_url": "https://api.moonshot.ai/v1",
         "api_key": os.environ.get("MOONSHOT_API_KEY"),
     }
 }
@@ -38,15 +39,16 @@ PROVIDERS = {
 def tool_bash(cmd: str) -> str:
     """
     Execute a shell command and return its stdout, stderr, and exit code formatted into a single string.
-    
+
     Parameters:
         cmd (str): Shell command to execute.
-    
+
     Returns:
         str: The command's stdout (truncated to the last 6000 characters), followed by "[stderr]" and the command's stderr (truncated to the last 2000 characters), and ending with "[exit N]" where N is the process exit code. If an exception occurs, returns a string in the format "[error: <exception>]".
     """
     try:
-        result = subprocess.run(cmd, shell=True, capture_output=True, text=True, timeout=120)
+        argv = shlex.split(cmd)
+        result = subprocess.run(argv, shell=False, capture_output=True, text=True, timeout=120)
         out, err = result.stdout[-6000:], result.stderr[-2000:]
         return f"{out}\n[stderr]\n{err}\n[exit {result.returncode}]"
     except Exception as exc:
@@ -89,20 +91,60 @@ def tool_write_file(path: str, content: str) -> str:
 def tool_search(query: str) -> str:
     """
     Search the repository tree for lines matching a regular-expression query.
-    
+
     Parameters:
         query (str): Regular expression to search for.
-    
+
     Returns:
         str: Combined command output containing up to 50 matching lines; includes any stderr and an "[exit N]" exit-code suffix as produced by the underlying command, or an error string beginning with "[error:" on failure.
     """
-    return tool_bash(f"grep -rnE '{query}' . | head -50")
+    try:
+        result = subprocess.run(
+            ["grep", "-rnE", query, "."],
+            shell=False,
+            capture_output=True,
+            text=True,
+            timeout=120
+        )
+        # Limit to first 50 lines
+        lines = result.stdout.splitlines()[:50]
+        out = "\n".join(lines)
+        err = result.stderr[-2000:] if result.stderr else ""
+        return f"{out}\n[stderr]\n{err}\n[exit {result.returncode}]"
+    except Exception as exc:
+        return f"[error: {exc}]"
+
+def tool_list_files(pattern: str = "**/*") -> str:
+    """
+    List files in the repository matching a pattern using git ls-files.
+
+    Parameters:
+        pattern (str): File pattern to match (default: '**/*').
+
+    Returns:
+        str: File listing output with exit code suffix, or error message.
+    """
+    try:
+        result = subprocess.run(
+            ["git", "ls-files", "--", pattern],
+            shell=False,
+            capture_output=True,
+            text=True,
+            timeout=120
+        )
+        # Limit to first 200 lines
+        lines = result.stdout.splitlines()[:200]
+        out = "\n".join(lines)
+        err = result.stderr[-2000:] if result.stderr else ""
+        return f"{out}\n[stderr]\n{err}\n[exit {result.returncode}]"
+    except Exception as exc:
+        return f"[error: {exc}]"
 
 TOOL_DISPATCH = {
     "bash": lambda i: tool_bash(i["cmd"]),
     "read_file": lambda i: tool_read_file(i["path"]),
     "write_file": lambda i: tool_write_file(i["path"], i["content"]),
-    "list_files": lambda i: tool_bash(f"git ls-files -- '{i.get('pattern', '**/*')}' | head -200"),
+    "list_files": lambda i: tool_list_files(i.get("pattern", "**/*")),
     "search_code": lambda i: tool_search(i["query"]),
 }
 

@@ -27,8 +27,9 @@ def repowise(tmp_path):
 
     return RepowiseIntelligence(tmp_path)
 
-def test_get_architecture_summary(repowise):
-    summary = repowise.get_architecture_summary()
+@pytest.mark.asyncio
+async def test_get_architecture_summary(repowise):
+    summary = await repowise.get_architecture_summary()
     assert "key_modules" in summary
     assert "patterns" in summary
 
