@@ -184,23 +184,10 @@ class WorkspaceManager:
         runtime_type: str = "local",
         repo_url: str | None = None,
     ) -> WorkspaceManifest:
-        """
-        Create an isolated workspace directory tree for a session (and optional job) and persist its manifest.
-        
-        Parameters:
-            session_id (str): Alphanumeric ID validated against the module's ID rules.
-            job_id (str | None): Optional job ID validated when provided.
-            runtime_type (str): Runtime identifier stored in the manifest (default "local").
-            repo_url (str | None): Optional repository URL to record in the manifest.
-        
-        Returns:
-            WorkspaceManifest: Manifest describing the created workspace and its subpaths.
-        
-        Raises:
-            InvalidSessionIdError: If `session_id` does not meet validation rules.
-            InvalidJobIdError: If `job_id` is provided and does not meet validation rules.
-            WorkspaceOutsideRootError: If the derived workspace root would reside outside the manager's base root.
-            WorkspacePermissionError: If filesystem operations for creating directories or writing the manifest fail.
+        """Create an isolated workspace for a session/job pair.
+
+        Returns the workspace manifest.  Raises on invalid IDs or
+        traversal/symlink attacks.
         """
         session_id = validate_session_id(session_id)
         if job_id is not None:
@@ -253,173 +240,12 @@ class WorkspaceManager:
         )
         return manifest
 
-    # ── Repo access preflight ─────────────────────────────────────────────────
-
-    async def repo_access_preflight(self, repo_url: str, token: str | None = None, timeout: int = 8) -> dict[str, object]:
-        """
-        Check whether the current process can access the given Git repository by running `git ls-remote --heads`.
-        
-        Parameters:
-            repo_url (str): Repository URL to check.
-            token (str | None): Optional token that will be injected into HTTPS URLs as credentials when provided.
-            timeout (int): Maximum time in seconds to wait for the `git ls-remote` command.
-        
-        Returns:
-            dict[str, object]: `{"ok": True, "error": None}` if the command succeeds; otherwise `{"ok": False, "error": <message>}` where `<message>` is one of:
-                - `"no_repo_url"` when `repo_url` is missing or invalid,
-                - `"timeout"` when the command times out,
-                - a truncated stderr string (up to 1000 chars) when `git` returns a non-zero exit code,
-                - or the stringified exception for other failures.
-        """
-        if not repo_url or not isinstance(repo_url, str):
-            return {"ok": False, "error": "no_repo_url"}
-        try:
-            import asyncio
-            env = dict(**os.environ)
-            env.setdefault("GIT_TERMINAL_PROMPT", "0")
-            auth_url = repo_url
-            if token and repo_url.startswith("https://"):
-                auth_url = repo_url.replace("https://", f"https://{token}@")
-            proc = await asyncio.wait_for(
-                asyncio.create_subprocess_exec(
-                    "git", "ls-remote", "--heads", auth_url,
-                    stdout=asyncio.subprocess.PIPE,
-                    stderr=asyncio.subprocess.PIPE,
-                    env=env,
-                ),
-                timeout=timeout,
-            )
-            stdout, stderr = await proc.communicate()
-            if proc.returncode == 0:
-                return {"ok": True, "error": None}
-            err = stderr.decode("utf-8", errors="ignore")[:1000]
-            return {"ok": False, "error": err}
-        except asyncio.TimeoutError:
-            return {"ok": False, "error": "timeout"}
-        except Exception as e:
-            return {"ok": False, "error": str(e)}
-
-    def validate_repo_ref(self, repo_url: str, ref: str, token: str | None = None, timeout: int = 8) -> dict[str, object]:
-        """
-        Check whether the specified Git ref (branch or ref pattern) exists in the remote repository.
-        
-        Parameters:
-            repo_url (str): Remote repository URL.
-            ref (str): Reference name to check (e.g., branch name).
-            token (str | None): Optional token injected into HTTPS URLs for authentication.
-            timeout (int): Subprocess timeout in seconds when querying the remote.
-        
-        Returns:
-            dict[str, object]: Result mapping with keys:
-                - "ok": `True` if the ref was found, `False` otherwise.
-                - "error": `None` when found; otherwise an error string such as
-                  "missing_repo_or_ref", "ref_not_found", or a subprocess/error message.
-        """
-        if not repo_url or not ref:
-            return {"ok": False, "error": "missing_repo_or_ref"}
-        try:
-            import subprocess
-            env = dict(**os.environ)
-            env.setdefault("GIT_TERMINAL_PROMPT", "0")
-            auth_url = repo_url
-            if token and repo_url.startswith("https://"):
-                auth_url = repo_url.replace("https://", f"https://{token}@")
-            proc = subprocess.run(["git", "ls-remote", "--heads", auth_url, ref], stdout=subprocess.PIPE, stderr=subprocess.PIPE, env=env, timeout=timeout)
-            if proc.returncode == 0 and proc.stdout:
-                # stdout contains lines like '<sha>\trefs/heads/<ref>' when found
-                return {"ok": True, "error": None}
-            err = (proc.stderr.decode("utf-8", errors="ignore") or proc.stdout.decode("utf-8", errors="ignore"))[:1000]
-            return {"ok": False, "error": err or "ref_not_found"}
-        except Exception as e:
-            return {"ok": False, "error": str(e)}
-
-    async def validate_repo_path(self, repo_url: str, ref: str, path: str, token: str | None = None, timeout: int = 8) -> dict[str, object]:
-        """
-        Check whether a specified path exists at a given ref in a GitHub-hosted repository.
-        
-        Uses the GitHub Contents API for HTTP(S) GitHub repository URLs to determine whether `path` (file or directory) exists at `ref`. For non-GitHub URLs or when the check cannot be performed, returns a structured not-supported/error result.
-        
-        Parameters:
-            repo_url (str): Repository URL (expected form: https://github.com/<owner>/<repo>[.git]).
-            ref (str): Git ref (branch, tag, or commit) to check; may be empty to use the repository's default branch.
-            path (str): Repository path to verify (file or directory).
-            token (str | None): Optional GitHub personal access token sent as `Authorization: token <token>`.
-            timeout (int): Request timeout in seconds (used for the GitHub API request).
-        
-        Returns:
-            dict[str, object]: `{"ok": True, "error": None}` if the path exists at the specified ref; otherwise `{"ok": False, "error": "<reason>"}` where `<reason>` may be:
-              - `"missing_repo_or_path"` when required inputs are absent,
-              - `"http_<status_code>"` for non-200 GitHub API responses (e.g., `"http_404"`),
-              - `"path_check_not_supported_without_github"` when the repository host is not GitHub,
-              - or an exception message describing an unexpected error.
-        """
-        if not repo_url or not path:
-            return {"ok": False, "error": "missing_repo_or_path"}
-        # Try GitHub API when possible
-        try:
-            if repo_url.startswith("https://github.com/") or repo_url.startswith("http://github.com/"):
-                # Parse owner/repo from https URL
-                stripped = repo_url.rstrip("/ ")
-                if stripped.endswith(".git"): stripped = stripped[:-4]
-                parts = stripped.split("/")
-                if len(parts) >= 5:
-                    owner = parts[3]
-                    repo = parts[4]
-                    import httpx
-                    headers = {}
-                    if token:
-                        headers["Authorization"] = f"token {token}"
-                    url = f"https://api.github.com/repos/{owner}/{repo}/contents/{path}"
-                    params = {"ref": ref} if ref else {}
-                    async with httpx.AsyncClient() as client:
-                        resp = await client.get(url, headers=headers, params=params, timeout=4.0)
-                    if resp.status_code == 200:
-                        return {"ok": True, "error": None}
-                    return {"ok": False, "error": f"http_{resp.status_code}"}
-        except Exception as e:
-            return {"ok": False, "error": str(e)}
-
-        # If not GitHub or GitHub check failed, we cannot reliably check remote path
-        return {"ok": False, "error": "path_check_not_supported_without_github"}
-
-    def dry_clone_preflight(self, repo_url: str, token: str | None = None, timeout: int = 20) -> dict[str, object]:
-        """
-        Validate repository access by performing a temporary shallow clone without leaving artifacts.
-        
-        Attempts a non-destructive shallow clone to verify that the repository is reachable and credentials (if provided) are accepted; any created files are removed.
-        
-        Returns:
-            dict[str, object]: `ok` is `True` if repository access was validated, `False` otherwise; `error` is an error message string or `None`.
-        """
-        try:
-            from workspace.dry_clone import dry_clone_repo
-            return dry_clone_repo(repo_url, token, timeout)
-        except Exception as e:
-            return {"ok": False, "error": str(e)}
-
     # ── Lookup ─────────────────────────────────────────────────────────────
 
     def get_workspace(
         self, session_id: str, job_id: str | None = None
     ) -> WorkspaceManifest:
-        """
-        Retrieve the manifest for a workspace identified by session_id and optional job_id.
-        
-        Looks up the manifest in the in-memory cache and, if missing, reads and validates the on-disk manifest for the derived workspace root; the manifest is cached before being returned.
-        
-        Parameters:
-            session_id (str): Session identifier; validated against the workspace ID rules.
-            job_id (str | None): Optional job identifier; validated when provided.
-        
-        Returns:
-            WorkspaceManifest: The manifest corresponding to the requested workspace.
-        
-        Raises:
-            InvalidSessionIdError: If session_id fails validation.
-            InvalidJobIdError: If job_id is provided and fails validation.
-            WorkspaceNotFoundError: If the workspace or manifest cannot be found or the manifest does not belong to the provided IDs.
-            WorkspaceManifestCorruptionError: If the on-disk manifest cannot be read or validated.
-        """
+        """Return the workspace manifest or raise WorkspaceNotFoundError."""
         session_id = validate_session_id(session_id)
         if job_id is not None:
             job_id = validate_job_id(job_id)

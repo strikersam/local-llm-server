@@ -170,16 +170,6 @@ class WorkspaceManager:
         return WorkspaceTools(ws.path)
 
     def sync_git(self, workspace_id: str) -> dict[str, Any]:
-        """
-        Synchronizes a git workspace by pulling the latest changes into its local clone.
-        
-        Raises:
-            KeyError: if no workspace with the given id exists.
-            ValueError: if the workspace is not a git workspace.
-        
-        Returns:
-            dict[str, Any]: A mapping with keys `workspace_id` (the workspace identifier) and `output` (the captured git command output).
-        """
         ws = self.get(workspace_id)
         if not ws:
             raise KeyError("unknown workspace")
@@ -190,19 +180,6 @@ class WorkspaceManager:
         return {"workspace_id": ws.workspace_id, "output": out}
 
     async def validate_repo_ref(self, repo_url: str | None, repo_ref: str | None) -> dict[str, Any]:
-        """
-        Validate an optional git repository URL and optional git reference and collect validation issues.
-        
-        Parameters:
-            repo_url (str | None): The git repository URL to validate; may be None.
-            repo_ref (str | None): The git reference (branch, tag, or commit) to validate; may be None.
-        
-        Returns:
-            result (dict[str, Any]): A dict with keys:
-                - "ok": `true` if no validation issues were found, `false` otherwise.
-                - "issues": a list of issue objects; each issue has "code" (e.g. "invalid_repo_url", "invalid_repo_ref")
-                  and "message" with the validation error text.
-        """
         issues = []
         if repo_url:
             try:
@@ -219,14 +196,6 @@ class WorkspaceManager:
         return {"ok": len(issues) == 0, "issues": issues}
 
     def _items(self) -> list[dict[str, Any]]:
-        """
-        Return the stored list of workspace records from the backing store.
-        
-        Retrieves the raw "workspaces" payload from the config store and returns its "items" value if it is a list; otherwise returns an empty list.
-        
-        Returns:
-            list[dict[str, Any]]: The list of workspace item dictionaries, or an empty list if none are present.
-        """
         raw = self._store.load("workspaces")
         items = raw.get("items")
         return items if isinstance(items, list) else []

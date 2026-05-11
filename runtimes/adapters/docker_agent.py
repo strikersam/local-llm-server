@@ -51,37 +51,12 @@ class DockerAgentAdapter(RuntimeAdapter):
     })
 
     def __init__(self, config: dict[str, Any] | None = None) -> None:
-        """
-        Initialize the adapter and resolve the Docker image and network to use for task containers.
-        
-        Parameters:
-            config (dict[str, Any] | None): Optional configuration. Recognized keys:
-                - "image": Docker image to run for tasks; falls back to the `AGENT_DOCKER_IMAGE`
-                  environment variable, then to "local-llm-server-runtime:latest".
-                - "network": Docker network to attach containers to; falls back to the
-                  `AGENT_DOCKER_NETWORK` environment variable, then to "host".
-        
-        Side effects:
-            Sets `self._image` and `self._network` based on the resolved configuration.
-        """
         super().__init__(config)
         self._image = (config or {}).get("image") or os.environ.get("AGENT_DOCKER_IMAGE", "local-llm-server-runtime:latest")
         self._network = (config or {}).get("network") or os.environ.get("AGENT_DOCKER_NETWORK", "host")
 
     async def health_check(self) -> RuntimeHealth:
-        """
-        Determine whether the Docker runtime is available on the host.
-        
-        Checks that the `docker` executable exists on PATH and that `docker version` runs successfully. On success `details` includes `{"image": <configured image>}`.
-        
-        Returns:
-            RuntimeHealth: `available` is `True` if Docker is usable, `False` otherwise. On failure `error` contains an explanatory message; on success `details` contains `{"image": <image>}`.
-        """
         try:
-            import shutil
-            docker_path = shutil.which("docker")
-            if not docker_path:
-                return RuntimeHealth(runtime_id=self.RUNTIME_ID, available=False, error="'docker' binary not found on PATH")
             proc = await asyncio.create_subprocess_exec(
                 "docker", "version",
                 stdout=asyncio.subprocess.PIPE,

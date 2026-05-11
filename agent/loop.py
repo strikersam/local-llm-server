@@ -668,22 +668,6 @@ class AgentRunner:
         memory_store: UserMemoryStore | None = None,
         metadata: dict[str, Any] | None = None,
     ) -> Any:
-        """
-        Dispatches an agent tool call by name to the appropriate workspace, GitHub, or subagent handler and returns that tool's result.
-        
-        Parameters:
-            tool (str): The tool name (e.g., "read_file", "search_code", "get_overview", GitHub and subagent tool names).
-            args (dict[str, Any]): Tool-specific arguments (path, query, repo_name, etc.).
-            user_id (str | None): Optional user identifier used by memory-related tools.
-            memory_store (UserMemoryStore | None): Optional memory store required by memory-related tools.
-            metadata (dict[str, Any] | None): Optional metadata forwarded to subagent operations.
-        
-        Returns:
-            Any: The value produced by the dispatched tool (string, dict, list, or other tool-specific types). Memory tools return "(memory not available)" when `user_id` or `memory_store` is missing.
-        
-        Raises:
-            ValueError: If `tool` is not a supported tool name.
-        """
         if tool == "read_file":
             return self.tools.read_file(str(args.get("path", "")))
         if tool == "head_file":
@@ -699,7 +683,7 @@ class AgentRunner:
             return self.tools.search_code(str(args.get("query", "")), int(args.get("limit", 20)))
 
         if tool == "get_overview":
-            return await self.tools.get_overview()
+            return self.tools.get_overview()
         if tool == "get_context":
             return self.tools.get_context(args.get("targets", []), args.get("include", ["source"]))
         if tool == "get_risk":

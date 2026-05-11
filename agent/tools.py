@@ -246,16 +246,7 @@ class WorkspaceTools:
         return result.strip()
 
     def stitch_patterns(self, pattern_names: list[str], initial_input: str) -> str:
-        """
-        Chain the given fabric patterns in order, feeding the output of each as the `content` variable to the next.
-        
-        Parameters:
-            pattern_names (list[str]): Ordered list of pattern names to apply.
-            initial_input (str): Initial content provided as the `content` variable to the first pattern.
-        
-        Returns:
-            str: Final rendered string after applying all patterns in sequence.
-        """
+        """Chain multiple patterns together, passing output of one as input to next."""
         current_input = initial_input
         
         for pattern_name in pattern_names:
@@ -265,26 +256,12 @@ class WorkspaceTools:
         
         return current_input
 
-    async def get_overview(self) -> dict[str, Any]:
-        """
-        Provides an architecture summary, module map, and git health.
-        
-        Returns:
-            overview (dict[str, Any]): A dictionary containing architecture summary, module mapping, and git health information.
-        """
-        return await self.repowise.get_overview()
+    def get_overview(self) -> dict[str, Any]:
+        """Provides an architecture summary, module map, and git health."""
+        return self.repowise.get_overview()
 
     def get_context(self, targets: list[str], include: list[str] = ["source"]) -> str:
-        """
-        Assembles contextual information for the specified targets.
-        
-        Parameters:
-        	targets (list[str]): File paths or target identifiers to gather context for.
-        	include (list[str]): Types of context to include (for example `"source"`, `"metrics"`, `"history"`).
-        
-        Returns:
-        	A string containing the aggregated context for the requested targets and include types.
-        """
+        """Workhorse tool for packing content and metrics of target files."""
         return self.repowise.get_context(targets, include)
 
     def get_risk(self, targets: list[str] | None = None, changed_files: list[str] | None = None) -> dict[str, Any]:

@@ -161,13 +161,7 @@ function emptyAgentSnapshot() {
   };
 }
 
-/**
- * Renders an animated thinking/agent-running indicator used in the chat UI.
- * @param {{elapsed:number, agentMode:boolean}} props - Component props.
- * @param {number} props.elapsed - Elapsed time in seconds since the thinking state began; when >= 10 displays elapsed-time text with guidance.
- * @param {boolean} props.agentMode - When true, shows agent-specific labels and the Plan→Execute→Verify step badges; when false, shows a generic "Thinking" label.
- * @returns {JSX.Element} The thinking bubble React element.
- */
+// ── ThinkingBubble ────────────────────────────────────────────────────────────
 function ThinkingBubble({ elapsed, agentMode }) {
   return (
     <div className="flex gap-3 animate-fade-in">
@@ -213,16 +207,7 @@ function ThinkingBubble({ elapsed, agentMode }) {
   );
 }
 
-/**
- * Open a modal to select a provider and one of its available models.
- *
- * @param {Array<{provider_id: string, name: string}>} providers - Available providers to choose from; each item must include `provider_id` and display `name`.
- * @param {(providerId: string, model: string) => void} onConfirm - Called when the user confirms selection with the chosen provider id and model name.
- * @param {() => void} onClose - Called to close the modal without making a selection.
- * @param {string} [initialProvider] - Optional provider id to preselect when the modal opens.
- * @param {string} [initialModel] - Optional model name to preselect when the modal opens.
- * @returns {JSX.Element} The rendered provider/model picker modal.
- */
+// ── ModelPickerModal ──────────────────────────────────────────────────────────
 function ModelPickerModal({ providers, onConfirm, onClose, initialProvider, initialModel }) {
   const [pickerProvider, setPickerProvider] = useState(initialProvider || providers[0]?.provider_id || '');
   const [pickerModels,   setPickerModels]   = useState([]);
@@ -330,18 +315,6 @@ function ModelPickerModal({ providers, onConfirm, onClose, initialProvider, init
   );
 }
 
-/**
- * Render a modal prompting the user to approve switching to a commercial provider for a specific request.
- *
- * Displays an explanatory message, a list of candidate providers, and a preview of the request content,
- * and exposes "Approve" and "Stay on local/free" actions.
- *
- * @param {{ approval: { message?: string, candidates?: string[], content: string } | null, onApprove: () => void, onCancel: () => void }} props
- * @param {{ message?: string, candidates?: string[], content: string } | null} props.approval - Approval payload; when `null` the component renders `null`.
- * @param {() => void} props.onApprove - Callback invoked when the user approves using a commercial provider.
- * @param {() => void} props.onCancel - Callback invoked when the user cancels and chooses to stay on local/free.
- * @returns {JSX.Element|null} The modal element when `approval` is provided, or `null` otherwise.
- */
 function CommercialApprovalModal({ approval, onApprove, onCancel }) {
   if (!approval) return null;
 
@@ -399,16 +372,7 @@ function CommercialApprovalModal({ approval, onApprove, onCancel }) {
   );
 }
 
-/**
- * Render the main chat page UI that manages sessions, messages, provider/model selection,
- * Agent Mode orchestration, agent job polling/workspace updates, and workflow creation flows.
- *
- * The component handles session loading/creation, provider/model persistence, message sending
- * (including agent-run jobs and commercial-provider approval flows), live agent workspace polling,
- * and exposes UI for model picking, commercial approvals, agent console, and composer suggestions.
- *
- * @returns {JSX.Element} The chat page React element containing the full chat interface and related modals/panels.
- */
+// ── ChatPage ──────────────────────────────────────────────────────────────────
 export default function ChatPage() {
   const { sessionId: paramSid } = useParams();
   const navigate = useNavigate();
@@ -474,25 +438,8 @@ export default function ChatPage() {
         if (['succeeded', 'failed', 'cancelled'].includes(data.status)) {
           clearInterval(jobPollRef.current);
           jobPollRef.current = null;
-          // Extract a human-friendly assistant message from the job result.
-          const extractAssistantMessage = (job) => {
-            if (!job) return null;
-            // Prefer backend's canonical final_message
-            if (job.final_message) return job.final_message;
-            // Fallback to normalized response
-            if (job.result?.response) return job.result.response;
-            // Fallbacks into common runtime keys
-            const raw = job.result?.raw || job.result || {};
-            return raw?.response || raw?.summary || raw?.report || raw?.output || raw?.metadata?.agent_comment || null;
-          };
-          const assistantMsg = extractAssistantMessage(data);
-          if (data.status === 'succeeded' && assistantMsg) {
-            setMessages(prev => [...prev, { role: 'assistant', content: assistantMsg }]);
-            loadSessions();
-          } else if (data.status === 'succeeded' && !assistantMsg) {
-            // No usable assistant text produced — show structured summary instead of raw JSON
-            const summary = data?.final_message || data.result?.raw?.summary || data.result?.raw?.report || data.result?.raw?.output || 'Agent completed with no textual summary.';
-            setMessages(prev => [...prev, { role: 'assistant', content: summary }]);
+          if (data.status === 'succeeded' && data.result?.response) {
+            setMessages(prev => [...prev, { role: 'assistant', content: data.result.response }]);
             loadSessions();
           } else if (data.status !== 'succeeded') {
             setMessages(prev => [...prev, {

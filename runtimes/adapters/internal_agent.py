@@ -6,13 +6,10 @@ Falls back to Ollama when NVIDIA_API_KEY is not set.
 
 from __future__ import annotations
 
-import logging
 import os
 import time
 from pathlib import Path
 from typing import Any
-
-log = logging.getLogger(__name__)
 
 from agent.loop import AgentRunner
 from provider_router import ProviderConfig
@@ -77,15 +74,6 @@ class InternalAgentAdapter(RuntimeAdapter):
     )
 
     def __init__(self, config: dict[str, Any] | None = None) -> None:
-        """
-        Initialize the adapter and configure the Ollama base URL, workspace root, and task-harness requirement.
-        
-        Parameters:
-            config (dict[str, Any] | None): Optional overrides for adapter configuration. Recognized keys:
-                - "ollama_base": Base URL for the local Ollama endpoint; falls back to the OLLAMA_BASE / OLLAMA_BASE_URL environment variables or "http://localhost:11434".
-                - "workspace_root": Filesystem path for the workspace; falls back to the repository root derived from the package location.
-                - "task_harness_required": If the value (string) equals "true" case-insensitively, the adapter will require an external task harness; if omitted the TASK_HARNESS_REQUIRED environment variable is consulted.
-        """
         super().__init__(config)
         self._ollama_base = (
             (config or {}).get("ollama_base")
@@ -102,16 +90,6 @@ class InternalAgentAdapter(RuntimeAdapter):
         ).lower() == "true"
 
     def required_dependencies(self) -> list[RuntimeDependency]:
-        """
-        Determine required runtime dependencies for this adapter.
-        
-        When the adapter is configured to require a task harness, returns a single
-        RuntimeDependency describing the harness (name "task-harness", config_var
-        "TASK_HARNESS_BIN", and an install hint). Otherwise returns an empty list.
-        
-        Returns:
-            list[RuntimeDependency]: Required runtime dependencies, or an empty list if none.
-        """
         if not self._task_harness_required:
             return []
         return [
@@ -123,65 +101,21 @@ class InternalAgentAdapter(RuntimeAdapter):
         ]
 
     async def health_check(self) -> RuntimeHealth:
-        """
-        Determine availability of the internal agent runtime and which provider will be used.
-        
-        If an NVIDIA API key is configured the runtime is reported available and the provider is `"nvidia-nim"` with `details` containing `workspace_root` and `provider`. If no NVIDIA key is present the adapter performs a short HTTP probe of the local Ollama base URL; on success `available` is `True` and `details` includes `workspace_root`, `provider` (`"ollama"`), and `probe_url`. On probe failure `available` is `False` and `error` is set to `"Local Ollama not reachable"`.
-        
-        Returns:
-            RuntimeHealth: Health result describing availability, `details`, and `error` when unavailable.
-        """
         nvidia_key = (
             os.environ.get("NVIDIA_API_KEY")
             or os.environ.get("NVidiaApiKey")
             or ""
         ).strip()
-        provider_label = "nvidia-nim" if nvidia_key else "ollama"
-        # If Nvidia key present, assume external provider is reachable (best-effort)
-        if nvidia_key:
-            return RuntimeHealth(
-                runtime_id=self.RUNTIME_ID,
-                available=True,
-                details={"workspace_root": self._workspace_root, "provider": provider_label},
-            )
-
-        # Probe local Ollama endpoint conservatively
-        import httpx
-        try:
-            base = (os.environ.get("OLLAMA_BASE") or os.environ.get("OLLAMA_BASE_URL") or self._ollama_base).rstrip("/")
-            # Prefer a lightweight endpoint; many Ollama installs respond on root
-            probe_url = f"{base}/v1/health" if base.endswith(":11434") else base
-            async with httpx.AsyncClient() as client:
-                resp = await client.get(probe_url, timeout=1.0)
-            if resp.status_code >= 200 and resp.status_code < 400:
-                return RuntimeHealth(
-                    runtime_id=self.RUNTIME_ID,
-                    available=True,
-                    details={"workspace_root": self._workspace_root, "provider": provider_label, "probe_url": probe_url},
-                )
-        except httpx.HTTPError as e:
-            # fall through to unavailable
-            log.debug("Ollama probe failed at %s: %s", probe_url if 'probe_url' in locals() else 'unknown', e)
         return RuntimeHealth(
             runtime_id=self.RUNTIME_ID,
-            available=False,
-            error="Local Ollama not reachable",
-            details={"workspace_root": self._workspace_root, "provider": provider_label},
+            available=True,
+            details={
+                "workspace_root": self._workspace_root,
+                "provider": "nvidia-nim" if nvidia_key else "ollama",
+            },
         )
 
     async def execute(self, spec: TaskSpec) -> TaskResult:
-        """
-        Execute a TaskSpec using an AgentRunner and return a TaskResult summarizing the run.
-        
-        Parameters:
-            spec (TaskSpec): Specification for the task including instruction, context, optional model_preference, optional workspace_path, and task_id.
-        
-        Returns:
-            TaskResult: Summary of execution containing runtime_id, task_id, success flag, output text, artifacts (changed files), model_used, provider_used, execution_time_ms, and metadata. Metadata includes the raw runner result under `raw_result`, the deduplicated `changed_files`, and `agent_comment` when available.
-        
-        Raises:
-            RuntimeExecutionError: If the underlying AgentRunner raises an exception during execution.
-        """
         nvidia_chain = _nvidia_provider_chain()
 
         # When Nvidia NIM is configured use its base URL as the primary endpoint

@@ -264,12 +264,6 @@ The v4 control plane opens with usage stats, live provider health, running task 
 
 Direct chat with a real Agent Mode toggle (off by default for fast LLM responses). Enable it for complex multi-step tasks — async job status cards replace the old blocking request so the UI never hangs.
 
-Agent Mode async contract: when Agent Mode is enabled the server will accept the task and return a 202 Accepted job envelope (session_id, job_id, status, phase, message). The client should render a pending job card and poll /api/chat/agent-jobs/{job_id} for status. When the job completes, the job response includes a canonical final_message and structured result; clients MUST render final_message as the assistant reply instead of raw job metadata. Runtime preflight and GitHub preflight errors return structured actionable errors (HTTP 412) to surface missing tokens, missing git binary, Docker unavailability, or workspace issues.
-
-Git / GitHub repo preflight: If a prompt involves repository operations and request.metadata contains a 'repo_url' or 'repository' field, the server performs a non-destructive preflight using 'git ls-remote --heads' to validate access. This is a best-effort, non-destructive check that will fail early with a structured error (code: git_repo_access) if the repo is unreachable or the token lacks access.
-
-Docker/runtime gating: Runtimes that require Docker are deliberately conservative. If Docker is unavailable ("docker version" fails), Docker-backed runtimes are marked unavailable and will not be auto-selected. This prevents silent routing into broken container runtimes; enable AGENT_MODE_DOCKER or fix Docker on the host to allow docker-based runtimes.
-
 <p align="center"><img src="docs/screenshots/readme/v4-chat.png" width="92%" alt="Direct Chat v4"/></p>
 
 ### 🗂 Task Board
