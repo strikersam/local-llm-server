@@ -212,6 +212,14 @@ async def _handle_agent_mode(
     user: UserInfo,
     request: Request,
 ):
+    """
+    Create and queue an agent job for a user's message after performing Git/GitHub preflight checks.
+    
+    Appends the user's message to the session history, optionally runs repository/git preflight validations (token presence, git binary, optional repo/ref/path checks, and a best-effort GitHub API token validation), and if preflight and adapter readiness pass, creates an isolated workspace, creates and starts a background agent job, and returns a transport-level acknowledgement. If preflight or adapter readiness fail, raises an HTTPException with status 412 and a structured detail describing readiness issues.
+    
+    Returns:
+        JSONResponse: HTTP 202 response containing an AcceptedJob payload with `session_id`, `job_id`, `status`, `phase`, and `message`.
+    """
     log.info(f"Agent mode chat from {user.email}: {req.content[:50]}...")
     session_id = req.session_id
     if session_id: history = _session_history(session_id)
@@ -362,6 +370,15 @@ async def _handle_agent_mode(
     report = await adapter.readiness_check(spec)
     if not report.ready: raise HTTPException(status_code=412, detail=report.as_dict())
     async def _run_agent_job(heartbeat):
+        """
+        Run the agent workflow for a queued job, emit progress heartbeats, persist the final assistant message to the direct chat store, and return the session envelope.
+        
+        Parameters:
+            heartbeat (Callable[[str, str], None]): Progress callback invoked with a phase identifier and a short status message (e.g., heartbeat("planning", "…")).
+        
+        Returns:
+            dict: An envelope containing `session_id` (str) and `response` (str) with the assistant's final message.
+        """
         from agent.loop import AgentRunner
         heartbeat("planning", "Runtime preflight passed")
         app_router: ProviderRouter = request.app.state.PROVIDER_ROUTER
@@ -392,6 +409,21 @@ async def _handle_agent_mode(
 
 @direct_chat_router.get("/agent-jobs/{job_id}")
 async def get_agent_job(job_id: str):
+    """
+    Retrieve the current status and a typed payload for the agent job identified by `job_id`.
+    
+    Parameters:
+        job_id (str): The unique identifier of the agent job.
+    
+    Returns:
+        dict: A serialized job payload:
+            - If the job is running: fields from `RunningJob` (including `progress_events` and `workspace_path`).
+            - If the job succeeded: fields from `CompletedJob` (including `final_message` and `result`).
+            - If the job failed: fields from `FailedJob` (including `error`).
+    
+    Raises:
+        HTTPException: Raised with status_code=404 if no job exists with the given `job_id`.
+    """
     job = _agent_jobs.get_job(job_id)
     if not job:
         raise HTTPException(status_code=404, detail="Job not found")

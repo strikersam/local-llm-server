@@ -150,6 +150,11 @@ def test_make_isolated_workspace_hashes_valid_identifiers(tmp_path: Path):
 
 
 def test_agent_mode_github_preflight_missing_token(monkeypatch, tmp_path: Path):
+    """
+    Verifies that agent-mode preflight validation fails with a structured error when Git is present but no GitHub token is available.
+    
+    Posts to /api/chat/send with agent_mode=True while faking a present `git` binary and returning no GitHub token, and asserts the endpoint responds with HTTP 412, `detail["ready"] is False`, and one of the reported issue codes is `missing_github_token`.
+    """
     proxy.app.dependency_overrides[direct_chat._get_current_user] = _fake_user
     monkeypatch.setattr(direct_chat, "_direct_chat_store", AgentSessionStore(db_path=str(tmp_path / "chat4.db")))
     monkeypatch.setattr(direct_chat, "_agent_jobs", AgentJobManager())
@@ -165,6 +170,12 @@ def test_agent_mode_github_preflight_missing_token(monkeypatch, tmp_path: Path):
         api_key = None
         normalized_base_url = "http://localhost:11434"
         def auth_headers(self) -> dict[str, str]:
+            """
+            Return HTTP authentication headers for the provider.
+            
+            Returns:
+                dict[str, str]: Mapping of header names to header values; empty when no authentication headers are provided.
+            """
             return {}
 
     class _FakeRouter:
@@ -191,6 +202,17 @@ def test_job_result_normalizes_and_exposes_final_message():
     job = mgr.create_job(session_id="s1", instruction="do work")
 
     async def runner(heartbeat):
+        """
+        Reports an initial "planning" heartbeat and returns a final run summary.
+        
+        Parameters:
+            heartbeat (Callable[[str, str], None]): Function used to emit progress updates; called with a status and a message.
+        
+        Returns:
+            dict: A result mapping with keys:
+                - "summary": final textual summary string,
+                - "steps": list of step records (empty list in this runner).
+        """
         heartbeat("planning", "planning")
         return {"summary": "Final textual summary", "steps": []}
 
@@ -216,14 +238,38 @@ def test_job_failure_structures_runtime_preflight(monkeypatch):
 
     class DummyReport:
         def __init__(self):
+            """
+            Initialize a DummyReport representing an unavailable internal agent runtime.
+            
+            Attributes:
+                runtime_id (str): Identifier of the runtime, set to "internal_agent".
+                ready (bool): Indicates readiness; set to False.
+                selected_runtime (str): Chosen runtime identifier, set to "internal_agent".
+            """
             self.runtime_id = "internal_agent"
             self.ready = False
             self.selected_runtime = "internal_agent"
         def as_dict(self):
+            """
+            Return a dictionary representation of the readiness report.
+            
+            Returns:
+                dict: A mapping with keys `runtime_id` (str), `ready` (bool), and `summary` (str) describing the runtime readiness.
+            """
             return {"runtime_id": self.runtime_id, "ready": self.ready, "summary": "docker missing"}
 
     async def runner(heartbeat):
         # Simulate runtime preflight failure thrown during execution
+        """
+        Simulated agent runner that immediately fails with a runtime preflight error.
+        
+        Parameters:
+            heartbeat (callable): Callback used to emit progress heartbeats (ignored by this simulated runner).
+        
+        Raises:
+            RuntimePreflightError: Indicates the runtime identified by `"internal_agent"` failed preflight;
+            the exception carries a report object describing the readiness failure.
+        """
         raise RuntimePreflightError("internal_agent", DummyReport())
 
     mgr.start_job(job.job_id, runner)

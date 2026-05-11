@@ -136,9 +136,17 @@ class RuntimeRoutingPolicyEngine:
     # ── Main routing entry point ──────────────────────────────────────────────
 
     async def route_and_execute(self, spec: TaskSpec) -> tuple[TaskResult, RoutingDecision]:
-        """Route the task and execute it.  Returns (result, decision).
-
-        Implements the 8-step flow with full logging.
+        """
+        Selects a runtime for the given TaskSpec, executes the task according to the routing, fallback, and paid-escalation policy, and records an audit RoutingDecision.
+        
+        Parameters:
+            spec (TaskSpec): Task specification including task_id, task_type, model/provider preferences, and escalation flags.
+        
+        Returns:
+            tuple[TaskResult, RoutingDecision]: The execution result and the final routing decision record.
+        
+        Raises:
+            RuntimeUnavailableError: If no healthy runtime is available or if routing/escalation is blocked by policy (for example when paid escalation is required but disallowed or approval is required).
         """
         task_type = spec.task_type or "general"
 
@@ -180,9 +188,21 @@ class RuntimeRoutingPolicyEngine:
         task_type: str,
         preferred_id: str | None,
     ) -> tuple[RuntimeAdapter | None, list[dict[str, object]]]:
-        """Pick the best available (health-checked) runtime and return
-        (selected_runtime, candidates_info) where candidates_info records
-        metadata about why candidates were accepted/rejected.
+        """
+        Select a healthy runtime capable of the given task type and return it along with metadata about all scanned candidates.
+        
+        Parameters:
+            task_type (str): Task classification used to filter capable runtimes.
+            preferred_id (str | None): Optional runtime ID to prefer; it is selected only if it is available.
+        
+        Returns:
+            tuple[RuntimeAdapter | None, list[dict[str, object]]]:
+                - The chosen RuntimeAdapter instance, or `None` if no available runtimes were found.
+                - `candidates_info`: a list of per-candidate dictionaries with keys:
+                    - `runtime_id` (str): runtime identifier
+                    - `tier` (str): runtime tier value
+                    - `available` (bool): whether the runtime was considered available
+                    - `health` (dict | None): health report serialized via `as_dict()` or `None`
         """
         candidates = self._registry.capable_of(task_type)
         candidates_info: list[dict[str, object]] = []
@@ -217,7 +237,26 @@ class RuntimeRoutingPolicyEngine:
         primary_runtime: RuntimeAdapter,
         decision: RoutingDecision,
     ) -> TaskResult:
-        """Try primary runtime; fall back to alternatives on failure."""
+        """
+        Attempt execution on the primary runtime, then try configured fallbacks, and finally perform an optional paid escalation.
+        
+        Attempts the following in order:
+        1. Run readiness check and execute on `primary_runtime`.
+        2. On failure, iterate `self._policy.fallback_runtime_ids` and attempt readiness check and execute on each available fallback runtime.
+        3. If local attempts fail and paid escalation is allowed by `spec` and policy, optionally escalate via provider managers subject to policy guards (approval requirement and daily budget).
+        
+        Parameters:
+            spec (TaskSpec): Task specification controlling execution and escalation permissions.
+            primary_runtime (RuntimeAdapter): The primary runtime adapter to attempt first.
+            decision (RoutingDecision): Mutable routing audit record updated with execution outcomes, fallback markers, and escalation metadata.
+        
+        Returns:
+            TaskResult: The successful execution result from the primary runtime, a fallback runtime, or a paid provider.
+        
+        Raises:
+            RuntimeUnavailableError: When no runtime succeeds, when paid escalation is disallowed by policy, when approval is required for paid escalation, or when paid escalation budget is exhausted.
+            RuntimePreflightError: If a runtime readiness check reports not ready during an attempted execution.
+        """
         last_exec_error: str = ""
         try:
             report = await primary_runtime.readiness_check(spec)

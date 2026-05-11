@@ -8,10 +8,21 @@ from agent.job_manager import AgentJobManager
 
 
 def _fake_user():
+    """
+    Provide a fixed test user for authentication overrides used in integration tests.
+    
+    Returns:
+        direct_chat.UserInfo: A UserInfo with id "u1" and email "refpath-tester@example.com".
+    """
     return direct_chat.UserInfo(id="u1", email="refpath-tester@example.com")
 
 
 def test_repo_ref_preflight_fails(monkeypatch, tmp_path: Path):
+    """
+    Verifies that sending an agent-mode chat is rejected when the provided repository ref fails preflight validation.
+    
+    Patches dependencies to simulate an authenticated user, available git, and a GitHub token, and stubs WorkspaceManager.validate_repo_ref to return {"ok": False, "error": "ref_not_found"}. Sends POST /api/chat/send with metadata.repo_ref set to a nonexistent branch and asserts the response is HTTP 412, the returned detail indicates not ready, and the issues include the code "git_repo_ref".
+    """
     monkeypatch.setattr(direct_chat, "_direct_chat_store", AgentSessionStore(db_path=str(tmp_path / "chat_ref.db")))
     monkeypatch.setattr(direct_chat, "_agent_jobs", AgentJobManager())
     proxy.app.dependency_overrides[direct_chat._get_current_user] = _fake_user

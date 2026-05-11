@@ -10,6 +10,12 @@ from agent.job_manager import AgentJobManager
 
 
 def _fake_user():
+    """
+    Create a UserInfo representing a fixed test user for tests.
+    
+    Returns:
+        direct_chat.UserInfo: A user with id "u1" and email "repo-tester@example.com".
+    """
     return direct_chat.UserInfo(id="u1", email="repo-tester@example.com")
 
 
@@ -27,6 +33,22 @@ def test_repo_access_preflight_fails_when_git_ls_remote_fails(monkeypatch, tmp_p
 
     # Simulate git ls-remote failing by patching subprocess.run
     def fake_run(cmd, stdout, stderr, env, timeout):
+        """
+        Simulates a failing subprocess.run result representing a git authentication error.
+        
+        Parameters:
+        	cmd: Ignored. The invoked command (kept for compatibility with subprocess.run signature).
+        	stdout: Ignored. Intended stdout capture handle.
+        	stderr: Ignored. Intended stderr capture handle.
+        	env: Ignored. Environment mapping passed to the subprocess.
+        	timeout: Ignored. Timeout value for the subprocess.
+        
+        Returns:
+        	An object with attributes:
+        		- returncode (int): 128
+        		- stderr (bytes): b"fatal: Authentication failed"
+        		- stdout (bytes): b""
+        """
         class P: returncode=128; stderr=b"fatal: Authentication failed"; stdout=b""
         return P()
     monkeypatch.setattr("subprocess.run", fake_run)

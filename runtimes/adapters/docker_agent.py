@@ -56,6 +56,14 @@ class DockerAgentAdapter(RuntimeAdapter):
         self._network = (config or {}).get("network") or os.environ.get("AGENT_DOCKER_NETWORK", "host")
 
     async def health_check(self) -> RuntimeHealth:
+        """
+        Check whether the Docker runtime is available and report its health.
+        
+        Calls a preflight check for the `docker` executable on PATH and, if found, runs `docker version` to determine availability. Returns a RuntimeHealth with `available` set to True when the command succeeds; when the binary is missing or an error occurs, `available` is False and `error` contains a short message. On successful checks `details` includes the configured image under the `"image"` key.
+        
+        Returns:
+            RuntimeHealth: Health status for this runtime — `available` is True if Docker is usable, `False` otherwise; `details` contains `{"image": <image>}` on success, and `error` contains an explanatory string on failure.
+        """
         try:
             import shutil
             docker_path = shutil.which("docker")

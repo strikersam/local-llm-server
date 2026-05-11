@@ -46,6 +46,22 @@ class AgentJob:
     error: dict[str, Any] | None = None
 
     def as_dict(self) -> dict[str, Any]:
+        """
+        Return a snapshot dictionary of the job's public state.
+        
+        The mapping contains the job's identifiers, lifecycle timestamps and state, workspace and runtime configuration, progress events, outcome fields (`result` and `error`), and a convenience `final_message` selected for client display. `final_message` is the job's `result["response"]` when `result` is a dict and contains `response`, otherwise `error["message"]` when `error` is a dict and contains `message`, or `None` if neither is available.
+        
+        Returns:
+            dict[str, Any]: Dictionary with keys:
+                - job_id, session_id, instruction, owner_id
+                - status, phase
+                - created_at, updated_at, heartbeat_at
+                - runtime_id, workspace_path, requested_model, provider_id
+                - progress_events (list of event dicts)
+                - result (raw runner result or normalized payload) 
+                - error (structured error information when present)
+                - final_message (str | None): canonical final message for clients
+        """
         return {
             "job_id": self.job_id,
             "session_id": self.session_id,
@@ -178,6 +194,18 @@ class AgentJobManager:
         job: AgentJob,
         runner: Callable[[Callable[[str, str], None]], Awaitable[dict[str, Any]]],
     ) -> None:
+        """
+        Run a job using the provided runner and update the job's lifecycle state and progress events.
+        
+        This coroutine executes `runner`, providing it a heartbeat callback to record progress. On success it normalizes the runner's output into `job.result` (a dict with `response` and `raw`), sets the job status to succeeded, and appends a completion event. On failure it sets `job.error` with structured failure details when available, marks the job as failed, and appends a failure event. The job's timing fields (`updated_at`, `heartbeat_at`) and `phase` are updated throughout. If a workspace manager is configured and the job has a workspace, the workspace is finalized according to the job outcome.
+        
+        Parameters:
+            job (AgentJob): The job record to update.
+            runner (Callable[[Callable[[str, str], None]], Awaitable[dict[str, Any]]]): Async callable invoked to perform the job. It receives a heartbeat callback (phase, message) that the runner may call to emit progress events. The runner's return value is preserved under `job.result["raw"]`; a canonical message is placed under `job.result["response"]` when possible.
+        
+        Raises:
+            asyncio.CancelledError: Re-raised when the running task is cancelled; the job will be marked cancelled before re-raising.
+        """
         def heartbeat(phase: str, message: str) -> None:
             self._append_event(job.job_id, phase=phase, message=message)
 

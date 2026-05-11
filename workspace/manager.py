@@ -184,10 +184,23 @@ class WorkspaceManager:
         runtime_type: str = "local",
         repo_url: str | None = None,
     ) -> WorkspaceManifest:
-        """Create an isolated workspace for a session/job pair.
-
-        Returns the workspace manifest.  Raises on invalid IDs or
-        traversal/symlink attacks.
+        """
+        Create an isolated workspace directory tree for a session (and optional job) and persist its manifest.
+        
+        Parameters:
+            session_id (str): Alphanumeric ID validated against the module's ID rules.
+            job_id (str | None): Optional job ID validated when provided.
+            runtime_type (str): Runtime identifier stored in the manifest (default "local").
+            repo_url (str | None): Optional repository URL to record in the manifest.
+        
+        Returns:
+            WorkspaceManifest: Manifest describing the created workspace and its subpaths.
+        
+        Raises:
+            InvalidSessionIdError: If `session_id` does not meet validation rules.
+            InvalidJobIdError: If `job_id` is provided and does not meet validation rules.
+            WorkspaceOutsideRootError: If the derived workspace root would reside outside the manager's base root.
+            WorkspacePermissionError: If filesystem operations for creating directories or writing the manifest fail.
         """
         session_id = validate_session_id(session_id)
         if job_id is not None:
@@ -243,12 +256,17 @@ class WorkspaceManager:
     # ── Repo access preflight ─────────────────────────────────────────────────
 
     def repo_access_preflight(self, repo_url: str, token: str | None = None, timeout: int = 8) -> dict[str, object]:
-        """Non-destructive check that attempts to validate access to a remote git
-        repository using `git ls-remote --heads`. Returns a structured dict:
-        {ok: bool, error: str | None}
-
-        This method is intentionally non-destructive and time-limited. It will
-        attempt to inject the token into an HTTPS URL for auth when provided.
+        """
+        Checks access to a remote Git repository using `git ls-remote --heads`.
+        
+        Parameters:
+        	repo_url (str): Repository URL to check.
+        	token (str | None): Optional token to inject into HTTPS URLs for authentication.
+        	timeout (int): Operation timeout in seconds.
+        
+        Returns:
+        	result (dict[str, object]): `{'ok': True, 'error': None}` when access succeeds;
+        	`{'ok': False, 'error': <message>}` when access fails or an error occurs.
         """
         if not repo_url or not isinstance(repo_url, str):
             return {"ok": False, "error": "no_repo_url"}
@@ -268,10 +286,15 @@ class WorkspaceManager:
             return {"ok": False, "error": str(e)}
 
     def validate_repo_ref(self, repo_url: str, ref: str, token: str | None = None, timeout: int = 8) -> dict[str, object]:
-        """Validate that the given ref/branch exists in the remote repository.
-
-        Uses `git ls-remote --heads <repo> <ref>` to check presence of the ref.
-        Returns {ok: bool, error: str|None}
+        """
+        Check whether a specific ref or branch exists in a remote Git repository.
+        
+        Parameters:
+            token (str | None): Optional personal access token injected into HTTPS URLs for authentication.
+            timeout (int): Command timeout in seconds.
+        
+        Returns:
+            dict[str, object]: {"ok": True, "error": None} when the ref is found; {"ok": False, "error": <message>} otherwise.
         """
         if not repo_url or not ref:
             return {"ok": False, "error": "missing_repo_or_ref"}
@@ -292,11 +315,16 @@ class WorkspaceManager:
             return {"ok": False, "error": str(e)}
 
     def validate_repo_path(self, repo_url: str, ref: str, path: str, token: str | None = None, timeout: int = 8) -> dict[str, object]:
-        """Validate that *path* exists at *ref* in a GitHub repository using the
-        GitHub Contents API when the repo appears to be hosted on github.com.
-
-        For non-GitHub hosts this check is not guaranteed and will return a
-        not-supported error.
+        """
+        Checks whether a given path exists at a specific ref in a GitHub-hosted repository.
+        
+        If `repo_url` is a GitHub HTTPS/HTTP URL, this uses the GitHub Contents API to verify the path at `ref`. For non-GitHub hosts (or when the GitHub check cannot be performed) the function returns a not-supported error.
+        
+        Parameters:
+            token (str | None): Optional GitHub personal access token sent as an Authorization header.
+        
+        Returns:
+            dict[str, object]: `{"ok": True, "error": None}` when the path is found; otherwise `{"ok": False, "error": "<reason>"}` where `error` is an error code or message (e.g., `"http_404"`, `"missing_repo_or_path"`, or another error string).
         """
         if not repo_url or not path:
             return {"ok": False, "error": "missing_repo_or_path"}
@@ -327,11 +355,13 @@ class WorkspaceManager:
         return {"ok": False, "error": "path_check_not_supported_without_github"}
 
     def dry_clone_preflight(self, repo_url: str, token: str | None = None, timeout: int = 20) -> dict[str, object]:
-        """Attempt a shallow, non-checkout clone into a temporary directory to
-        validate access for hosts that do not support the Contents API.
-
-        This is a heavier check and should be used only when ls-remote isn't
-        sufficient. It always removes any created temporary files.
+        """
+        Perform a shallow, non-checkout clone to validate repository access for hosts that do not support a Contents API.
+        
+        This is a heavier access check than `ls-remote`; it always removes any temporary files it creates and should be used only when lighter checks are insufficient.
+        
+        Returns:
+            result (dict[str, object]): A dictionary with `ok` (`True` if access validated, `False` otherwise) and `error` (an error message string or `None`).
         """
         try:
             from workspace.dry_clone import dry_clone_repo
@@ -344,7 +374,24 @@ class WorkspaceManager:
     def get_workspace(
         self, session_id: str, job_id: str | None = None
     ) -> WorkspaceManifest:
-        """Return the workspace manifest or raise WorkspaceNotFoundError."""
+        """
+        Retrieve the manifest for a workspace identified by session_id and optional job_id.
+        
+        Looks up the manifest in the in-memory cache and, if missing, reads and validates the on-disk manifest for the derived workspace root; the manifest is cached before being returned.
+        
+        Parameters:
+            session_id (str): Session identifier; validated against the workspace ID rules.
+            job_id (str | None): Optional job identifier; validated when provided.
+        
+        Returns:
+            WorkspaceManifest: The manifest corresponding to the requested workspace.
+        
+        Raises:
+            InvalidSessionIdError: If session_id fails validation.
+            InvalidJobIdError: If job_id is provided and fails validation.
+            WorkspaceNotFoundError: If the workspace or manifest cannot be found or the manifest does not belong to the provided IDs.
+            WorkspaceManifestCorruptionError: If the on-disk manifest cannot be read or validated.
+        """
         session_id = validate_session_id(session_id)
         if job_id is not None:
             job_id = validate_job_id(job_id)

@@ -372,7 +372,16 @@ function CommercialApprovalModal({ approval, onApprove, onCancel }) {
   );
 }
 
-// ── ChatPage ──────────────────────────────────────────────────────────────────
+/**
+ * Render the main chat page UI that manages sessions, messages, provider/model selection,
+ * Agent Mode orchestration, agent job polling/workspace updates, and workflow creation flows.
+ *
+ * The component handles session loading/creation, provider/model persistence, message sending
+ * (including agent-run jobs and commercial-provider approval flows), live agent workspace polling,
+ * and exposes UI for model picking, commercial approvals, agent console, and composer suggestions.
+ *
+ * @returns {JSX.Element} The chat page React element containing the full chat interface and related modals/panels.
+ */
 export default function ChatPage() {
   const { sessionId: paramSid } = useParams();
   const navigate = useNavigate();
