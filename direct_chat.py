@@ -1,5 +1,5 @@
 from __future__ import annotations
-from agent.user_memory import UserMemoryStore
+
 """direct_chat.py — Direct chat endpoints for v3 dashboard.
 
 Handles chat sessions and message sending for the Direct Chat feature.
@@ -12,6 +12,8 @@ import json
 import logging
 import os
 import uuid
+import shutil
+import inspect
 from pathlib import Path
 from typing import Annotated, Any
 
@@ -25,13 +27,14 @@ from tokens import verify_token
 from provider_router import ProviderRouter
 from runtimes.adapters.internal_agent import InternalAgentAdapter
 from runtimes.base import TaskSpec
+from agent.user_memory import UserMemoryStore
+from agent.state import AgentSessionStore
 
 log = logging.getLogger("qwen-proxy")
 OLLAMA_BASE = os.environ.get("OLLAMA_BASE", "http://localhost:11434")
 direct_chat_router = APIRouter(prefix="/api/chat", tags=["chat"])
 
 # Session store for direct chat
-from agent.state import AgentSessionStore
 _direct_chat_store = AgentSessionStore(db_path="direct_chat_sessions.db")
 _agent_jobs = AgentJobManager()
 _agent_workspace_root = Path(os.environ.get("DIRECT_CHAT_AGENT_WORKSPACE_ROOT", ".data/direct-chat-agent-workspaces"))
@@ -252,8 +255,7 @@ async def _handle_agent_mode(
 
     _ensure_session(session_id, user)
     _direct_chat_store.append_message(session_id, "user", req.content)
-    # Accept sync or async _get_github_token_for_user implementations (tests patch a sync lambda)
-    import inspect
+
     _token_res = _get_github_token_for_user(user.email)
     if inspect.isawaitable(_token_res):
         github_token = await _token_res
@@ -263,8 +265,6 @@ async def _handle_agent_mode(
     # GitHub preflight: for prompts that appear to require repo/git access, ensure
     # a token and git binary are available and provide structured actionable errors
     # rather than letting the job enter a vague failing state.
-    import shutil
-    import httpx
     lc = req.content.lower()
     repo_keywords = ("repo", "git", "pull request", "pull-request", "pr", "commit", "push", "clone", "checkout", "branch")
     if any(kw in lc for kw in repo_keywords):

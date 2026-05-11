@@ -4,7 +4,8 @@
 ### Added
 - `agent/repowise.py`, `agent/tools.py` — Implemented Repowise-inspired codebase intelligence tools: `get_overview`, `get_context`, `get_risk`, and `get_why` for enhanced agent reasoning.
 ### Fixed
-- `direct_chat.py` — Fixed `AttributeError` when provider response is invalid; added preflight repo validation to return 412 status code.
+- `agent/github_tools.py` — Added missing `import re`, fixed `LocalWorkspace.__init__` to store token, implemented `create_branch` and `stage_and_commit` methods.
+- `direct_chat.py` — Moved internal imports to the top, ensured `from __future__ import annotations` is the first line; fixed `AttributeError` when provider response is invalid; added preflight repo validation to return 412 status code.
 - `webui/workspaces.py` — Implemented `validate_repo_ref` for preflight checks.
 - Updated primary LLM to `nvidia/nemotron-3-super-120b-a12b` and configured `MoonshotAI: Kimi K2.6` as high-priority fallback to resolve 404/429 errors in GitHub Actions and improve routing reliability.
 - `.github/workflows/openclaw-maintenance.yml`, `docs/runbooks/openclaw-setup.md`, `docs/architecture/agent-orchestration.md` — Updated OpenClaw repository URLs to point to the new location at `github.com/openclaw/openclaw`.

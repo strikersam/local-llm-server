@@ -25,6 +25,7 @@ import asyncio
 import base64
 import logging
 import os
+import re
 import shlex
 import subprocess
 import time
@@ -275,6 +276,7 @@ class LocalWorkspace:
 
         self.owner = owner
         self.repo  = repo
+        self.token = token
 
         # Build path using os.path.join and absolute base for safety
         base_abs = str(WORKSPACE_BASE_DIR.resolve())
@@ -351,8 +353,19 @@ class LocalWorkspace:
         _, out, _ = await self._run("git", "status", "--short")
         return out
 
-    async def create_branch(self, owner: str, repo: str, branch_name: str, base_branch: str = "main") -> dict[str, Any]:
-        self._validate_repo_parts(owner, repo, branch=base_branch)
+    async def create_branch(self, branch_name: str, base_branch: str = "main") -> dict[str, Any]:
+        """Create a new branch locally and switch to it."""
+        # Ensure base branch is up to date
+        await self._run("git", "checkout", base_branch)
+        await self._run("git", "pull", "origin", base_branch)
+
+        rc, out, err = await self._run("git", "checkout", "-b", branch_name)
+        if rc != 0:
+            raise RuntimeError(f"git checkout -b failed: {err}")
+        return {"created": True, "branch": branch_name, "output": out}
+
+    async def stage_and_commit(self, message: str, paths: list[str] | None = None) -> dict[str, Any]:
+        """Stage files and create a commit."""
         if paths:
             for p in paths:
                 await self._run("git", "add", p)
