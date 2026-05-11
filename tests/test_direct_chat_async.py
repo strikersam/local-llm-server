@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import time
 from pathlib import Path
 
@@ -156,11 +157,11 @@ def test_repo_ref_preflight_fails(monkeypatch, tmp_path: Path):
         async def validate_repo_ref(self, url, ref):
             """
             Validate a repository URL and revision/ref, returning any validation issues.
-            
+
             Parameters:
                 url (str): Repository URL to validate.
                 ref (str): Branch name, tag, or commit-ish to validate for the repository.
-            
+
             Returns:
                 dict: Validation result with keys:
                     - `ok` (bool): `True` if the repository and ref are valid, `False` otherwise.
@@ -186,3 +187,169 @@ def test_repo_ref_preflight_fails(monkeypatch, tmp_path: Path):
     assert data["issues"][0]["code"] == "invalid_ref"
 
     proxy.app.dependency_overrides.clear()
+
+
+def test_agent_mode_github_preflight_missing_token(monkeypatch, tmp_path: Path):
+    """
+    Verifies that agent-mode preflight validation fails with a structured error when Git is present but no GitHub token is available.
+
+    Posts to /api/chat/send with agent_mode=True while faking a present `git` binary and returning no GitHub token, and asserts the endpoint responds with HTTP 412, `detail["ready"] is False`, and one of the reported issue codes is `missing_github_token`.
+    """
+    proxy.app.dependency_overrides[direct_chat._get_current_user] = _fake_user
+    monkeypatch.setattr(direct_chat, "_direct_chat_store", AgentSessionStore(db_path=str(tmp_path / "chat4.db")))
+    monkeypatch.setattr(direct_chat, "_agent_jobs", AgentJobManager())
+    monkeypatch.setattr(direct_chat, "_agent_workspace_root", tmp_path / "workspaces")
+
+    # Stub validate_repo_ref to pass the early preflight check
+    class FakeWSMgr:
+        async def validate_repo_ref(self, url, ref):
+            return {"ok": True, "issues": []}
+    monkeypatch.setattr(proxy.app.state, "webui_workspaces", FakeWSMgr(), raising=False)
+
+    # Ensure git binary appears present but no token is returned
+    import shutil
+    monkeypatch.setattr(shutil, "which", lambda name: "/usr/bin/git")
+    async def fake_get_token(email):
+        """
+        Always report that no token exists for the given email.
+
+        Returns:
+            None: no token found for the provided email.
+        """
+        return None
+    monkeypatch.setattr(direct_chat, "_get_github_token_for_user", fake_get_token)
+
+    class _FakeProvider:
+        priority = 1
+        api_key = None
+        normalized_base_url = "http://localhost:11434"
+        def auth_headers(self) -> dict[str, str]:
+            """
+            Provide HTTP authentication headers required by the provider.
+
+            Returns:
+                dict: Mapping of header names to header values. Empty dict if no authentication is needed.
+            """
+            return {}
+
+    class _FakeRouter:
+        providers = (_FakeProvider(),)
+
+    monkeypatch.setattr(proxy.app.state, "PROVIDER_ROUTER", _FakeRouter(), raising=False)
+
+    client = TestClient(proxy.app)
+    response = client.post("/api/chat/send", json={"content": "Please clone my repo and create a PR", "agent_mode": True})
+    assert response.status_code == 412
+    detail = response.json().get("detail")
+    assert detail and detail.get("ready") is False
+    issues = detail.get("issues") or []
+    codes = {i.get("code") for i in issues}
+    assert "missing_github_token" in codes
+
+    proxy.app.dependency_overrides.clear()
+
+
+@pytest.mark.asyncio
+async def test_job_result_normalizes_and_exposes_final_message():
+    """
+    Verifies that AgentJobManager normalizes a job's final run summary into job.result["response"] and exposes it as as_dict()["final_message"].
+
+    Creates a job, starts a runner that emits a heartbeat and returns a final textual summary, waits for the job to complete, and asserts the job succeeded and the final summary appears in both the job's result and its serialized representation.
+    """
+    import asyncio
+    from agent.job_manager import AgentJobManager
+
+    mgr = AgentJobManager()
+    job = mgr.create_job(session_id="s1", instruction="do work")
+
+    async def runner(heartbeat):
+        """
+        Emit an initial "planning" heartbeat and return a final run summary.
+
+        Parameters:
+            heartbeat (Callable[[str, str], None]): Function called with (status, message) to report progress.
+
+        Returns:
+            dict: A result containing `"summary"` (final textual summary) and `"steps"` (list of step records).
+        """
+        heartbeat("planning", "planning")
+        return {"summary": "Final textual summary", "steps": []}
+
+    mgr.start_job(job.job_id, runner)
+
+    for _ in range(200):
+        if job.status in ("succeeded", "failed"):
+            break
+        await asyncio.sleep(0.01)
+
+    assert job.status == "succeeded"
+    assert isinstance(job.result, dict)
+    assert job.result.get("response") == "Final textual summary"
+    d = job.as_dict()
+    assert d.get("final_message") == "Final textual summary"
+
+
+@pytest.mark.asyncio
+async def test_job_failure_structures_runtime_preflight(monkeypatch):
+    """
+    Validates that a runtime preflight failure raised during agent job execution is converted into a structured job error.
+
+    Starts an AgentJobManager job whose runner immediately raises RuntimePreflightError and asserts the job transitions to "failed" with an error dict containing `"code": "runtime_preflight"` and a `"report"` key whose value is a dict.
+    """
+    from runtimes.base import RuntimePreflightError, RuntimeReadinessReport
+    mgr = AgentJobManager()
+    job = mgr.create_job(session_id="s2", instruction="run git ops")
+
+    class DummyReport:
+        def __init__(self):
+            """
+            Initialize a DummyReport representing an unavailable internal-agent runtime.
+
+            The report indicates the internal agent runtime is not ready.
+
+            Attributes:
+                runtime_id (str): Identifier set to "internal_agent".
+                ready (bool): Readiness flag set to False.
+                selected_runtime (str): Chosen runtime identifier set to "internal_agent".
+                summary (str): Short explanation of the failure set to "docker missing".
+            """
+            self.runtime_id = "internal_agent"
+            self.ready = False
+            self.selected_runtime = "internal_agent"
+            self.summary = "docker missing"
+        def as_dict(self):
+            """
+            Return this readiness report as a plain dictionary.
+
+            Returns:
+                dict: Dictionary with keys:
+                    - runtime_id (str): Identifier of the runtime.
+                    - ready (bool): Whether the runtime is ready.
+                    - summary (str): Human-readable summary of the readiness state.
+            """
+            return {"runtime_id": self.runtime_id, "ready": self.ready, "summary": "docker missing"}
+
+    async def runner(heartbeat):
+        # Simulate runtime preflight failure thrown during execution
+        """
+        Simulated agent runner that immediately fails with a runtime preflight error for the "internal_agent" runtime.
+
+        Parameters:
+            heartbeat (callable): Progress callback; ignored by this simulated runner.
+
+        Raises:
+            RuntimePreflightError: Raised for runtime "internal_agent" with a report describing the readiness failure.
+        """
+        raise RuntimePreflightError("internal_agent", DummyReport())
+
+    mgr.start_job(job.job_id, runner)
+
+    for _ in range(200):
+        if job.status in ("succeeded", "failed"):
+            break
+        await asyncio.sleep(0.01)
+
+    assert job.status == "failed"
+    assert isinstance(job.error, dict)
+    assert job.error.get("code") == "runtime_preflight"
+    assert "report" in job.error and isinstance(job.error["report"], dict)
