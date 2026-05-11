@@ -317,7 +317,17 @@ async def _handle_agent_mode(
         _direct_chat_store.append_message(session_id, "assistant", assistant_message)
         return {"session_id": session_id, "response": assistant_message}
     _agent_jobs.start_job(job.job_id, _run_agent_job)
-    return JSONResponse(status_code=202, content={"session_id": session_id, "job_id": job.job_id, "status": job.status, "phase": job.phase, "message": "Agent workflow queued."})
+
+    # Return a typed accepted job envelope — transport-level acknowledgement only.
+    from agent.schemas import AcceptedJob
+    accepted = AcceptedJob(
+        session_id=session_id,
+        job_id=job.job_id,
+        status=job.status,
+        phase=job.phase,
+        message="Agent workflow queued.",
+    )
+    return JSONResponse(status_code=202, content=accepted.model_dump())
 
 
 @direct_chat_router.get("/agent-jobs/{job_id}")
@@ -325,4 +335,34 @@ async def get_agent_job(job_id: str):
     job = _agent_jobs.get_job(job_id)
     if not job:
         raise HTTPException(status_code=404, detail="Job not found")
-    return job.as_dict()
+    from agent.schemas import RunningJob, CompletedJob, FailedJob
+    jd = job.as_dict()
+    if job.status == "running":
+        running = RunningJob(
+            job_id=jd["job_id"],
+            session_id=jd["session_id"],
+            status=jd["status"],
+            phase=jd["phase"],
+            progress_events=jd.get("progress_events", []),
+            workspace_path=jd.get("workspace_path"),
+        )
+        return running.model_dump()
+    elif job.status == "succeeded":
+        completed = CompletedJob(
+            job_id=jd["job_id"],
+            session_id=jd["session_id"],
+            status=jd["status"],
+            phase=jd["phase"],
+            final_message=jd.get("final_message"),
+            result=jd.get("result"),
+        )
+        return completed.model_dump()
+    else:
+        failed = FailedJob(
+            job_id=jd["job_id"],
+            session_id=jd["session_id"],
+            status=jd["status"],
+            phase=jd["phase"],
+            error=jd.get("error") or {},
+        )
+        return failed.model_dump()

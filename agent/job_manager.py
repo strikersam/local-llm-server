@@ -212,13 +212,40 @@ class AgentJobManager:
             heartbeat("cancelled", "Job cancelled")
             raise
         except Exception as exc:
+            # Provide structured, phase-specific failure details when possible
+            from runtimes.base import (
+                RuntimePreflightError,
+                RuntimeUnavailableError,
+                RuntimeExecutionError,
+            )
+
             log.exception("Agent job %s failed", job.job_id)
             job.status = "failed"
             job.phase = "failed"
-            job.error = {
-                "type": exc.__class__.__name__,
-                "message": str(exc),
-            }
+            if isinstance(exc, RuntimePreflightError):
+                job.error = {
+                    "code": "runtime_preflight",
+                    "type": exc.__class__.__name__,
+                    "message": str(exc),
+                    "report": exc.report.as_dict() if hasattr(exc, "report") else None,
+                }
+            elif isinstance(exc, RuntimeUnavailableError):
+                job.error = {
+                    "code": "runtime_unavailable",
+                    "type": exc.__class__.__name__,
+                    "message": str(exc),
+                }
+            elif isinstance(exc, RuntimeExecutionError):
+                job.error = {
+                    "code": "runtime_execution_error",
+                    "type": exc.__class__.__name__,
+                    "message": str(exc),
+                }
+            else:
+                job.error = {
+                    "type": exc.__class__.__name__,
+                    "message": str(exc),
+                }
             heartbeat("failed", str(exc))
         finally:
             job.updated_at = _now()

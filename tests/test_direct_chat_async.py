@@ -207,3 +207,34 @@ def test_job_result_normalizes_and_exposes_final_message():
     assert job.result.get("response") == "Final textual summary"
     d = job.as_dict()
     assert d.get("final_message") == "Final textual summary"
+
+
+def test_job_failure_structures_runtime_preflight(monkeypatch):
+    from runtimes.base import RuntimePreflightError, RuntimeReadinessReport
+    mgr = AgentJobManager()
+    job = mgr.create_job(session_id="s2", instruction="run git ops")
+
+    class DummyReport:
+        def __init__(self):
+            self.runtime_id = "internal_agent"
+            self.ready = False
+            self.selected_runtime = "internal_agent"
+        def as_dict(self):
+            return {"runtime_id": self.runtime_id, "ready": self.ready, "summary": "docker missing"}
+
+    async def runner(heartbeat):
+        # Simulate runtime preflight failure thrown during execution
+        raise RuntimePreflightError("internal_agent", DummyReport())
+
+    mgr.start_job(job.job_id, runner)
+
+    import time
+    for _ in range(200):
+        if job.status in ("succeeded", "failed"):
+            break
+        time.sleep(0.01)
+
+    assert job.status == "failed"
+    assert isinstance(job.error, dict)
+    assert job.error.get("code") == "runtime_preflight"
+    assert "report" in job.error and isinstance(job.error["report"], dict)
