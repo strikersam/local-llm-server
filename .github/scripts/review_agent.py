@@ -22,7 +22,7 @@ def main():
     """
     Run a PR review using available candidate LLM backends and write the verdict to RESULT_FILE.
     
-    Fetches the PR diff for PR_NUMBER, builds a review prompt asking for Security and Correctness with an expected `OVERALL: PASS|FAIL` format, and attempts to get a response from each candidate model in CANDIDATE_MODELS (skipping candidates without an API key). Retries each candidate up to three times on rate limits with exponential backoff; logs other model errors to stderr and moves to the next candidate. If no model returns text, prints an error to stderr and exits with status code 1. Otherwise, determines the verdict as `PASS` if the response contains `OVERALL: PASS` (case-insensitive), writes {"verdict": verdict, "summary": first 200 characters of response} to RESULT_FILE, and exits with status code 0 for PASS or 1 for FAIL.
+    Fetches the PR diff for PR_NUMBER and prompts the models to review security and correctness using the expected `OVERALL: PASS|FAIL` format. Queries configured candidate models until one returns a response, writes JSON to RESULT_FILE containing `{"verdict": <"PASS"|"FAIL">, "summary": <first 200 chars of response>}`, and exits with status 0 when the verdict is PASS or 1 otherwise. If no model produces a response, exits with status 1.
     """
     diff = subprocess.check_output(["gh", "pr", "diff", PR_NUMBER, "--patch"], text=True)[:10000]
     prompt = f"Review PR #{PR_NUMBER}:\n\n{diff}\n\nRoles: Security, Correctness. Give overall PASS/FAIL. Format: OVERALL: PASS|FAIL"

@@ -41,6 +41,11 @@ async def test_get_architecture_summary(repowise):
     assert "React/Frontend" in summary["patterns"]
 
 def test_get_context_token_estimation(repowise):
+    """
+    Verify that get_context returns a context containing a token estimation line for the provided file selector.
+    
+    Asserts that calling repowise.get_context(["api/server.py"]) includes the substring "Estimated total tokens:" in the returned context.
+    """
     context = repowise.get_context(["api/server.py"])
     assert "Estimated total tokens:" in context
 

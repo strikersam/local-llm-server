@@ -5,6 +5,14 @@ from agent.tools import WorkspaceTools
 
 @pytest.fixture
 def tools(tmp_path):
+    """
+    Provide a WorkspaceTools instance rooted at a temporary pytest workspace and create a minimal app.py file inside it.
+    
+    Creates a file named `app.py` containing `def main(): pass` in the provided `tmp_path` and returns a WorkspaceTools object initialized with that path.
+    
+    Returns:
+        WorkspaceTools: A WorkspaceTools instance pointing to the temporary workspace containing the created `app.py`.
+    """
     (tmp_path / "app.py").write_text("def main(): pass")
     return WorkspaceTools(tmp_path)
 

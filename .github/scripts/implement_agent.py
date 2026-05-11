@@ -116,13 +116,13 @@ def tool_search(query: str) -> str:
 
 def tool_list_files(pattern: str = "**/*") -> str:
     """
-    List files in the repository matching a pattern using git ls-files.
-
+    List repository files matching a glob-like pattern using `git ls-files`.
+    
     Parameters:
-        pattern (str): File pattern to match (default: '**/*').
-
+        pattern (str): Path pattern passed to `git ls-files` (default "**/*").
+    
     Returns:
-        str: File listing output with exit code suffix, or error message.
+        str: Combined output containing up to the first 200 lines of stdout, a `[stderr]` section with the last 2000 characters of stderr (if any), and an `[exit N]` suffix where `N` is the command exit code; on failure returns a string of the form `"[error: <exc>]"`.
     """
     try:
         result = subprocess.run(
@@ -164,9 +164,9 @@ SYSTEM = (
 
 def main() -> None:
     """
-    Run the agent loop that queries candidate LLM models, executes requested tool calls, and writes a JSON result file.
+    Run the multi-provider agent loop to implement the requested task and produce a JSON result.
     
-    Iteratively queries models from CANDIDATE_MODELS using provider configs from PROVIDERS, appends model responses to the conversation, executes tool calls via TOOL_DISPATCH, and tracks pytest results from bash outputs. The run is marked successful only when an IMPLEMENTATION_COMPLETE signal is produced after pytest has passed. Writes a JSON summary {"success": ..., "summary": ...} to RESULT_FILE and terminates the process with exit code 0 on success or 1 on failure. Prints status and error messages to stderr as needed.
+    Iteratively queries candidate LLM models using provider configurations, executes any tool calls the model requests, tracks whether pytest passes from bash tool output, and treats the run as successful only when the model signals IMPLEMENTATION_COMPLETE after pytest has passed. Writes a JSON summary {"success": <bool>, "summary": <str>} to RESULT_FILE and exits with code 0 on success or 1 on failure. Status and error messages are printed to stderr for provider/model issues and rate-limit or unexpected errors.
     """
     note_path = Path("/tmp/note_content.txt")
     url_content = note_path.read_text() if note_path.exists() else ""

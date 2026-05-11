@@ -80,7 +80,18 @@ class RepowiseIntelligence:
         return _render(tree)
 
     def get_hotspots(self, limit: int = 10) -> List[Dict[str, Any]]:
-        """Identifies frequently changed files using git history."""
+        """
+        Identify files with the most changes in the repository history.
+        
+        Parameters:
+            limit (int): Maximum number of hotspot entries to return.
+        
+        Returns:
+            List[Dict[str, Any]]: A list of entries sorted by change count descending. Each entry is a dict with keys:
+                - "path": repository-relative file path (str)
+                - "changes": number of recorded changes (int)
+        On error (for example if git is unavailable), returns an empty list.
+        """
         try:
             cmd = "git log --format='' --name-only | sort | uniq -c | sort -rn | head -n " + str(limit)
             result = subprocess.run(cmd, shell=True, cwd=self.root, capture_output=True, text=True)
@@ -96,10 +107,12 @@ class RepowiseIntelligence:
 
     def find_entry_points(self) -> List[str]:
         """
-        Finds candidate repository entry point files by searching for common filenames in the repository root and its immediate subdirectories.
+        Find candidate repository entry-point files by name in the repository root and its immediate subdirectories.
+        
+        Searches for common entry filenames (e.g., main.py, app.py, server.py, proxy.py, index.js, index.ts, run.sh, Makefile) at the repository root and in its immediate subdirectories.
         
         Returns:
-            List[str]: Unique file paths, relative to the repository root, matching common entry-point filenames.
+            List[str]: Unique file paths, relative to the repository root, that match any of the entry-point filenames.
         """
         entry_patterns = ["main.py", "app.py", "server.py", "proxy.py", "index.js", "index.ts", "run.sh", "Makefile"]
         found = []
@@ -136,17 +149,28 @@ class RepowiseIntelligence:
     async def get_architecture_summary(self) -> Dict[str, Any]:
         """
         Summarizes repository key modules and detected architectural patterns.
-
-        Scans immediate subdirectories and records those that contain more than two source files as key modules (name and file count). Searches repository source and manifest files for keywords that indicate common architectural or tooling patterns and returns the matching pattern labels.
-
+        
+        Scans the repository to identify immediate subdirectories that qualify as "key modules" (directories with multiple source files) and detects common architectural or tooling patterns by searching repository files for indicative keywords.
+        
         Returns:
             summary (dict): {
-                "key_modules": List[dict] — each dict has "name" (str) and "files" (int),
-                "patterns": List[str] — detected pattern labels (e.g., "FastAPI/REST", "React/Frontend", "Docker", "Agentic")
+                "key_modules": List[dict] — each dict contains:
+                    - "name" (str): directory name
+                    - "files" (int): number of source files counted in that directory
+                "patterns": List[str] — detected pattern labels such as "FastAPI/REST", "React/Frontend", "Docker", "Agentic"
             }
         """
         def _scan_architecture() -> Dict[str, Any]:
-            """Inner sync function to perform blocking filesystem and content scanning."""
+            """
+            Scan the repository filesystem and file contents to identify key modules and detect architectural patterns.
+            
+            Scans immediate subdirectories to find "key modules" (directories containing more than two source files among .py, .js, .ts) and scans repository files for keyword indicators of known patterns (e.g., FastAPI/REST, React/Frontend, Docker, Agentic). Excludes common uninteresting directories from content scanning.
+            
+            Returns:
+                summary (Dict[str, Any]): A dictionary with:
+                    - "key_modules" (List[Dict[str, int]]): Entries with "name" (directory name) and "files" (number of source files).
+                    - "patterns" (List[str]): Detected pattern labels present in the repository.
+            """
             summary = {
                 "key_modules": [],
                 "patterns": []
@@ -244,17 +268,17 @@ class RepowiseIntelligence:
 
     def _pack_file(self, path: Path, include: List[str]) -> str:
         """
-        Create an XML-like wrapper containing optional metadata, dependencies, and source for a single file.
+        Pack a single file into an XML-like string containing optional metadata, dependencies, and source.
         
         Parameters:
-            path (Path): Path to the file to pack; treated relative to the class's root when emitting the path attribute.
-            include (List[str]): Controls included sections; recognized values:
-                - "metrics": add a <metrics size="..."/> element with file size in bytes
-                - "callees" / "callers": add a <dependencies> section populated from _get_dependencies
-                - "source": include the file's UTF-8-decoded contents (errors replaced)
+            path (Path): File to pack; emitted path is relative to the instance root.
+            include (List[str]): Sections to include. Recognized values:
+                - "metrics": include a <metrics size="..."/> element with file size in bytes
+                - "callees" / "callers": include a <dependencies> section populated from _get_dependencies
+                - "source": embed the file's UTF-8-decoded contents (errors replaced)
         
         Returns:
-            str: The packed file as a string. Returns an empty string if `path` is not a file. If reading the file fails, the source section contains an "Error reading file: ..." message.
+            str: The packed file as a string. Returns an empty string if `path` is not a file. If reading the file fails, the source section contains an "Error reading file: <exception>" message.
         """
         if not path.is_file():
             return ""
