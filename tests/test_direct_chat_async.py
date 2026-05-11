@@ -165,6 +165,12 @@ def test_agent_mode_github_preflight_missing_token(monkeypatch, tmp_path: Path):
         api_key = None
         normalized_base_url = "http://localhost:11434"
         def auth_headers(self) -> dict[str, str]:
+            """
+            Return authentication headers for the provider.
+            
+            Returns:
+                dict[str, str]: Mapping of HTTP header names to values; empty if the provider requires no authentication.
+            """
             return {}
 
     class _FakeRouter:
@@ -191,6 +197,17 @@ def test_job_result_normalizes_and_exposes_final_message():
     job = mgr.create_job(session_id="s1", instruction="do work")
 
     async def runner(heartbeat):
+        """
+        Send a planning heartbeat and produce a final run summary.
+        
+        Parameters:
+            heartbeat (Callable[[str, str], None]): Function called to report progress; invoked with a status and a message.
+        
+        Returns:
+            dict: Result object with keys:
+                - `summary` (str): Final textual summary of the run.
+                - `steps` (list): List of step records (empty list when no steps).
+        """
         heartbeat("planning", "planning")
         return {"summary": "Final textual summary", "steps": []}
 
@@ -216,14 +233,43 @@ def test_job_failure_structures_runtime_preflight(monkeypatch):
 
     class DummyReport:
         def __init__(self):
+            """
+            Initialize the report with defaults indicating the internal agent runtime is not ready.
+            
+            Sets:
+                runtime_id: "internal_agent"
+                ready: False
+                selected_runtime: "internal_agent"
+            """
             self.runtime_id = "internal_agent"
             self.ready = False
             self.selected_runtime = "internal_agent"
         def as_dict(self):
+            """
+            Serialize the readiness report to a plain dictionary.
+            
+            Returns:
+                dict: A mapping with keys:
+                    - "runtime_id" (str): the identifier of the runtime.
+                    - "ready" (bool): readiness flag.
+                    - "summary" (str): human-readable summary (here: "docker missing").
+            """
             return {"runtime_id": self.runtime_id, "ready": self.ready, "summary": "docker missing"}
 
     async def runner(heartbeat):
         # Simulate runtime preflight failure thrown during execution
+        """
+        Simulates a runner that fails preflight by raising a RuntimePreflightError.
+        
+        This asynchronous runner always raises RuntimePreflightError for runtime "internal_agent"
+        using a DummyReport instance.
+        
+        Parameters:
+            heartbeat: Callable[[str, str], None] — progress callback invoked by runners (unused here).
+        
+        Raises:
+            RuntimePreflightError: Indicates the runtime preflight failed with an attached report.
+        """
         raise RuntimePreflightError("internal_agent", DummyReport())
 
     mgr.start_job(job.job_id, runner)

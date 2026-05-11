@@ -16,6 +16,16 @@ def test_internal_agent_health_reports_unavailable_when_ollama_unreachable(monke
     import httpx
 
     def fake_get(url, timeout=1.0):
+        """
+        Simulates a failing HTTP GET request by always raising a connection error.
+        
+        Parameters:
+            url (str): The URL that would have been requested.
+            timeout (float): The request timeout in seconds (ignored).
+        
+        Raises:
+            httpx.ConnectError: Always raised to simulate a network connection failure.
+        """
         raise httpx.ConnectError("failed to connect")
 
     monkeypatch.setattr(httpx, "get", fake_get)

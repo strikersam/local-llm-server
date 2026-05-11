@@ -217,6 +217,27 @@ async def _handle_agent_mode(
     user: UserInfo,
     request: Request,
 ):
+    """
+    Initiates and queues an agent-mode workflow for a direct chat message, performing repository and GitHub preflight checks before starting an asynchronous job.
+    
+    Performs:
+    - repo_ref validation via the workspace manager,
+    - optional Git/GitHub checks when the prompt suggests repository operations (missing token, missing git binary, repo/ref/path access, GitHub token validity and scopes),
+    - readiness check using an internal agent adapter,
+    - job creation, isolated workspace setup, and asynchronous agent execution.
+    
+    Parameters:
+        req (ChatSendRequest): Incoming chat request including content, agent_mode controls, repo metadata, and provider/model hints.
+        user (UserInfo): Authenticated user information (id and email) used for ownership and token lookup.
+        request (Request): FastAPI request object; used to access application state (workspaces, provider router).
+    
+    Returns:
+        JSONResponse: HTTP 202 response containing an AcceptedJob envelope with `session_id`, `job_id`, `status`, `phase`, and `message` when the agent job is successfully queued.
+    
+    Raises:
+        HTTPException(412): If workspace repo validation fails, if Git/GitHub preflight issues are detected (returns structured `issues`), or if the adapter readiness check reports not ready.
+        HTTPException(404/500/etc.): Propagated for other unexpected failures from downstream components.
+    """
     log.info(f"Agent mode chat from {user.email}: {req.content[:50]}...")
     session_id = req.session_id
     if session_id: history = _session_history(session_id)
@@ -373,6 +394,15 @@ async def _handle_agent_mode(
     report = await adapter.readiness_check(spec)
     if not report.ready: raise HTTPException(status_code=412, detail=report.as_dict())
     async def _run_agent_job(heartbeat):
+        """
+        Run the agent job workflow and persist its final assistant message to the session store.
+        
+        Parameters:
+            heartbeat (Callable[[str, str], None]): Callback to report job phase and a short message; invoked with phase names like "planning", "execution", and "verification".
+        
+        Returns:
+            dict: Envelope containing `session_id` (str) and `response` (str) with the assistant's final message.
+        """
         from agent.loop import AgentRunner
         heartbeat("planning", "Runtime preflight passed")
         app_router: ProviderRouter = request.app.state.PROVIDER_ROUTER
@@ -403,6 +433,20 @@ async def _handle_agent_mode(
 
 @direct_chat_router.get("/agent-jobs/{job_id}")
 async def get_agent_job(job_id: str):
+    """
+    Retrieve a typed representation of an agent job by its job ID.
+    
+    Raises an HTTP 404 if the job does not exist. Depending on the job's status, returns a dictionary matching one of the agent job schemas:
+    - For a running job: keys include `job_id`, `session_id`, `status`, `phase`, `progress_events`, and `workspace_path`.
+    - For a succeeded job: keys include `job_id`, `session_id`, `status`, `phase`, `final_message`, and `result`.
+    - For any other status: keys include `job_id`, `session_id`, `status`, `phase`, and `error` (an object, empty if absent).
+    
+    Parameters:
+        job_id (str): The unique identifier of the agent job.
+    
+    Returns:
+        dict: A serialized job representation matching `RunningJob`, `CompletedJob`, or `FailedJob` schema depending on job status.
+    """
     job = _agent_jobs.get_job(job_id)
     if not job:
         raise HTTPException(status_code=404, detail="Job not found")

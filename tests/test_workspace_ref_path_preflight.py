@@ -8,6 +8,12 @@ from agent.job_manager import AgentJobManager
 
 
 def _fake_user():
+    """
+    Create a fake authenticated user for tests.
+    
+    Returns:
+        direct_chat.UserInfo: A UserInfo instance with id "u1" and email "refpath-tester@example.com".
+    """
     return direct_chat.UserInfo(id="u1", email="refpath-tester@example.com")
 
 
@@ -37,6 +43,11 @@ def test_repo_ref_preflight_fails(monkeypatch, tmp_path: Path):
 
 
 def test_repo_path_preflight_fails(monkeypatch, tmp_path: Path):
+    """
+    Verifies the API returns a 412 preflight failure when repository path validation fails.
+    
+    Sets up a fake authenticated user and stubs workspace validation to simulate a missing/invalid repo path, posts an agent-mode chat request referencing that path, and asserts the response status is 412, the returned detail indicates the request is not ready, and the reported issues include the "git_repo_path" code.
+    """
     monkeypatch.setattr(direct_chat, "_direct_chat_store", AgentSessionStore(db_path=str(tmp_path / "chat_path.db")))
     monkeypatch.setattr(direct_chat, "_agent_jobs", AgentJobManager())
     proxy.app.dependency_overrides[direct_chat._get_current_user] = _fake_user

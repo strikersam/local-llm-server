@@ -7,8 +7,16 @@ from typing import Optional
 
 
 def dry_clone_repo(repo_url: str, token: Optional[str] = None, timeout: int = 20) -> dict:
-    """Perform a shallow, non-checkout clone to validate repo access.
-    Returns {ok: bool, error: str | None} and cleans up temporary data.
+    """
+    Validate repository access by performing a shallow, no-checkout git clone and removing temporary data.
+    
+    Parameters:
+        repo_url (str): Repository URL to validate; if falsy the function returns an error.
+        token (Optional[str]): Optional access token; if provided and `repo_url` starts with "https://", the token is embedded into the URL for authentication.
+        timeout (int): Timeout in seconds for the git clone subprocess.
+    
+    Returns:
+        dict: {"ok": True, "error": None} if the clone succeeded; otherwise {"ok": False, "error": <message>} where `error` is a short string describing the failure (e.g., truncated git stderr or exception message).
     """
     if not repo_url:
         return {"ok": False, "error": "no_repo_url"}
