@@ -147,3 +147,28 @@ def test_make_isolated_workspace_hashes_valid_identifiers(tmp_path: Path):
     assert workspace.parent.name != "session-1"
     assert workspace.name != "job-1"
     assert workspace.exists()
+
+def test_repo_ref_preflight_fails(monkeypatch, tmp_path: Path):
+    proxy.app.dependency_overrides[direct_chat._get_current_user] = _fake_user
+    monkeypatch.setattr(direct_chat, "_direct_chat_store", AgentSessionStore(db_path=str(tmp_path / "chat4.db")))
+
+    class FakeWSMgr:
+        async def validate_repo_ref(self, url, ref):
+            return {"ok": False, "issues": [{"code": "invalid_ref", "message": "Branch not found"}]}
+
+    monkeypatch.setattr(proxy.app.state, "webui_workspaces", FakeWSMgr(), raising=False)
+
+    client = TestClient(proxy.app)
+    response = client.post("/api/chat/send", json={
+        "content": "Please implement this important new feature",
+        "agent_mode": True,
+        "repo_url": "https://github.com/test/repo",
+        "repo_ref": "non-existent-branch"
+    })
+
+    assert response.status_code == 412
+    data = response.json()["detail"]
+    assert data["ready"] is False
+    assert data["issues"][0]["code"] == "invalid_ref"
+
+    proxy.app.dependency_overrides.clear()
