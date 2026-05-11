@@ -23,6 +23,7 @@
 - `webui/workspaces.py` — Implemented `validate_repo_ref` for preflight checks.
 - `runtimes/control.py` — Expanded Docker-socket error detection to handle overlay mount failures in CI; added port-conflict resolution by killing existing processes on target ports before starting local runtimes.
 - `runtimes/api.py` — Updated `/start` and `/stop` endpoints to return informational 200 payloads for remote-managed or Docker-unavailable environments; sanitized error messages to prevent stack trace exposure.
+- `agent/loop.py`, `direct_chat.py`, `runtimes/adapters/internal_agent.py` — Prioritized Nvidia free cloud LLMs by setting `nvidia/nemotron-3-super-120b-a12b` as the default model across all agent phases and direct chat when an Nvidia API key is present.
 - `agent/github_tools.py` — Fixed directory creation for local workspaces to ensure parent directories exist; added input sanitization to prevent path injection.
 
 ### Changed

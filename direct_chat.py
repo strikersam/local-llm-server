@@ -183,7 +183,7 @@ async def _handle_regular_chat(
     )
     payload = {
         "messages": [{"role": "system", "content": system_prompt}] + history + [{"role": "user", "content": req.content}],
-        "model": req.model or "nemotron-3-super-120b-a12b",
+        "model": req.model or "nvidia/nemotron-3-super-120b-a12b",
         "stream": False,
     }
     if req.temperature is not None:
