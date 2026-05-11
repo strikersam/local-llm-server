@@ -244,6 +244,43 @@ async def _handle_agent_mode(
                 "message": "'git' binary not found on PATH.",
                 "fix_hint": "Install git and ensure it is on PATH.",
             })
+
+        # If metadata provides an explicit repo_url, attempt a non-destructive access check
+        repo_url = None
+        try:
+            if req.metadata and isinstance(req.metadata, dict):
+                repo_url = req.metadata.get("repo_url") or req.metadata.get("repository")
+        except Exception:
+            repo_url = None
+
+        def _run_git_ls_remote(url: str, token: str | None) -> tuple[bool, str | None]:
+            """Run 'git ls-remote --heads <url>' to validate access. Returns (ok, error_message)."""
+            try:
+                import subprocess
+                env = dict(**os.environ)
+                env.setdefault("GIT_TERMINAL_PROMPT", "0")
+                # If token is provided and url is HTTPS, inject token into URL for auth
+                auth_url = url
+                if token and url.startswith("https://"):
+                    # Insert token immediately after scheme: https://<token>@host/...
+                    auth_url = url.replace("https://", f"https://{token}@")
+                proc = subprocess.run(["git", "ls-remote", "--heads", auth_url], stdout=subprocess.PIPE, stderr=subprocess.PIPE, env=env, timeout=8)
+                if proc.returncode == 0:
+                    return True, None
+                return False, proc.stderr.decode("utf-8", errors="ignore")[:1000]
+            except Exception as e:
+                return False, str(e)
+
+        if repo_url:
+            ok, err = _run_git_ls_remote(repo_url, github_token)
+            if not ok:
+                issues.append({
+                    "code": "git_repo_access",
+                    "message": f"Could not access repository at {repo_url}.",
+                    "fix_hint": "Verify the repository URL and ensure the GitHub token has access; ensure network egress to git hosts.",
+                    "details": {"error": err},
+                })
+
         # If a token exists, do a best-effort validation against GitHub API to detect
         # invalid tokens or insufficient scopes (we require 'repo' for repo edits).
         if github_token:
