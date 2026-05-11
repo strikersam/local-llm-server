@@ -8,10 +8,26 @@ from typing import List, Dict, Any, Optional
 
 class RepowiseIntelligence:
     def __init__(self, root: Path):
+        """
+        Initialize the RepowiseIntelligence instance with the repository root.
+        
+        Parameters:
+            root (Path | str): Filesystem path to the repository root; it is converted to a pathlib.Path and stored on the instance as `self.root`.
+        """
         self.root = Path(root)
 
     def get_overview(self) -> Dict[str, Any]:
-        """Provides an architecture summary, module map, and git health."""
+        """
+        Aggregate repository inspection results including the repository map, hotspots, entry points, git health, and architecture summary.
+        
+        Returns:
+            overview (Dict[str, Any]): Dictionary with the following keys:
+                - repository_map: Rendered directory/file tree limited by depth.
+                - hotspots: List of frequently changed files with change counts.
+                - entry_points: List of likely entry-point file paths.
+                - git_health: Basic git metrics (total_commits, total_authors).
+                - architecture: Summary of key modules and detected design patterns.
+        """
         return {
             "repository_map": self.get_repository_map(max_depth=2),
             "hotspots": self.get_hotspots(limit=5),
@@ -21,7 +37,17 @@ class RepowiseIntelligence:
         }
 
     def get_repository_map(self, max_depth: int = 3) -> str:
-        """Returns a structural overview of the repository."""
+        """
+        Builds a rendered directory/file tree for the repository rooted at self.root, limited to the specified depth.
+        
+        Attempts to list tracked files via `git ls-files`; if that fails, falls back to walking the filesystem (skipping paths that include `.git`, `__pycache__`, `.venv`, or `node_modules`). Files deeper than `max_depth` (counting path parts) are omitted. The returned string renders each directory or file as a line prefixed with `- ` and indentation representing hierarchy.
+        
+        Parameters:
+            max_depth (int): Maximum directory depth to include (root-level files count as depth 0).
+        
+        Returns:
+            str: Textual tree representation of the repository with one `- name` entry per file or directory, indented to show nesting.
+        """
         try:
             cmd = ["git", "ls-files"]
             result = subprocess.run(cmd, cwd=self.root, capture_output=True, text=True, check=True)
@@ -80,7 +106,17 @@ class RepowiseIntelligence:
         return list(set(found))
 
     def get_git_health(self) -> Dict[str, Any]:
-        """Basic git health metrics."""
+        """
+        Compute basic git metrics for the repository at self.root.
+        
+        This returns counts for the repository's total commits and the number of unique author emails (as reported by git history). If git is unavailable or an error occurs, both counts will be zero.
+        
+        Returns:
+            dict: {
+                "total_commits": int - total commit count for HEAD,
+                "total_authors": int - number of unique author email addresses (0 if unavailable)
+            }
+        """
         try:
             commit_count = subprocess.run(["git", "rev-list", "--count", "HEAD"],
                                        cwd=self.root, capture_output=True, text=True).stdout.strip()
@@ -94,7 +130,17 @@ class RepowiseIntelligence:
             return {"total_commits": 0, "total_authors": 0}
 
     def get_architecture_summary(self) -> Dict[str, Any]:
-        """Identifies key modules and design patterns."""
+        """
+        Summarizes repository key modules and detected architectural patterns.
+        
+        Scans immediate subdirectories and records those that contain more than two source files as key modules (name and file count). Searches repository source and manifest files for keywords that indicate common architectural or tooling patterns and returns the matching pattern labels.
+        
+        Returns:
+            summary (dict): {
+                "key_modules": List[dict] — each dict has "name" (str) and "files" (int),
+                "patterns": List[str] — detected pattern labels (e.g., "FastAPI/REST", "React/Frontend", "Docker", "Agentic")
+            }
+        """
         summary = {
             "key_modules": [],
             "patterns": []
@@ -126,7 +172,16 @@ class RepowiseIntelligence:
         return summary
 
     def get_context(self, targets: List[str], include: List[str] = ["source"]) -> str:
-        """Workhorse tool for packing content and metrics of target files."""
+        """
+        Assembles packed representations (source, metrics, dependencies, or extracted symbols) for a list of filesystem targets.
+        
+        Parameters:
+        	targets (List[str]): Paths, globs, or symbol selectors of the form `Symbol:relative/path/to/file` to include in the output.
+        	include (List[str]): Which sections to include for each packed item. Common values: `"source"`, `"metrics"`, `"callers"`, `"callees"`.
+        
+        Returns:
+        	A single string containing an HTML-comment token estimate followed by packed XML-like segments for each matched target, separated by blank lines.
+        """
         output = []
         total_estimated_tokens = 0
 
@@ -158,6 +213,19 @@ class RepowiseIntelligence:
         return prefix + "\n\n".join([o for o in output if o])
 
     def _pack_file(self, path: Path, include: List[str]) -> str:
+        """
+        Create an XML-like wrapper containing optional metadata, dependencies, and source for a single file.
+        
+        Parameters:
+            path (Path): Path to the file to pack; treated relative to the class's root when emitting the path attribute.
+            include (List[str]): Controls included sections; recognized values:
+                - "metrics": add a <metrics size="..."/> element with file size in bytes
+                - "callees" / "callers": add a <dependencies> section populated from _get_dependencies
+                - "source": include the file's UTF-8-decoded contents (errors replaced)
+        
+        Returns:
+            str: The packed file as a string. Returns an empty string if `path` is not a file. If reading the file fails, the source section contains an "Error reading file: ..." message.
+        """
         if not path.is_file():
             return ""
 
@@ -182,7 +250,18 @@ class RepowiseIntelligence:
         return "\n".join(result)
 
     def _get_dependencies(self, path: Path, include: List[str]) -> str:
-        """Naive dependency extraction."""
+        """
+        Collect dependency references for a source file, returning lines that list its callees and/or callers.
+        
+        Parameters:
+        	path (Path): Path to the source file to analyze (relative to the repository root).
+        	include (List[str]): List controlling which dependency types to include. Recognized values:
+        		- "callees": include imported modules found in the file as `- callee: <module>`.
+        		- "callers": include files that import this module as `- caller: <path>`.
+        
+        Returns:
+        	deps (str): Newline-separated entries like `  - callee: <module>` and `  - caller: <path>`. Returns an empty string if no dependencies are found.
+        """
         deps = []
         rel_path = str(path.relative_to(self.root))
 
@@ -212,6 +291,22 @@ class RepowiseIntelligence:
         return "\n".join(deps)
 
     def _extract_symbol(self, path: Path, symbol: str, include: List[str]) -> str:
+        """
+        Extracts the source block (class/function/variable declaration and its indented body) for a named symbol from a file.
+        
+        Searches the file for a declaration matching the given symbol (supports Python `class`, `def`, `async def`, JavaScript `function`, and `const|let|var` assignment patterns). If a match is found, returns an XML-like element containing the symbol name, the file path relative to the instance root, and the matched source lines (preserving internal blank lines but trimming trailing empty lines). If no match is found, returns a self-closing `<symbol ... status="not_found" />` element. On error, returns a self-closing `<symbol ... error="..."/>` element.
+        
+        Parameters:
+            path (Path): Path to the source file to search.
+            symbol (str): The symbol name to locate.
+            include (List[str]): Unused in this extraction routine (accepted for interface compatibility).
+        
+        Returns:
+            str: An XML-like string:
+                - `<symbol name="..." path="...">...source...</symbol>` when the symbol is found;
+                - `<symbol name="..." path="..." status="not_found" />` when not found;
+                - `<symbol name="..." path="..." error="..."/>` on exception.
+        """
         try:
             content = path.read_text(encoding="utf-8", errors="replace")
             # Improved regex patterns

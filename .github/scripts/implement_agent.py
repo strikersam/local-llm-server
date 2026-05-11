@@ -36,6 +36,15 @@ PROVIDERS = {
 }
 
 def tool_bash(cmd: str) -> str:
+    """
+    Run a shell command and return its combined output, stderr, and exit code as a single string.
+    
+    Parameters:
+    	cmd (str): Shell command to execute.
+    
+    Returns:
+    	result (str): A string containing the command's stdout (truncated to the last 6000 characters), followed by "[stderr]" and the command's stderr (truncated to the last 2000 characters), and ending with "[exit N]" where N is the process exit code. If an exception occurs while running the command, returns a string in the format "[error: <exception>]".
+    """
     try:
         result = subprocess.run(cmd, shell=True, capture_output=True, text=True, timeout=120)
         out, err = result.stdout[-6000:], result.stderr[-2000:]
@@ -44,12 +53,31 @@ def tool_bash(cmd: str) -> str:
         return f"[error: {exc}]"
 
 def tool_read_file(path: str) -> str:
+    """
+    Read a text file and return its contents truncated to 12,000 characters.
+    
+    Parameters:
+        path (str): Path to the file to read.
+    
+    Returns:
+        str: The file contents (up to the first 12,000 characters), or a string of the form "[error: <exc>]" if reading fails.
+    """
     try:
         return Path(path).read_text(errors="replace")[:12000]
     except Exception as exc:
         return f"[error: {exc}]"
 
 def tool_write_file(path: str, content: str) -> str:
+    """
+    Write text to the given filesystem path, creating parent directories if needed.
+    
+    Parameters:
+        path (str): Destination file path.
+        content (str): Text content to write to the file.
+    
+    Returns:
+        result (str): "Written to <path>" on success, or "[error: <exc>]" containing the exception message on failure.
+    """
     try:
         p = Path(path)
         p.parent.mkdir(parents=True, exist_ok=True)
@@ -59,6 +87,15 @@ def tool_write_file(path: str, content: str) -> str:
         return f"[error: {exc}]"
 
 def tool_search(query: str) -> str:
+    """
+    Searches the current directory recursively for lines matching the given regular expression and returns up to 50 matching lines.
+    
+    Parameters:
+        query (str): A regular expression to search for (passed to grep -E).
+    
+    Returns:
+        str: The grep output limited to the first 50 matches; includes any stderr and the exit code appended, or an error string on failure.
+    """
     return tool_bash(f"grep -rnE '{query}' . | head -50")
 
 TOOL_DISPATCH = {
@@ -84,6 +121,16 @@ SYSTEM = (
 )
 
 def main() -> None:
+    """
+    Run the agent loop that queries candidate models, executes requested tools, and produce a final result file.
+    
+    The function iterates through CANDIDATE_MODELS (using provider configuration from PROVIDERS), sending system and user messages and allowing models to request tool calls defined in TOOLS. Tool calls are executed via TOOL_DISPATCH; bash tool outputs that run `pytest` update an internal `last_pytest_passed` flag when the output contains "[exit 0]". The run is marked successful only when an `IMPLEMENTATION_COMPLETE` signal is observed after tests have passed. The function writes a JSON summary to RESULT_FILE with keys "success" and "summary", and then exits the process with code 0 on success or 1 on failure.
+    
+    Side effects:
+    - May print error/status messages to stderr.
+    - Writes RESULT_FILE.
+    - Calls sys.exit(...) to terminate the process.
+    """
     note_path = Path("/tmp/note_content.txt")
     url_content = note_path.read_text() if note_path.exists() else ""
     user_msg = f"Issue #{ISSUE_NUM}\nURL: {URL}\nTask: {TASK}\n\nContent:\n{url_content[:5000]}"

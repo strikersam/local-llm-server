@@ -5,6 +5,15 @@ from agent.repowise import RepowiseIntelligence
 @pytest.fixture
 def repowise(tmp_path):
     # Create a structure with FastAPI-like keywords
+    """
+    Create a temporary repository structure with example FastAPI and React files and return a RepowiseIntelligence instance pointed at it.
+    
+    Parameters:
+        tmp_path (pathlib.Path): Temporary directory provided by pytest; used as the root for the generated repository tree. The fixture creates `api/` (server.py, router.py, models.py) and `web/` (App.js, utils.js, hooks.js).
+    
+    Returns:
+        RepowiseIntelligence: An instance initialized to analyze the generated temporary repository.
+    """
     (tmp_path / "api").mkdir()
     (tmp_path / "api" / "server.py").write_text("from fastapi import FastAPI\napp = FastAPI()\n@app.get('/')\ndef read_root(): return {'Hello': 'World'}")
     (tmp_path / "api" / "router.py").write_text("def route(): pass")
