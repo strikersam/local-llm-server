@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import time
 from pathlib import Path
 
@@ -163,7 +164,9 @@ def test_agent_mode_github_preflight_missing_token(monkeypatch, tmp_path: Path):
     # Ensure git binary appears present but no token is returned
     import shutil
     monkeypatch.setattr(shutil, "which", lambda name: "/usr/bin/git")
-    monkeypatch.setattr(direct_chat, "_get_github_token_for_user", lambda email: None)
+    async def fake_get_token(email):
+        return None
+    monkeypatch.setattr(direct_chat, "_get_github_token_for_user", fake_get_token)
 
     class _FakeProvider:
         priority = 1
@@ -195,7 +198,9 @@ def test_agent_mode_github_preflight_missing_token(monkeypatch, tmp_path: Path):
     proxy.app.dependency_overrides.clear()
 
 
-def test_job_result_normalizes_and_exposes_final_message():
+@pytest.mark.asyncio
+async def test_job_result_normalizes_and_exposes_final_message():
+    import asyncio
     from agent.job_manager import AgentJobManager
 
     mgr = AgentJobManager()
@@ -204,10 +209,10 @@ def test_job_result_normalizes_and_exposes_final_message():
     async def runner(heartbeat):
         """
         Reports an initial "planning" heartbeat and returns a final run summary.
-        
+
         Parameters:
             heartbeat (Callable[[str, str], None]): Function used to emit progress updates; called with a status and a message.
-        
+
         Returns:
             dict: A result mapping with keys:
                 - "summary": final textual summary string,
@@ -218,11 +223,10 @@ def test_job_result_normalizes_and_exposes_final_message():
 
     mgr.start_job(job.job_id, runner)
 
-    import time
     for _ in range(200):
         if job.status in ("succeeded", "failed"):
             break
-        time.sleep(0.01)
+        await asyncio.sleep(0.01)
 
     assert job.status == "succeeded"
     assert isinstance(job.result, dict)
@@ -231,7 +235,8 @@ def test_job_result_normalizes_and_exposes_final_message():
     assert d.get("final_message") == "Final textual summary"
 
 
-def test_job_failure_structures_runtime_preflight(monkeypatch):
+@pytest.mark.asyncio
+async def test_job_failure_structures_runtime_preflight(monkeypatch):
     from runtimes.base import RuntimePreflightError, RuntimeReadinessReport
     mgr = AgentJobManager()
     job = mgr.create_job(session_id="s2", instruction="run git ops")
@@ -249,6 +254,7 @@ def test_job_failure_structures_runtime_preflight(monkeypatch):
             self.runtime_id = "internal_agent"
             self.ready = False
             self.selected_runtime = "internal_agent"
+            self.summary = "docker missing"
         def as_dict(self):
             """
             Return a dictionary representation of the readiness report.
@@ -274,11 +280,10 @@ def test_job_failure_structures_runtime_preflight(monkeypatch):
 
     mgr.start_job(job.job_id, runner)
 
-    import time
     for _ in range(200):
         if job.status in ("succeeded", "failed"):
             break
-        time.sleep(0.01)
+        await asyncio.sleep(0.01)
 
     assert job.status == "failed"
     assert isinstance(job.error, dict)

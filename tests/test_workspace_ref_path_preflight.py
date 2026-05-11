@@ -20,7 +20,7 @@ def _fake_user():
 def test_repo_ref_preflight_fails(monkeypatch, tmp_path: Path):
     """
     Verifies that sending an agent-mode chat is rejected when the provided repository ref fails preflight validation.
-    
+
     Patches dependencies to simulate an authenticated user, available git, and a GitHub token, and stubs WorkspaceManager.validate_repo_ref to return {"ok": False, "error": "ref_not_found"}. Sends POST /api/chat/send with metadata.repo_ref set to a nonexistent branch and asserts the response is HTTP 412, the returned detail indicates not ready, and the issues include the code "git_repo_ref".
     """
     monkeypatch.setattr(direct_chat, "_direct_chat_store", AgentSessionStore(db_path=str(tmp_path / "chat_ref.db")))
@@ -29,11 +29,15 @@ def test_repo_ref_preflight_fails(monkeypatch, tmp_path: Path):
 
     import shutil
     monkeypatch.setattr(shutil, "which", lambda name: "/usr/bin/git")
-    monkeypatch.setattr(direct_chat, "_get_github_token_for_user", lambda email: "ghp_FAKE")
+    async def fake_get_token(email):
+        return "ghp_FAKE"
+    monkeypatch.setattr(direct_chat, "_get_github_token_for_user", fake_get_token)
 
     # Patch WorkspaceManager.validate_repo_ref to simulate missing ref
     from workspace.manager import WorkspaceManager
-    monkeypatch.setattr(WorkspaceManager, "validate_repo_ref", lambda self, repo, ref, token=None: {"ok": False, "error": "ref_not_found"})
+    async def fake_validate_ref(self, repo, ref, token=None):
+        return {"ok": False, "error": "ref_not_found"}
+    monkeypatch.setattr(WorkspaceManager, "validate_repo_ref", fake_validate_ref)
 
     client = TestClient(proxy.app)
     payload = {"content": "Please open PR", "agent_mode": True, "metadata": {"repo_url": "https://github.com/example/repo.git", "repo_ref": "nonexistent-branch"}}
@@ -54,10 +58,14 @@ def test_repo_path_preflight_fails(monkeypatch, tmp_path: Path):
 
     import shutil
     monkeypatch.setattr(shutil, "which", lambda name: "/usr/bin/git")
-    monkeypatch.setattr(direct_chat, "_get_github_token_for_user", lambda email: "ghp_FAKE")
+    async def fake_get_token_2(email):
+        return "ghp_FAKE"
+    monkeypatch.setattr(direct_chat, "_get_github_token_for_user", fake_get_token_2)
 
     from workspace.manager import WorkspaceManager
-    monkeypatch.setattr(WorkspaceManager, "validate_repo_path", lambda self, repo, ref, path, token=None: {"ok": False, "error": "http_404"})
+    async def fake_validate_path(self, repo, ref, path, token=None):
+        return {"ok": False, "error": "http_404"}
+    monkeypatch.setattr(WorkspaceManager, "validate_repo_path", fake_validate_path)
 
     client = TestClient(proxy.app)
     payload = {"content": "Please open PR", "agent_mode": True, "metadata": {"repo_url": "https://github.com/example/repo.git", "repo_ref": "main", "repo_path": "src/does/not/exist.py"}}

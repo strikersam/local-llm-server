@@ -450,7 +450,9 @@ export default function ChatPage() {
           // Extract a human-friendly assistant message from the job result.
           const extractAssistantMessage = (job) => {
             if (!job) return null;
-            // Prefer normalized response
+            // Prefer backend's canonical final_message
+            if (job.final_message) return job.final_message;
+            // Fallback to normalized response
             if (job.result?.response) return job.result.response;
             // Fallbacks into common runtime keys
             const raw = job.result?.raw || job.result || {};
@@ -462,7 +464,7 @@ export default function ChatPage() {
             loadSessions();
           } else if (data.status === 'succeeded' && !assistantMsg) {
             // No usable assistant text produced — show structured summary instead of raw JSON
-            const summary = data.result?.raw?.summary || data.result?.raw?.report || data.result?.raw?.output || 'Agent completed with no textual summary.';
+            const summary = data?.final_message || data.result?.raw?.summary || data.result?.raw?.report || data.result?.raw?.output || 'Agent completed with no textual summary.';
             setMessages(prev => [...prev, { role: 'assistant', content: summary }]);
             loadSessions();
           } else if (data.status !== 'succeeded') {

@@ -6,10 +6,13 @@ Falls back to Ollama when NVIDIA_API_KEY is not set.
 
 from __future__ import annotations
 
+import logging
 import os
 import time
 from pathlib import Path
 from typing import Any
+
+log = logging.getLogger(__name__)
 
 from agent.loop import AgentRunner
 from provider_router import ProviderConfig
@@ -137,16 +140,17 @@ class InternalAgentAdapter(RuntimeAdapter):
             base = (os.environ.get("OLLAMA_BASE") or os.environ.get("OLLAMA_BASE_URL") or self._ollama_base).rstrip("/")
             # Prefer a lightweight endpoint; many Ollama installs respond on root
             probe_url = f"{base}/v1/health" if base.endswith(":11434") else base
-            resp = httpx.get(probe_url, timeout=1.0)
+            async with httpx.AsyncClient() as client:
+                resp = await client.get(probe_url, timeout=1.0)
             if resp.status_code >= 200 and resp.status_code < 400:
                 return RuntimeHealth(
                     runtime_id=self.RUNTIME_ID,
                     available=True,
                     details={"workspace_root": self._workspace_root, "provider": provider_label, "probe_url": probe_url},
                 )
-        except Exception:
+        except httpx.HTTPError as e:
             # fall through to unavailable
-            pass
+            log.debug("Ollama probe failed at %s: %s", probe_url if 'probe_url' in locals() else 'unknown', e)
         return RuntimeHealth(
             runtime_id=self.RUNTIME_ID,
             available=False,

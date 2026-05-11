@@ -265,7 +265,7 @@ async def _handle_agent_mode(
             try:
                 from workspace.manager import WorkspaceManager
                 mgr = WorkspaceManager()
-                pre = mgr.repo_access_preflight(repo_url, github_token)
+                pre = await mgr.repo_access_preflight(repo_url, github_token)
                 if not pre.get("ok"):
                     issues.append({
                         "code": "git_repo_access",
@@ -295,7 +295,7 @@ async def _handle_agent_mode(
                 except Exception:
                     repo_path = None
                 if repo_path:
-                    path_check = mgr.validate_repo_path(repo_url, repo_ref or "HEAD", repo_path, github_token)
+                    path_check = await mgr.validate_repo_path(repo_url, repo_ref or "HEAD", repo_path, github_token)
                     if not path_check.get("ok"):
                         issues.append({
                             "code": "git_repo_path",
@@ -320,7 +320,8 @@ async def _handle_agent_mode(
                     "Authorization": f"token {github_token}",
                     "Accept": "application/vnd.github+json",
                 }
-                resp = httpx.get("https://api.github.com/user", headers=headers, timeout=2.0)
+                async with httpx.AsyncClient() as client:
+                    resp = await client.get("https://api.github.com/user", headers=headers, timeout=2.0)
                 if resp.status_code != 200:
                     issues.append({
                         "code": "invalid_github_token",

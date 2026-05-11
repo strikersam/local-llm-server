@@ -6,6 +6,9 @@ from runtimes.adapters.docker_agent import DockerAgentAdapter
 @pytest.mark.asyncio
 async def test_docker_health_unavailable(monkeypatch):
     # Simulate docker binary failing by making create_subprocess_exec return a proc with returncode != 0
+    import shutil
+    monkeypatch.setattr(shutil, "which", lambda cmd: "/usr/bin/docker" if cmd == "docker" else None)
+
     class FakeProc:
         def __init__(self):
             """

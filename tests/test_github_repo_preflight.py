@@ -29,29 +29,15 @@ def test_repo_access_preflight_fails_when_git_ls_remote_fails(monkeypatch, tmp_p
     monkeypatch.setattr(shutil, "which", lambda name: "/usr/bin/git")
 
     # Return a token
-    monkeypatch.setattr(direct_chat, "_get_github_token_for_user", lambda email: "ghp_FAKE")
+    async def fake_get_token(email):
+        return "ghp_FAKE"
+    monkeypatch.setattr(direct_chat, "_get_github_token_for_user", fake_get_token)
 
-    # Simulate git ls-remote failing by patching subprocess.run
-    def fake_run(cmd, stdout, stderr, env, timeout):
-        """
-        Simulates a failing subprocess.run result representing a git authentication error.
-        
-        Parameters:
-        	cmd: Ignored. The invoked command (kept for compatibility with subprocess.run signature).
-        	stdout: Ignored. Intended stdout capture handle.
-        	stderr: Ignored. Intended stderr capture handle.
-        	env: Ignored. Environment mapping passed to the subprocess.
-        	timeout: Ignored. Timeout value for the subprocess.
-        
-        Returns:
-        	An object with attributes:
-        		- returncode (int): 128
-        		- stderr (bytes): b"fatal: Authentication failed"
-        		- stdout (bytes): b""
-        """
-        class P: returncode=128; stderr=b"fatal: Authentication failed"; stdout=b""
-        return P()
-    monkeypatch.setattr("subprocess.run", fake_run)
+    # Simulate git ls-remote failing by patching WorkspaceManager.repo_access_preflight
+    from workspace.manager import WorkspaceManager
+    async def fake_repo_access(self, repo_url, token=None, timeout=8):
+        return {"ok": False, "error": "fatal: Authentication failed"}
+    monkeypatch.setattr(WorkspaceManager, "repo_access_preflight", fake_repo_access)
 
     client = TestClient(proxy.app)
     payload = {"content": "Please clone this repo and create PR", "agent_mode": True, "metadata": {"repo_url": "https://github.com/example/notfound.git"}}

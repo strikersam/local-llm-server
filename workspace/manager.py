@@ -255,15 +255,15 @@ class WorkspaceManager:
 
     # ── Repo access preflight ─────────────────────────────────────────────────
 
-    def repo_access_preflight(self, repo_url: str, token: str | None = None, timeout: int = 8) -> dict[str, object]:
+    async def repo_access_preflight(self, repo_url: str, token: str | None = None, timeout: int = 8) -> dict[str, object]:
         """
         Checks access to a remote Git repository using `git ls-remote --heads`.
-        
+
         Parameters:
         	repo_url (str): Repository URL to check.
         	token (str | None): Optional token to inject into HTTPS URLs for authentication.
         	timeout (int): Operation timeout in seconds.
-        
+
         Returns:
         	result (dict[str, object]): `{'ok': True, 'error': None}` when access succeeds;
         	`{'ok': False, 'error': <message>}` when access fails or an error occurs.
@@ -271,17 +271,28 @@ class WorkspaceManager:
         if not repo_url or not isinstance(repo_url, str):
             return {"ok": False, "error": "no_repo_url"}
         try:
-            import subprocess
+            import asyncio
             env = dict(**os.environ)
             env.setdefault("GIT_TERMINAL_PROMPT", "0")
             auth_url = repo_url
             if token and repo_url.startswith("https://"):
                 auth_url = repo_url.replace("https://", f"https://{token}@")
-            proc = subprocess.run(["git", "ls-remote", "--heads", auth_url], stdout=subprocess.PIPE, stderr=subprocess.PIPE, env=env, timeout=timeout)
+            proc = await asyncio.wait_for(
+                asyncio.create_subprocess_exec(
+                    "git", "ls-remote", "--heads", auth_url,
+                    stdout=asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.PIPE,
+                    env=env,
+                ),
+                timeout=timeout,
+            )
+            stdout, stderr = await proc.communicate()
             if proc.returncode == 0:
                 return {"ok": True, "error": None}
-            err = proc.stderr.decode("utf-8", errors="ignore")[:1000]
+            err = stderr.decode("utf-8", errors="ignore")[:1000]
             return {"ok": False, "error": err}
+        except asyncio.TimeoutError:
+            return {"ok": False, "error": "timeout"}
         except Exception as e:
             return {"ok": False, "error": str(e)}
 
@@ -314,15 +325,15 @@ class WorkspaceManager:
         except Exception as e:
             return {"ok": False, "error": str(e)}
 
-    def validate_repo_path(self, repo_url: str, ref: str, path: str, token: str | None = None, timeout: int = 8) -> dict[str, object]:
+    async def validate_repo_path(self, repo_url: str, ref: str, path: str, token: str | None = None, timeout: int = 8) -> dict[str, object]:
         """
         Checks whether a given path exists at a specific ref in a GitHub-hosted repository.
-        
+
         If `repo_url` is a GitHub HTTPS/HTTP URL, this uses the GitHub Contents API to verify the path at `ref`. For non-GitHub hosts (or when the GitHub check cannot be performed) the function returns a not-supported error.
-        
+
         Parameters:
             token (str | None): Optional GitHub personal access token sent as an Authorization header.
-        
+
         Returns:
             dict[str, object]: `{"ok": True, "error": None}` when the path is found; otherwise `{"ok": False, "error": "<reason>"}` where `error` is an error code or message (e.g., `"http_404"`, `"missing_repo_or_path"`, or another error string).
         """
@@ -344,7 +355,8 @@ class WorkspaceManager:
                         headers["Authorization"] = f"token {token}"
                     url = f"https://api.github.com/repos/{owner}/{repo}/contents/{path}"
                     params = {"ref": ref} if ref else {}
-                    resp = httpx.get(url, headers=headers, params=params, timeout=4.0)
+                    async with httpx.AsyncClient() as client:
+                        resp = await client.get(url, headers=headers, params=params, timeout=4.0)
                     if resp.status_code == 200:
                         return {"ok": True, "error": None}
                     return {"ok": False, "error": f"http_{resp.status_code}"}

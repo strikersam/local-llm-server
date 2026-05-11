@@ -17,7 +17,7 @@ class RunningJob(BaseModel):
     status: str
     phase: str
     progress_events: List[Dict[str, Any]]
-    workspace_path: Optional[str]
+    workspace_path: Optional[str] = None
 
 
 class CompletedJob(BaseModel):
@@ -25,8 +25,8 @@ class CompletedJob(BaseModel):
     session_id: str
     status: str
     phase: str
-    final_message: Optional[str]
-    result: Optional[Dict[str, Any]]
+    final_message: Optional[str] = None
+    result: Optional[Dict[str, Any]] = None
 
 
 class FailedJob(BaseModel):
@@ -39,6 +39,6 @@ class FailedJob(BaseModel):
 
 class AgentJobEnvelope(BaseModel):
     accepted: AcceptedJob
-    running: Optional[RunningJob]
-    completed: Optional[CompletedJob]
-    failed: Optional[FailedJob]
+    running: Optional[RunningJob] = None
+    completed: Optional[CompletedJob] = None
+    failed: Optional[FailedJob] = None
