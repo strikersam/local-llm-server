@@ -137,18 +137,18 @@ class RuntimeRoutingPolicyEngine:
 
     async def route_and_execute(self, spec: TaskSpec) -> tuple[TaskResult, RoutingDecision]:
         """
-        Selects and routes a TaskSpec to an appropriate runtime, executes it with local retries/fallbacks and optional paid escalation per policy, and records the routing decision.
+        Route a TaskSpec to an appropriate runtime, execute it (with configured fallbacks and optional paid escalation), and record the routing decision.
         
-        Executes the task using the chosen runtime; if the primary runtime fails, attempts configured fallback runtimes, and—if permitted by the task and policy—attempts paid provider escalation. Appends a RoutingDecision audit entry to the engine's decision log describing the chosen runtime, any fallback or escalation, and the reason.
+        Attempts to select a healthy runtime for the task (honoring task-type overrides, provider preference, and global policy), executes the task on the chosen runtime, and if the primary attempt fails will try configured fallback runtimes and, when allowed by the task and policy, attempt paid provider escalation. Appends a RoutingDecision entry describing selection, any fallback or escalation, and the rationale to the engine's decision log.
         
         Parameters:
-            spec (TaskSpec): Task specification. Relevant fields: `task_id`, `task_type`, `model_preference`, `provider_preference`, and `allow_paid_escalation`.
+            spec (TaskSpec): Task specification. Relevant fields: `task_id`, `task_type`, `model_preference`, `provider_preference`, `allow_paid_escalation`, and `instruction`.
         
         Returns:
             tuple[TaskResult, RoutingDecision]: The execution result and the final routing decision record.
         
         Raises:
-            RuntimeUnavailableError: If no healthy runtime is available, or if execution/escalation is blocked by policy (for example when paid escalation is required but disallowed or approval is required).
+            RuntimeUnavailableError: If no healthy runtime is available or if execution/escalation is blocked by policy (for example when paid escalation is required but disallowed or approval is required).
         """
         task_type = spec.task_type or "general"
 
@@ -240,21 +240,21 @@ class RuntimeRoutingPolicyEngine:
         decision: RoutingDecision,
     ) -> TaskResult:
         """
-        Execute a task on the primary runtime, try configured fallback runtimes on failure, and optionally escalate to paid providers according to policy.
+        Execute the task on the primary runtime, attempt configured fallback runtimes on failure, and optionally escalate to paid providers according to the routing policy.
         
-        Updates the provided RoutingDecision with execution outcome, fallback markers, and escalation metadata as attempts proceed.
+        Updates the provided RoutingDecision with outcome, fallback markers, and escalation metadata as attempts proceed.
         
         Parameters:
-            spec (TaskSpec): Task specification controlling execution behavior and whether paid escalation is allowed.
-            primary_runtime (RuntimeAdapter): The primary runtime adapter to attempt first.
-            decision (RoutingDecision): Mutable audit record updated with selected runtime, model/provider used, fallback and escalation details.
+            spec (TaskSpec): Task specification including task identifiers, instruction, and whether paid escalation is allowed.
+            primary_runtime (RuntimeAdapter): Primary runtime adapter to attempt first.
+            decision (RoutingDecision): Mutable audit record updated with selected runtime, model/provider used, fallback flags, and escalation details.
         
         Returns:
             TaskResult: The successful execution result returned by the primary runtime, a fallback runtime, or a paid provider.
         
         Raises:
-            RuntimeUnavailableError: When no runtime succeeds, when paid escalation is disallowed by policy or requires approval, or when the daily paid-escalation budget is exhausted.
-            RuntimePreflightError: If any attempted runtime readiness check reports not ready during an attempted execution.
+            RuntimeUnavailableError: If all local runtimes fail and paid escalation is disallowed, requires approval, or the daily paid-escalation quota is exhausted.
+            RuntimePreflightError: If a runtime's readiness check reports not ready during an attempted execution.
         """
         last_exec_error: str = ""
         try:

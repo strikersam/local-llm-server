@@ -65,28 +65,29 @@ async def test_internal_agent_health_available_when_ollama_reachable(monkeypatch
     class FakeAsyncClient:
         async def __aenter__(self):
             """
-            Enter the asynchronous context manager and provide the adapter instance.
+            Enter the asynchronous context manager and make the adapter available to the surrounding `async with` block.
             
             Returns:
-                self: The context manager instance to be used within the async with block.
+                self: The adapter instance to be used inside the `async with` block.
             """
             return self
         async def __aexit__(self, *args):
             """
             Async context manager exit hook that performs no cleanup.
             
-            This method does nothing and does not suppress exceptions raised inside the context.
-            
-            Returns:
-                None
+            Does nothing and does not suppress exceptions raised within the context.
             """
             pass
         async def get(self, url, timeout=None):
             """
-            Provide a FakeResponse instance simulating an HTTP response.
+            Return a FakeResponse that simulates the result of an HTTP GET request.
+            
+            Parameters:
+                url (str): The request URL (ignored by the fake client).
+                timeout (float | None): Optional request timeout in seconds (ignored by the fake client).
             
             Returns:
-                FakeResponse: A fake response object representing the result of an HTTP GET request.
+                FakeResponse: A fake response object representing the HTTP GET result.
             """
             return FakeResponse()
 
@@ -109,25 +110,22 @@ async def test_internal_agent_health_unavailable_error_message(monkeypatch):
     class FakeAsyncClient:
         async def __aenter__(self):
             """
-            Enter the asynchronous context manager and provide the adapter instance.
+            Enter the asynchronous context manager and make the adapter available to the surrounding `async with` block.
             
             Returns:
-                self: The context manager instance to be used within the async with block.
+                self: The adapter instance to be used inside the `async with` block.
             """
             return self
         async def __aexit__(self, *args):
             """
             Async context manager exit hook that performs no cleanup.
             
-            This method does nothing and does not suppress exceptions raised inside the context.
-            
-            Returns:
-                None
+            Does nothing and does not suppress exceptions raised within the context.
             """
             pass
         async def get(self, url, timeout=None):
             """
-            Simulated asynchronous HTTP GET that always fails with a connection error to emulate an unreachable service.
+            Simulated HTTP GET that always fails with a connection error to emulate an unreachable service.
             
             Parameters:
                 url (str): The request URL that would be contacted.

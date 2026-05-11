@@ -11,10 +11,10 @@ from agent.job_manager import AgentJobManager
 
 def _fake_user():
     """
-    Create a UserInfo representing a fixed test user for tests.
+    Create a fixed test user.
     
     Returns:
-        direct_chat.UserInfo: A user with id "u1" and email "repo-tester@example.com".
+        A `direct_chat.UserInfo` with id "u1" and email "repo-tester@example.com".
     """
     return direct_chat.UserInfo(id="u1", email="repo-tester@example.com")
 
@@ -31,13 +31,13 @@ def test_repo_access_preflight_fails_when_git_ls_remote_fails(monkeypatch, tmp_p
     # Return a token
     async def fake_get_token(email):
         """
-        Provide a fake GitHub personal access token for the given email.
+        Return a fake GitHub personal access token for testing.
         
         Parameters:
-            email (str): User email address; unused but kept to match the production signature.
+            email (str): User email address; accepted for signature compatibility but not used.
         
         Returns:
-            str: The placeholder token 'ghp_FAKE'.
+            str: The placeholder token "ghp_FAKE".
         """
         return "ghp_FAKE"
     monkeypatch.setattr(direct_chat, "_get_github_token_for_user", fake_get_token)

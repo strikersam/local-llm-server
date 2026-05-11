@@ -36,26 +36,28 @@ async def test_repo_access_preflight_none_url(tmp_path):
 
 @pytest.mark.asyncio
 async def test_repo_access_preflight_success(tmp_path, monkeypatch):
-    """Subprocess exits 0 → ok=True."""
+    """
+    Verify WorkspaceManager.repo_access_preflight reports success when the git subprocess returns exit code 0 and stdout contains a ref.
+    """
     class FakeProc:
         returncode = 0
         async def communicate(self):
             """
-            Provide simulated subprocess stdout and stderr as bytes.
+            Simulate a subprocess's communicate() call by returning predetermined stdout and stderr.
             
             Returns:
-                tuple[bytes, bytes]: `(stdout, stderr)` where `stdout` is b"abc\trefs/heads/main\n" and `stderr` is b"".
+                tuple[bytes, bytes]: (stdout, stderr) where stdout is b"abc\trefs/heads/main\n" and stderr is b"".
             """
             return b"abc\trefs/heads/main\n", b""
 
     async def fake_create(*args, **kwargs):
         """
-        Create a new FakeProc instance.
+        Return a new FakeProc instance.
         
-        This async helper ignores its arguments and returns a FakeProc object suitable for use as a mocked subprocess.
+        This helper ignores all positional and keyword arguments and yields a FakeProc object suitable for use as a mocked subprocess in tests.
         
         Returns:
-            FakeProc: A fake process object.
+            FakeProc: Fake process object with attributes and coroutine methods expected by tests (e.g., `communicate`, `returncode`).
         """
         return FakeProc()
 
@@ -73,7 +75,7 @@ async def test_repo_access_preflight_failure(tmp_path, monkeypatch):
         returncode = 128
         async def communicate(self):
             """
-            Simulate a subprocess `communicate()` call producing no stdout and an authentication failure on stderr.
+            Return empty stdout and an authentication failure message on stderr.
             
             Returns:
                 tuple[bytes, bytes]: `(stdout, stderr)` where `stdout` is `b""` and `stderr` is `b"fatal: Authentication failed"`.
@@ -82,12 +84,12 @@ async def test_repo_access_preflight_failure(tmp_path, monkeypatch):
 
     async def fake_create(*args, **kwargs):
         """
-        Create a new FakeProc instance.
+        Return a new FakeProc instance.
         
-        This async helper ignores its arguments and returns a FakeProc object suitable for use as a mocked subprocess.
+        This helper ignores all positional and keyword arguments and yields a FakeProc object suitable for use as a mocked subprocess in tests.
         
         Returns:
-            FakeProc: A fake process object.
+            FakeProc: Fake process object with attributes and coroutine methods expected by tests (e.g., `communicate`, `returncode`).
         """
         return FakeProc()
 
@@ -223,9 +225,10 @@ def test_validate_repo_ref_exception(tmp_path, monkeypatch):
     """When subprocess.run raises (e.g. FileNotFoundError), returns ok=False."""
     def raise_error(*a, **kw):
         """
-        Raise FileNotFoundError with message "git not found".
+        Simulate a missing `git` executable by raising FileNotFoundError with message "git not found".
         
-        This helper always raises FileNotFoundError("git not found") to simulate a missing `git` executable.
+        Raises:
+            FileNotFoundError: Always raised with the message "git not found".
         """
         raise FileNotFoundError("git not found")
 
@@ -278,18 +281,18 @@ async def test_validate_repo_path_github_success(tmp_path, monkeypatch):
     class FakeClient:
         async def __aenter__(self):
             """
-            Enter the asynchronous context, yielding the manager instance for use in an `async with` block.
+            Enter the asynchronous context and return the manager instance for use within an `async with` block.
             
             Returns:
-                self: The same manager instance to be used inside the context.
+                self: The manager instance.
             """
             return self
         async def __aexit__(self, *args):
             """
-            Asynchronous context-manager exit hook that performs no action.
+            Asynchronous context-manager exit hook that does nothing and ignores any exception information.
             
             Parameters:
-                *args: Exception type, value, and traceback when an exception occurred in the context; all values are ignored.
+                *args: Exception type, value, and traceback provided by the context manager; all values are ignored.
             
             Returns:
                 None
@@ -297,16 +300,16 @@ async def test_validate_repo_path_github_success(tmp_path, monkeypatch):
             pass
         async def get(self, url, headers=None, params=None, timeout=None):
             """
-            Return a fake HTTP response for the requested URL (test stub).
+            Return a fake HTTP response for the requested URL used in tests.
             
             Parameters:
-                url (str): The URL to request.
-                headers (dict | None): Optional HTTP headers to include; accepted by the stub but not used.
-                params (dict | None): Optional query parameters; accepted by the stub but not used.
-                timeout (float | None): Optional request timeout in seconds; accepted by the stub but not used.
+                url (str): The URL to request; recorded by callers but not used by the stub.
+                headers (dict | None): Optional HTTP headers accepted by the stub and ignored.
+                params (dict | None): Optional query parameters accepted by the stub and ignored.
+                timeout (float | None): Optional request timeout accepted by the stub and ignored.
             
             Returns:
-                FakeResponse: A fake response object suitable for testing.
+                FakeResponse: A FakeResponse instance representing a stubbed HTTP response suitable for testing.
             """
             return FakeResponse()
 
@@ -334,18 +337,18 @@ async def test_validate_repo_path_github_404(tmp_path, monkeypatch):
     class FakeClient:
         async def __aenter__(self):
             """
-            Enter the asynchronous context, yielding the manager instance for use in an `async with` block.
+            Enter the asynchronous context and return the manager instance for use within an `async with` block.
             
             Returns:
-                self: The same manager instance to be used inside the context.
+                self: The manager instance.
             """
             return self
         async def __aexit__(self, *args):
             """
-            Asynchronous context-manager exit hook that performs no action.
+            Asynchronous context-manager exit hook that does nothing and ignores any exception information.
             
             Parameters:
-                *args: Exception type, value, and traceback when an exception occurred in the context; all values are ignored.
+                *args: Exception type, value, and traceback provided by the context manager; all values are ignored.
             
             Returns:
                 None
@@ -353,16 +356,16 @@ async def test_validate_repo_path_github_404(tmp_path, monkeypatch):
             pass
         async def get(self, url, headers=None, params=None, timeout=None):
             """
-            Return a fake HTTP response for the requested URL (test stub).
+            Return a fake HTTP response for the requested URL used in tests.
             
             Parameters:
-                url (str): The URL to request.
-                headers (dict | None): Optional HTTP headers to include; accepted by the stub but not used.
-                params (dict | None): Optional query parameters; accepted by the stub but not used.
-                timeout (float | None): Optional request timeout in seconds; accepted by the stub but not used.
+                url (str): The URL to request; recorded by callers but not used by the stub.
+                headers (dict | None): Optional HTTP headers accepted by the stub and ignored.
+                params (dict | None): Optional query parameters accepted by the stub and ignored.
+                timeout (float | None): Optional request timeout accepted by the stub and ignored.
             
             Returns:
-                FakeResponse: A fake response object suitable for testing.
+                FakeResponse: A FakeResponse instance representing a stubbed HTTP response suitable for testing.
             """
             return FakeResponse()
 
@@ -387,18 +390,18 @@ async def test_validate_repo_path_github_url_with_dot_git(tmp_path, monkeypatch)
     class FakeClient:
         async def __aenter__(self):
             """
-            Enter the asynchronous context, yielding the manager instance for use in an `async with` block.
+            Enter the asynchronous context and return the manager instance for use within an `async with` block.
             
             Returns:
-                self: The same manager instance to be used inside the context.
+                self: The manager instance.
             """
             return self
         async def __aexit__(self, *args):
             """
-            Asynchronous context-manager exit hook that performs no action.
+            Asynchronous context-manager exit hook that does nothing and ignores any exception information.
             
             Parameters:
-                *args: Exception type, value, and traceback when an exception occurred in the context; all values are ignored.
+                *args: Exception type, value, and traceback provided by the context manager; all values are ignored.
             
             Returns:
                 None
@@ -406,16 +409,16 @@ async def test_validate_repo_path_github_url_with_dot_git(tmp_path, monkeypatch)
             pass
         async def get(self, url, headers=None, params=None, timeout=None):
             """
-            Record the requested URL and return a fake HTTP response.
+            Record the requested URL in the external `captured_urls` list and return a fake HTTP response.
             
             Parameters:
-                url (str): The URL requested by the caller; appended to the external `captured_urls` list.
-                headers (dict | None): Optional request headers (ignored by the fake client).
-                params (dict | None): Optional query parameters (ignored by the fake client).
-                timeout (float | None): Optional request timeout (ignored by the fake client).
+                url (str): URL requested by the caller; appended to the external `captured_urls` list.
+                headers (dict | None): Optional request headers (not used).
+                params (dict | None): Optional query parameters (not used).
+                timeout (float | None): Optional request timeout (not used).
             
             Returns:
-                FakeResponse: A lightweight fake response instance returned for testing.
+                FakeResponse: Lightweight fake response instance used for testing.
             """
             captured_urls.append(url)
             return FakeResponse()

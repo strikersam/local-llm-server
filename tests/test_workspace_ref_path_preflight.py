@@ -31,10 +31,10 @@ def test_repo_ref_preflight_fails(monkeypatch, tmp_path: Path):
     monkeypatch.setattr(shutil, "which", lambda name: "/usr/bin/git")
     async def fake_get_token(email):
         """
-        Return a fixed GitHub token used by tests.
+        Provide a fixed GitHub token for tests.
         
         Parameters:
-            email (str): Ignored; included to match the real function signature.
+            email (str): Ignored; present to match the real function signature.
         
         Returns:
             str: The fake GitHub token "ghp_FAKE".
@@ -101,10 +101,10 @@ def test_repo_path_preflight_fails(monkeypatch, tmp_path: Path):
     from workspace.manager import WorkspaceManager
     async def fake_validate_path(self, repo, ref, path, token=None):
         """
-        Force-fails repository path validation to simulate an HTTP 404 error.
+        Simulate repository path validation failing with an HTTP 404 error.
         
         Returns:
-            dict: Failure payload `{'ok': False, 'error': 'http_404'}`.
+            dict: `{'ok': False, 'error': 'http_404'}` indicating the validation failed due to an HTTP 404.
         """
         return {"ok": False, "error": "http_404"}
     monkeypatch.setattr(WorkspaceManager, "validate_repo_path", fake_validate_path)

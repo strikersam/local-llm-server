@@ -47,20 +47,12 @@ class AgentJob:
 
     def as_dict(self) -> dict[str, Any]:
         """
-        Return a snapshot dictionary of the job's public state.
+        Produce a snapshot dictionary of the job's public state.
         
-        The mapping contains the job's identifiers, lifecycle timestamps and state, workspace and runtime configuration, progress events, outcome fields (`result` and `error`), and a convenience `final_message` selected for client display. `final_message` is the job's `result["response"]` when `result` is a dict and contains `response`, otherwise `error["message"]` when `error` is a dict and contains `message`, or `None` if neither is available.
+        The mapping includes identifiers, lifecycle state and timestamps, workspace/runtime configuration, progress events, the raw or normalized outcome (`result` and `error`), and a client-facing `final_message` chosen from `result["response"]` when available or `error["message"]` otherwise.
         
         Returns:
-            dict[str, Any]: Dictionary with keys:
-                - job_id, session_id, instruction, owner_id
-                - status, phase
-                - created_at, updated_at, heartbeat_at
-                - runtime_id, workspace_path, requested_model, provider_id
-                - progress_events (list of event dicts)
-                - result (raw runner result or normalized payload) 
-                - error (structured error information when present)
-                - final_message (str | None): canonical final message for clients
+            dict[str, Any]: Snapshot with keys: `job_id`, `session_id`, `instruction`, `owner_id`, `status`, `phase`, `created_at`, `updated_at`, `heartbeat_at`, `runtime_id`, `workspace_path`, `requested_model`, `provider_id`, `progress_events`, `result`, `error`, and `final_message` (str or None).
         """
         return {
             "job_id": self.job_id,
@@ -206,11 +198,11 @@ class AgentJobManager:
         """
         def heartbeat(phase: str, message: str) -> None:
             """
-            Append a progress event to the current job using the provided phase and message.
+            Append a progress event to the current job's timeline.
             
             Parameters:
-                phase (str): Short phase identifier (e.g., "starting", "completed", "failed").
-                message (str): Human-readable message describing the event.
+                phase (str): Phase identifier such as "starting", "completed", or "failed".
+                message (str): Human-readable description of the event.
             """
             self._append_event(job.job_id, phase=phase, message=message)
 

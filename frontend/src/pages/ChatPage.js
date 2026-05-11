@@ -161,7 +161,13 @@ function emptyAgentSnapshot() {
   };
 }
 
-// ── ThinkingBubble ────────────────────────────────────────────────────────────
+/**
+ * Renders an animated thinking/agent-running indicator used in the chat UI.
+ * @param {{elapsed:number, agentMode:boolean}} props - Component props.
+ * @param {number} props.elapsed - Elapsed time in seconds since the thinking state began; when >= 10 displays elapsed-time text with guidance.
+ * @param {boolean} props.agentMode - When true, shows agent-specific labels and the Plan→Execute→Verify step badges; when false, shows a generic "Thinking" label.
+ * @returns {JSX.Element} The thinking bubble React element.
+ */
 function ThinkingBubble({ elapsed, agentMode }) {
   return (
     <div className="flex gap-3 animate-fade-in">
@@ -208,9 +214,9 @@ function ThinkingBubble({ elapsed, agentMode }) {
 }
 
 /**
- * Modal that lets the user pick a provider and one of its models.
+ * Open a modal to select a provider and one of its available models.
  *
- * @param {Array<{provider_id: string, name: string}>} providers - Available providers to choose from.
+ * @param {Array<{provider_id: string, name: string}>} providers - Available providers to choose from; each item must include `provider_id` and display `name`.
  * @param {(providerId: string, model: string) => void} onConfirm - Called when the user confirms selection with the chosen provider id and model name.
  * @param {() => void} onClose - Called to close the modal without making a selection.
  * @param {string} [initialProvider] - Optional provider id to preselect when the modal opens.

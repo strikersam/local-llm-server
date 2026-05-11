@@ -259,13 +259,17 @@ class WorkspaceManager:
         """
         Check whether the current process can access the given Git repository by running `git ls-remote --heads`.
         
-        Returns:
-            dict[str, object]: `{"ok": True, "error": None}` if the command succeeds; otherwise `{"ok": False, "error": <message>}` where `<message>` may be `"no_repo_url"`, `"timeout"`, a truncated stderr string, or the stringified exception.
-        
         Parameters:
             repo_url (str): Repository URL to check.
-            token (str | None): Optional token injected into HTTPS URLs as credentials when provided.
+            token (str | None): Optional token that will be injected into HTTPS URLs as credentials when provided.
             timeout (int): Maximum time in seconds to wait for the `git ls-remote` command.
+        
+        Returns:
+            dict[str, object]: `{"ok": True, "error": None}` if the command succeeds; otherwise `{"ok": False, "error": <message>}` where `<message>` is one of:
+                - `"no_repo_url"` when `repo_url` is missing or invalid,
+                - `"timeout"` when the command times out,
+                - a truncated stderr string (up to 1000 chars) when `git` returns a non-zero exit code,
+                - or the stringified exception for other failures.
         """
         if not repo_url or not isinstance(repo_url, str):
             return {"ok": False, "error": "no_repo_url"}
@@ -331,19 +335,23 @@ class WorkspaceManager:
 
     async def validate_repo_path(self, repo_url: str, ref: str, path: str, token: str | None = None, timeout: int = 8) -> dict[str, object]:
         """
-        Verify whether a path exists at a specific ref in a GitHub-hosted repository.
+        Check whether a specified path exists at a given ref in a GitHub-hosted repository.
         
-        Uses the GitHub Contents API for HTTP(S) GitHub repository URLs to check the existence of `path` at `ref`. For non-GitHub URLs or when the check cannot be performed, returns a not-supported error result.
+        Uses the GitHub Contents API for HTTP(S) GitHub repository URLs to determine whether `path` (file or directory) exists at `ref`. For non-GitHub URLs or when the check cannot be performed, returns a structured not-supported/error result.
         
         Parameters:
             repo_url (str): Repository URL (expected form: https://github.com/<owner>/<repo>[.git]).
-            ref (str): Git ref (branch, tag, or commit) to check; may be empty to use default branch.
+            ref (str): Git ref (branch, tag, or commit) to check; may be empty to use the repository's default branch.
             path (str): Repository path to verify (file or directory).
             token (str | None): Optional GitHub personal access token sent as `Authorization: token <token>`.
-            timeout (int): Request timeout in seconds (used for the HTTP request).
+            timeout (int): Request timeout in seconds (used for the GitHub API request).
         
         Returns:
-            dict[str, object]: `{"ok": True, "error": None}` if the path exists at the specified ref; otherwise `{"ok": False, "error": "<reason>"}` where `<reason>` is an error code or message such as `"http_404"`, `"missing_repo_or_path"`, `"path_check_not_supported_without_github"`, or another error string.
+            dict[str, object]: `{"ok": True, "error": None}` if the path exists at the specified ref; otherwise `{"ok": False, "error": "<reason>"}` where `<reason>` may be:
+              - `"missing_repo_or_path"` when required inputs are absent,
+              - `"http_<status_code>"` for non-200 GitHub API responses (e.g., `"http_404"`),
+              - `"path_check_not_supported_without_github"` when the repository host is not GitHub,
+              - or an exception message describing an unexpected error.
         """
         if not repo_url or not path:
             return {"ok": False, "error": "missing_repo_or_path"}
@@ -376,9 +384,9 @@ class WorkspaceManager:
 
     def dry_clone_preflight(self, repo_url: str, token: str | None = None, timeout: int = 20) -> dict[str, object]:
         """
-        Perform a non-destructive shallow clone to validate access to a repository.
+        Validate repository access by performing a temporary shallow clone without leaving artifacts.
         
-        This attempts a temporary shallow clone (no full checkout) and removes any created files; use for access validation when lighter checks are insufficient.
+        Attempts a non-destructive shallow clone to verify that the repository is reachable and credentials (if provided) are accepted; any created files are removed.
         
         Returns:
             dict[str, object]: `ok` is `True` if repository access was validated, `False` otherwise; `error` is an error message string or `None`.

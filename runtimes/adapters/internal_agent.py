@@ -78,16 +78,13 @@ class InternalAgentAdapter(RuntimeAdapter):
 
     def __init__(self, config: dict[str, Any] | None = None) -> None:
         """
-        Initialize the adapter and configure base endpoints and runtime flags.
+        Initialize the adapter and configure the Ollama base URL, workspace root, and task-harness requirement.
         
         Parameters:
-            config (dict[str, Any] | None): Optional configuration overrides. Recognized keys:
-                - "ollama_base": base URL for the local Ollama endpoint; falls back to the
-                  OLLAMA_BASE / OLLAMA_BASE_URL environment variables or "http://localhost:11434".
-                - "workspace_root": filesystem path to the workspace; falls back to the repository
-                  root computed from the package location.
-                - "task_harness_required": truthy string (case-insensitive) to require the external
-                  task harness; if omitted, the TASK_HARNESS_REQUIRED environment variable is used.
+            config (dict[str, Any] | None): Optional overrides for adapter configuration. Recognized keys:
+                - "ollama_base": Base URL for the local Ollama endpoint; falls back to the OLLAMA_BASE / OLLAMA_BASE_URL environment variables or "http://localhost:11434".
+                - "workspace_root": Filesystem path for the workspace; falls back to the repository root derived from the package location.
+                - "task_harness_required": If the value (string) equals "true" case-insensitively, the adapter will require an external task harness; if omitted the TASK_HARNESS_REQUIRED environment variable is consulted.
         """
         super().__init__(config)
         self._ollama_base = (
@@ -127,12 +124,12 @@ class InternalAgentAdapter(RuntimeAdapter):
 
     async def health_check(self) -> RuntimeHealth:
         """
-        Check whether the internal agent runtime is available and which provider will be used.
+        Determine availability of the internal agent runtime and which provider will be used.
         
-        Performs a configuration check: if an NVIDIA API key is configured, reports the runtime as available and the provider as "nvidia-nim"; otherwise performs a short HTTP probe of the local Ollama base URL and reports availability with provider "ollama" when the probe succeeds.
+        If an NVIDIA API key is configured the runtime is reported available and the provider is `"nvidia-nim"` with `details` containing `workspace_root` and `provider`. If no NVIDIA key is present the adapter performs a short HTTP probe of the local Ollama base URL; on success `available` is `True` and `details` includes `workspace_root`, `provider` (`"ollama"`), and `probe_url`. On probe failure `available` is `False` and `error` is set to `"Local Ollama not reachable"`.
         
         Returns:
-            RuntimeHealth: Health result where `available` indicates reachability. On success `details` contains `workspace_root` and `provider`; when Ollama is probed `details` also includes `probe_url`. On failure `available` is `False` and `error` is set to "Local Ollama not reachable".
+            RuntimeHealth: Health result describing availability, `details`, and `error` when unavailable.
         """
         nvidia_key = (
             os.environ.get("NVIDIA_API_KEY")
@@ -174,15 +171,16 @@ class InternalAgentAdapter(RuntimeAdapter):
 
     async def execute(self, spec: TaskSpec) -> TaskResult:
         """
-        Run the provided TaskSpec with an AgentRunner and produce a TaskResult summarizing the execution.
-        
-        Selects Nvidia NIM as the primary provider when configured (otherwise uses the adapter's Ollama base), resolves the effective model preference, executes the agent, aggregates disk-write artifacts and metadata (including the raw runner result and an agent comment), and determines success when files were modified, steps were applied, or a substantive textual report/summary was produced and the judge verdict is not "BLOCKED". Exceptions raised by the runner are rethrown as RuntimeExecutionError.
+        Execute a TaskSpec using an AgentRunner and return a TaskResult summarizing the run.
         
         Parameters:
-            spec (TaskSpec): Task execution specification containing instruction, context, optional model_preference, optional workspace_path, and task_id.
+            spec (TaskSpec): Specification for the task including instruction, context, optional model_preference, optional workspace_path, and task_id.
         
         Returns:
-            TaskResult: Execution summary with runtime_id, task_id, success flag, output text, artifacts (changed files), model_used, provider_used, execution_time_ms, and metadata (includes `raw_result` and `changed_files`).
+            TaskResult: Summary of execution containing runtime_id, task_id, success flag, output text, artifacts (changed files), model_used, provider_used, execution_time_ms, and metadata. Metadata includes the raw runner result under `raw_result`, the deduplicated `changed_files`, and `agent_comment` when available.
+        
+        Raises:
+            RuntimeExecutionError: If the underlying AgentRunner raises an exception during execution.
         """
         nvidia_chain = _nvidia_provider_chain()
 

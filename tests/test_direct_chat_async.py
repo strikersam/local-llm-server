@@ -166,12 +166,10 @@ def test_agent_mode_github_preflight_missing_token(monkeypatch, tmp_path: Path):
     monkeypatch.setattr(shutil, "which", lambda name: "/usr/bin/git")
     async def fake_get_token(email):
         """
-        Always indicate that no token exists for the provided email.
-        
-        This test stub simulates a token lookup that never finds a token.
+        Always report that no token exists for the given email.
         
         Returns:
-            None: No token found for the provided email.
+            None: no token found for the provided email.
         """
         return None
     monkeypatch.setattr(direct_chat, "_get_github_token_for_user", fake_get_token)
@@ -221,13 +219,13 @@ async def test_job_result_normalizes_and_exposes_final_message():
 
     async def runner(heartbeat):
         """
-        Emit an initial "planning" heartbeat and produce a final run summary.
+        Emit an initial "planning" heartbeat and return a final run summary.
         
         Parameters:
-            heartbeat (Callable[[str, str], None]): Function to emit progress updates; called with (status, message).
+            heartbeat (Callable[[str, str], None]): Function called with (status, message) to report progress.
         
         Returns:
-            dict: Result with keys "summary" (final textual summary) and "steps" (list of step records).
+            dict: A result containing `"summary"` (final textual summary) and `"steps"` (list of step records).
         """
         heartbeat("planning", "planning")
         return {"summary": "Final textual summary", "steps": []}
@@ -260,15 +258,15 @@ async def test_job_failure_structures_runtime_preflight(monkeypatch):
     class DummyReport:
         def __init__(self):
             """
-            Initialize a DummyReport describing an unavailable internal-agent runtime.
+            Initialize a DummyReport representing an unavailable internal-agent runtime.
             
-            Sets attributes that represent a runtime readiness failure.
+            The report indicates the internal agent runtime is not ready.
             
             Attributes:
-                runtime_id (str): Identifier of the runtime; "internal_agent".
-                ready (bool): Readiness flag; False.
-                selected_runtime (str): Chosen runtime identifier; "internal_agent".
-                summary (str): Short explanation of the failure; "docker missing".
+                runtime_id (str): Identifier set to "internal_agent".
+                ready (bool): Readiness flag set to False.
+                selected_runtime (str): Chosen runtime identifier set to "internal_agent".
+                summary (str): Short explanation of the failure set to "docker missing".
             """
             self.runtime_id = "internal_agent"
             self.ready = False
@@ -289,10 +287,10 @@ async def test_job_failure_structures_runtime_preflight(monkeypatch):
     async def runner(heartbeat):
         # Simulate runtime preflight failure thrown during execution
         """
-        Simulated agent runner that immediately raises a runtime preflight error for the "internal_agent" runtime.
+        Simulated agent runner that immediately fails with a runtime preflight error for the "internal_agent" runtime.
         
         Parameters:
-            heartbeat (callable): Progress heartbeat callback; ignored by this simulated runner.
+            heartbeat (callable): Progress callback; ignored by this simulated runner.
         
         Raises:
             RuntimePreflightError: Raised for runtime "internal_agent" with a report describing the readiness failure.

@@ -16,19 +16,21 @@ async def test_dry_clone_repo_handles_subprocess_failure(monkeypatch):
         returncode = 128
         async def communicate(self):
             """
-            Return simulated subprocess output for stdout and stderr.
+            Simulate a subprocess's communicate() result: empty stdout and stderr containing an authentication failure message.
             
             Returns:
-                tuple[bytes, bytes]: A pair where the first element is stdout (empty bytes) and the second is stderr containing an authentication failure message.
+                tuple[bytes, bytes]: (stdout, stderr) where stdout is b'' and stderr is b'Authentication failed'.
             """
             return b'', b'Authentication failed'
 
     async def fake_create(*args, **kwargs):
         """
-        Provide a FakeProc instance used to mock asyncio.create_subprocess_exec in tests.
+        Create a FakeProc instance for use as a mocked asyncio subprocess.
+        
+        This returns an object that mimics the subprocess returned by asyncio.create_subprocess_exec (for example providing a `returncode` and an async `communicate()`), suitable for injecting into tests.
         
         Returns:
-            FakeProc: A fake process object suitable as the mocked result of `asyncio.create_subprocess_exec`.
+            FakeProc: A fake process object representing the mocked subprocess.
         """
         return FakeProc()
 
@@ -40,7 +42,11 @@ async def test_dry_clone_repo_handles_subprocess_failure(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_dry_clone_repo_success(monkeypatch):
-    """When git clone exits with returncode 0, dry_clone_repo returns ok=True."""
+    """
+    Verify dry_clone_repo reports success when the git subprocess exits with code 0.
+    
+    Asserts that the returned result indicates success (`ok` is True) and contains no error when the cloned process completes successfully.
+    """
     class FakeProc:
         returncode = 0
         async def communicate(self):
@@ -48,16 +54,18 @@ async def test_dry_clone_repo_success(monkeypatch):
             Return empty stdout and stderr.
             
             Returns:
-                (stdout, stderr): A tuple where `stdout` and `stderr` are empty byte strings (`b''`, `b''`).
+                (stdout, stderr) (tuple[bytes, bytes]): Tuple where `stdout` and `stderr` are empty byte strings (`b''`, `b''`).
             """
             return b'', b''
 
     async def fake_create(*args, **kwargs):
         """
-        Provide a FakeProc instance used to mock asyncio.create_subprocess_exec in tests.
+        Create a FakeProc instance for use as a mocked asyncio subprocess.
+        
+        This returns an object that mimics the subprocess returned by asyncio.create_subprocess_exec (for example providing a `returncode` and an async `communicate()`), suitable for injecting into tests.
         
         Returns:
-            FakeProc: A fake process object suitable as the mocked result of `asyncio.create_subprocess_exec`.
+            FakeProc: A fake process object representing the mocked subprocess.
         """
         return FakeProc()
 
@@ -72,10 +80,10 @@ async def test_dry_clone_repo_timeout(monkeypatch):
     """A subprocess that never completes triggers timeout and returns ok=False, error='timeout'."""
     async def fake_create(*args, **kwargs):
         """
-        Simulate subprocess creation that immediately raises an asyncio.TimeoutError.
+        Simulate creating a subprocess by immediately raising asyncio.TimeoutError.
         
         Raises:
-            asyncio.TimeoutError: Always raised to simulate a timeout when creating a subprocess.
+            asyncio.TimeoutError: Always raised to simulate a subprocess creation timeout.
         """
         raise asyncio.TimeoutError()
 
@@ -110,19 +118,21 @@ async def test_dry_clone_repo_sanitizes_token_in_error(monkeypatch):
         async def communicate(self):
             # Simulate a token leaking into stderr
             """
-            Simulate a subprocess' communicate() returning stdout and stderr where stderr contains an authentication failure message that embeds the token.
+            Return simulated subprocess stdout and stderr where stderr contains an authentication failure message embedding the token.
             
             Returns:
-                tuple[bytes, bytes]: (stdout, stderr). stdout is empty bytes; stderr is the encoded authentication failure message including the token.
+                tuple[bytes, bytes]: `(stdout, stderr)` where `stdout` is `b''` and `stderr` is the authentication failure message including the token, encoded as bytes.
             """
             return b'', f'fatal: Authentication failed for https://{token}@github.com'.encode()
 
     async def fake_create(*args, **kwargs):
         """
-        Provide a FakeProc instance used to mock asyncio.create_subprocess_exec in tests.
+        Create a FakeProc instance for use as a mocked asyncio subprocess.
+        
+        This returns an object that mimics the subprocess returned by asyncio.create_subprocess_exec (for example providing a `returncode` and an async `communicate()`), suitable for injecting into tests.
         
         Returns:
-            FakeProc: A fake process object suitable as the mocked result of `asyncio.create_subprocess_exec`.
+            FakeProc: A fake process object representing the mocked subprocess.
         """
         return FakeProc()
 
@@ -136,9 +146,9 @@ async def test_dry_clone_repo_sanitizes_token_in_error(monkeypatch):
 @pytest.mark.asyncio
 async def test_dry_clone_repo_non_https_url_no_token_injection(monkeypatch):
     """
-    Ensure that when cloning a non-HTTPS repository URL, the function does not inject a GIT_ASKPASS environment variable even if a token is provided.
+    Verify that dry_clone_repo does not inject GIT_ASKPASS into the subprocess environment for non-HTTPS repository URLs even when a token is provided.
     
-    Patches subprocess creation to capture passed environment variables and asserts that `GIT_ASKPASS` is not present.
+    Patches subprocess creation to capture the environment passed to the child process and asserts that 'GIT_ASKPASS' is not present in that environment.
     """
     import os
     captured_env = {}
@@ -152,7 +162,7 @@ async def test_dry_clone_repo_non_https_url_no_token_injection(monkeypatch):
             Return empty stdout and stderr.
             
             Returns:
-                (stdout, stderr): A tuple where `stdout` and `stderr` are empty byte strings (`b''`, `b''`).
+                (stdout, stderr) (tuple[bytes, bytes]): Tuple where `stdout` and `stderr` are empty byte strings (`b''`, `b''`).
             """
             return b'', b''
 

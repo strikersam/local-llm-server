@@ -87,13 +87,13 @@ async def test_run_job_normalizes_response_key():
 
     async def runner(heartbeat):
         """
-        Test runner used in tests that returns a normalized response dictionary.
+        Test runner that returns a normalized response dictionary for use in tests.
         
         Parameters:
-            heartbeat (callable): Progress callback that accepts phase and data; not used by this runner.
+        	heartbeat (callable): Progress callback that accepts (phase, data); ignored by this runner.
         
         Returns:
-            dict: A dictionary containing a "response" string used as the job's normalized response; may include other keys in `raw`.
+        	dict: Dictionary containing a "response" string and any additional raw keys.
         """
         return {"response": "Direct response text", "other": "ignored"}
 
@@ -117,13 +117,13 @@ async def test_run_job_normalizes_output_key():
 
     async def runner(heartbeat):
         """
-        Test runner that returns a mapping with an 'output' message.
+        Test runner that returns a mapping with an `output` message.
         
         Parameters:
-            heartbeat: Callable used to emit progress events; this runner does not call it.
+            heartbeat (Callable): Callable for emitting progress events; this test runner does not use it.
         
         Returns:
-            dict: A mapping with an `output` key containing the runner's message.
+            dict: Mapping containing an `output` key with the runner message.
         """
         return {"output": "Output text from runner"}
 
@@ -206,10 +206,10 @@ async def test_run_job_runtime_unavailable_error_structured():
 
     async def runner(heartbeat):
         """
-        Simulate a job runner that immediately raises a RuntimeUnavailableError for testing runtime-unavailable handling.
+        Simulate a job runner that immediately raises a RuntimeUnavailableError to indicate the Docker runtime is unavailable.
         
         Parameters:
-            heartbeat: Callable used by runners to emit progress events (ignored).
+            heartbeat (Callable): Callable used by runners to emit progress events; not used by this runner.
         
         Raises:
             RuntimeUnavailableError: Indicates the runtime "docker_agent" is unavailable with message "Docker daemon not running".
@@ -297,13 +297,13 @@ async def test_run_job_appends_progress_events():
 
     async def runner(heartbeat):
         """
-        Simulated job runner that emits progress heartbeats for planning and executing phases and produces a final response.
+        Simulated job runner that emits progress heartbeats for planning and executing phases and returns a final response.
         
         Parameters:
             heartbeat (Callable[[str, str], None]): Callback invoked with a phase name and a human-readable message to record progress events.
         
         Returns:
-            dict: A result object with a `"response"` key containing the final message `"done"`.
+            dict: Result object with a "response" key set to "done".
         """
         heartbeat("planning", "Starting planning phase")
         heartbeat("executing", "Executing step 1")
@@ -332,13 +332,13 @@ async def test_run_job_sets_status_transitions():
 
     async def runner(heartbeat):
         """
-        A simple test runner that returns a normalized response payload.
+        Simple test runner that always returns a normalized response.
         
         Parameters:
-            heartbeat (Callable): Optional callback for reporting progress events; ignored by this runner.
+            heartbeat (Callable): Progress callback; ignored by this runner.
         
         Returns:
-            dict: A result dictionary containing the key `"response"` with the value `"ok"`.
+            dict: Result with "response" set to "ok".
         """
         return {"response": "ok"}
 

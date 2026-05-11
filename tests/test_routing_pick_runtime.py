@@ -89,13 +89,13 @@ class _AltAdapter(RuntimeAdapter):
 
     async def execute(self, spec: TaskSpec) -> TaskResult:
         """
-        Execute the given task spec and return a successful TaskResult for the alternative adapter.
+        Execute the task spec for the alternative adapter.
         
         Parameters:
-            spec (TaskSpec): Task specification; `task_id` from this spec will be used in the result.
+            spec (TaskSpec): Task specification whose `task_id` will be copied into the result.
         
         Returns:
-            TaskResult: A successful result with `runtime_id` set to this adapter's `RUNTIME_ID`, `task_id` copied from `spec.task_id`, `success` true, and `output` set to "alt ok".
+            TaskResult: A result with `runtime_id` set to this adapter's `RUNTIME_ID`, `task_id` copied from `spec.task_id`, `success` set to `True`, and `output` set to `"alt ok"`.
         """
         return TaskResult(
             runtime_id=self.RUNTIME_ID,
@@ -107,14 +107,14 @@ class _AltAdapter(RuntimeAdapter):
 
 def _make_engine(adapters, availability_map: dict[str, bool]) -> RuntimeRoutingPolicyEngine:
     """
-    Create a RuntimeRoutingPolicyEngine populated with the provided adapters and a deterministic health cache for tests.
+    Create a RuntimeRoutingPolicyEngine configured with the given adapters and a deterministic health cache for testing.
     
     Parameters:
-        adapters (iterable[RuntimeAdapter]): Adapter classes to register with the engine's capability registry.
-        availability_map (dict[str, bool]): Mapping from adapter RUNTIME_ID to its seeded availability; if an ID is missing, availability defaults to True.
+        adapters (iterable[RuntimeAdapter]): Adapter classes to register in the engine's capability registry.
+        availability_map (dict[str, bool]): Mapping from adapter RUNTIME_ID to seeded availability; missing IDs default to True.
     
     Returns:
-        RuntimeRoutingPolicyEngine: Engine whose registry contains the provided adapters, whose RuntimeHealthService cache is seeded according to availability_map, and whose RoutingPolicy is configured with never_use_paid_providers=True.
+        RuntimeRoutingPolicyEngine: Engine whose registry contains the provided adapters, whose RuntimeHealthService cache is seeded according to availability_map, and whose RoutingPolicy has never_use_paid_providers=True.
     """
     registry = RuntimeCapabilityRegistry()
     for adapter in adapters:

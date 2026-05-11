@@ -213,12 +213,12 @@ async def _handle_agent_mode(
     request: Request,
 ):
     """
-    Queue a background agent job to perform code/workspace operations after Git/GitHub preflight validation.
+    Queue a background agent job to perform repository or workspace code tasks after Git/GitHub preflight validation.
     
-    Appends the user's message to the session history, runs repository/git preflight checks when the prompt appears to reference repository activity (token presence, git binary, optional repo/ref/path checks, and best-effort GitHub API validation), verifies adapter readiness, creates an isolated workspace and job record, starts the job in the background, and returns a transport-level acknowledgement. If preflight or readiness checks fail, raises an HTTPException with status 412 and a structured detail describing readiness issues.
+    Performs Git/GitHub readiness checks (token presence, git binary, optional repo/ref/path validations, and best-effort GitHub API validation) when the prompt appears to reference repository activity, appends the user's message to the session history, verifies adapter readiness, creates an isolated workspace and job record, starts the agent workflow in the background, and returns a transport-level acknowledgement. If preflight or readiness checks fail, raises an HTTPException(412) with a structured detail describing readiness issues.
     
     Returns:
-        JSONResponse: HTTP 202 acknowledgement containing a typed AcceptedJob payload with `session_id`, `job_id`, `status`, `phase`, and `message`.
+        JSONResponse: HTTP 202 acknowledgement containing an AcceptedJob payload with `session_id`, `job_id`, `status`, `phase`, and `message`.
     """
     log.info(f"Agent mode chat from {user.email}: {req.content[:50]}...")
     session_id = req.session_id
@@ -374,13 +374,11 @@ async def _handle_agent_mode(
         """
         Run the queued agent workflow, emit progress heartbeats, persist the final assistant message, and return a session envelope.
         
-        Invokes the provided heartbeat callback at major phases, executes the agent runner, appends the assistant's final message to the direct chat session store, and returns an envelope identifying the session and assistant response.
-        
         Parameters:
-            heartbeat (Callable[[str, str], None]): Callback invoked with a phase identifier and a short status message (e.g., heartbeat("planning", "…")) to report progress.
+            heartbeat (Callable[[str, str], None]): Callback invoked with a phase identifier and a short status message to report progress (e.g., heartbeat("planning", "…")).
         
         Returns:
-            dict: Envelope containing `session_id` (str) and `response` (str) with the assistant's final message.
+            dict: Envelope with `session_id` (str) and `response` (str) containing the assistant's final message.
         """
         from agent.loop import AgentRunner
         heartbeat("planning", "Runtime preflight passed")

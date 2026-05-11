@@ -23,7 +23,7 @@ from runtimes.base import RuntimeReadinessReport
 
 def _fake_user() -> direct_chat.UserInfo:
     """
-    Create a fixed test UserInfo used by endpoint tests.
+    Return a fixed test UserInfo used by endpoint tests.
     
     Returns:
         direct_chat.UserInfo: A UserInfo with id "u-ep" and email "endpoints-tester@example.com".
@@ -124,7 +124,11 @@ def test_get_agent_job_running_returns_running_schema(monkeypatch, tmp_path: Pat
 # ── POST /api/chat/send agent_mode AcceptedJob shape ──────────────────────────
 
 def test_agent_mode_response_has_accepted_job_shape(monkeypatch, tmp_path: Path):
-    """Successful agent-mode POST returns 202 with AcceptedJob schema fields."""
+    """
+    Validate that sending a chat in agent mode enqueues an agent job and returns an AcceptedJob-shaped response.
+    
+    Sends a POST to /api/chat/send with `agent_mode=True` and asserts the handler responds with HTTP 202 and a JSON body containing the keys `session_id`, `job_id`, `status`, `phase`, and `message` with the value "Agent workflow queued.".
+    """
     proxy.app.dependency_overrides[direct_chat._get_current_user] = _fake_user
     monkeypatch.setattr(
         direct_chat, "_direct_chat_store",
@@ -139,7 +143,7 @@ def test_agent_mode_response_has_accepted_job_shape(monkeypatch, tmp_path: Path)
         normalized_base_url = "http://localhost:11434"
         def auth_headers(self):
             """
-            Return authentication headers to include in HTTP requests.
+            Authentication headers to include in HTTP requests.
             
             Returns:
                 dict: Mapping of HTTP header names to values. Empty dict when no authentication is configured.
@@ -168,23 +172,25 @@ def test_agent_mode_response_has_accepted_job_shape(monkeypatch, tmp_path: Path)
     class FakeRunner:
         def __init__(self, **kwargs):
             """
-            Initialize a new instance.
+            Initialize the instance.
+            
+            Accepts arbitrary keyword arguments for compatibility; any provided keys are ignored.
             
             Parameters:
-                **kwargs: Arbitrary keyword arguments accepted for compatibility; this initializer does not use them.
+                **kwargs: Arbitrary keyword arguments accepted for compatibility and ignored.
             """
             pass
         async def run(self, **kwargs):
             """
-            Run the agent runner and produce its final result payload.
+            Run the agent runner and return its final result payload.
             
             Parameters:
-                **kwargs: Arbitrary runner options and context passed through to the runner.
+                **kwargs: Arbitrary options and context forwarded to the runner.
             
             Returns:
-                result (dict): Payload containing:
+                dict: Payload with keys:
                     - "response" (str): Final textual response produced by the runner.
-                    - "steps" (list): List of execution step records (empty list when no steps).
+                    - "steps" (list): List of execution step records (empty when no steps).
             """
             return {"response": "done", "steps": []}
 
@@ -197,13 +203,13 @@ def test_agent_mode_response_has_accepted_job_shape(monkeypatch, tmp_path: Path)
     # Patch out github token so preflight doesn't block (content has no repo keywords)
     async def fake_get_token(email):
         """
-        Simulate a GitHub token lookup in tests where no token is available.
+        Simulate absence of a GitHub token for a user during tests.
         
         Parameters:
             email (str): User email to query for a token; ignored by this fake implementation.
         
         Returns:
-            None: Indicates that no token was found.
+            None: Indicates no token was found.
         """
         return None
     monkeypatch.setattr(direct_chat, "_get_github_token_for_user", fake_get_token)
@@ -242,10 +248,10 @@ def test_agent_mode_missing_git_binary_preflight_error(monkeypatch, tmp_path: Pa
 
     async def fake_get_token(email):
         """
-        Simulate a token lookup that always yields no token for the given user email.
+        Simulate a token lookup that always returns no token for the given user email.
         
         Parameters:
-            email (str): User email whose token would be looked up.
+            email (str): The user's email address.
         
         Returns:
             None: Indicates no token is available.
@@ -284,13 +290,13 @@ def test_agent_mode_multiple_preflight_issues(monkeypatch, tmp_path: Path):
 
     async def fake_get_token(email):
         """
-        Simulate a GitHub token lookup in tests where no token is available.
+        Simulate absence of a GitHub token for a user during tests.
         
         Parameters:
             email (str): User email to query for a token; ignored by this fake implementation.
         
         Returns:
-            None: Indicates that no token was found.
+            None: Indicates no token was found.
         """
         return None
     monkeypatch.setattr(direct_chat, "_get_github_token_for_user", fake_get_token)
@@ -329,7 +335,7 @@ def test_non_git_content_skips_github_preflight(monkeypatch, tmp_path: Path):
         normalized_base_url = "http://localhost:11434"
         def auth_headers(self):
             """
-            Return authentication headers to include in HTTP requests.
+            Authentication headers to include in HTTP requests.
             
             Returns:
                 dict: Mapping of HTTP header names to values. Empty dict when no authentication is configured.
@@ -358,10 +364,12 @@ def test_non_git_content_skips_github_preflight(monkeypatch, tmp_path: Path):
     class FakeRunner:
         def __init__(self, **kwargs):
             """
-            Initialize a new instance.
+            Initialize the instance.
+            
+            Accepts arbitrary keyword arguments for compatibility; any provided keys are ignored.
             
             Parameters:
-                **kwargs: Arbitrary keyword arguments accepted for compatibility; this initializer does not use them.
+                **kwargs: Arbitrary keyword arguments accepted for compatibility and ignored.
             """
             pass
         async def run(self, **kwargs):
@@ -386,13 +394,13 @@ def test_non_git_content_skips_github_preflight(monkeypatch, tmp_path: Path):
 
     async def fake_get_token(email):
         """
-        Simulate a GitHub token lookup in tests where no token is available.
+        Simulate absence of a GitHub token for a user during tests.
         
         Parameters:
             email (str): User email to query for a token; ignored by this fake implementation.
         
         Returns:
-            None: Indicates that no token was found.
+            None: Indicates no token was found.
         """
         return None
     monkeypatch.setattr(direct_chat, "_get_github_token_for_user", fake_get_token)
