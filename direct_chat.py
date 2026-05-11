@@ -252,7 +252,13 @@ async def _handle_agent_mode(
 
     _ensure_session(session_id, user)
     _direct_chat_store.append_message(session_id, "user", req.content)
-    github_token = await _get_github_token_for_user(user.email)
+    # Accept sync or async _get_github_token_for_user implementations (tests patch a sync lambda)
+    import inspect
+    _token_res = _get_github_token_for_user(user.email)
+    if inspect.isawaitable(_token_res):
+        github_token = await _token_res
+    else:
+        github_token = _token_res
 
     # GitHub preflight: for prompts that appear to require repo/git access, ensure
     # a token and git binary are available and provide structured actionable errors
