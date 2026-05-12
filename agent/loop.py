@@ -711,7 +711,10 @@ class AgentRunner:
         def _split_repo(name: str) -> tuple[str, str]:
             if "/" not in name:
                 raise ValueError(f"Invalid repo_name format: {name} (expected owner/repo)")
-            return name.split("/", 1)
+            owner, repo = name.split("/", 1)
+            if not owner or not repo:
+                raise ValueError(f"Invalid repo_name format: {name} (owner and repo must be non-empty)")
+            return owner, repo
 
         if tool == "github_get_issue":
             owner, repo = _split_repo(str(args.get("repo_name", "")))
