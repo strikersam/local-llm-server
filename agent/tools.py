@@ -271,3 +271,15 @@ class WorkspaceTools:
     def get_why(self, target: str) -> str:
         """Extracts architectural decisions related to target from git history."""
         return self.repowise.get_why(target)
+
+    def get_answer(self, question: str) -> str:
+        """One-call RAG over documentation with confidence gating."""
+        return self.repowise.get_answer(question)
+
+    def search_codebase(self, query: str) -> str:
+        """Semantic search over documentation."""
+        return self.repowise.search_codebase(query)
+
+    def get_decision_flownodes(self) -> str:
+        """Extract decision-linked flow nodes."""
+        return self.repowise.get_decision_flownodes()
