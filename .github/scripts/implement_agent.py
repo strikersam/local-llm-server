@@ -28,13 +28,14 @@ URL = sys.argv[1] if len(sys.argv) > 1 else ""
 ISSUE_NUM = sys.argv[2] if len(sys.argv) > 2 else "?"
 TASK = sys.argv[3] if len(sys.argv) > 3 else ""
 RESULT_FILE = "/tmp/impl_result.json"  # nosec: B108 - Predictable temp file path used for backward compatibility; secure temp file used internally
-MAX_TURNS = 40
+MAX_TURNS = 120
 
 # Model preference: heavy reasoning model first, reliable fallbacks after.
 # All are free-tier NVIDIA NIM models.
 CANDIDATE_MODELS = [
     ("qwen/qwen3-coder-480b-a35b-instruct",      "coding (Qwen3-Coder 480B — primary)"),
     ("nvidia/llama-3.1-nemotron-ultra-253b-v1", "reasoning (Nemotron Ultra 253B)"),
+    ("nvidia/llama-3.3-nemotron-super-49b-v1",  "reasoning (Nemotron Super 49B)"),
     ("meta/llama-3.3-70b-instruct",             "coding (Llama 3.3 70B)"),
     ("qwen/qwen2.5-coder-32b-instruct",         "coding (Qwen2.5 Coder 32B)"),
 ]
@@ -92,11 +93,16 @@ def tool_list_files(pattern: str = "**/*.py") -> str:
         return f"[error: {exc}]"
 
 
+def tool_search(query: str) -> str:
+    return tool_bash(f"grep -rnE '{query}' . --include='*.py' | head -50")
+
+
 TOOL_DISPATCH = {
     "bash": lambda inp: tool_bash(inp["cmd"]),
     "read_file": lambda inp: tool_read_file(inp["path"]),
     "write_file": lambda inp: tool_write_file(inp["path"], inp["content"]),
     "list_files": lambda inp: tool_list_files(inp.get("pattern", "**/*.py")),
+    "search_code": lambda inp: tool_search(inp["query"]),
 }
 
 # OpenAI-format tool schemas
@@ -156,83 +162,83 @@ TOOLS = [
             },
         },
     },
+    {
+        "type": "function",
+        "function": {
+            "name": "search_code",
+            "description": "Grep for a regex pattern across all .py files.",
+            "parameters": {
+                "type": "object",
+                "properties": {"query": {"type": "string"}},
+                "required": ["query"],
+            },
+        },
+    },
 ]
-
-
-# ---------------------------------------------------------------------------
-# Context loading
-# ---------------------------------------------------------------------------
-def load_context() -> str:
-    parts = []
-    for p_str in [
-        "CLAUDE.md",
-        ".agents/skills/implementation-planner/SKILL.md",
-        ".agents/skills/test-first-executor/SKILL.md",
-        ".agents/skills/changelog-enforcer/SKILL.md",
-        ".agents/skills/issue-resolver/SKILL.md",
-    ]:
-        p = Path(p_str)
-        if p.exists():
-            label = p.name if p.name != "CLAUDE.md" else "CLAUDE.md"
-            parts.append(f"=== {label} ===\n" + p.read_text()[:2000])
-
-    result = subprocess.run(
-        "git ls-files -- '*.py' '*.js' '*.ts' '*.yml' '*.yaml' '*.md' | head -120",
-        shell=True, capture_output=True, text=True,
-    )
-    parts.append("=== REPO FILE TREE ===\n" + result.stdout)
-    return "\n\n".join(parts)
 
 
 # ---------------------------------------------------------------------------
 # System prompt
 # ---------------------------------------------------------------------------
 SYSTEM = textwrap.dedent("""
-    You are an expert software engineer implementing a feature for the
-    local-llm-server repository (a self-hosted OpenAI-compatible proxy).
+    You are a senior software engineer implementing features in a Python/FastAPI repository.
 
-    Given a URL content and a task description you will:
-    1. Read CLAUDE.md and the skill files using read_file to understand context.
-    2. Follow the implementation-planner skill: plan before coding.
-    3. Follow the test-first-executor skill: write tests first, confirm they
-       fail, then implement until they pass.
-    4. Follow the changelog-enforcer skill: add an entry under [Unreleased]
-       in docs/changelog.md.
-    5. Use bash to run `pytest -x -q --tb=short` after implementing.
-       If tests fail, fix the code — do NOT give up.
-    6. When done and tests are green, call:
-         bash(cmd="echo IMPLEMENTATION_COMPLETE")
+    ## Mandatory workflow — follow in order
 
-    Rules:
+    1. **Read CLAUDE.md** to understand conventions, structure, and rules:
+       bash(cmd="cat CLAUDE.md")
+
+    2. **Survey the task area** — read relevant existing files before writing anything.
+
+    3. **Implement the feature** — create new files or extend existing ones.
+       - All public functions must have type annotations and `from __future__ import annotations`.
+       - Use `logging.getLogger("qwen-proxy")` for logging, never `print`.
+       - Pydantic models for all API I/O.
+       - Tests go in `tests/` and must pass with `pytest -x -q --tb=short`.
+
+    4. **Add a changelog entry** — this is REQUIRED for CI to pass:
+       Open `docs/changelog.md`, find `## [Unreleased]`, and add one or more lines
+       describing what you added/changed/fixed. Without this, the PR will be blocked.
+       Example:
+       ```
+       ### Added
+       - `scripts/my_feature.py` — brief description of what it does.
+       ```
+
+    5. **Run tests and verify**:
+       bash(cmd="pytest -x -q --tb=short 2>&1 | tail -20")
+       Fix any failures. Only proceed when all tests pass.
+
+    6. **Verify staged changes exist**:
+       bash(cmd="git add -A && git diff --staged --stat")
+       There must be changed files. If nothing is staged, check your write_file calls.
+
+    7. **Signal completion** — call ONLY when pytest exits 0 AND staged changes exist:
+       bash(cmd="echo IMPLEMENTATION_COMPLETE")
+
+    ## Rules
+    - Never signal IMPLEMENTATION_COMPLETE if the last pytest run had failures.
+    - Always update docs/changelog.md under ## [Unreleased] — CI will block the PR without it.
     - Only implement features clearly supported by the URL content.
     - Minimal focused changes — no sprawling refactors.
-    - Type annotations on all public functions.
-    - Use async for all I/O handlers.
-    - Log with module-level logger, never print().
     - Never hardcode secrets.
 """).strip()
 
 
-# ---------------------------------------------------------------------------
-# Pick a working NVIDIA NIM model (first one that responds AND supports tools)
-# ---------------------------------------------------------------------------
-def pick_model(client: OpenAI) -> str:
-    for model, label in CANDIDATE_MODELS:
-        print(f"[model] Trying {label} ({model})")
-        try:
-            # Probe with tools= to verify tool-calling support
-            client.chat.completions.create(
-                model=model,
-                max_tokens=8,
-                messages=[{"role": "user", "content": "hi"}],
-                tools=TOOLS,  # type: ignore[arg-type]
-            )
-            print(f"[model] Using {model}")
-            return model
-        except Exception as exc:
-            print(f"[model] {model} unavailable: {exc}")
-    print("[model] All models failed — aborting", file=sys.stderr)
-    sys.exit(1)
+def _read_claude_md() -> str:
+    try:
+        return Path("CLAUDE.md").read_text()[:3000]
+    except Exception:
+        return ""
+
+
+def _run_baseline_pytest() -> str:
+    result = subprocess.run(
+        ["python", "-m", "pytest", "-x", "-q", "--tb=line", "--no-header"],
+        capture_output=True, text=True, timeout=120,
+    )
+    lines = (result.stdout + result.stderr).splitlines()
+    return "\n".join(lines[-15:])
 
 
 # ---------------------------------------------------------------------------
@@ -244,64 +250,89 @@ def main() -> None:
         print("ERROR: NVIDIA_API_KEY not set", file=sys.stderr)
         sys.exit(1)
 
-    client = OpenAI(
-        base_url="https://integrate.api.nvidia.com/v1",
-        api_key=api_key,
+    client = OpenAI(base_url="https://integrate.api.nvidia.com/v1", api_key=api_key)
+
+    note_path = Path("/tmp/note_content.txt")  # nosec: B108
+    url_content = note_path.read_text() if note_path.exists() else ""
+
+    print("Running baseline pytest...", flush=True)
+    baseline = _run_baseline_pytest()
+    print(f"Baseline pytest output:\n{baseline}", flush=True)
+
+    claude_md = _read_claude_md()
+
+    user_msg = (
+        f"Issue #{ISSUE_NUM}\n"
+        f"URL: {URL}\n"
+        f"Task: {TASK}\n\n"
+        f"Content from URL (may be truncated):\n{url_content[:4000]}\n\n"
+        f"--- CLAUDE.md (repo conventions) ---\n{claude_md}\n\n"
+        f"--- Baseline pytest (before your changes) ---\n{baseline}\n"
+        "Fix any pre-existing failures if they are easy, but focus on the task.\n"
+        "Remember: always update docs/changelog.md before signaling IMPLEMENTATION_COMPLETE."
     )
-    model = pick_model(client)
-
-    url_content = Path("/tmp/note_content.txt").read_text()  # nosec: B108 - Reading from predictable temp file path written by fetch_url.py
-    context = load_context()
-
-    system_with_context = SYSTEM + "\n\n" + context[:4000]
-    user_msg = textwrap.dedent(f"""
-        ## Issue #{ISSUE_NUM}
-        **URL**: {URL}
-        **Task**: {TASK or "(no specific task — infer from URL content)"}
-
-        ## URL Content
-        {url_content[:4000]}
-
-        Begin by reading CLAUDE.md and the skill files, then plan and implement.
-        Run pytest when done.
-    """).strip()
 
     messages: list[dict] = [
-        {"role": "system", "content": system_with_context},
+        {"role": "system", "content": SYSTEM},
         {"role": "user", "content": user_msg},
     ]
 
     success = False
+    last_pytest_passed = False
     summary = "No implementation performed"
     turns = 0
+    model_idx = 0
+    model = CANDIDATE_MODELS[model_idx][0]
 
     while turns < MAX_TURNS:
         turns += 1
-        print(f"\n[agent] Turn {turns}/{MAX_TURNS}")
+        print(f"\n[agent] Turn {turns}/{MAX_TURNS} model={model}", flush=True)
 
-        response = client.chat.completions.create(
-            model=model,
-            max_tokens=8192,
-            tools=TOOLS,  # type: ignore[arg-type]
-            tool_choice="auto",
-            messages=messages,  # type: ignore[arg-type]
-        )
+        try:
+            res = client.chat.completions.create(
+                model=model,
+                max_tokens=8192,
+                tools=TOOLS,  # type: ignore[arg-type]
+                tool_choice="auto",
+                messages=messages,  # type: ignore[arg-type]
+            )
+        except Exception as exc:
+            print(f"Model {model} error: {exc}", file=sys.stderr)
+            model_idx += 1
+            if model_idx >= len(CANDIDATE_MODELS):
+                print("All candidate models exhausted.", file=sys.stderr)
+                break
+            model = CANDIDATE_MODELS[model_idx][0]
+            print(f"Switching to: {model}", file=sys.stderr)
+            turns -= 1
+            continue
 
-        msg = response.choices[0].message
-        finish = response.choices[0].finish_reason
+        msg = res.choices[0].message
 
         if msg.content:
-            print(f"[agent] {msg.content[:400]}")
+            print(f"[agent] {msg.content[:400]}", flush=True)
 
-        # Append assistant message
-        messages.append(msg.model_dump(exclude_unset=False))
+        # Serialise without null sentinel fields that NIM rejects with 422
+        assistant_entry: dict = {"role": "assistant"}
+        if msg.content:
+            assistant_entry["content"] = msg.content
+        if msg.tool_calls:
+            assistant_entry["tool_calls"] = [
+                {
+                    "id": tc.id,
+                    "type": "function",
+                    "function": {"name": tc.function.name, "arguments": tc.function.arguments},
+                }
+                for tc in msg.tool_calls
+            ]
+        messages.append(assistant_entry)
 
-        # No tool calls → just update summary, don't mark as successful yet
-        if finish == "stop" or not msg.tool_calls:
+        # No tool calls → terminal turn
+        if not msg.tool_calls:
             summary = msg.content or summary
-            # Only succeed if the model explicitly signals completion in content
-            if msg.content and "IMPLEMENTATION_COMPLETE" in msg.content:
+            if msg.content and "IMPLEMENTATION_COMPLETE" in msg.content and last_pytest_passed:
                 success = True
+                summary = msg.content[:500]
             break
 
         # Execute tool calls
@@ -312,20 +343,27 @@ def main() -> None:
             except json.JSONDecodeError:
                 fn_args = {}
 
-            print(f"[tool] {fn_name}({list(fn_args.keys())})")
+            print(f"[tool] {fn_name}({list(fn_args.keys())})", flush=True)
             handler = TOOL_DISPATCH.get(fn_name)
-            output = handler(fn_args) if handler else f"[unknown tool: {fn_name}]"
-            print(f"[tool result] {output[:300]}")
+            out = handler(fn_args) if handler else f"[unknown tool: {fn_name}]"
+            print(f"[tool result] {str(out)[:300]}", flush=True)
 
-            if fn_name == "bash" and "IMPLEMENTATION_COMPLETE" in output:
-                success = True
-                summary = msg.content or summary
+            if fn_name == "bash":
+                cmd = fn_args.get("cmd", "")
+                if "pytest" in cmd:
+                    last_pytest_passed = "[exit 0]" in out
+                    print(f"pytest exit 0: {last_pytest_passed}", flush=True)
+                if "IMPLEMENTATION_COMPLETE" in out:
+                    if last_pytest_passed:
+                        success = True
+                        summary = f"Agent signaled completion after {turns} turns."
+                    else:
+                        out = (
+                            "[BLOCKED] IMPLEMENTATION_COMPLETE rejected: last pytest did not exit 0. "
+                            "Fix all test failures first, then signal completion."
+                        )
 
-            messages.append({
-                "role": "tool",
-                "tool_call_id": tc.id,
-                "content": output,
-            })
+            messages.append({"role": "tool", "tool_call_id": tc.id, "content": str(out)})
 
         if success:
             break
@@ -337,7 +375,7 @@ def main() -> None:
     with open(RESULT_FILE, "w") as f:
         json.dump(result, f)
 
-    print(f"\n[agent] Done — success={success}, turns={turns}")
+    print(f"\n[agent] Done — success={success}, turns={turns}, model={model}", flush=True)
     sys.exit(0 if success else 1)
 
 
