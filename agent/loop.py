@@ -77,7 +77,7 @@ class AgentPhaseError(RuntimeError):
 
 class AgentRunner:
     def __init__(
-        self, 
+        self,
         *,
         ollama_base: str,
         workspace_root: str | Path | None = None,
@@ -90,6 +90,7 @@ class AgentRunner:
         email: str | None = None,
         department: str | None = None,
         key_id: str | None = None,
+        mcp_base_url: str | None = None,
     ) -> None:
         # NOTE: "ollama_base" is kept for backwards compatibility; this runner only needs an
         # OpenAI-compatible base URL with /v1/chat/completions.
@@ -105,6 +106,10 @@ class AgentRunner:
         from agent.github_tools import GitHubTools
         self.github = GitHubTools(github_token)
         self.ctx = ContextManager()
+        # MCP client — delegates heavy workspace/git ops to the mcp-server container.
+        # Falls back to local tools if None or if the circuit breaker is open.
+        from agent.mcp_client import get_mcp_client
+        self._mcp = get_mcp_client(mcp_base_url)
         # Optional session store for event-log writes (append-only durable log).
         # When provided the harness logs key events so the session is
         # recoverable and queryable outside the LLM context window.
@@ -624,6 +629,13 @@ class AgentRunner:
         }
 
 
+    async def _mcp_call(self, tool: str, args: dict) -> Any:
+        """Call a tool on the MCP server. Raises MCPUnavailableError if unreachable."""
+        from agent.mcp_client import MCPUnavailableError
+        if self._mcp is None:
+            raise MCPUnavailableError("MCP client not configured")
+        return await self._mcp.call_tool(tool, args)
+
     async def _run_command(self, cmd: str, timeout: int = 120) -> str:
         """Execute a shell command within the workspace root."""
         try:
@@ -701,11 +713,49 @@ class AgentRunner:
         
 
         if tool == "run_command":
+            from agent.mcp_client import MCPUnavailableError
+            if self._mcp is not None:
+                try:
+                    ws_id = str(args.get("workspace_id") or self.tools.root.name)
+                    return await self._mcp_call("run_command", {
+                        "workspace_id": ws_id,
+                        "cmd": str(args.get("cmd", "")),
+                        "timeout": int(args.get("timeout", 60)),
+                    })
+                except (MCPUnavailableError, RuntimeError):
+                    log.debug("MCP unavailable for run_command, falling back to local")
             return await self._run_command(str(args.get("cmd", "")))
         if tool == "write_file":
+            from agent.mcp_client import MCPUnavailableError
+            if self._mcp is not None:
+                try:
+                    ws_id = str(args.get("workspace_id") or self.tools.root.name)
+                    return await self._mcp_call("write_file", {
+                        "workspace_id": ws_id,
+                        "path": str(args.get("path", "")),
+                        "content": str(args.get("content", "")),
+                    })
+                except (MCPUnavailableError, RuntimeError):
+                    log.debug("MCP unavailable for write_file, falling back to local")
             return self.tools.write_file(str(args.get("path", "")), str(args.get("content", "")))
         if tool == "apply_diff":
             return self.tools.apply_diff(str(args.get("path", "")), str(args.get("content", "")))
+
+        # ── MCP workspace tools (heavy ops delegated to mcp-server container) ──
+        # These tools require a running mcp-server; they have no local fallback.
+        _mcp_only_tools = {
+            "clone_repo", "git_status", "git_diff",
+            "git_create_branch", "git_commit", "git_push",
+            "delete_workspace",
+        }
+        if tool in _mcp_only_tools:
+            from agent.mcp_client import MCPUnavailableError
+            if self._mcp is None:
+                return f"[tool error: MCP_SERVER_BASE_URL not set — cannot run {tool}]"
+            try:
+                return await self._mcp_call(tool, args)
+            except MCPUnavailableError as exc:
+                return f"[tool error: mcp unavailable — {exc}]"
 
         # GitHub Tools
         if tool == "github_get_issue":
@@ -719,13 +769,13 @@ class AgentRunner:
             return await self.github.close_issue(owner, repo, int(args.get("issue_number", 0)), args.get("comment"))
 
         if tool == "github_read_repo_file":
-            return await self.github.read_repo_file(
+            return await self.github.read_repo_file_compat(
                 repo_name=str(args.get("repo_name", "")),
                 path=str(args.get("path", "")),
                 branch=str(args.get("branch", "main"))
             )
         if tool == "github_create_branch":
-            return await self.github.create_branch(
+            return await self.github.create_branch_compat(
                 repo_name=str(args.get("repo_name", "")),
                 branch_name=str(args.get("branch_name", "")),
                 base_branch=str(args.get("base_branch", "main"))
@@ -739,7 +789,7 @@ class AgentRunner:
                 content=str(args.get("content", ""))
             )
         if tool == "github_open_pull_request":
-            return await self.github.open_pull_request(
+            return await self.github.open_pull_request_compat(
                 repo_name=str(args.get("repo_name", "")),
                 title=str(args.get("title", "Pull Request from AI Agent")),
                 head=str(args.get("head", "")),
@@ -749,7 +799,7 @@ class AgentRunner:
         if tool == "github_list_repos":
             return await self.github.list_repos()
         if tool == "github_list_branches":
-            return await self.github.list_branches(
+            return await self.github.list_branches_compat(
                 repo_name=str(args.get("repo_name", ""))
             )
 

@@ -55,8 +55,10 @@ test('agent-mode accepted job is shown as pending and final result replaces it (
     .mockResolvedValueOnce({ data: { job_id: 'job-1', status: 'running', phase: 'planning', progress_events: [{ message: 'Planning' }] } })
     .mockResolvedValueOnce({ data: { job_id: 'job-1', status: 'succeeded', phase: 'execution', result: { response: 'Final assistant result' } } });
 
+  // delay: null is required with jest.useFakeTimers() — without it, user-event v14
+  // schedules each keystroke via setTimeout which stalls when fake timers are active.
+  const user = userEvent.setup({ delay: null });
   render(<ChatPage />);
-  const user = userEvent.setup();
   await user.type(screen.getByTestId('chat-input'), 'Run the repo tests and open a PR');
   await user.click(screen.getByTestId('chat-send-button'));
 
@@ -71,8 +73,8 @@ test('agent-mode accepted job is shown as pending and final result replaces it (
     await Promise.resolve();
   });
 
-  // Progress event message should be visible
-  expect(screen.getByText(/Planning/i)).toBeInTheDocument();
+  // Progress event message should be visible (may appear in multiple elements)
+  expect(screen.getAllByText(/Planning/i).length).toBeGreaterThan(0);
 
   // Advance timers to let polling run again (succeeded)
   await act(async () => {

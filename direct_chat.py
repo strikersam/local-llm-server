@@ -129,18 +129,22 @@ def _is_trivial_message(content: str) -> bool:
     if lowered in trivial_phrases:
         return True
     words = stripped.split()
+    # Short messages that mention git/PR ops are non-trivial regardless of word count.
+    # Use token-based matching to avoid false positives ("pr" in "april", "run" in "return").
+    _git_multi_word = ("pull request", "pull requests", "code review")
+    _git_keywords = {
+        "pr", "prs", "commit", "commits", "push", "clone", "branch", "branches",
+        "repo", "repos", "repository", "git", "merge", "diff", "patch",
+        "file", "files", "code", "write", "create", "fix", "build", "run",
+        "edit", "generate", "deploy", "implement", "refactor",
+    }
+    word_tokens = {w.strip(".,!?;:()[]{}\"'").lower() for w in stripped.split()}
+    if any(phrase in lowered for phrase in _git_multi_word) or (word_tokens & _git_keywords):
+        return False
     if len(words) <= 4:
         return True
-    if lowered.endswith("?") and len(words) <= 12 and not any(
-        kw in lowered for kw in (
-            "file", "code", "write", "create", "fix", "build", "run",
-            "edit", "generate", "deploy", "commit", "push", "implement", "refactor",
-        )
-    ):
+    if lowered.endswith("?") and len(words) <= 12:
         return True
-    # If the message contains specific coding keywords and is short, it is NOT trivial
-    if len(words) <= 10 and any(kw in lowered for kw in ("fix", "bug", "implement", "create", "edit", "code")):
-        return False
     return False
 
 
@@ -416,7 +420,20 @@ async def _handle_agent_mode(
         primary_provider = sorted_providers[0] if sorted_providers else None
         ollama_base = primary_provider.normalized_base_url if primary_provider else OLLAMA_BASE
         primary_headers = primary_provider.auth_headers() if primary_provider and primary_provider.api_key else {}
-        runner = AgentRunner(ollama_base=ollama_base, workspace_root=str(workspace_root), provider_headers=primary_headers, provider_chain=sorted_providers[1:], allow_commercial_fallback=req.allow_commercial_fallback_once, provider_temperature=req.temperature, session_store=None, github_token=github_token, email=user.email, department=None, key_id=None)
+        runner = AgentRunner(
+            ollama_base=ollama_base,
+            workspace_root=str(workspace_root),
+            provider_headers=primary_headers,
+            provider_chain=sorted_providers[1:],
+            allow_commercial_fallback=req.allow_commercial_fallback_once,
+            provider_temperature=req.temperature,
+            session_store=None,
+            github_token=github_token,
+            email=user.email,
+            department=None,
+            key_id=None,
+            mcp_base_url=os.environ.get("MCP_SERVER_BASE_URL"),
+        )
         heartbeat("execution", "Agent execution started")
         result = await runner.run(metadata=spec.context.get("metadata", {}), instruction=req.content, history=history, requested_model=req.model, auto_commit=True, max_steps=30, user_id=user.id, department=None, key_id=None, memory_store=UserMemoryStore(), session_id=session_id)
         heartbeat("verification", "Planner/executor/verifier flow completed")

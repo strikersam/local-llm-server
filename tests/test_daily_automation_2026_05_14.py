@@ -205,9 +205,8 @@ class TestModelsEndpointAliases:
             if alias.startswith("claude-"):
                 assert alias != target, f"claude alias {alias!r} maps to itself"
 
-    def test_list_models_response_shape(self, monkeypatch):
+    async def test_list_models_response_shape(self, monkeypatch):
         """list_models_openai returns object:list with data array."""
-        import asyncio
         from unittest.mock import AsyncMock, MagicMock, patch
         from router.model_router import reset_router
         reset_router()
@@ -225,14 +224,13 @@ class TestModelsEndpointAliases:
                 key="ci-test-key", email="test@test.com",
                 department="eng", key_id=None, source="legacy",
             )
-            result = asyncio.get_event_loop().run_until_complete(list_models_openai(auth))
+            result = await list_models_openai(auth)
 
         assert result["object"] == "list"
         assert isinstance(result["data"], list)
 
-    def test_list_models_includes_alias_entries(self, monkeypatch):
+    async def test_list_models_includes_alias_entries(self, monkeypatch):
         """list_models_openai includes alias entries with owned_by=llm-relay-alias."""
-        import asyncio
         from unittest.mock import AsyncMock, MagicMock, patch
         from router.model_router import reset_router
         reset_router()
@@ -250,14 +248,13 @@ class TestModelsEndpointAliases:
                 key="ci-test-key", email="test@test.com",
                 department="eng", key_id=None, source="legacy",
             )
-            result = asyncio.get_event_loop().run_until_complete(list_models_openai(auth))
+            result = await list_models_openai(auth)
 
         alias_entries = [e for e in result["data"] if e.get("owned_by") == "llm-relay-alias"]
         assert len(alias_entries) > 0, "No alias entries in /v1/models response"
 
-    def test_list_models_alias_entries_have_description(self, monkeypatch):
+    async def test_list_models_alias_entries_have_description(self, monkeypatch):
         """Each alias entry has a 'description' field showing the target."""
-        import asyncio
         from unittest.mock import AsyncMock, MagicMock, patch
         from router.model_router import reset_router
         reset_router()
@@ -275,7 +272,7 @@ class TestModelsEndpointAliases:
                 key="ci-test-key", email="test@test.com",
                 department="eng", key_id=None, source="legacy",
             )
-            result = asyncio.get_event_loop().run_until_complete(list_models_openai(auth))
+            result = await list_models_openai(auth)
 
         for entry in result["data"]:
             if entry.get("owned_by") == "llm-relay-alias":

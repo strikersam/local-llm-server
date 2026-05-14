@@ -190,34 +190,23 @@ def test_agent_mode_github_preflight_missing_token(monkeypatch, tmp_path: Path):
     proxy.app.dependency_overrides.clear()
 
 
-def test_job_result_normalizes_and_exposes_final_message():
+async def test_job_result_normalizes_and_exposes_final_message():
+    import asyncio
     from agent.job_manager import AgentJobManager
 
     mgr = AgentJobManager()
     job = mgr.create_job(session_id="s1", instruction="do work")
 
     async def runner(heartbeat):
-        """
-        Send a planning heartbeat and produce a final run summary.
-        
-        Parameters:
-            heartbeat (Callable[[str, str], None]): Function called to report progress; invoked with a status and a message.
-        
-        Returns:
-            dict: Result object with keys:
-                - `summary` (str): Final textual summary of the run.
-                - `steps` (list): List of step records (empty list when no steps).
-        """
         heartbeat("planning", "planning")
         return {"summary": "Final textual summary", "steps": []}
 
     mgr.start_job(job.job_id, runner)
 
-    import time
     for _ in range(200):
         if job.status in ("succeeded", "failed"):
             break
-        time.sleep(0.01)
+        await asyncio.sleep(0.01)
 
     assert job.status == "succeeded"
     assert isinstance(job.result, dict)
@@ -226,8 +215,10 @@ def test_job_result_normalizes_and_exposes_final_message():
     assert d.get("final_message") == "Final textual summary"
 
 
-def test_job_failure_structures_runtime_preflight(monkeypatch):
-    from runtimes.base import RuntimePreflightError, RuntimeReadinessReport
+async def test_job_failure_structures_runtime_preflight():
+    import asyncio
+    from agent.job_manager import AgentJobManager
+    from runtimes.base import RuntimePreflightError
     mgr = AgentJobManager()
     job = mgr.create_job(session_id="s2", instruction="run git ops")
 
@@ -244,6 +235,7 @@ def test_job_failure_structures_runtime_preflight(monkeypatch):
             self.runtime_id = "internal_agent"
             self.ready = False
             self.selected_runtime = "internal_agent"
+            self.summary = "docker missing"
         def as_dict(self):
             """
             Serialize the readiness report to a plain dictionary.
@@ -273,12 +265,10 @@ def test_job_failure_structures_runtime_preflight(monkeypatch):
         raise RuntimePreflightError("internal_agent", DummyReport())
 
     mgr.start_job(job.job_id, runner)
-
-    import time
     for _ in range(200):
         if job.status in ("succeeded", "failed"):
             break
-        time.sleep(0.01)
+        await asyncio.sleep(0.01)
 
     assert job.status == "failed"
     assert isinstance(job.error, dict)

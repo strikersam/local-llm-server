@@ -188,6 +188,31 @@ services:
       ollama:
         condition: service_started
 
+  # ── MCP Server (isolated container for heavy agent ops) ──────────────────
+  # Handles: repo clone, file edits, git commit/push, shell command execution.
+  # The proxy delegates to this container via MCP_SERVER_BASE_URL.
+  mcp-server:
+    build:
+      context: .
+      dockerfile: mcp_server/Dockerfile
+    container_name: llm-server-mcp
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:8008:8008"
+    environment:
+      - PORT=8008
+      - MCP_WORKSPACE_BASE=/workspaces
+      - GITHUB_TOKEN=${GITHUB_TOKEN:-}
+      - GH_TOKEN=${GH_TOKEN:-}
+    volumes:
+      - mcp_workspaces:/workspaces
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8008/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
   # ── MongoDB (agent store & task persistence) ───────────────────────────────
   mongo:
     image: mongo:7
@@ -225,6 +250,7 @@ services:
       - AIDER_BASE_URL=http://aider:8080
       - JCODE_BASE_URL=http://jcode:8080
       - TASK_HARNESS_BASE_URL=http://task-harness:8080
+      - MCP_SERVER_BASE_URL=http://mcp-server:8008
       - OLLAMA_WINDOWS_SERVER=${OLLAMA_WINDOWS_SERVER:-}
       - OLLAMA_WINDOWS_MODEL=${OLLAMA_WINDOWS_MODEL:-llama3.2}
       - HF_TOKEN=${HF_TOKEN:-}
@@ -243,6 +269,8 @@ services:
       ollama:
         condition: service_started
       mongo:
+        condition: service_healthy
+      mcp-server:
         condition: service_healthy
     healthcheck:
       test:
@@ -338,3 +366,4 @@ services:
 volumes:
   ollama_data:
   mongo_data:
+  mcp_workspaces:

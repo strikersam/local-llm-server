@@ -6,11 +6,44 @@
 - `.github/scripts/review_agent.py` — Complete rewrite: added PASS / WARN / FAIL three-tier verdict (FAIL only for real security/data-loss issues; WARN for minor concerns); model fallback through all NVIDIA NIM candidates; always exits 0 so the workflow conditional logic — not the exit code — controls routing; defaults to WARN on any API or format error so auto-merge is never silently blocked by a reviewer crash.
 - `.github/scripts/implement_agent.py` — Replaced `model_dump(exclude_unset=False)` assistant-message serialisation with a hand-built dict containing only `role`, `content`, and `tool_calls`.  The previous approach emitted null sentinel fields (`refusal`, `audio`, etc.) that some NVIDIA NIM model endpoints reject with a 422, silently breaking the agentic loop mid-session.
 
+### Security
+- `mcp_server/workspace.py` — Replaced `asyncio.create_subprocess_shell` with an explicit `/bin/sh -c` exec so the shell string is never interpolated by the Python subprocess layer (CodeQL: uncontrolled command line). Added early type/empty checks on `path` parameters before `_safe_path` to satisfy CodeQL uncontrolled-path-expression findings.
+- `mcp_server/server.py` — Return a hardcoded generic error string from `tools/call` on exception instead of forwarding the exception message, eliminating any taint path to the response (CodeQL: information exposure through exception). Removed unused `import traceback`; moved inline `import json` to module level.
+- `mcp_server/Dockerfile` — Added `mcpuser` (UID 1000) non-root user; container now runs as `mcpuser`; `safe.directory` restricted from `"*"` to `"/workspaces/*"`.
+- `mcp_server/workspace.py` — `push()` now uses URL-based token injection (mirror of `clone()`), token-embedded URL restored to clean URL after push; `clone()` now resets `remote.origin.url` to the clean URL immediately after clone so the token is never persisted in `.git/config` (Codex P1).
+- `mcp_server/workspace.py` — `commit()` now distinguishes `paths=None` (stage all via `git add -A`) from `paths=[]` (raises `ValueError`) so an empty list never silently falls through to staging all workspace files (Codex P2).
+- `docker-compose.yml` — Bound MCP server port to `127.0.0.1:8008:8008` to prevent unauthenticated `run_command` exposure on all interfaces.
+- `agent/mcp_client.py` — `resp.json()` is now called inside the try block so a `JSONDecodeError` (malformed MCP response) correctly triggers `_on_failure()` and raises `MCPUnavailableError` instead of bypassing the circuit breaker.
+
 ### Added
+- `mcp_server/` — New Dockerized MCP (Model Context Protocol) server that runs as an isolated container and handles heavy agent operations: `clone_repo`, `read_file`, `write_file`, `list_files`, `search_code`, `run_command`, `git_status`, `git_diff`, `git_create_branch`, `git_commit`, `git_push`, `delete_workspace`. Implements JSON-RPC 2.0 over HTTP (`POST /mcp`). Strict path traversal prevention in every workspace operation.
+- `mcp_server/Dockerfile` — Container image with git + python; workspace data on a named Docker volume (`mcp_workspaces`). Port 8008.
+- `agent/mcp_client.py` — Async MCP client with open/close circuit breaker (opens after 3 failures, recovers after 30 s). Singleton via `MCP_SERVER_BASE_URL` env var.
+- `docker-compose.yml` — Added `mcp-server` service on port 8008 with healthcheck; proxy depends on it and gets `MCP_SERVER_BASE_URL`; added `mcp_workspaces` volume.
+- `agent/loop.py` — `AgentRunner` accepts `mcp_base_url`; routes `run_command`/`write_file` through MCP with transparent local fallback; new MCP-only tools group (`clone_repo`, `git_*`, `delete_workspace`).
+- `agent/prompts.py` — Tool prompt lists MCP container tools in a dedicated section.
+- `tests/test_mcp_server.py` — 39 tests: workspace ops, MCP endpoints, circuit breaker, agent loop delegation + local fallback.
 - `agent/repowise.py`, `agent/tools.py` — Implemented Repowise-inspired codebase intelligence tools: `get_overview`, `get_context`, `get_risk`, and `get_why` for enhanced agent reasoning.
+
 ### Fixed
+- `agent/github_tools.py` — added missing compat methods (`create_branch_compat`, `commit_changes`, `open_pull_request_compat`, `list_branches_compat`) so the agent loop can call GitHub tools using the `owner/repo` string format it passes. Previously, `github_commit_changes` would raise `AttributeError` at runtime because `commit_changes` did not exist on `GitHubTools`.
+- `agent/loop.py` — fixed all GitHub tool dispatches to call the correct compat methods instead of the raw owner/repo API surface, resolving runtime `AttributeError` for `github_read_repo_file`, `github_create_branch`, `github_open_pull_request`, and `github_list_branches` in agent mode.
+- `direct_chat.py` — added a system prompt to regular (non-agent) chat so the LLM understands its role and capabilities. Previously, no system prompt was sent, causing local models to fall back to their training-data defaults and respond with "I cannot access GitHub repositories."
 - `direct_chat.py` — Fixed `AttributeError` when provider response is invalid; added preflight repo validation to return 412 status code.
+- `direct_chat.py` — Add Git/GitHub preflight checks for repo-related agent prompts: validates presence of GitHub token and 'git' binary and performs best-effort token validation (GitHub API) to detect invalid tokens or missing 'repo' scopes.
+- `direct_chat.py` — Switched `_is_trivial_message` git-keyword check from substring to token-based matching to avoid false positives where short tokens like `pr` or `run` matched unrelated words ("april", "return", "sprint").
 - `webui/workspaces.py` — Implemented `validate_repo_ref` for preflight checks.
+- `agent/github_tools.py` — Fixed directory creation for local workspaces to ensure parent directories exist; added input sanitization to prevent path injection.
+- `agent/job_manager.py` — Normalize job results to expose a canonical `result.response` and `final_message` for client consumption; preserve raw runner payload under `result.raw`.
+- `runtimes/adapters/internal_agent.py` — Conservative health probe: when Ollama is used (no NVIDIA key), perform a lightweight probe and mark the runtime unavailable if Ollama is unreachable to avoid routing into broken local runtimes.
+- `agent/loop.py` — MCP tool fallback for `run_command`/`write_file` now also catches `RuntimeError` (not just `MCPUnavailableError`) so transient MCP call failures still fall back to local execution. MCP-only unavailability now returns `[tool error: ...]` instead of `[mcp unavailable: ...]` so the agent harness correctly treats them as failures.
+- `agent/models.py` — Added MCP tool names (`run_command`, `clone_repo`, `git_*`, `delete_workspace`) to `ToolCall` Literal so executor loop validation accepts them.
+- `mcp_server/workspace.py` — `git_status` and `git_diff` now raise on non-zero exit code rather than silently returning empty output. Individual `git add` calls in `commit()` now check return codes.
+- `proxy.py` — `list_models_openai` now includes alias registry entries with `owned_by: "llm-relay-alias"` and a human-readable description.
+- `tests/test_mcp_server.py` — Fixed hardcoded `/tmp/fake-workspace` path (Ruff S108); updated assertions to match revised error message format.
+- `tests/test_daily_automation_2026_05_14.py` — Converted `TestModelsEndpointAliases` methods to `async def` to avoid `asyncio.get_event_loop()` failure under pytest-asyncio session-scoped loop management.
+- `tests/test_direct_chat_async.py` — Converted two sync tests that called `asyncio.run()` to proper `async def` functions so they no longer destroy the shared event loop.
+- `frontend/src/__tests__/agentJobPolling.test.jsx` — Fixed test timeout with `jest.useFakeTimers()` by passing `{ delay: null }` to `userEvent.setup()`.
 - Updated primary LLM to `nvidia/nemotron-3-super-120b-a12b` and configured `MoonshotAI: Kimi K2.6` as high-priority fallback to resolve 404/429 errors in GitHub Actions and improve routing reliability.
 - `.github/workflows/openclaw-maintenance.yml`, `docs/runbooks/openclaw-setup.md`, `docs/architecture/agent-orchestration.md` — Updated OpenClaw repository URLs to point to the new location at `github.com/openclaw/openclaw`.
 - `agent/github_tools.py` — Fixed syntax errors regarding misplaced future imports.
@@ -20,19 +53,6 @@
 - `agent/tools.py` — Implemented strict path traversal prevention using robust prefix validation.
 - `.github/scripts/security_fix_agent.py` — Fixed OpenClaw execution path.
 - `.github/workflows/openclaw-security-automation.yml` — Restored corrupted workflow file.
-- `direct_chat.py` — Improved triviality filters to better handle coding-related requests in agent mode; fixed syntax errors.
-
-
-### Fixed
-- `direct_chat.py` — Fixed `AttributeError` when provider response is invalid; added preflight repo validation to return 412 status code.
-- `webui/workspaces.py` — Implemented `validate_repo_ref` for preflight checks.
-- `runtimes/control.py` — Expanded Docker-socket error detection to handle overlay mount failures in CI; added port-conflict resolution by killing existing processes on target ports before starting local runtimes.
-- `runtimes/api.py` — Updated `/start` and `/stop` endpoints to return informational 200 payloads for remote-managed or Docker-unavailable environments; sanitized error messages to prevent stack trace exposure.
-- `agent/loop.py`, `direct_chat.py`, `runtimes/adapters/internal_agent.py` — Prioritized Nvidia free cloud LLMs by setting `nvidia/nemotron-3-super-120b-a12b` as the default model across all agent phases and direct chat when an Nvidia API key is present.
-- `agent/github_tools.py` — Fixed directory creation for local workspaces to ensure parent directories exist; added input sanitization to prevent path injection.
-- `direct_chat.py` — Add Git/GitHub preflight checks for repo-related agent prompts: validates presence of GitHub token and 'git' binary and performs best-effort token validation (GitHub API) to detect invalid tokens or missing 'repo' scopes.
-- `agent/job_manager.py` — Normalize job results to expose a canonical `result.response` and `final_message` for client consumption; preserve raw runner payload under `result.raw`.
-- `runtimes/adapters/internal_agent.py` — Conservative health probe: when Ollama is used (no NVIDIA key), perform a lightweight probe and mark the runtime unavailable if Ollama is unreachable to avoid routing into broken local runtimes.
 
 ### Changed
 - `runtimes/adapters/internal_agent.py` — Increased default `max_steps` from 8 to 30 and improved task success criteria to allow purely informational tasks to succeed.

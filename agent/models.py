@@ -90,6 +90,14 @@ class ToolCall(BaseModel):
         "github_create_branch",
         "github_commit_changes",
         "github_open_pull_request",
+        "run_command",
+        "clone_repo",
+        "git_status",
+        "git_diff",
+        "git_create_branch",
+        "git_commit",
+        "git_push",
+        "delete_workspace",
         "finish",
     ]
     args: dict[str, Any] = Field(default_factory=dict)

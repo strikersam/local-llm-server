@@ -2316,12 +2316,21 @@ async def list_models_openai(auth: AuthContext = Depends(verify_api_key)):
         {"id": name, "object": "model", "owned_by": "ollama"} for name in ollama_models
     ]
     # Registry models not already reported by Ollama (e.g. not yet pulled)
-    registry_only = [
-        {"id": name, "object": "model", "owned_by": "router-registry"}
-        for name in registry
-        if name not in ollama_set
-    ]
-    return {"object": "list", "data": local_entries + registry_only}
+    registry_only = []
+    alias_entries = []
+    for name, cap in registry.items():
+        if name in ollama_set:
+            continue
+        if "alias" in (cap.tags or []):
+            alias_entries.append({
+                "id": name,
+                "object": "model",
+                "owned_by": "llm-relay-alias",
+                "description": "Alias → routed to best available local model",
+            })
+        else:
+            registry_only.append({"id": name, "object": "model", "owned_by": "router-registry"})
+    return {"object": "list", "data": local_entries + registry_only + alias_entries}
 
 
 # ─── Ollama native routes (/api/*) ─────────────────────────────────────────────

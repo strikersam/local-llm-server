@@ -254,6 +254,52 @@ class GitHubTools:
         owner, repo = repo_name.split("/", 1)
         return await self.read_repo_file(owner, repo, path, branch)
 
+    async def create_branch_compat(
+        self,
+        repo_name: str,
+        branch_name: str,
+        base_branch: str = "main",
+    ) -> dict[str, Any]:
+        """Backwards-compat: accepts 'owner/repo' format."""
+        owner, repo = repo_name.split("/", 1)
+        return await self.create_branch(owner, repo, branch_name, base_branch)
+
+    async def commit_changes(
+        self,
+        repo_name: str,
+        branch_name: str,
+        message: str,
+        path: str,
+        content: str,
+    ) -> dict[str, Any]:
+        """Commit a single file change. Accepts 'owner/repo' format for repo_name."""
+        owner, repo = repo_name.split("/", 1)
+        return await self.commit_file(
+            owner=owner,
+            repo=repo,
+            path=path,
+            content=content,
+            message=message,
+            branch=branch_name,
+        )
+
+    async def open_pull_request_compat(
+        self,
+        repo_name: str,
+        title: str,
+        head: str,
+        base: str = "main",
+        body: str = "",
+    ) -> dict[str, Any]:
+        """Backwards-compat: accepts 'owner/repo' format."""
+        owner, repo = repo_name.split("/", 1)
+        return await self.open_pull_request(owner, repo, title, head, base, body)
+
+    async def list_branches_compat(self, repo_name: str) -> list[dict[str, Any]]:
+        """Backwards-compat: accepts 'owner/repo' format."""
+        owner, repo = repo_name.split("/", 1)
+        return await self.list_branches(owner, repo)
+
     def _encode_content(self, content: str) -> str:
         return base64.b64encode(content.encode("utf-8")).decode("utf-8")
 
