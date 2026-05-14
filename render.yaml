@@ -29,19 +29,23 @@ services:
       - key: NVIDIA_BASE_URL
         value: "https://integrate.api.nvidia.com/v1"
       - key: NVIDIA_DEFAULT_MODEL
-        value: "meta/llama-3.3-70b-instruct"
+        value: "nvidia/nemotron-3-super-120b-a12b"
 
       # Agent model defaults (Nvidia NIM free models)
       - key: AGENT_PLANNER_MODEL
-        value: "nvidia/llama-3.1-nemotron-ultra-253b-v1"
+        value: "nvidia/nemotron-3-super-120b-a12b"
       - key: AGENT_EXECUTOR_MODEL
-        value: "qwen/qwen2.5-coder-32b-instruct"
+        value: "nvidia/nemotron-3-super-120b-a12b"
       - key: AGENT_VERIFIER_MODEL
-        value: "deepseek-ai/deepseek-r1"
+        value: "nvidia/nemotron-3-super-120b-a12b"
+      - key: AGENT_JUDGE_MODEL
+        value: "nvidia/nemotron-3-super-120b-a12b"
 
       # LLM Provider
       - key: LLM_PROVIDER
-        value: nvidia_nim
+        value: "nvidia-nim"
+      - key: INCLUDE_LOCAL_FALLBACK
+        value: "false"
       # Ollama - secondary fallback (leave blank when not running local Ollama)
       - key: OLLAMA_BASE_URL
         sync: false
@@ -130,6 +134,6 @@ services:
       - key: GOOSE_PROFILE
         value: "default"
       - key: AIDER_MODEL
-        value: "nvidia/llama-3.1-nemotron-ultra-253b-v1"
+        value: "nvidia/nemotron-3-super-120b-a12b"
       - key: AIDER_NO_AUTO_COMMIT
         value: "false"

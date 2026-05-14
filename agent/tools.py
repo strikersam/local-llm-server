@@ -3,6 +3,8 @@ from __future__ import annotations
 import difflib
 import os
 from pathlib import Path
+from agent.repowise import RepowiseIntelligence
+
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
@@ -19,12 +21,32 @@ TEXT_EXTENSIONS = {
 class WorkspaceTools:
     def __init__(self, root: str | Path | None = None) -> None:
         self.root = Path(root or os.environ.get("AGENT_WORKSPACE_ROOT") or ".").resolve()
+        self.repowise = RepowiseIntelligence(self.root)
+
 
     def _resolve_path(self, path: str) -> Path:
-        cleaned = path.strip().replace("/", os.sep)
-        resolved = (self.root / cleaned).resolve()
-        if self.root not in resolved.parents and resolved != self.root:
-            raise ValueError("Path escapes workspace root")
+        # Strictly validate input for any suspicious traversal patterns
+        if ".." in path:
+             raise ValueError(f"Traversal attempt detected: {path}")
+
+        # Ensure root is absolute
+        root_abs = self.root.resolve()
+
+        # Combine and normalize. We strip leading separators to ensure
+        # the path is treated as relative to the root.
+        safe_relative = path.lstrip("/").lstrip("\\")
+        full_path = os.path.normpath(os.path.join(str(root_abs), safe_relative))
+        resolved = Path(full_path).resolve()
+
+        # Robust prefix check to satisfy static analysis (CodeQL path injection)
+        # os.path.commonpath is the most reliable way to check for path containment.
+        try:
+            if os.path.commonpath([str(root_abs), str(resolved)]) != str(root_abs):
+                raise ValueError(f"Path escapes workspace root: {path}")
+        except ValueError:
+            # commonpath raises ValueError if paths are on different drives (Windows)
+            raise ValueError(f"Path escapes workspace root (different drive): {path}")
+
         return resolved
 
     def list_files(self, path: str = ".", limit: int = 200) -> list[str]:
@@ -233,3 +255,31 @@ class WorkspaceTools:
             current_input = self.apply_pattern(pattern_name, variables)
         
         return current_input
+
+    def get_overview(self) -> dict[str, Any]:
+        """Provides an architecture summary, module map, and git health."""
+        return self.repowise.get_overview()
+
+    def get_context(self, targets: list[str], include: list[str] = ["source"]) -> str:
+        """Workhorse tool for packing content and metrics of target files."""
+        return self.repowise.get_context(targets, include)
+
+    def get_risk(self, targets: list[str] | None = None, changed_files: list[str] | None = None) -> dict[str, Any]:
+        """Hotspot scores and potential impact analysis."""
+        return self.repowise.get_risk(targets, changed_files)
+
+    def get_why(self, target: str) -> str:
+        """Extracts architectural decisions related to target from git history."""
+        return self.repowise.get_why(target)
+
+    def get_answer(self, question: str) -> str:
+        """One-call RAG over documentation with confidence gating."""
+        return self.repowise.get_answer(question)
+
+    def search_codebase(self, query: str) -> str:
+        """Semantic search over documentation."""
+        return self.repowise.search_codebase(query)
+
+    def get_decision_flownodes(self) -> str:
+        """Extract decision-linked flow nodes."""
+        return self.repowise.get_decision_flownodes()

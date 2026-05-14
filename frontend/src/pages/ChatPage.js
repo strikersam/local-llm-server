@@ -3,7 +3,7 @@ import { useParams, useNavigate } from 'react-router-dom';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { chatSend, listSessions, getSession, deleteSession, listProviders, listProviderModels, getAgentChatJob, cancelAgentChatJob, getGithubStatus, createTask, createSchedule, fmtErr, getBackendUrl } from '../api';
-import { Send, Plus, Trash2, MessageSquare, Bot, User, Loader2, Zap, Clock, Settings, X, ChevronDown } from 'lucide-react';
+import { Send, Plus, Trash2, MessageSquare, Bot, User, Loader2, Zap, Clock, Settings, X, ChevronDown, AlertCircle, History } from 'lucide-react';
 import AgentStatusPanel from '../components/AgentStatusPanel.jsx';
 import AgentActivityFeed from '../components/AgentActivityFeed.jsx';
 import ToolCallViewer from '../components/ToolCallViewer.jsx';
@@ -165,7 +165,7 @@ function emptyAgentSnapshot() {
 function ThinkingBubble({ elapsed, agentMode }) {
   return (
     <div className="flex gap-3 animate-fade-in">
-      <div className="w-7 h-7 bg-[#002FA7] flex items-center justify-center shrink-0">
+      <div className="w-7 h-7 bg-[var(--accent)] flex items-center justify-center shrink-0">
         <Bot size={14} />
       </div>
       <div className="bg-[#1A1A1A] border border-white/10 px-4 py-3 flex flex-col gap-1.5">
@@ -177,7 +177,7 @@ function ThinkingBubble({ elapsed, agentMode }) {
             {[0, 1, 2].map(i => (
               <span
                 key={i}
-                className="w-1.5 h-1.5 rounded-full bg-[#002FA7]"
+                className="w-1.5 h-1.5 rounded-full bg-[var(--accent)]"
                 style={{ animation: `thinkingDot 1.4s ease-in-out ${i * 0.16}s infinite` }}
               />
             ))}
@@ -254,7 +254,7 @@ function ModelPickerModal({ providers, onConfirm, onClose, initialProvider, init
               onClick={() => setPickerProvider(p.provider_id)}
               className={`px-3 py-1.5 rounded-full text-[10px] font-mono uppercase tracking-wider whitespace-nowrap border transition-colors ${
                 pickerProvider === p.provider_id
-                  ? 'border-[#002FA7] bg-[#002FA7]/20 text-white'
+                  ? 'border-[var(--accent)] bg-[rgba(93,162,255,0.15)] text-white'
                   : 'border-white/10 text-[#737373] hover:border-white/20 hover:text-[#A0A0A0]'
               }`}
             >
@@ -281,7 +281,7 @@ function ModelPickerModal({ providers, onConfirm, onClose, initialProvider, init
                 onClick={() => setPickerModel(m)}
                 className={`w-full flex items-center justify-between rounded-[18px] px-4 py-3 border text-left transition-colors ${
                   pickerModel === m
-                    ? 'border-[#002FA7] bg-[#002FA7]/10'
+                    ? 'border-[var(--accent)] bg-[rgba(93,162,255,0.08)]'
                     : 'border-white/10 hover:border-white/20 hover:bg-white/[0.02]'
                 }`}
               >
@@ -337,7 +337,7 @@ function CommercialApprovalModal({ approval, onApprove, onCancel }) {
               {(approval.candidates || []).map((candidate) => (
                 <span
                   key={candidate}
-                  className="px-2.5 py-1 rounded-full border border-[#002FA7]/25 bg-[#002FA7]/10 text-[10px] font-mono text-[#AFC4FF]"
+                  className="px-2.5 py-1 rounded-full border border-[rgba(93,162,255,0.25)] bg-[rgba(93,162,255,0.08)] text-[10px] font-mono text-[var(--accent)]"
                 >
                   {candidate}
                 </span>
@@ -372,7 +372,13 @@ function CommercialApprovalModal({ approval, onApprove, onCancel }) {
   );
 }
 
-// ── ChatPage ──────────────────────────────────────────────────────────────────
+/**
+ * Render the full chat page UI including session list/selection, message composer, model/provider controls, agent orchestration console, and workflow suggestions.
+ *
+ * This component manages session loading, provider/model persistence, message sending (including agent jobs and polling), live agent workspace snapshots, commercial-fallback approval flow, and creation of tasks/schedules from suggestions; it coordinates related modals, panels, and client-side state for the chat experience.
+ *
+ * @returns {JSX.Element} The ChatPage React element containing the chat UI and its related controls.
+ */
 export default function ChatPage() {
   const { sessionId: paramSid } = useParams();
   const navigate = useNavigate();
@@ -403,6 +409,7 @@ export default function ChatPage() {
   const [agentWorkspaceState, setAgentWorkspaceState] = useState('idle');
   const [agentWorkspaceError, setAgentWorkspaceError] = useState('');
   const [mobileAgentConsoleOpen, setMobileAgentConsoleOpen] = useState(false);
+  const [showSessionsSheet, setShowSessionsSheet] = useState(false);
 
   const messagesEndRef = useRef(null);
   const inputRef       = useRef(null);
@@ -437,13 +444,29 @@ export default function ChatPage() {
         if (['succeeded', 'failed', 'cancelled'].includes(data.status)) {
           clearInterval(jobPollRef.current);
           jobPollRef.current = null;
-          if (data.status === 'succeeded' && data.result?.response) {
-            setMessages(prev => [...prev, { role: 'assistant', content: data.result.response }]);
+          // Extract a human-friendly assistant message from the job result.
+          const extractAssistantMessage = (job) => {
+            if (!job) return null;
+            // Prefer normalized response
+            if (job.result?.response) return job.result.response;
+            // Fallbacks into common runtime keys
+            const raw = job.result?.raw || job.result || {};
+            return raw?.response || raw?.summary || raw?.report || raw?.output || raw?.metadata?.agent_comment || null;
+          };
+          const assistantMsg = extractAssistantMessage(data);
+          if (data.status === 'succeeded' && assistantMsg) {
+            setMessages(prev => [...prev, { role: 'assistant', content: assistantMsg }]);
+            loadSessions();
+          } else if (data.status === 'succeeded' && !assistantMsg) {
+            // No usable assistant text produced — show structured summary instead of raw JSON
+            const summary = data.result?.raw?.summary || data.result?.raw?.report || data.result?.raw?.output || 'Agent completed with no textual summary.';
+            setMessages(prev => [...prev, { role: 'assistant', content: summary }]);
             loadSessions();
           } else if (data.status !== 'succeeded') {
             setMessages(prev => [...prev, {
               role: 'assistant',
               content: `Agent job ${data.status}: ${data.error?.message || 'Execution stopped.'}`,
+              isError: true,
             }]);
           }
         }
@@ -590,6 +613,7 @@ export default function ChatPage() {
       setMessages(prev => [...prev, {
         role: 'assistant',
         content: `Error: ${fmtErr(err?.response?.data?.detail) || err?.message || 'Failed — check provider config.'}`,
+        isError: true,
       }]);
     } finally {
       clearInterval(elapsedTimerRef.current);
@@ -637,7 +661,7 @@ export default function ChatPage() {
   };
 
   const handleOpenSettings = () => {
-    navigate('/settings');
+    navigate('/settings', { state: { from: sessionId ? `/chat/${sessionId}` : '/chat' } });
   };
 
   const handleCreateTaskFromSuggestion = async (suggestion) => {
@@ -656,6 +680,7 @@ export default function ChatPage() {
       setMessages(prev => [...prev, {
         role: 'assistant',
         content: `Error creating task: ${fmtErr(err?.response?.data?.detail) || err?.message || 'Please try again from Tasks.'}`,
+        isError: true,
       }]);
     } finally {
       setWorkflowAction('');
@@ -678,6 +703,7 @@ export default function ChatPage() {
       setMessages(prev => [...prev, {
         role: 'assistant',
         content: `Error creating schedule: ${fmtErr(err?.response?.data?.detail) || err?.message || 'Please try again from Schedules.'}`,
+        isError: true,
       }]);
     } finally {
       setWorkflowAction('');
@@ -731,7 +757,7 @@ export default function ChatPage() {
     <div className="rounded-[28px] border border-white/10 bg-[#11151D]/90 shadow-[0_16px_50px_rgba(0,0,0,0.28)] backdrop-blur-xl overflow-hidden" data-testid="agent-console">
       <div className="flex items-center justify-between gap-3 px-4 py-3 border-b border-white/10 bg-white/[0.03]">
         <div>
-          <div className="text-[10px] font-mono uppercase tracking-[0.2em] text-[#AFC4FF]">Live agent workspace</div>
+          <div className="text-[10px] font-mono uppercase tracking-[0.2em] text-[var(--accent)]">Live agent workspace</div>
           <div className="text-xs text-white mt-1">
             {agentWorkspaceError
               ? agentWorkspaceError
@@ -757,7 +783,7 @@ export default function ChatPage() {
             onClick={() => setAgentConsoleTab(value)}
             className={`px-3 py-1.5 rounded-full border text-[10px] font-mono uppercase tracking-[0.18em] whitespace-nowrap transition-colors ${
               agentConsoleTab === value
-                ? 'border-[#002FA7]/60 bg-[#002FA7]/20 text-white'
+                ? 'border-[rgba(93,162,255,0.6)] bg-[rgba(93,162,255,0.15)] text-white'
                 : 'border-white/10 text-[#737373]'
             }`}
           >
@@ -813,6 +839,62 @@ export default function ChatPage() {
 
   return (
     <div className="flex h-full min-h-0 overflow-hidden app-shell" data-testid="chat-page">
+      {/* Mobile sessions bottom sheet — P3 */}
+      {showSessionsSheet && (
+        <div
+          className="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm md:hidden"
+          onClick={() => setShowSessionsSheet(false)}
+        >
+          <div
+            className="absolute bottom-0 left-0 right-0 bg-[#0a0c0f] border-t border-white/10 rounded-t-[28px] max-h-[78vh] flex flex-col overflow-hidden"
+            onClick={e => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between px-5 py-4 border-b border-white/10 shrink-0">
+              <span className="text-sm font-bold tracking-tight">Chat History</span>
+              <button
+                onClick={() => setShowSessionsSheet(false)}
+                className="w-10 h-10 flex items-center justify-center text-[#737373] hover:text-white transition-colors rounded-full"
+              >
+                <X size={16} />
+              </button>
+            </div>
+            <div className="px-4 py-3 border-b border-white/10 shrink-0">
+              <button
+                onClick={() => { startNew(); setShowSessionsSheet(false); }}
+                className="app-button-primary w-full rounded-[18px] text-[0.72rem]"
+              >
+                <Plus size={14} /> New session
+              </button>
+            </div>
+            <div className="flex-1 overflow-y-auto divide-y divide-white/5">
+              {sessions.map(s => (
+                <div
+                  key={s._id}
+                  onClick={() => { navigate(`/chat/${s._id}`); loadSession(s._id); setShowSessionsSheet(false); }}
+                  className={`flex items-center gap-2 px-4 py-3 hover:bg-white/[0.03] transition-colors group cursor-pointer
+                    ${sessionId === s._id ? 'bg-white/5 border-l-2 border-[var(--accent)]' : 'border-l-2 border-transparent'}`}
+                >
+                  <MessageSquare size={13} className="text-[#737373] shrink-0" />
+                  <div className="flex-1 min-w-0">
+                    <div className="text-xs text-[#A0A0A0] truncate">{s.title || 'Untitled'}</div>
+                    <div className="text-[10px] text-[#737373]">{s.updated_at?.split('T')[0]}</div>
+                  </div>
+                  <button
+                    onClick={e => handleDelete(s._id, e)}
+                    className="p-2.5 min-h-[44px] min-w-[44px] flex items-center justify-center hover:text-[#FF3333] text-[#737373] transition-all opacity-0 group-hover:opacity-100"
+                  >
+                    <Trash2 size={12} />
+                  </button>
+                </div>
+              ))}
+              {sessions.length === 0 && (
+                <div className="p-8 text-center text-xs text-[#737373]">No sessions yet</div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
       <CommercialApprovalModal
         approval={approvalPrompt}
         onApprove={handleApproveCommercialFallback}
@@ -847,7 +929,7 @@ export default function ChatPage() {
               key={s._id}
               onClick={() => { navigate(`/chat/${s._id}`); loadSession(s._id); }}
               className={`w-full flex items-center gap-2 px-4 py-3 text-left hover:bg-white/[0.03] transition-colors group cursor-pointer
-                ${sessionId === s._id ? 'bg-white/5 border-l-2 border-[#002FA7]' : 'border-l-2 border-transparent'}`}
+                ${sessionId === s._id ? 'bg-white/5 border-l-2 border-[var(--accent)]' : 'border-l-2 border-transparent'}`}
               data-testid={`session-${s._id}`}
             >
               <MessageSquare size={13} className="text-[#737373] shrink-0" />
@@ -874,80 +956,87 @@ export default function ChatPage() {
       <div className="flex-1 flex flex-col min-w-0 min-h-0">
 
         {/* ── Header ── */}
-        <div className="sticky top-0 z-20 px-4 pt-3 pb-3 md:px-6 md:pt-4 border-b border-white/10 flex items-center gap-3 flex-wrap bg-[rgba(5,6,8,0.88)] backdrop-blur-xl">
-          <Bot size={16} className="text-[#002FA7] shrink-0" />
-          <span className="text-xs tracking-[0.15em] uppercase text-[#A0A0A0] font-mono font-bold truncate">
-            {currentSession ? currentSession.title?.slice(0, 40) : 'New Chat Session'}
-          </span>
-
-          {/* ── Mode toggle ── */}
-          <div className="flex border border-white/10 rounded-full overflow-hidden shrink-0 bg-white/[0.03]">
+        <div className="sticky top-0 z-20 border-b border-white/10 bg-[rgba(5,6,8,0.88)] backdrop-blur-xl">
+          {/* Row 1 — session identity */}
+          <div className="px-4 pt-3 pb-2 md:px-6 flex items-center gap-2.5">
             <button
-              onClick={() => setMode('auto')}
-              className={`flex min-h-[2.5rem] items-center gap-1.5 px-3 py-1.5 text-[10px] font-mono uppercase tracking-wider transition-colors ${
-                mode === 'auto'
-                  ? 'bg-[#002FA7]/20 border-r border-[#002FA7]/40 text-white'
-                  : 'border-r border-white/10 text-[#737373] hover:text-[#A0A0A0]'
-              }`}
-              title="Auto: router picks the best model per message"
+              onClick={() => setShowSessionsSheet(true)}
+              className="md:hidden flex items-center justify-center w-10 h-10 rounded-xl border border-white/10 bg-white/[0.03] text-[#737373] hover:text-white transition-colors shrink-0"
+              aria-label="Chat history"
             >
-              <Zap size={10} className={mode === 'auto' ? 'text-white' : 'text-[#737373]'} />
-              Auto
+              <History size={15} />
             </button>
+            <Bot size={15} className="text-[var(--accent)] shrink-0 hidden md:block" />
+            <span className="text-xs tracking-[0.12em] uppercase text-[#A0A0A0] font-mono font-bold flex-1 truncate min-w-0">
+              {currentSession ? currentSession.title?.slice(0, 44) : 'New Chat Session'}
+            </span>
             <button
-              onClick={() => setMode('manual')}
-              className={`flex min-h-[2.5rem] items-center gap-1.5 px-3 py-1.5 text-[10px] font-mono uppercase tracking-wider transition-colors ${
-                mode === 'manual'
-                  ? 'bg-[#002FA7]/20 text-white'
-                  : 'text-[#737373] hover:text-[#A0A0A0]'
-              }`}
-              title="Manual: choose your provider and model"
+              onClick={startNew}
+              className="flex items-center justify-center w-10 h-10 rounded-xl bg-[var(--accent)] text-[#06111f] hover:bg-[var(--accent-hover)] transition-colors shrink-0 shadow-[0_4px_14px_rgba(93,162,255,0.25)]"
+              aria-label="New chat"
+              data-testid="new-chat-header-button"
             >
-              <Settings size={10} className={mode === 'manual' ? 'text-white' : 'text-[#737373]'} />
-              Manual
+              <Plus size={15} />
             </button>
           </div>
-
-          {/* Manual: show current selection + change button */}
-          {mode === 'manual' && (
-            <button
-              onClick={() => setShowPicker(true)}
-              className="flex min-h-[2.5rem] items-center gap-1.5 rounded-full px-3 py-1.5 border border-white/10 hover:border-white/20 text-[10px] font-mono text-[#A0A0A0] hover:text-white transition-colors"
-              data-testid="change-model-btn"
-            >
-              <span className="truncate max-w-[160px]">
-                {model ? `${short(providerName, 12)} · ${short(model, 16)}` : 'Select model'}
-              </span>
-              <ChevronDown size={10} />
-            </button>
-          )}
-
-          {/* Auto: badge showing routing is active */}
-          {mode === 'auto' && (
-            <span className="text-[9px] font-mono text-[#737373] hidden md:inline">
-              Router picks best model per message
-            </span>
-          )}
-
-          {/* Agent mode toggle */}
-          <div className="ml-auto flex items-center gap-2 shrink-0">
-            <div className="hidden lg:flex items-center gap-2 text-[9px] font-mono uppercase tracking-[0.18em] text-[#737373]">
-              <span className={`w-1.5 h-1.5 rounded-full ${githubStatus.connected ? 'bg-green-500' : 'bg-[#737373]'}`} />
-              <span>{githubStatus.connected ? `GitHub ready${githubStatus.login ? ` · ${githubStatus.login}` : ''}` : 'GitHub not connected'}</span>
+          {/* Row 2 — model & agent controls */}
+          <div className="px-4 pb-2.5 md:px-6 flex items-center gap-2 overflow-x-auto scrollbar-hide">
+            <div className="flex border border-white/10 rounded-full overflow-hidden shrink-0 bg-white/[0.03]">
+              <button
+                onClick={() => setMode('auto')}
+                className={`flex min-h-[2rem] items-center gap-1 px-2.5 py-1 text-[9px] font-mono uppercase tracking-wider transition-colors ${
+                  mode === 'auto'
+                    ? 'bg-[rgba(93,162,255,0.15)] border-r border-[rgba(93,162,255,0.3)] text-white'
+                    : 'border-r border-white/10 text-[#737373] hover:text-[#A0A0A0]'
+                }`}
+                title="Model routing: Auto lets the backend pick the best available model"
+              >
+                <Zap size={9} className={mode === 'auto' ? 'text-[var(--accent)]' : 'text-[#737373]'} />
+                Auto
+              </button>
+              <button
+                onClick={() => setMode('manual')}
+                className={`flex min-h-[2rem] items-center gap-1 px-2.5 py-1 text-[9px] font-mono uppercase tracking-wider transition-colors ${
+                  mode === 'manual'
+                    ? 'bg-[rgba(93,162,255,0.15)] text-white'
+                    : 'text-[#737373] hover:text-[#A0A0A0]'
+                }`}
+                title="Model routing: Manual — choose your provider and model"
+              >
+                <Settings size={9} className={mode === 'manual' ? 'text-[var(--accent)]' : 'text-[#737373]'} />
+                Manual
+              </button>
+            </div>
+            {mode === 'manual' && (
+              <button
+                onClick={() => setShowPicker(true)}
+                className="flex min-h-[2rem] items-center gap-1 rounded-full px-2.5 py-1 border border-white/10 hover:border-white/20 text-[9px] font-mono text-[#A0A0A0] hover:text-white transition-colors shrink-0"
+                data-testid="change-model-btn"
+              >
+                <span className="truncate max-w-[130px]">
+                  {model ? `${short(providerName, 10)} · ${short(model, 14)}` : 'Select model'}
+                </span>
+                <ChevronDown size={9} />
+              </button>
+            )}
+            <div className="flex-1 min-w-0" />
+            <div className="hidden lg:flex items-center gap-1.5 text-[9px] font-mono text-[#737373] shrink-0">
+              <span className={`w-1.5 h-1.5 rounded-full ${githubStatus.connected ? 'bg-green-500' : 'bg-[#444]'}`} />
+              <span>{githubStatus.connected ? `GitHub · ${githubStatus.login || 'connected'}` : 'GitHub not connected'}</span>
             </div>
             <button
               onClick={() => setAgentMode(m => !m)}
-              title={agentMode ? 'Agent mode ON — complex tasks use Plan→Execute→Verify. Click to disable.' : 'Agent mode OFF — direct LLM chat. Click to enable for code/GitHub tasks.'}
-              className={`flex min-h-[2.5rem] items-center gap-1.5 rounded-full px-3 py-1 border text-[10px] font-mono transition-colors ${
+              title={agentMode ? 'Agent ON — Plan→Execute→Verify loop. Click to disable.' : 'Agent OFF — direct chat. Enable for code or GitHub tasks.'}
+              className={`flex min-h-[2rem] items-center gap-1 rounded-full px-2.5 py-1 border text-[9px] font-mono transition-colors shrink-0 ${
                 agentMode
-                  ? 'border-[#002FA7]/60 bg-[#002FA7]/20 text-white'
+                  ? 'border-[rgba(93,162,255,0.5)] bg-[rgba(93,162,255,0.15)] text-white'
                   : 'border-white/15 bg-white/5 text-[#737373] hover:border-white/25 hover:text-[#A0A0A0]'
               }`}
             >
-              <Zap size={10} className={agentMode ? 'text-white' : 'text-[#737373]'} />
+              <Zap size={9} className={agentMode ? 'text-[var(--accent)]' : 'text-[#737373]'} />
               Agent {agentMode ? 'ON' : 'OFF'}
             </button>
-            <div className={`w-1.5 h-1.5 rounded-full ${agentMode ? 'bg-green-500' : 'bg-[#737373]'}`} />
+            <div className={`w-1.5 h-1.5 rounded-full shrink-0 ${agentMode ? 'bg-green-500' : 'bg-[#444]'}`} />
           </div>
         </div>
 
@@ -955,7 +1044,7 @@ export default function ChatPage() {
           <div className="px-4 md:px-6 py-3 border-b border-white/10 bg-[rgba(17,20,25,0.72)]">
             <div className="app-panel p-3 md:p-4 flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
               <div className="min-w-0">
-                <div className="text-[10px] font-mono uppercase tracking-[0.18em] text-[#AFC4FF]">Agent job</div>
+                <div className="text-[10px] font-mono uppercase tracking-[0.18em] text-[var(--accent)]">Agent job</div>
                 <div className="mt-1 text-sm text-white">{agentJob.status} · {agentJob.phase}</div>
                 <div className="mt-1 text-[11px] text-[#A0A0A0] leading-relaxed">
                   {(agentJob.progress_events || []).slice(-1)[0]?.message || 'Waiting for progress...'}
@@ -982,11 +1071,11 @@ export default function ChatPage() {
               <button
                 type="button"
                 onClick={() => setMobileAgentConsoleOpen(true)}
-                className="w-full rounded-[24px] border border-[#002FA7]/25 bg-[rgba(17,20,25,0.88)] px-4 py-3 text-left"
+                className="w-full rounded-[24px] border border-[rgba(93,162,255,0.25)] bg-[rgba(17,20,25,0.88)] px-4 py-3 text-left"
               >
                 <div className="flex items-center justify-between gap-3">
                   <div>
-                    <div className="text-[10px] font-mono uppercase tracking-[0.18em] text-[#AFC4FF]">Live agent workspace</div>
+                    <div className="text-[10px] font-mono uppercase tracking-[0.18em] text-[var(--accent)]">Live agent workspace</div>
                     <div className="mt-1 text-xs text-white">{agentJob?.phase || agentSnapshot.latest_summary || 'Open progress, activity, and tool usage'}</div>
                   </div>
                   <div className="text-[10px] font-mono text-[#A0A0A0]">Open</div>
@@ -1012,8 +1101,8 @@ export default function ChatPage() {
         <div className="flex-1 overflow-y-auto overscroll-contain px-4 pb-24 pt-4 md:px-6 md:pb-32 md:pt-6 space-y-4">
           {messages.length === 0 && (
             <div className="h-full flex flex-col items-center justify-center text-center animate-fade-in px-4">
-              <Bot size={40} className="text-[#002FA7] mb-4" />
-              <h3 className="text-lg font-bold tracking-tight mb-2" style={{ fontFamily: 'Outfit, sans-serif' }}>
+              <Bot size={40} className="text-[var(--accent)] mb-4" />
+              <h3 className="text-lg font-bold tracking-tight mb-2" style={{ fontFamily: 'var(--font-main)' }}>
                 {agentMode ? 'Agent Mode Ready' : 'Direct Chat Ready'}
               </h3>
               <p className="text-xs text-[#737373] max-w-sm leading-relaxed mb-1">
@@ -1033,7 +1122,7 @@ export default function ChatPage() {
                   <button
                     key={i}
                     onClick={() => { setInput(p); inputRef.current?.focus(); }}
-                    className="text-[10px] text-[#A0A0A0] border border-white/10 px-3 py-2 hover:border-[#002FA7] hover:text-white transition-all font-mono text-left"
+                    className="text-[10px] text-[#A0A0A0] border border-white/10 px-3 py-2 hover:border-[var(--accent)] hover:text-white transition-all font-mono text-left"
                     data-testid={`quick-prompt-${i}`}
                   >
                     {p}
@@ -1046,17 +1135,33 @@ export default function ChatPage() {
           {messages.map((m, i) => (
             <div key={i} className={`flex gap-3 items-end ${m.role === 'user' ? 'justify-end' : ''} animate-fade-in`}>
               {m.role === 'assistant' && (
-                <div className="w-7 h-7 bg-[#002FA7] flex items-center justify-center shrink-0 mt-1">
-                  <Bot size={14} />
+                <div className={`w-7 h-7 flex items-center justify-center shrink-0 mt-1 ${m.isError ? 'bg-red-500/20 rounded-full' : 'bg-[var(--accent)]'}`}>
+                  {m.isError ? <AlertCircle size={13} className="text-red-400" /> : <Bot size={14} />}
                 </div>
               )}
               <div className={`max-w-[88%] md:max-w-[70%] rounded-[24px] ${
-                m.role === 'user'
-                  ? 'bg-[#002FA7]/20 border border-[#002FA7]/30'
-                  : 'bg-[#151922] border border-white/10'
+                m.isError
+                  ? 'bg-red-500/[0.07] border border-red-500/25'
+                  : m.role === 'user'
+                    ? 'bg-[rgba(93,162,255,0.15)] border border-[rgba(93,162,255,0.3)]'
+                    : 'bg-[#151922] border border-white/10'
               } px-4 py-3 shadow-[0_12px_36px_rgba(0,0,0,0.18)]`}>
                 {m.role === 'assistant' ? (
                   <>
+                    {m.isError ? (
+                      <div className="space-y-2.5">
+                        <div className="flex items-start gap-2">
+                          <AlertCircle size={13} className="text-red-400 shrink-0 mt-0.5" />
+                          <p className="text-xs text-red-300 leading-relaxed">{m.content.replace(/^Error:\s*/i, '')}</p>
+                        </div>
+                        <button
+                          onClick={handleSend}
+                          className="text-[9px] font-mono uppercase tracking-wider text-red-400/80 border border-red-500/20 px-2.5 py-1 rounded-full hover:bg-red-500/10 transition-colors"
+                        >
+                          Retry last message
+                        </button>
+                      </div>
+                    ) : (<>
                     <div className="wiki-content text-xs text-[#A0A0A0]">
                       <ReactMarkdown remarkPlugins={[remarkGfm]}>{m.content}</ReactMarkdown>
                     </div>
@@ -1068,7 +1173,7 @@ export default function ChatPage() {
                         <div className="flex flex-wrap gap-2">
                           <button
                             onClick={() => handleRetryWithAgentMode(m.agentHandoff)}
-                            className="px-3 py-2 bg-[#002FA7] hover:bg-[#002585] text-white text-[10px] font-mono uppercase tracking-wider transition-colors"
+                            className="px-3 py-2 bg-[var(--accent)] hover:bg-[var(--accent-hover)] text-white text-[10px] font-mono uppercase tracking-wider transition-colors"
                             data-testid="retry-with-agent-mode-button"
                           >
                             Retry with Agent Mode
@@ -1103,6 +1208,7 @@ export default function ChatPage() {
                         </div>
                       </div>
                     )}
+                    </>)}
                   </>
                 ) : (
                   <p className="text-xs text-white whitespace-pre-wrap">{m.content}</p>
@@ -1123,10 +1229,10 @@ export default function ChatPage() {
         {/* ── Composer ── */}
         <div className="sticky bottom-0 z-20 border-t border-white/10 p-3 md:p-4 bg-[rgba(5,6,8,0.92)] backdrop-blur-xl pb-[calc(env(safe-area-inset-bottom,0px)+0.75rem)]">
           {composerRecommendation && (
-            <div className="mb-3 border border-[#002FA7]/30 bg-[#002FA7]/10 px-3 py-3" data-testid="agent-mode-preflight-banner">
+            <div className="mb-3 border border-[rgba(93,162,255,0.3)] bg-[rgba(93,162,255,0.08)] px-3 py-3" data-testid="agent-mode-preflight-banner">
               <div className="flex flex-wrap items-start justify-between gap-3">
                 <div className="space-y-1">
-                  <div className="text-[10px] font-mono uppercase tracking-[0.18em] text-[#AFC4FF]">
+                  <div className="text-[10px] font-mono uppercase tracking-[0.18em] text-[var(--accent)]">
                     Agent Mode recommended before send
                   </div>
                   <div className="text-xs text-white leading-relaxed">
@@ -1141,7 +1247,7 @@ export default function ChatPage() {
                 <div className="flex flex-wrap gap-2">
                   <button
                     onClick={() => setAgentMode(true)}
-                    className="px-3 py-2 bg-[#002FA7] hover:bg-[#002585] text-white text-[10px] font-mono uppercase tracking-wider transition-colors"
+                    className="px-3 py-2 bg-[var(--accent)] hover:bg-[var(--accent-hover)] text-white text-[10px] font-mono uppercase tracking-wider transition-colors"
                     data-testid="preflight-enable-agent-mode-button"
                   >
                     Enable Agent Mode
@@ -1182,7 +1288,7 @@ export default function ChatPage() {
           <div className="flex items-center gap-2 mb-2 md:hidden">
             {mode === 'auto' ? (
               <span className="text-[9px] font-mono text-[#737373] flex items-center gap-1">
-                <Zap size={9} className="text-[#002FA7]" /> {agentMode ? 'Agent mode active' : 'Auto routing active'}
+                <Zap size={9} className="text-[var(--accent)]" /> {agentMode ? 'Agent mode active' : 'Auto routing active'}
               </span>
             ) : (
               <button

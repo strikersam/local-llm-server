@@ -133,3 +133,36 @@ The proxy runs as a FastAPI app on `PROXY_PORT` (default 8000).
 An ngrok tunnel can expose it publicly for remote AI tool access.
 A Telegram bot provides remote status and control.
 A Windows Task Scheduler / systemd service can autostart the proxy.
+
+
+## Workspace Isolation
+
+Every agent session/job operates in its own **isolated workspace** managed by `workspace/manager.py:WorkspaceManager`. See [docs/architecture/workspace-isolation.md](workspace-isolation.md) for full details.
+
+Key properties:
+- Deterministic, opaque workspace roots derived from hashed session/job IDs
+- Path safety: canonicalization, traversal rejection, symlink escape blocking
+- Session/job ownership boundaries with concurrency guards
+- Explicit lifecycle states (creating → ready → active → paused → completed → failed → cancelled → archived → cleaned)
+- Structured manifest per workspace (`manifest.json`)
+- Retention TTL and safe cleanup policies
+- Structured, actionable error codes for all failure modes
+
+The `AgentJobManager` integrates with `WorkspaceManager` to automatically provision and manage isolated workspaces for each agent job.
+
+## Feature Maturity Tiers
+
+The system classifies every feature into a maturity tier: **stable**, **beta**, **experimental**, or **disabled**. The `features/matrix.py:FeatureMatrix` is the single source of truth.
+
+- **stable** — production-ready, no known major issues
+- **beta** — functional, may have edge cases or behavioral changes
+- **experimental** — proof-of-concept, may be unstable or incomplete
+- **disabled** — turned off, requires explicit override
+
+The matrix is enforced, not just documented:
+- `matrix.check_available(feature_id)` gates disabled features
+- `matrix.maturity_warning(feature_id)` surfaces warnings for beta/experimental
+- Admin API at `/admin/features` exposes the matrix for operators
+- Config overrides via `FEATURE_<ID>=<tier>` allow runtime adjustments
+
+See [docs/support-matrix.md](../support-matrix.md) for the full feature matrix.

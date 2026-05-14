@@ -28,7 +28,8 @@ agent/
   models.py           Pydantic models for agent I/O
   prompts.py          Prompt builders for planner/executor/verifier
   state.py            In-memory agent session store
-  tools.py            WorkspaceTools: read/write/search filesystem
+  tools.py            WorkspaceTools: read/write/search, repowise intelligence
+  repowise.py         RepowiseIntelligence: context packing, dependency analysis
 router/
   model_router.py     ModelRouter — central routing logic  ← read router/CLAUDE.md
   classifier.py       Task classification heuristics

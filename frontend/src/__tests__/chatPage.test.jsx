@@ -250,7 +250,8 @@ test('offers a settings shortcut when GitHub access is required', async () => {
   expect(await screen.findByTestId('agent-handoff-settings-button')).toBeInTheDocument();
   await user.click(screen.getByTestId('agent-handoff-settings-button'));
 
-  expect(mockNavigate).toHaveBeenCalledWith('/settings');
+  // ChatPage navigates with a return-state so the settings page can send the user back
+  expect(mockNavigate).toHaveBeenCalledWith('/settings', expect.objectContaining({ state: expect.any(Object) }));
 });
 
 test('renders the live agent workspace when session telemetry exists', async () => {

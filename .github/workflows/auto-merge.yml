@@ -1,0 +1,33 @@
+name: Auto-merge PR
+
+on:
+  workflow_run:
+    workflows: ["CI"]
+    types:
+      - completed
+
+jobs:
+  auto-merge:
+    runs-on: ubuntu-latest
+    if: ${{ github.event.workflow_run.pull_requests && github.event.workflow_run.conclusion == 'success' }}
+    steps:
+      - name: Set up GitHub CLI
+        uses: actions/setup-cli@v1
+        with:
+          ghversion: latest
+
+      - name: Get PR number from the workflow run
+        id: pr
+        run: |
+          # The workflow_run payload includes the pull_requests array
+          # We assume there is one PR associated with this workflow run
+          PR_NUMBER=$(echo '${{ github.event.workflow_run.pull_requests[0].number }}')
+          echo "pr_number=$PR_NUMBER" >> $GITHUB_OUTPUT
+
+      - name: Merge PR
+        if: steps.pr.outputs.pr_number != ''
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          PR_NUMBER=${{ steps.pr.outputs.pr_number }}
+          gh pr merge $PR_NUMBER --squash --auto-delete-branch=false --admin

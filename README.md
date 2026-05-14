@@ -11,7 +11,7 @@
 [![Forks](https://img.shields.io/github/forks/strikersam/local-llm-server?style=for-the-badge&color=4D8CFF&logo=git)](https://github.com/strikersam/local-llm-server/network)
 [![License](https://img.shields.io/badge/license-Open%20Source-22C55E?style=for-the-badge)](LICENSE)
 
-[**Quick start**](#quick-start) · [**What's new in v4.0**](#whats-new-in-v40) · [**See the product**](#see-the-product) · [**What it can do**](#what-it-can-do) · [**Technical docs**](#technical-docs)
+[**Quick start**](#quick-start) · [**What's new**](#whats-new-2026-05-14) · [**See the product**](#see-the-product) · [**What it can do**](#what-it-can-do) · [**Technical docs**](#technical-docs)
 
 </div>
 
@@ -48,6 +48,28 @@ That means less setup pain, less tool sprawl, and fewer "wait, where did that an
   <br/>
   <sub><em>The main control plane: one screen for chat, tasks, agents, models, knowledge, and system health.</em></sub>
 </p>
+
+---
+
+## What's new (2026-05-14)
+
+**Structured output compatibility, Claude Code model picker support, and token budget headers.**
+
+- **Structured output normalization** — Pass `response_format: {"type": "json_schema", "json_schema": {"schema": {...}}}` from any OpenAI-compatible client and the proxy automatically converts it to Ollama's native `format` field. `json_object` mode maps to `format: "json"`. Cloud/Nvidia models receive `response_format` unchanged. This removes a common compatibility gap when using Claude Code, Cursor, or Aider with local Ollama models.
+- **Claude model aliases in `/v1/models`** — The `/v1/models` endpoint now lists all Claude model alias names (`claude-sonnet-4-6`, `claude-opus-4-7`, etc.) so Claude Code's built-in gateway model picker displays them when you set `ANTHROPIC_BASE_URL` to this proxy.
+- **`X-Token-Budget-*` response headers** — When a session has a token budget cap set, chat completion responses now include `X-Token-Budget-Remaining`, `X-Token-Budget-Cap`, and `X-Token-Budget-Used` headers. Monitor spend inline without a separate `/agent/budget` API call.
+
+---
+
+## What's new (2026-05-09)
+
+**Vision routing, session-aware Langfuse traces, and feature flag bulk controls.**
+
+- **Vision routing** — the proxy automatically detects `image_url` content parts in requests and routes them to the best registered vision-capable model (Gemma4, Llama4, Qwen3.6). Set `VISION_MODEL=<name>` to pin. `X-Model-Override` still takes priority.
+- **`X-Session-Id` → Langfuse** — pass `X-Session-Id` or `X-Claude-Code-Session-Id` in any request and all turns from that session will cluster under one Langfuse trace with a `session:<id>` tag. Claude Code CLI sends this automatically.
+- **`FEATURE_DISABLE` / `FEATURE_ENABLE` bulk env vars** — disable or enable multiple features at once: `FEATURE_DISABLE=jcode_runtime,social_auth`. Previously only single-feature `FEATURE_<ID>=<tier>` overrides were supported.
+
+See `docs/changelog.md` for the full diff.
 
 ---
 
@@ -251,6 +273,12 @@ The v4 control plane opens with usage stats, live provider health, running task 
 ### 💬 Chat
 
 Direct chat with a real Agent Mode toggle (off by default for fast LLM responses). Enable it for complex multi-step tasks — async job status cards replace the old blocking request so the UI never hangs.
+
+Agent Mode async contract: when Agent Mode is enabled the server will accept the task and return a 202 Accepted job envelope (session_id, job_id, status, phase, message). The client should render a pending job card and poll /api/chat/agent-jobs/{job_id} for status. When the job completes, the job response includes a canonical final_message and structured result; clients MUST render final_message as the assistant reply instead of raw job metadata. Runtime preflight and GitHub preflight errors return structured actionable errors (HTTP 412) to surface missing tokens, missing git binary, Docker unavailability, or workspace issues.
+
+Git / GitHub repo preflight: If a prompt involves repository operations and request.metadata contains a 'repo_url' or 'repository' field, the server performs a non-destructive preflight using 'git ls-remote --heads' to validate access. This is a best-effort, non-destructive check that will fail early with a structured error (code: git_repo_access) if the repo is unreachable or the token lacks access.
+
+Docker/runtime gating: Runtimes that require Docker are deliberately conservative. If Docker is unavailable ("docker version" fails), Docker-backed runtimes are marked unavailable and will not be auto-selected. This prevents silent routing into broken container runtimes; enable AGENT_MODE_DOCKER or fix Docker on the host to allow docker-based runtimes.
 
 <p align="center"><img src="docs/screenshots/readme/v4-chat.png" width="92%" alt="Direct Chat v4"/></p>
 

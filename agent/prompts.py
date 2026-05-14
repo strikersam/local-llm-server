@@ -8,12 +8,19 @@ def build_planning_prompt(
     instruction: str,
     history: list[dict[str, str]],
     user_memories: dict[str, str] | None = None,
+    metadata: dict[str, Any] | None = None,
 ) -> list[dict[str, str]]:
     history_text = "\n".join(f"{item['role']}: {item['content']}" for item in history[-8:])
     memory_section = ""
     if user_memories:
         pairs = "\n".join(f"  {k}: {v}" for k, v in user_memories.items())
         memory_section = f"\n\nUser profile (remembered preferences):\n{pairs}"
+    
+    metadata_section = ""
+    if metadata:
+        meta_json = json.dumps(metadata, indent=2)
+        metadata_section = f"\n\nTask Metadata (Execute based on these parameters):\n{meta_json}"
+
     return [
         {
             "role": "system",
@@ -37,18 +44,14 @@ def build_planning_prompt(
                 '  "requires_risky_review": false\n'
                 "}\n\n"
                 "Rules:\n"
-                "- Max 15 steps.\n"
+                "- Max 30 steps.\n"
                 "- Each step touches limited files.\n"
                 "- No execution — planning only.\n"
-                "- Prefer existing files when possible.\n"
-                "- If a new file is needed, include the intended path.\n"
-                "- For module-wide tasks, include every file that must change for the result to work.\n"
-                "- If the task asks for a shared utility, include a create step or include the utility file in the edit step.\n"
-                "- If the task involves GitHub operations (commit, push, PR), include a step with type 'github' and leave files empty.\n"
-                "- Security-sensitive files: admin_auth.py, key_store.py, agent/tools.py, proxy.py (auth middleware).\n"
-                "  Set risky=true on any step touching these files and set requires_risky_review=true on the plan.\n"
-                "- Fill acceptance with a concrete, verifiable check (e.g. 'pytest tests/test_agent_tools.py passes')."
+                "- For GitHub issue tasks, include steps to comment on or close the issue using 'github' type.\n"
+                "- Security-sensitive files: admin_auth.py, key_store.py, agent/tools.py, proxy.py.\n"
+                "  Set risky=true on any step touching these files and set requires_risky_review=true on the plan."
                 f"{memory_section}"
+                f"{metadata_section}"
             ),
         },
         {
@@ -65,8 +68,6 @@ def build_tool_prompt(
     observations: list[dict[str, Any]],
     remaining_calls: int,
 ) -> list[dict[str, str]]:
-    # Observations may already be masked by the ContextManager; pass them
-    # directly without further slicing.
     observed = json.dumps(observations, indent=2)
     return [
         {
@@ -74,46 +75,37 @@ def build_tool_prompt(
             "content": (
                 "You are preparing to execute one coding step.\n"
                 "Inspect the workspace with tools before writing code.\n\n"
-                "Available tools — use the CHEAPEST one that answers your question:\n"
-                "- file_index(path='.', max_entries=100)"
-                "  → lightweight list of every text file with line counts; use this FIRST\n"
-                "- head_file(path, lines=50)"
-                "  → first N lines only; prefer this over read_file for large files\n"
-                "- read_file(path)"
-                "  → full file content; only use when you need the complete file\n"
-                "- list_files(path='.', limit=200)"
-                "  → raw filename list with no metadata\n"
-                "- search_code(query, limit=20)"
-                "  → grep-style keyword search across all text files\n"
-                "- recall_memory(key)"
-                "  → retrieve a saved user preference\n"
-                "- save_memory(key, value)"
-                "  → persist a user preference for future sessions\n"
-                "- github_read_repo_file(repo_name, path, branch='main')"
-                "  → read a file from a GitHub repository\n"
-                "- github_list_repos()"
-                "  → list all repositories accessible to you\n"
-                "- github_list_branches(repo_name)"
-                "  → list branches in a specific repository\n"
-                "- github_create_branch(repo_name, branch_name, base_branch='main')"
-                "  → create a new branch from a base branch\n"
-                "- github_commit_changes(repo_name, branch_name, message, path, content)"
-                "  → commit a change to a single file\n"
-                "- github_open_pull_request(repo_name, title, head, base='main', body='')"
-                "  → create a pull request\n"
-                "- spawn_subagent(instruction, model=None, max_steps=5)"
-                "  → delegate a self-contained subtask to a child agent; returns its condensed result\n"
-                "  → use when a subtask is independent and would otherwise bloat this step's context\n"
-                "- finish(reason)"
-                "  → stop inspecting and proceed to implementation\n\n"
+                "Available tools:\n"
+                "LOCAL WORKSPACE (read-only inspection):\n"
+                "- get_overview(): Architecture summary, module map, and git health\n"
+                "- get_context(targets, include=['source']): Pack content, metrics, or dependencies for targets\n"
+                "- get_risk(targets=None, changed_files=None): Hotspot scores and impact analysis\n"
+                "- get_why(target): Architectural decisions from git history for target\n"
+                "- file_index(path='.', max_entries=100)\n"
+                "- head_file(path, lines=50)\n"
+                "- read_file(path)\n"
+                "- list_files(path='.', limit=200)\n"
+                "- search_code(query, limit=20)\n"
+                "GITHUB API:\n"
+                "- github_get_issue(repo_name, issue_number)\n"
+                "- github_comment_on_issue(repo_name, issue_number, body)\n"
+                "- github_close_issue(repo_name, issue_number, comment=None)\n"
+                "MCP CONTAINER (heavy lifting — isolated Docker container with git):\n"
+                "- clone_repo(workspace_id, repo_url, branch='main'): Clone a GitHub repo into a container workspace\n"
+                "- write_file(workspace_id, path, content): Write a file in the container workspace\n"
+                "- run_command(workspace_id, cmd, timeout=60): Run shell command in container workspace\n"
+                "- git_status(workspace_id): git status of container workspace\n"
+                "- git_diff(workspace_id): git diff HEAD of container workspace\n"
+                "- git_create_branch(workspace_id, branch_name): Create git branch in container\n"
+                "- git_commit(workspace_id, message, paths=None): Commit changes in container\n"
+                "- git_push(workspace_id, branch=None): Push branch from container to remote\n"
+                "- delete_workspace(workspace_id): Remove container workspace when done\n"
+                "- finish(reason)\n\n"
                 "Return ONLY JSON:\n"
-                "{ \"tool\": \"<name>\", \"args\": { ... } }\n\n"
+                '{ "tool": "<name>", "args": { ... } }\n\n'
                 "Rules:\n"
                 "- One tool per response.\n"
-                "- Start with file_index or search_code; escalate to head_file then read_file only if needed.\n"
-                "- Call finish as soon as you have enough context — do NOT read every file.\n"
-                f"- Remaining tool calls: {remaining_calls}.\n"
-                "- For multi-file tasks, verify enough files to avoid partial updates."
+                f"- Remaining tool calls: {remaining_calls}."
             ),
         },
         {
@@ -145,17 +137,12 @@ def build_execution_prompt(
                 "Return ONLY:\n\n"
                 "FILE: <path>\n"
                 "ACTION: <create|replace|append>\n"
-                "```<language>\n"
+                "```text\n"
                 "<FULL FILE CONTENT>\n"
                 "```\n\n"
                 "Rules:\n"
                 "- Always return a full file.\n"
-                "- No explanations.\n"
-                "- No markdown outside the required format.\n"
-                "- The FILE path must be the target file unless the step clearly needs a new file.\n"
-                "- Do not echo the language name before the file contents.\n"
-                "- If asked for a shared utility, create or update that utility instead of duplicating logic across files.\n"
-                "- For authentication or JWT changes, avoid hardcoded secrets and prefer configuration via environment variables."
+                "- No explanations."
             ),
         },
         {
@@ -170,50 +157,12 @@ def build_execution_prompt(
         },
     ]
 
-
 def build_compaction_prompt(history: list[dict[str, Any]]) -> list[dict[str, str]]:
-    """Ask the model to produce a concise summary of a long conversation history.
-
-    This implements the 'context compaction' strategy from Anthropic's managed-
-    agents article: when the session history exceeds the compaction threshold
-    the harness asks the model to summarise what happened so far.  The summary
-    replaces the old messages; the most recent messages are kept verbatim.
-
-    The model is instructed to preserve:
-    - the overall goal and any architectural decisions made
-    - which files were changed and why
-    - any constraints or user preferences discovered
-    - current status / what still needs to be done
-    """
-    history_text = "\n".join(
-        f"[{msg.get('role', 'unknown').upper()}] {msg.get('content', '')[:800]}"
-        for msg in history
-    )
+    history_text = "\n".join(f"[{msg.get('role', 'unknown').upper()}] {msg.get('content', '')[:800]}" for msg in history)
     return [
-        {
-            "role": "system",
-            "content": (
-                "You are a context compaction assistant.\n\n"
-                "Summarise the coding session below into a concise note (max 400 words).\n\n"
-                "You MUST preserve:\n"
-                "- The overall goal\n"
-                "- Architectural decisions and constraints discovered\n"
-                "- Which files were changed and what was done\n"
-                "- Any user preferences or rules found\n"
-                "- Current status and what still needs to be done\n\n"
-                "Discard:\n"
-                "- Verbatim file contents\n"
-                "- Redundant tool outputs\n"
-                "- Step-by-step retry details\n\n"
-                "Return ONLY the plain-text summary."
-            ),
-        },
-        {
-            "role": "user",
-            "content": f"Session history to compact:\n\n{history_text}",
-        },
+        {"role": "system", "content": "Summarise the coding session below into a concise note (max 400 words)."},
+        {"role": "user", "content": f"Session history to compact:\n\n{history_text}"},
     ]
-
 
 def build_verification_prompt(
     *,
@@ -226,28 +175,6 @@ def build_verification_prompt(
 ) -> list[dict[str, str]]:
     syntax = "\n".join(f"- {issue}" for issue in syntax_issues) or "(none)"
     return [
-        {
-            "role": "system",
-            "content": (
-                "Check:\n"
-                "- syntax correctness\n"
-                "- logical consistency\n"
-                "- does it satisfy the goal?\n"
-                "- for multi-file tasks, is this change consistent with the rest of the module?\n"
-                "- for auth/JWT tasks, are there obvious security smells like hardcoded secrets?\n\n"
-                "Return ONLY JSON:\n"
-                '{ "status": "pass | fail", "issues": [] }'
-            ),
-        },
-        {
-            "role": "user",
-            "content": (
-                f"Goal:\n{goal}\n\n"
-                f"Step:\n{json.dumps(step, indent=2)}\n\n"
-                f"File:\n{target_file}\n\n"
-                f"Syntax issues from local checks:\n{syntax}\n\n"
-                f"Original content:\n{original_content[:12000]}\n\n"
-                f"New content:\n{new_content[:12000]}"
-            ),
-        },
+        {"role": "system", "content": "Check syntax and logic. Return ONLY JSON: { \"status\": \"pass | fail\", \"issues\": [] }"},
+        {"role": "user", "content": f"Goal: {goal}\nStep: {json.dumps(step)}\nFile: {target_file}\nSyntax issues: {syntax}\nNew content: {new_content[:10000]}"},
     ]

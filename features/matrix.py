@@ -1,32 +1,18 @@
-"""features/matrix.py — Feature maturity and support matrix.
+"""features/matrix.py — Feature maturity tiers and support matrix.
 
-This is the **single source of truth** for feature classification.
-Every feature has:
-- a stable ID
-- a maturity tier (stable / beta / experimental / disabled)
-- enabled/disabled state (runtime enforcement)
-- dependencies checked at startup
-- config flag(s) for operator override
+Single source of truth for feature classification.  Used to:
+  - Gate disabled features
+  - Surface warnings for beta/experimental features
+  - Produce structured unsupported-feature errors
+  - Expose support state via admin API / UI
 
-Usage::
-
-    from features.matrix import require_feature, get_matrix
-
-    # Gate an endpoint:
-    require_feature("async_agent_jobs")
-
-    # Admin/API visibility:
-    matrix = get_matrix()
-    print(matrix.as_dict())
-
-Operator overrides via env vars::
-
-    FEATURE_DISABLE=async_agent_jobs,telegram_bot   # force-disable
-    FEATURE_ENABLE=openhands_runtime                # force-enable (beta/experimental only)
+Config overrides allow operators to enable/disable features that are
+not stable by default.
 """
 
 from __future__ import annotations
 
+import json
 import logging
 import os
 from enum import Enum
@@ -36,60 +22,72 @@ from pydantic import BaseModel, Field
 
 log = logging.getLogger("qwen-proxy")
 
-# ---------------------------------------------------------------------------
-# Maturity tiers
-# ---------------------------------------------------------------------------
+
+# ── Maturity tiers ─────────────────────────────────────────────────────────────
 
 
 class FeatureMaturity(str, Enum):
+    """Feature maturity classification."""
+
     STABLE = "stable"
     BETA = "beta"
     EXPERIMENTAL = "experimental"
     DISABLED = "disabled"
 
 
-# ---------------------------------------------------------------------------
-# Feature entry model
-# ---------------------------------------------------------------------------
+# ── Feature entry ──────────────────────────────────────────────────────────────
 
 
 class FeatureEntry(BaseModel):
-    """Description of one feature in the support matrix."""
+    """One entry in the support matrix."""
 
-    feature_id: str
-    display_name: str
-    maturity: FeatureMaturity
-    enabled: bool
-    default_available: bool
-    dependencies: list[str] = Field(default_factory=list)
-    config_flags: list[str] = Field(default_factory=list)
-    admin_visible: bool = True
-    notes: str = ""
-    # Runtime-populated: None = not checked yet, True/False = checked
-    dependency_satisfied: bool | None = None
+    feature_id: str = Field(..., description="Machine-readable feature identifier")
+    display_name: str = Field(..., description="Human-readable name")
+    maturity: FeatureMaturity = Field(..., description="Current maturity tier")
+    enabled: bool = Field(default=True, description="Whether the feature is currently enabled")
+    default_availability: FeatureMaturity = Field(
+        default=FeatureMaturity.STABLE,
+        description="Default maturity before config overrides",
+    )
+    key_dependencies: list[str] = Field(
+        default_factory=list,
+        description="Key dependencies required for this feature",
+    )
+    config_flags: list[str] = Field(
+        default_factory=list,
+        description="Config env vars that control this feature",
+    )
+    admin_visible: bool = Field(default=True, description="Show in admin API/UI")
+    notes: str = Field(default="", description="Caveats, limitations, or guidance")
+
+    def as_dict(self) -> dict[str, Any]:
+        d = self.model_dump()
+        # Alias for backwards-compat with test contracts
+        d["default_available"] = d.get("default_availability")
+        return d
 
 
-# ---------------------------------------------------------------------------
-# Structured error returned when a feature is unavailable
-# ---------------------------------------------------------------------------
+# ── FeatureUnavailableError ────────────────────────────────────────────────────
 
 
 class FeatureUnavailableError(Exception):
-    """Raised when a disabled or unsupported feature is requested."""
+    """Raised when code attempts to use a feature that is disabled or unavailable."""
 
     def __init__(
         self,
         feature_id: str,
         maturity: FeatureMaturity,
         reason: str = "",
+        fix_hint: str = "",
     ) -> None:
         self.feature_id = feature_id
         self.maturity = maturity
         self.reason = reason
-        super().__init__(
-            f"Feature {feature_id!r} is unavailable "
-            f"(maturity={maturity.value}, reason={reason!r})"
-        )
+        self.fix_hint = fix_hint
+        msg = f"Feature '{feature_id}' is unavailable (maturity={maturity.value})"
+        if reason:
+            msg += f": {reason}"
+        super().__init__(msg)
 
     def as_dict(self) -> dict[str, Any]:
         return {
@@ -97,345 +95,483 @@ class FeatureUnavailableError(Exception):
             "feature_id": self.feature_id,
             "maturity": self.maturity.value,
             "reason": self.reason,
+            "fix_hint": self.fix_hint,
         }
 
 
-# ---------------------------------------------------------------------------
-# Feature registry — single source of truth
-# ---------------------------------------------------------------------------
+# ── Support matrix definition ─────────────────────────────────────────────────
 
-# Each entry is a dict matching FeatureEntry fields.
-# Maturity choices:
-#   stable        — production-ready, no warnings
-#   beta          — usable but may have rough edges; surfaces a warning
-#   experimental  — opt-in only; disabled by default unless FEATURE_ENABLE overrides
-#   disabled      — permanently off; cannot be enabled via FEATURE_ENABLE
-_REGISTRY_SPEC: list[dict[str, Any]] = [
-    # ── Core proxy / auth ──────────────────────────────────────────────────
+# This is the canonical matrix — all feature entries live here.
+# Config overrides may change maturity and enabled at runtime.
+
+_CANONICAL_FEATURES: list[dict[str, Any]] = [
+    # ── Stable core ───────────────────────────────────────────────────────
     {
         "feature_id": "proxy_endpoints",
-        "display_name": "OpenAI / Ollama / Anthropic proxy endpoints",
+        "display_name": "Proxy Endpoints",
         "maturity": FeatureMaturity.STABLE,
         "enabled": True,
-        "default_available": True,
-        "notes": "Core proxy; always on.",
+        "default_availability": FeatureMaturity.STABLE,
+        "key_dependencies": [],
+        "config_flags": [],
+        "admin_visible": True,
+        "notes": "Core OpenAI-compatible proxy endpoints (/v1/*).",
     },
     {
-        "feature_id": "auth",
-        "display_name": "Bearer token + key-store auth",
+        "feature_id": "direct_chat",
+        "display_name": "Direct Chat",
         "maturity": FeatureMaturity.STABLE,
         "enabled": True,
-        "default_available": True,
+        "default_availability": FeatureMaturity.STABLE,
+        "key_dependencies": ["Ollama or cloud provider"],
+        "config_flags": [],
+        "admin_visible": True,
+        "notes": "Core synchronous chat feature.",
     },
     {
-        "feature_id": "rate_limiting",
-        "display_name": "Per-key rate limiting",
+        "feature_id": "openai_compat",
+        "display_name": "OpenAI API Compatibility",
         "maturity": FeatureMaturity.STABLE,
         "enabled": True,
-        "default_available": True,
-        "config_flags": ["RATE_LIMIT_RPM"],
+        "default_availability": FeatureMaturity.STABLE,
+        "key_dependencies": ["Ollama"],
+        "config_flags": [],
+        "admin_visible": True,
+        "notes": "/v1/ chat completions endpoint.",
     },
     {
-        "feature_id": "provider_routing",
-        "display_name": "Multi-provider routing and fallback",
+        "feature_id": "anthropic_compat",
+        "display_name": "Anthropic API Compatibility",
         "maturity": FeatureMaturity.STABLE,
         "enabled": True,
-        "default_available": True,
+        "default_availability": FeatureMaturity.STABLE,
+        "key_dependencies": ["Ollama"],
+        "config_flags": [],
+        "admin_visible": True,
+        "notes": "/v1/messages endpoint for Claude Code etc.",
     },
     {
-        "feature_id": "model_routing",
-        "display_name": "Local model routing + alias resolution",
+        "feature_id": "ollama_passthrough",
+        "display_name": "Ollama Native Passthrough",
         "maturity": FeatureMaturity.STABLE,
         "enabled": True,
-        "default_available": True,
-        "config_flags": ["MODEL_MAP"],
+        "default_availability": FeatureMaturity.STABLE,
+        "key_dependencies": ["Ollama"],
+        "config_flags": [],
+        "admin_visible": True,
+        "notes": "/api/* endpoints.",
     },
     {
         "feature_id": "key_management",
-        "display_name": "API key CRUD (generate / revoke)",
+        "display_name": "Multi-User Key Management",
         "maturity": FeatureMaturity.STABLE,
         "enabled": True,
-        "default_available": True,
-        "config_flags": ["KEYS_FILE"],
+        "default_availability": FeatureMaturity.STABLE,
+        "key_dependencies": [],
+        "config_flags": ["KEYS_FILE", "API_KEYS"],
+        "admin_visible": True,
+        "notes": "",
     },
-    # ── Direct chat ────────────────────────────────────────────────────────
     {
-        "feature_id": "direct_chat",
-        "display_name": "Direct chat (sync, non-blocking)",
+        "feature_id": "provider_routing_fallback",
+        "display_name": "Provider Routing & Fallback",
         "maturity": FeatureMaturity.STABLE,
         "enabled": True,
-        "default_available": True,
-    },
-    # ── Agent / async jobs ─────────────────────────────────────────────────
-    {
-        "feature_id": "async_agent_jobs",
-        "display_name": "Async agent job queue (202 + job ID)",
-        "maturity": FeatureMaturity.BETA,
-        "enabled": True,
-        "default_available": True,
-        "config_flags": ["AGENT_WORKSPACE_BASE", "AGENT_WORKSPACE_ROOT"],
-        "notes": "202 response; poll /api/chat/agent-jobs/<id> for status.",
+        "default_availability": FeatureMaturity.STABLE,
+        "key_dependencies": [],
+        "config_flags": ["PROVIDER_COOLDOWN_SECONDS"],
+        "admin_visible": True,
+        "notes": "Timeout/cooldown/failover for providers.",
     },
     {
-        "feature_id": "planner_verifier_judge",
-        "display_name": "Planner / verifier / judge pipeline",
-        "maturity": FeatureMaturity.BETA,
+        "feature_id": "rate_limiting",
+        "display_name": "Rate Limiting",
+        "maturity": FeatureMaturity.STABLE,
         "enabled": True,
-        "default_available": True,
-        "config_flags": [
-            "AGENT_PLANNER_MODEL",
-            "AGENT_EXECUTOR_MODEL",
-            "AGENT_VERIFIER_MODEL",
-        ],
+        "default_availability": FeatureMaturity.STABLE,
+        "key_dependencies": [],
+        "config_flags": ["RATE_LIMIT_RPM"],
+        "admin_visible": True,
+        "notes": "Per-key RPM limiting.",
+    },
+    {
+        "feature_id": "runtime_preflight",
+        "display_name": "Runtime Preflight Validation",
+        "maturity": FeatureMaturity.STABLE,
+        "enabled": True,
+        "default_availability": FeatureMaturity.STABLE,
+        "key_dependencies": [],
+        "config_flags": [],
+        "admin_visible": True,
+        "notes": "Structured readiness checks before execution.",
+    },
+    {
+        "feature_id": "admin_dashboard",
+        "display_name": "Admin Dashboard",
+        "maturity": FeatureMaturity.STABLE,
+        "enabled": True,
+        "default_availability": FeatureMaturity.STABLE,
+        "key_dependencies": [],
+        "config_flags": ["ADMIN_SECRET"],
+        "admin_visible": True,
+        "notes": "",
+    },
+    {
+        "feature_id": "observability_langfuse",
+        "display_name": "Langfuse Observability (Direct Chat)",
+        "maturity": FeatureMaturity.STABLE,
+        "enabled": True,
+        "default_availability": FeatureMaturity.STABLE,
+        "key_dependencies": ["Langfuse account"],
+        "config_flags": ["LANGFUSE_PUBLIC_KEY", "LANGFUSE_SECRET_KEY"],
+        "admin_visible": True,
+        "notes": "Traces + cost metadata.",
     },
     {
         "feature_id": "workspace_isolation",
-        "display_name": "Per-job isolated workspace (hash-based)",
-        "maturity": FeatureMaturity.BETA,
+        "display_name": "Workspace Isolation",
+        "maturity": FeatureMaturity.STABLE,
         "enabled": True,
-        "default_available": True,
-        "config_flags": ["AGENT_WORKSPACE_BASE", "WORKSPACE_TTL_HOURS"],
+        "default_availability": FeatureMaturity.STABLE,
+        "key_dependencies": [],
+        "config_flags": ["WORKSPACE_BASE_ROOT", "WORKSPACE_RETENTION_TTL_SECONDS"],
+        "admin_visible": True,
+        "notes": "Per-session/job isolated workspaces with manifests.",
     },
-    # ── Runtimes ───────────────────────────────────────────────────────────
+    # ── Stable agent features ──────────────────────────────────────────────
     {
-        "feature_id": "runtime_preflight",
-        "display_name": "Runtime readiness / preflight validation",
-        "maturity": FeatureMaturity.BETA,
+        "feature_id": "agent_planner_executor_verifier",
+        "display_name": "Planner / Executor / Verifier Pipeline",
+        "maturity": FeatureMaturity.STABLE,
         "enabled": True,
-        "default_available": True,
+        "default_availability": FeatureMaturity.STABLE,
+        "key_dependencies": ["Ollama or cloud provider"],
+        "config_flags": ["AGENT_PLANNER_MODEL", "AGENT_EXECUTOR_MODEL", "AGENT_VERIFIER_MODEL"],
+        "admin_visible": True,
+        "notes": "Three-role plan-execute-verify loop.",
+    },
+    {
+        "feature_id": "agent_judge",
+        "display_name": "Judge (Release Gate)",
+        "maturity": FeatureMaturity.STABLE,
+        "enabled": True,
+        "default_availability": FeatureMaturity.STABLE,
+        "key_dependencies": ["Ollama or cloud provider"],
+        "config_flags": ["AGENT_JUDGE_MODEL"],
+        "admin_visible": True,
+        "notes": "Quality gate after verification.",
     },
     {
         "feature_id": "local_runtime",
-        "display_name": "Built-in local agent runtime (internal_agent)",
+        "display_name": "Local Runtime (internal_agent)",
         "maturity": FeatureMaturity.STABLE,
         "enabled": True,
-        "default_available": True,
+        "default_availability": FeatureMaturity.STABLE,
+        "key_dependencies": [],
+        "config_flags": ["RUNTIME_DEFAULT"],
+        "admin_visible": True,
+        "notes": "Built-in agent loop, always available.",
+    },
+    {
+        "feature_id": "local_model_routing",
+        "display_name": "Local-First Model Routing",
+        "maturity": FeatureMaturity.STABLE,
+        "enabled": True,
+        "default_availability": FeatureMaturity.STABLE,
+        "key_dependencies": ["Ollama"],
+        "config_flags": [],
+        "admin_visible": True,
+        "notes": "",
+    },
+    # ── Beta ───────────────────────────────────────────────────────────────
+    {
+        "feature_id": "async_agent_jobs",
+        "display_name": "Async Agent Jobs",
+        "maturity": FeatureMaturity.BETA,
+        "enabled": True,
+        "default_availability": FeatureMaturity.BETA,
+        "key_dependencies": ["Agent runtime"],
+        "config_flags": ["DIRECT_CHAT_AGENT_WORKSPACE_ROOT"],
+        "admin_visible": True,
+        "notes": "Agent mode returns 202 + pollable job ID.",
+    },
+    {
+        "feature_id": "runtime_readiness_diagnostics",
+        "display_name": "Runtime Readiness Diagnostics",
+        "maturity": FeatureMaturity.BETA,
+        "enabled": True,
+        "default_availability": FeatureMaturity.BETA,
+        "key_dependencies": [],
+        "config_flags": [],
+        "admin_visible": True,
+        "notes": "Preflight validation with structured issues.",
+    },
+    {
+        "feature_id": "policies_governance",
+        "display_name": "Policies & Governance",
+        "maturity": FeatureMaturity.BETA,
+        "enabled": True,
+        "default_availability": FeatureMaturity.BETA,
+        "key_dependencies": [],
+        "config_flags": [],
+        "admin_visible": True,
+        "notes": "Approval gates, RBAC, admin controls.",
+    },
+    {
+        "feature_id": "crispy_workflow",
+        "display_name": "CRISPY Workflow Engine",
+        "maturity": FeatureMaturity.BETA,
+        "enabled": True,
+        "default_availability": FeatureMaturity.BETA,
+        "key_dependencies": [],
+        "config_flags": ["CRISPY_ARTIFACTS_ROOT"],
+        "admin_visible": True,
+        "notes": "Structured build workflow with approval gates.",
     },
     {
         "feature_id": "task_harness_runtime",
-        "display_name": "Task-harness runtime (Docker sidecar)",
+        "display_name": "Task-Harness Runtime",
         "maturity": FeatureMaturity.BETA,
         "enabled": True,
-        "default_available": False,
-        "dependencies": ["task_harness"],
-        "notes": "Requires task-harness Docker container running.",
+        "default_availability": FeatureMaturity.BETA,
+        "key_dependencies": ["task-harness binary"],
+        "config_flags": ["TASK_HARNESS_REQUIRED", "TASK_HARNESS_BIN"],
+        "admin_visible": True,
+        "notes": "Requires external harness binary.",
     },
-    {
-        "feature_id": "jcode_runtime",
-        "display_name": "jcode runtime",
-        "maturity": FeatureMaturity.EXPERIMENTAL,
-        "enabled": False,
-        "default_available": False,
-        "dependencies": ["jcode"],
-        "config_flags": ["JCODE_BIN"],
-        "notes": "Requires jcode binary on PATH or JCODE_BIN env var. Opt-in via FEATURE_ENABLE=jcode_runtime.",
-    },
+    # ── Experimental ───────────────────────────────────────────────────────
     {
         "feature_id": "openhands_runtime",
-        "display_name": "OpenHands runtime (Docker)",
+        "display_name": "OpenHands Runtime",
         "maturity": FeatureMaturity.EXPERIMENTAL,
         "enabled": False,
-        "default_available": False,
+        "default_availability": FeatureMaturity.EXPERIMENTAL,
+        "key_dependencies": ["Docker", "OpenHands image"],
         "config_flags": ["OPENHANDS_ENABLED"],
-        "notes": "Opt-in via OPENHANDS_ENABLED=true. Requires Docker.",
+        "admin_visible": True,
+        "notes": "Opt-in, requires Docker. Set OPENHANDS_ENABLED=true.",
     },
     {
-        "feature_id": "aider_runtime",
-        "display_name": "Aider runtime",
-        "maturity": FeatureMaturity.BETA,
-        "enabled": True,
-        "default_available": False,
-        "dependencies": ["aider"],
-    },
-    {
-        "feature_id": "hermes_runtime",
-        "display_name": "Hermes runtime (sidecar)",
-        "maturity": FeatureMaturity.BETA,
-        "enabled": True,
-        "default_available": False,
-        "notes": "Requires Hermes sidecar process.",
-    },
-    {
-        "feature_id": "opencode_runtime",
-        "display_name": "OpenCode runtime (sidecar)",
+        "feature_id": "sidecar_runtimes",
+        "display_name": "Sidecar Runtimes (Hermes/OpenCode/Goose)",
         "maturity": FeatureMaturity.EXPERIMENTAL,
-        "enabled": False,
-        "default_available": False,
-        "notes": "Requires OpenCode sidecar process. Opt-in via FEATURE_ENABLE=opencode_runtime.",
-    },
-    {
-        "feature_id": "goose_runtime",
-        "display_name": "Goose runtime (sidecar)",
-        "maturity": FeatureMaturity.EXPERIMENTAL,
-        "enabled": False,
-        "default_available": False,
-        "notes": "Requires Goose sidecar process. Opt-in via FEATURE_ENABLE=goose_runtime.",
-    },
-    # ── Integrations ───────────────────────────────────────────────────────
-    {
-        "feature_id": "langfuse_observability",
-        "display_name": "Langfuse trace / cost observability",
-        "maturity": FeatureMaturity.STABLE,
         "enabled": True,
-        "default_available": False,
-        "config_flags": ["LANGFUSE_PUBLIC_KEY", "LANGFUSE_SECRET_KEY"],
-        "notes": "Activated when LANGFUSE_PUBLIC_KEY + LANGFUSE_SECRET_KEY are set.",
+        "default_availability": FeatureMaturity.EXPERIMENTAL,
+        "key_dependencies": ["Sidecar process running"],
+        "config_flags": [],
+        "admin_visible": True,
+        "notes": "Registered but may be unhealthy if sidecar is not running.",
     },
     {
         "feature_id": "telegram_bot",
-        "display_name": "Telegram bot remote control",
-        "maturity": FeatureMaturity.BETA,
-        "enabled": True,
-        "default_available": False,
-        "config_flags": ["TELEGRAM_BOT_TOKEN"],
-        "notes": "Activated when TELEGRAM_BOT_TOKEN is set.",
-    },
-    {
-        "feature_id": "tunnel",
-        "display_name": "Tunnel / ngrok / Cloudflare remote access",
-        "maturity": FeatureMaturity.BETA,
-        "enabled": True,
-        "default_available": False,
-        "config_flags": ["NGROK_AUTHTOKEN", "CLOUDFLARE_TOKEN"],
-        "notes": "Requires NGROK_AUTHTOKEN or Cloudflare tunnel config.",
-    },
-    {
-        "feature_id": "admin_command_runner",
-        "display_name": "Admin command runner (web UI)",
-        "maturity": FeatureMaturity.BETA,
-        "enabled": True,
-        "default_available": True,
-        "config_flags": ["ADMIN_SECRET"],
-    },
-    {
-        "feature_id": "social_auth",
-        "display_name": "Social / OAuth login",
+        "display_name": "Telegram Bot",
         "maturity": FeatureMaturity.EXPERIMENTAL,
-        "enabled": False,
-        "default_available": False,
-        "config_flags": ["GOOGLE_CLIENT_ID", "GITHUB_CLIENT_ID"],
-        "notes": "Opt-in via FEATURE_ENABLE=social_auth.",
+        "enabled": True,
+        "default_availability": FeatureMaturity.EXPERIMENTAL,
+        "key_dependencies": ["Telegram Bot Token"],
+        "config_flags": ["TELEGRAM_BOT_TOKEN", "TELEGRAM_ALLOWED_USER_IDS"],
+        "admin_visible": True,
+        "notes": "Remote control via Telegram.",
+    },
+    {
+        "feature_id": "tunnels",
+        "display_name": "Tunnels (Cloudflare/ngrok)",
+        "maturity": FeatureMaturity.EXPERIMENTAL,
+        "enabled": True,
+        "default_availability": FeatureMaturity.EXPERIMENTAL,
+        "key_dependencies": ["cloudflared or ngrok"],
+        "config_flags": ["NGROK_AUTH_TOKEN", "CLOUDFLARED_EXE"],
+        "admin_visible": True,
+        "notes": "Exposes proxy over HTTPS.",
     },
     {
         "feature_id": "multi_agent_swarm",
-        "display_name": "Multi-agent swarm orchestration",
+        "display_name": "Multi-Agent / Swarm",
         "maturity": FeatureMaturity.EXPERIMENTAL,
-        "enabled": False,
-        "default_available": False,
-        "notes": "Agent coordinator + swarm. Opt-in via FEATURE_ENABLE=multi_agent_swarm.",
-    },
-    {
-        "feature_id": "workflow_engine",
-        "display_name": "CRISPY workflow engine",
-        "maturity": FeatureMaturity.EXPERIMENTAL,
-        "enabled": False,
-        "default_available": False,
-        "notes": "Gate / slice / phase workflow model. Opt-in via FEATURE_ENABLE=workflow_engine.",
-    },
-    {
-        "feature_id": "per_job_progress",
-        "display_name": "Per-job progress polling (heartbeat)",
-        "maturity": FeatureMaturity.BETA,
         "enabled": True,
-        "default_available": True,
-        "notes": "Poll GET /api/chat/agent-jobs/<id> for phase/event updates.",
+        "default_availability": FeatureMaturity.EXPERIMENTAL,
+        "key_dependencies": [],
+        "config_flags": [],
+        "admin_visible": True,
+        "notes": "Agent coordination and swarm dispatch.",
+    },
+    {
+        "feature_id": "openclaw_integration",
+        "display_name": "OpenClaw Integration",
+        "maturity": FeatureMaturity.EXPERIMENTAL,
+        "enabled": True,
+        "default_availability": FeatureMaturity.EXPERIMENTAL,
+        "key_dependencies": ["OpenClaw"],
+        "config_flags": [],
+        "admin_visible": True,
+        "notes": "Maintenance: vulnerability fixes, code scans.",
+    },
+    {
+        "feature_id": "jcode_runtime",
+        "display_name": "JCode Runtime",
+        "maturity": FeatureMaturity.EXPERIMENTAL,
+        "enabled": True,
+        "default_availability": FeatureMaturity.EXPERIMENTAL,
+        "key_dependencies": ["JCode"],
+        "config_flags": [],
+        "admin_visible": True,
+        "notes": "JCode execution runtime.",
+    },
+    {
+        "feature_id": "quick_actions_ios",
+        "display_name": "Quick Actions / iOS Shortcuts",
+        "maturity": FeatureMaturity.EXPERIMENTAL,
+        "enabled": True,
+        "default_availability": FeatureMaturity.EXPERIMENTAL,
+        "key_dependencies": [],
+        "config_flags": [],
+        "admin_visible": True,
+        "notes": "iOS Shortcuts integration for remote commands.",
+    },
+    {
+        "feature_id": "machine_peer_sync",
+        "display_name": "Machine Sync / Peer Sync",
+        "maturity": FeatureMaturity.EXPERIMENTAL,
+        "enabled": True,
+        "default_availability": FeatureMaturity.EXPERIMENTAL,
+        "key_dependencies": [],
+        "config_flags": [],
+        "admin_visible": True,
+        "notes": "Sync service for multi-machine coordination.",
     },
 ]
 
 
-# ---------------------------------------------------------------------------
-# FeatureMatrix — loads registry and applies operator overrides
-# ---------------------------------------------------------------------------
+# ── FeatureMatrix ──────────────────────────────────────────────────────────────
 
 
 class FeatureMatrix:
-    """Runtime-evaluated support matrix.
+    """Central support matrix — single source of truth.
 
-    Load once with :meth:`load` (or via the :func:`get_matrix` singleton).
-    Operator can override maturity enforcement via env vars:
-
-    - ``FEATURE_DISABLE=id1,id2``  — force-disable these features
-    - ``FEATURE_ENABLE=id1,id2``   — force-enable experimental/disabled features
-      (cannot enable features with maturity==DISABLED)
+    Loads the canonical feature list, applies config overrides,
+    and provides query / gating / admin visibility methods.
     """
 
-    def __init__(self, entries: list[FeatureEntry]) -> None:
-        self._entries: dict[str, FeatureEntry] = {e.feature_id: e for e in entries}
+    def __init__(self, config_overrides: dict[str, str] | None = None) -> None:
+        self._entries: dict[str, FeatureEntry] = {}
+        self._load(config_overrides or {})
 
-    @classmethod
-    def load(cls) -> "FeatureMatrix":
-        entries = [FeatureEntry(**spec) for spec in _REGISTRY_SPEC]
-        matrix = cls(entries)
-        matrix._apply_operator_overrides()
-        return matrix
+    def _load(self, config_overrides: dict[str, str]) -> None:
+        """Load canonical features and apply per-feature then bulk env overrides."""
+        # Parse bulk FEATURE_ENABLE / FEATURE_DISABLE lists first (populated below)
+        disable_set: set[str] = set()
+        enable_set: set[str] = set()
 
-    # ── Enforcement ───────────────────────────────────────────────────────
+        raw_disable = os.environ.get("FEATURE_DISABLE", "").strip()
+        raw_enable = os.environ.get("FEATURE_ENABLE", "").strip()
 
-    def check(self, feature_id: str) -> FeatureEntry:
-        """Return entry for *feature_id*.  Raises :exc:`FeatureUnavailableError` if disabled."""
+        if raw_disable:
+            disable_set = {s.strip() for s in raw_disable.split(",") if s.strip()}
+        if raw_enable:
+            enable_set = {s.strip() for s in raw_enable.split(",") if s.strip()}
+
+        for raw in _CANONICAL_FEATURES:
+            entry = FeatureEntry(**raw)
+            # Apply per-feature env override (FEATURE_<ID>=<tier>)
+            fid = entry.feature_id
+            env_key = f"FEATURE_{fid.upper()}"
+            override = os.environ.get(env_key) or config_overrides.get(env_key)
+            if override is not None:
+                self._apply_override(entry, override)
+            # Apply bulk enable/disable — FEATURE_DISABLE is authoritative
+            if fid in enable_set:
+                entry.enabled = True
+            if fid in disable_set:
+                entry.enabled = False
+                entry.maturity = FeatureMaturity.DISABLED
+            self._entries[fid] = entry
+
+        # Warn about unknown IDs in bulk lists
+        known = set(self._entries.keys())
+        for fid in (disable_set | enable_set) - known:
+            log.warning("FEATURE env var references unknown feature_id %r — ignored", fid)
+
+    @staticmethod
+    def _apply_override(entry: FeatureEntry, override: str) -> None:
+        """Apply a config override string like 'stable', 'beta', 'disabled', 'enabled', 'true', 'false'."""
+        val = override.strip().lower()
+        if val in ("stable", "beta", "experimental"):
+            entry.maturity = FeatureMaturity(val)
+            entry.enabled = True
+        elif val == "disabled":
+            entry.maturity = FeatureMaturity.DISABLED
+            entry.enabled = False
+        elif val in ("enabled", "true", "1", "yes"):
+            entry.enabled = True
+        elif val in ("false", "0", "no"):
+            entry.enabled = False
+
+    # ── Query ──────────────────────────────────────────────────────────────
+
+    def get(self, feature_id: str) -> FeatureEntry | None:
+        return self._entries.get(feature_id)
+
+    def list_all(self) -> list[FeatureEntry]:
+        return list(self._entries.values())
+
+    def list_by_maturity(self, maturity: FeatureMaturity) -> list[FeatureEntry]:
+        return [e for e in self._entries.values() if e.maturity == maturity]
+
+    def list_enabled(self) -> list[FeatureEntry]:
+        return [e for e in self._entries.values() if e.enabled]
+
+    def list_admin_visible(self) -> list[FeatureEntry]:
+        return [e for e in self._entries.values() if e.admin_visible]
+
+    # ── Gating ─────────────────────────────────────────────────────────────
+
+    def check_available(self, feature_id: str) -> FeatureEntry:
+        """Return the feature entry if available, or raise FeatureUnavailableError."""
         entry = self._entries.get(feature_id)
         if entry is None:
             raise FeatureUnavailableError(
                 feature_id,
                 FeatureMaturity.DISABLED,
-                reason="feature not found in support matrix",
+                reason="Feature not found in support matrix.",
+                fix_hint="Check the feature_id spelling or consult the support matrix.",
             )
         if not entry.enabled or entry.maturity == FeatureMaturity.DISABLED:
             raise FeatureUnavailableError(
                 feature_id,
                 entry.maturity,
-                reason=f"feature is {entry.maturity.value}",
+                reason="Feature is disabled." if not entry.enabled else "Feature maturity is 'disabled'.",
+                fix_hint=f"Set FEATURE_{feature_id.upper()}=enabled to override.",
             )
         return entry
 
-    def warn_if_beta(self, feature_id: str) -> FeatureEntry | None:
-        """Return entry with a warning log for beta/experimental features.
-
-        Returns None if feature is disabled (does not raise).
-        """
+    def is_available(self, feature_id: str) -> bool:
+        """Return True if the feature is enabled and not disabled."""
         entry = self._entries.get(feature_id)
-        if entry is None:
-            return None
-        if not entry.enabled or entry.maturity == FeatureMaturity.DISABLED:
+        return entry is not None and entry.enabled and entry.maturity != FeatureMaturity.DISABLED
+
+    def maturity_warning(self, feature_id: str) -> str | None:
+        """Return a warning string for beta/experimental features, or None."""
+        entry = self._entries.get(feature_id)
+        if entry is None or not entry.enabled:
             return None
         if entry.maturity == FeatureMaturity.BETA:
-            log.warning(
-                "Feature %r is in BETA — behaviour may change in future versions.",
-                feature_id,
-            )
-        elif entry.maturity == FeatureMaturity.EXPERIMENTAL:
-            log.warning(
-                "Feature %r is EXPERIMENTAL — opt-in only, not recommended for production.",
-                feature_id,
-            )
-        return entry
+            return f"Feature '{feature_id}' is in BETA — behavior may change."
+        if entry.maturity == FeatureMaturity.EXPERIMENTAL:
+            return f"Feature '{feature_id}' is EXPERIMENTAL — use with caution, may be unstable."
+        return None
 
-    def is_enabled(self, feature_id: str) -> bool:
-        entry = self._entries.get(feature_id)
-        if entry is None:
-            return False
-        return entry.enabled and entry.maturity != FeatureMaturity.DISABLED
+    def check(self, feature_id: str) -> FeatureEntry:
+        """Alias for check_available() — returns the entry or raises FeatureUnavailableError."""
+        return self.check_available(feature_id)
 
-    def get(self, feature_id: str) -> FeatureEntry | None:
-        return self._entries.get(feature_id)
+    def require(self, feature_id: str) -> FeatureEntry:
+        """Convenience: check_available, but returns the entry for chaining."""
+        return self.check_available(feature_id)
 
-    # ── Admin / API output ────────────────────────────────────────────────
-
-    def as_dict(self, admin_only: bool = False) -> dict[str, Any]:
-        entries = [
-            e.model_dump()
-            for e in self._entries.values()
-            if not admin_only or e.admin_visible
-        ]
-        return {
-            "schema_version": "1",
-            "total": len(entries),
-            "by_maturity": self._counts_by_maturity(),
-            "entries": entries,
-        }
+    # ── Serialization ──────────────────────────────────────────────────────
 
     def summary(self) -> list[dict[str, Any]]:
-        """Compact summary suitable for health/status APIs."""
+        """Return a compact list of all feature entries (for admin/status endpoints)."""
         return [
             {
                 "feature_id": e.feature_id,
@@ -444,72 +580,56 @@ class FeatureMatrix:
                 "enabled": e.enabled,
             }
             for e in self._entries.values()
-            if e.admin_visible
         ]
 
-    # ── Internals ─────────────────────────────────────────────────────────
+    def as_dict(self) -> dict[str, Any]:
+        by_maturity = {
+            m.value: len(self.list_by_maturity(m))
+            for m in FeatureMaturity
+        }
+        return {
+            "schema_version": "1",
+            "features": {fid: e.as_dict() for fid, e in self._entries.items()},
+            "entries": [e.as_dict() for e in self._entries.values()],
+            "by_maturity": by_maturity,
+            "summary": {
+                "total": len(self._entries),
+                "by_maturity": by_maturity,
+                "enabled_count": len(self.list_enabled()),
+            },
+        }
 
-    def _apply_operator_overrides(self) -> None:
-        raw_disable = os.environ.get("FEATURE_DISABLE", "")
-        raw_enable = os.environ.get("FEATURE_ENABLE", "")
-
-        # Collect explicitly-disabled IDs first so FEATURE_DISABLE always wins.
-        explicitly_disabled: set[str] = set()
-        for fid in (f.strip() for f in raw_disable.split(",") if f.strip()):
-            if fid in self._entries:
-                self._entries[fid].enabled = False
-                explicitly_disabled.add(fid)
-                log.info("Feature %r force-disabled via FEATURE_DISABLE", fid)
-            else:
-                log.warning("FEATURE_DISABLE: unknown feature %r (ignored)", fid)
-
-        for fid in (f.strip() for f in raw_enable.split(",") if f.strip()):
-            # FEATURE_DISABLE is authoritative — skip any ID it already disabled.
-            if fid in explicitly_disabled:
-                log.warning(
-                    "FEATURE_ENABLE: feature %r is in FEATURE_DISABLE — disable takes precedence",
-                    fid,
-                )
-                continue
-            entry = self._entries.get(fid)
-            if entry is None:
-                log.warning("FEATURE_ENABLE: unknown feature %r (ignored)", fid)
-                continue
-            if entry.maturity == FeatureMaturity.DISABLED:
-                log.warning(
-                    "FEATURE_ENABLE: feature %r has maturity=disabled and cannot be enabled",
-                    fid,
-                )
-                continue
-            entry.enabled = True
-            log.info("Feature %r force-enabled via FEATURE_ENABLE", fid)
-
-    def _counts_by_maturity(self) -> dict[str, int]:
-        counts: dict[str, int] = {}
-        for e in self._entries.values():
-            k = e.maturity.value
-            counts[k] = counts.get(k, 0) + 1
-        return counts
+    def as_markdown_table(self) -> str:
+        """Render the matrix as a Markdown table for docs."""
+        lines = [
+            "| Feature | ID | Maturity | Enabled | Dependencies | Config Flags | Notes |",
+            "|---------|----|----------|---------|--------------|-------------|-------|",
+        ]
+        for entry in sorted(self._entries.values(), key=lambda e: (e.maturity.value, e.display_name)):
+            deps = ", ".join(entry.key_dependencies) or "—"
+            flags = ", ".join(entry.config_flags) or "—"
+            enabled = "✅" if entry.enabled else "❌"
+            notes = entry.notes if entry.notes else "—"
+            lines.append(
+                f"| {entry.display_name} | `{entry.feature_id}` | {entry.maturity.value} | {enabled} | {deps} | {flags} | {notes} |"
+            )
+        return "\n".join(lines)
 
 
-# ---------------------------------------------------------------------------
-# Singleton + convenience helpers
-# ---------------------------------------------------------------------------
+# ── Singleton ──────────────────────────────────────────────────────────────────
 
-_matrix: FeatureMatrix | None = None
+_feature_matrix: FeatureMatrix | None = None
 
 
-def get_matrix() -> FeatureMatrix:
-    """Return the process-level singleton FeatureMatrix (loaded once)."""
-    global _matrix
-    if _matrix is None:
-        _matrix = FeatureMatrix.load()
-    return _matrix
+def get_feature_matrix() -> FeatureMatrix:
+    """Return the global FeatureMatrix singleton."""
+    global _feature_matrix
+    if _feature_matrix is None:
+        _feature_matrix = FeatureMatrix()
+    return _feature_matrix
 
 
-def require_feature(feature_id: str) -> FeatureEntry:
-    """Gate a code path on the feature being enabled.
-
-    Raises :exc:`FeatureUnavailableError` if not enabled.
-    """
-    return get_matrix().check(feature_id)
+def reset_feature_matrix() -> None:
+    """Reset the singleton (useful for testing)."""
+    global _feature_matrix
+    _feature_matrix = None

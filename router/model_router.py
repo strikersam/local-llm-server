@@ -34,7 +34,7 @@ from typing import Any
 
 from router.classifier import classify_task
 from router.health import is_model_available
-from router.registry import best_model_for, get_registry
+from router.registry import best_model_for, best_vision_model, get_registry, has_image_content
 
 log = logging.getLogger("qwen-proxy")
 
@@ -99,9 +99,9 @@ def _build_builtin_model_map() -> dict[str, str]:
     nvidia = _nvidia_key_present()
 
     # Reasoning/planning model: nemotron-ultra (Nvidia) or deepseek-r1 (local)
-    _heavy = "nvidia/llama-3.1-nemotron-ultra-253b-v1" if nvidia else "deepseek-r1:32b"
+    _heavy = "nvidia/nemotron-3-super-120b-a12b" if nvidia else "deepseek-r1:32b"
     # Largest local-only model (only applies when Nvidia not configured)
-    _largest = "nvidia/llama-3.1-nemotron-ultra-253b-v1" if nvidia else "deepseek-r1:671b"
+    _largest = "nvidia/nemotron-3-super-120b-a12b" if nvidia else "deepseek-r1:671b"
     # Coding/execution model: qwen2.5-coder (Nvidia) or qwen3-coder (local)
     _coder = "qwen/qwen2.5-coder-32b-instruct" if nvidia else "qwen3-coder:30b"
     # Fast/small model
@@ -133,7 +133,7 @@ def _build_builtin_model_map() -> dict[str, str]:
         # Nvidia NIM short-name aliases (passthrough when key is set)
         "llama-3.3-70b": "meta/llama-3.3-70b-instruct",
         "llama-3.1-405b": "meta/llama-3.1-405b-instruct",
-        "nemotron-ultra": "nvidia/llama-3.1-nemotron-ultra-253b-v1",
+        "nemotron-ultra": "nvidia/nemotron-3-super-120b-a12b",
         "qwen2.5-coder-32b": "qwen/qwen2.5-coder-32b-instruct",
         "deepseek-r1-nim": "deepseek-ai/deepseek-r1",
         # Gemma 4 short-name aliases (local Ollama pull names)
@@ -214,7 +214,7 @@ def _default_reasoning_model() -> str:
     if explicit:
         return explicit
     return (
-        "nvidia/llama-3.1-nemotron-ultra-253b-v1"
+        "nvidia/nemotron-3-super-120b-a12b"
         if _nvidia_key_present()
         else "deepseek-r1:32b"
     )
@@ -274,6 +274,21 @@ class ModelRouter:
                 selection_source="override",
                 fallback_chain=[_default_model()],
             )
+
+        # ── 1.5 Vision routing — if messages contain images, prefer a vision model ──
+        if has_image_content(messages):
+            registry = get_registry()
+            vision_model = best_vision_model(registry)
+            if vision_model:
+                return RoutingDecision(
+                    resolved_model=vision_model,
+                    requested_model=requested_model,
+                    mode="auto",
+                    routing_reason=f"Vision routing: request contains image_url → {vision_model}",
+                    task_category="multimodal",
+                    selection_source="vision",
+                    fallback_chain=[_default_model()],
+                )
 
         # ── 2. Classify the task ──────────────────────────────────────────────
         category = classify_task(

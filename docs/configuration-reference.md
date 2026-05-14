@@ -222,6 +222,32 @@ Run `setup_ngrok.py` once to populate these automatically. Get your token free a
 
 ---
 
+
+## Workspace Isolation
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `WORKSPACE_BASE_ROOT` | `.data/workspaces` | Base directory for all isolated workspaces. Every session/job workspace is created under this root. |
+| `WORKSPACE_RETENTION_TTL_SECONDS` | `604800` (7 days) | Time in seconds before a completed/failed/cancelled/archived workspace becomes eligible for cleanup. Set to `0` for immediate eligibility. |
+| `DIRECT_CHAT_AGENT_WORKSPACE_ROOT` | `.data/direct-chat-agent-workspaces` | Override base root for direct chat agent workspaces. If not set, uses the default workspace root. |
+
+## Feature Maturity Overrides
+
+Any feature in the support matrix can be overridden via environment variables using the pattern `FEATURE_<UPPERCASE_FEATURE_ID>`.
+
+| Variable Pattern | Values | Description |
+|-----------------|--------|-------------|
+| `FEATURE_<ID>` | `stable`, `beta`, `experimental`, `disabled`, `true`, `false` | Override a feature's maturity tier or enabled state. Example: `FEATURE_TELEGRAM_BOT=disabled` disables the Telegram bot. |
+
+Common overrides:
+
+| Variable | Example | Effect |
+|----------|---------|--------|
+| `FEATURE_TELEGRAM_BOT` | `disabled` | Disable the Telegram bot |
+| `FEATURE_OPENHANDS_RUNTIME` | `true` | Enable the OpenHands runtime (opt-in) |
+| `FEATURE_ASYNC_AGENT_JOBS` | `stable` | Promote async agent jobs to stable tier |
+| `FEATURE_SIDECAE_RUNTIMES` | `false` | Disable sidecar runtimes |
+
 ## Quick Reference — Minimal Configs
 
 ### Personal use (single key)

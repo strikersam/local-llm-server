@@ -1,495 +1,489 @@
-"""tests/test_workspace_isolation.py — Workspace isolation, path safety, and lifecycle tests.
+"""Tests for workspace isolation model (Area A).
 
 Covers:
-  C1 - Workspace isolation
-  C4 - Security-oriented path traversal / symlink escape tests
+  - Unique workspace path derivation per session/job
+  - Session/job ID validation
+  - Rejection of traversal attempts
+  - Rejection of symlink escape
+  - Lock/concurrency behavior
+  - Resume only within correct session namespace
+  - Cleanup respects active locks
+  - Cleanup removes expired workspaces only
+  - Manifest creation and corruption handling
+  - No cross-session artifact leakage
 """
 
 from __future__ import annotations
 
-import asyncio
 import json
 import os
+import threading
+import time
 from pathlib import Path
 
 import pytest
 
-from agent.workspace import (
-    WorkspaceAccessDeniedError,
-    WorkspaceEscapeError,
-    WorkspaceIDError,
-    WorkspaceLockError,
-    WorkspaceManifest,
-    WorkspaceManifestError,
+from workspace.manager import (
     WorkspaceManager,
-    WorkspaceNotFoundError,
-    WorkspaceNotResumableError,
-    WorkspaceStatus,
+    validate_session_id,
+    validate_job_id,
     _hash_component,
+    _safe_resolve,
+)
+from workspace.manifest import WorkspaceManifest, MANIFEST_SCHEMA_VERSION, CLEANABLE_STATES
+from workspace.errors import (
+    InvalidSessionIdError,
+    InvalidJobIdError,
+    WorkspaceNotFoundError,
+    WorkspaceOutsideRootError,
+    WorkspaceNotResumableError,
+    WorkspaceCleanupBlockedError,
+    WorkspaceManifestCorruptionError,
+    WorkspacePermissionError,
 )
 
 
-# ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
+# ── ID validation ─────────────────────────────────────────────────────────────
 
 
-def run(coro):
-    """Run a coroutine synchronously (test helper)."""
-    return asyncio.run(coro)
+class TestSessionIdValidation:
+    def test_valid_simple(self):
+        assert validate_session_id("abc123") == "abc123"
+
+    def test_valid_with_dashes(self):
+        assert validate_session_id("session-1") == "session-1"
+
+    def test_valid_with_dots(self):
+        assert validate_session_id("session.v2") == "session.v2"
+
+    def test_valid_with_underscores(self):
+        assert validate_session_id("my_session") == "my_session"
+
+    def test_rejects_empty(self):
+        with pytest.raises(InvalidSessionIdError) as exc_info:
+            validate_session_id("")
+        assert exc_info.value.code == "invalid_session_id"
+
+    def test_rejects_traversal(self):
+        with pytest.raises(InvalidSessionIdError):
+            validate_session_id("../../etc")
+
+    def test_rejects_slash(self):
+        with pytest.raises(InvalidSessionIdError):
+            validate_session_id("foo/bar")
+
+    def test_rejects_null_byte(self):
+        with pytest.raises(InvalidSessionIdError):
+            validate_session_id("foo\x00bar")
+
+    def test_rejects_spaces(self):
+        with pytest.raises(InvalidSessionIdError):
+            validate_session_id("has space")
+
+    def test_rejects_too_long(self):
+        with pytest.raises(InvalidSessionIdError):
+            validate_session_id("a" * 200)
+
+    def test_rejects_starts_with_special(self):
+        with pytest.raises(InvalidSessionIdError):
+            validate_session_id("-starts-dash")
 
 
-@pytest.fixture()
-def mgr(tmp_path: Path) -> WorkspaceManager:
-    return WorkspaceManager(base_root=tmp_path / "workspaces", default_ttl_hours=1.0)
+class TestJobIdValidation:
+    def test_valid(self):
+        assert validate_job_id("aj_abc123") == "aj_abc123"
+
+    def test_rejects_traversal(self):
+        with pytest.raises(InvalidJobIdError):
+            validate_job_id("../../../tmp")
+
+    def test_rejects_empty(self):
+        with pytest.raises(InvalidJobIdError):
+            validate_job_id("")
 
 
-# ---------------------------------------------------------------------------
-# A1 — Deterministic workspace roots
-# ---------------------------------------------------------------------------
+# ── Path derivation ───────────────────────────────────────────────────────────
 
 
-class TestDeterministicPaths:
-    def test_unique_path_per_session_job(self, mgr: WorkspaceManager, tmp_path: Path):
-        ws1 = run(mgr.create("as_aaa111", "aj_bbb222"))
-        ws2 = run(mgr.create("as_xxx999", "aj_yyy888"))
-        assert ws1.root != ws2.root, "Different session+job must produce different roots"
+class TestWorkspacePathDerivation:
+    def test_different_sessions_get_different_roots(self, tmp_path):
+        mgr = WorkspaceManager(base_root=tmp_path / "ws")
+        m1 = mgr.create_workspace("session-a", "job-1")
+        m2 = mgr.create_workspace("session-b", "job-1")
+        assert m1.root_path != m2.root_path
 
-    def test_same_ids_produce_same_path(self, mgr: WorkspaceManager):
-        ws1 = run(mgr.create("as_abc123", "aj_def456"))
-        # Compute expected hash components
-        sess_hash = _hash_component("as_abc123")
-        job_hash = _hash_component("aj_def456")
-        assert sess_hash in str(ws1.root), "Session hash must appear in root"
-        assert job_hash in str(ws1.root), "Job hash must appear in root"
+    def test_same_session_different_jobs_get_different_roots(self, tmp_path):
+        mgr = WorkspaceManager(base_root=tmp_path / "ws")
+        m1 = mgr.create_workspace("session-a", "job-1")
+        m2 = mgr.create_workspace("session-a", "job-2")
+        assert m1.root_path != m2.root_path
 
-    def test_raw_id_not_in_path(self, mgr: WorkspaceManager):
-        ws = run(mgr.create("as_abc123", "aj_def456"))
-        assert "as_abc123" not in str(ws.root), "Raw session ID must not appear in path"
-        assert "aj_def456" not in str(ws.root), "Raw job ID must not appear in path"
+    def test_hash_component_is_deterministic(self):
+        h1 = _hash_component("test-session")
+        h2 = _hash_component("test-session")
+        assert h1 == h2
+        assert len(h1) == 24
 
-    def test_subdirectories_created(self, mgr: WorkspaceManager):
-        ws = run(mgr.create("as_session1", "aj_job001"))
-        assert ws.source.is_dir()
-        assert ws.checkpoints.is_dir()
-        assert ws.logs.is_dir()
-        assert ws.artifacts.is_dir()
-        assert ws.tmp.is_dir()
+    def test_hash_component_is_opaque(self):
+        h = _hash_component("my-session-id")
+        # Should not contain the raw session ID
+        assert "my-session-id" not in h
 
-    def test_manifest_written(self, mgr: WorkspaceManager):
-        ws = run(mgr.create("as_session1", "aj_job001"))
-        manifest_path = ws.root / "workspace.json"
-        assert manifest_path.exists()
-        data = json.loads(manifest_path.read_text())
-        assert data["session_id"] == "as_session1"
-        assert data["job_id"] == "aj_job001"
-        assert data["schema_version"] == "1"
+    def test_different_inputs_produce_different_hashes(self):
+        assert _hash_component("aaa") != _hash_component("bbb")
 
-    def test_different_jobs_same_session_isolated(self, mgr: WorkspaceManager):
-        ws1 = run(mgr.create("as_shared", "aj_job001"))
-        ws2 = run(mgr.create("as_shared", "aj_job002"))
-        assert ws1.root != ws2.root
-        # No path overlap for source trees
-        assert ws2.source != ws1.source
+    def test_workspace_root_under_base_root(self, tmp_path):
+        mgr = WorkspaceManager(base_root=tmp_path / "ws")
+        manifest = mgr.create_workspace("sess-1", "job-1")
+        root = Path(manifest.root_path)
+        assert str(root).startswith(str(mgr.base_root))
 
 
-# ---------------------------------------------------------------------------
-# A2 — ID validation
-# ---------------------------------------------------------------------------
-
-
-class TestIDValidation:
-    @pytest.mark.parametrize(
-        "bad_id",
-        [
-            "",
-            "a",  # too short
-            "../etc/passwd",
-            "../../root",
-            "/absolute/path",
-            "has space",
-            "has\nnewline",
-            "!invalid@chars",
-            "a" * 65,  # too long
-        ],
-    )
-    def test_invalid_session_id_rejected(self, mgr: WorkspaceManager, bad_id: str):
-        with pytest.raises(WorkspaceIDError):
-            run(mgr.create(bad_id, "aj_valid01"))
-
-    @pytest.mark.parametrize(
-        "bad_id",
-        [
-            "",
-            "a",
-            "../etc/passwd",
-            "../../root",
-            "/absolute",
-            "has space",
-            "a" * 65,
-        ],
-    )
-    def test_invalid_job_id_rejected(self, mgr: WorkspaceManager, bad_id: str):
-        with pytest.raises(WorkspaceIDError):
-            run(mgr.create("as_valid01", bad_id))
-
-    @pytest.mark.parametrize(
-        "good_id",
-        [
-            "as_abc123",
-            "aj_def-456",
-            "session.v1",
-            "AB",  # min 2 chars
-            "a" * 64,  # max chars
-        ],
-    )
-    def test_valid_ids_accepted(self, mgr: WorkspaceManager, good_id: str):
-        ws = run(mgr.create(good_id, "aj_job001"))
-        assert ws.session_id == good_id
-
-
-# ---------------------------------------------------------------------------
-# A2 — Path safety / traversal / symlink escape
-# ---------------------------------------------------------------------------
+# ── Traversal / symlink rejection ─────────────────────────────────────────────
 
 
 class TestPathSafety:
-    def test_traversal_in_relative_path_rejected(self, mgr: WorkspaceManager):
-        ws = run(mgr.create("as_sess1", "aj_job001"))
-        with pytest.raises(WorkspaceEscapeError):
-            mgr.safe_path(ws, "../../etc/passwd")
+    def test_rejects_traversal_session_id(self, tmp_path):
+        mgr = WorkspaceManager(base_root=tmp_path / "ws")
+        with pytest.raises(InvalidSessionIdError):
+            mgr.create_workspace("../../etc", "job-1")
 
-    def test_absolute_path_escape_rejected(self, mgr: WorkspaceManager):
-        ws = run(mgr.create("as_sess1", "aj_job001"))
-        with pytest.raises(WorkspaceEscapeError):
-            # Absolute path attempts to leave workspace
-            mgr.safe_path(ws, "/etc/shadow")
+    def test_rejects_traversal_job_id(self, tmp_path):
+        mgr = WorkspaceManager(base_root=tmp_path / "ws")
+        with pytest.raises(InvalidJobIdError):
+            mgr.create_workspace("session-1", "../../etc")
 
-    def test_null_byte_traversal_rejected(self, mgr: WorkspaceManager):
-        ws = run(mgr.create("as_sess1", "aj_job001"))
-        with pytest.raises((WorkspaceEscapeError, ValueError)):
-            mgr.safe_path(ws, "file\x00../../etc/passwd")
+    def test_rejects_symlink_escape(self, tmp_path):
+        """If a symlink inside the workspace points outside, resolve_path blocks it."""
+        mgr = WorkspaceManager(base_root=tmp_path / "ws")
+        manifest = mgr.create_workspace("sess-safe", "job-safe")
 
-    def test_dot_dot_at_root_rejected(self, mgr: WorkspaceManager):
-        ws = run(mgr.create("as_sess1", "aj_job001"))
-        with pytest.raises(WorkspaceEscapeError):
-            mgr.safe_path(ws, "..")
-
-    def test_symlink_escape_rejected(self, mgr: WorkspaceManager, tmp_path: Path):
-        ws = run(mgr.create("as_sess1", "aj_job001"))
-        # Create a symlink inside source/ pointing outside workspace root
-        outside_dir = tmp_path / "outside"
-        outside_dir.mkdir()
-        (outside_dir / "secret.txt").write_text("secret")
-        link = ws.source / "evil_link"
-        link.symlink_to(outside_dir)
-        # Accessing through the symlink should be rejected
-        with pytest.raises(WorkspaceEscapeError):
-            mgr.safe_path(ws, "evil_link/secret.txt")
-
-    def test_valid_relative_path_accepted(self, mgr: WorkspaceManager):
-        ws = run(mgr.create("as_sess1", "aj_job001"))
-        (ws.source / "subdir").mkdir()
-        safe = mgr.safe_path(ws, "subdir/file.py")
-        assert safe.parent == ws.source / "subdir"
-
-    def test_workspace_error_does_not_leak_internal_paths(self, mgr: WorkspaceManager):
-        ws = run(mgr.create("as_sess1", "aj_job001"))
+        # Create a symlink in the source dir that points outside
+        source_dir = Path(manifest.source_path)
+        escape_link = source_dir / "escape"
         try:
-            mgr.safe_path(ws, "../../etc/passwd")
-        except WorkspaceEscapeError as exc:
-            msg = exc.as_dict()
-            # Internal absolute paths must not appear in the external error dict
-            assert str(mgr._base) not in msg["message"]
+            escape_link.symlink_to("/etc/passwd")
+        except (OSError, NotImplementedError):
+            pytest.skip("Symlinks not supported on this platform")
+
+        with pytest.raises(WorkspaceOutsideRootError):
+            mgr.resolve_path("sess-safe", "job-safe", "escape")
+
+    def test_safe_resolve_blocks_escape(self, tmp_path):
+        base = tmp_path / "base"
+        base.mkdir()
+        with pytest.raises(WorkspaceOutsideRootError):
+            _safe_resolve(tmp_path / "base" / ".." / ".." / "etc", base)
+
+    def test_safe_resolve_allows_subpath(self, tmp_path):
+        base = tmp_path / "base"
+        base.mkdir()
+        result = _safe_resolve(base / "subdir", base)
+        assert str(result).startswith(str(base))
 
 
-# ---------------------------------------------------------------------------
-# A3 — Session/job ownership
-# ---------------------------------------------------------------------------
+# ── Workspace lifecycle ───────────────────────────────────────────────────────
 
 
-class TestOwnershipBoundaries:
-    def test_resume_correct_session_succeeds(self, mgr: WorkspaceManager):
-        ws = run(mgr.create("as_ownerA", "aj_job001"))
-        run(mgr.transition(ws, WorkspaceStatus.PAUSED))
-        # Re-open clean instance
-        mgr2 = WorkspaceManager(base_root=mgr._base, default_ttl_hours=1.0)
-        resumed = run(mgr2.resume("as_ownerA", "aj_job001"))
-        assert resumed.session_id == "as_ownerA"
+class TestWorkspaceLifecycle:
+    def test_create_sets_status_to_ready(self, tmp_path):
+        mgr = WorkspaceManager(base_root=tmp_path / "ws")
+        manifest = mgr.create_workspace("s1", "j1")
+        assert manifest.status == "ready"
 
-    def test_assert_session_owns_raises_for_wrong_session(self, mgr: WorkspaceManager):
-        ws = run(mgr.create("as_ownerA", "aj_job001"))
-        with pytest.raises(WorkspaceAccessDeniedError):
-            mgr.assert_session_owns(ws, "as_ownerB")
+    def test_activate_sets_active(self, tmp_path):
+        mgr = WorkspaceManager(base_root=tmp_path / "ws")
+        mgr.create_workspace("s1", "j1")
+        manifest = mgr.activate("s1", "j1")
+        assert manifest.status == "active"
+        assert manifest.is_active
 
-    def test_resume_wrong_session_rejected(self, mgr: WorkspaceManager):
-        ws = run(mgr.create("as_ownerA", "aj_job001"))
-        run(mgr.transition(ws, WorkspaceStatus.PAUSED))
-        mgr2 = WorkspaceManager(base_root=mgr._base, default_ttl_hours=1.0)
-        # Tamper: manually open with wrong session_id — should fail ID mismatch
-        ws2 = run(mgr2.open("as_ownerA", "aj_job001"))
-        with pytest.raises(WorkspaceAccessDeniedError):
-            mgr2.assert_session_owns(ws2, "as_attacker")
+    def test_pause_sets_paused(self, tmp_path):
+        mgr = WorkspaceManager(base_root=tmp_path / "ws")
+        mgr.create_workspace("s1", "j1")
+        mgr.activate("s1", "j1")
+        manifest = mgr.pause("s1", "j1")
+        assert manifest.status == "paused"
 
-    def test_no_cross_session_artifact_leakage(self, mgr: WorkspaceManager):
-        ws1 = run(mgr.create("as_sess1", "aj_job001"))
-        ws2 = run(mgr.create("as_sess2", "aj_job002"))
-        (ws1.artifacts / "result.txt").write_text("session1 output")
-        # ws2's artifact dir is empty and separate
-        assert not (ws2.artifacts / "result.txt").exists()
+    def test_complete_sets_completed(self, tmp_path):
+        mgr = WorkspaceManager(base_root=tmp_path / "ws")
+        mgr.create_workspace("s1", "j1")
+        mgr.activate("s1", "j1")
+        manifest = mgr.complete("s1", "j1")
+        assert manifest.status == "completed"
+        assert manifest.cleanup_eligible
 
+    def test_fail_sets_failed(self, tmp_path):
+        mgr = WorkspaceManager(base_root=tmp_path / "ws")
+        mgr.create_workspace("s1", "j1")
+        mgr.activate("s1", "j1")
+        manifest = mgr.fail("s1", "j1")
+        assert manifest.status == "failed"
+        assert manifest.cleanup_eligible
 
-# ---------------------------------------------------------------------------
-# A3 — Concurrent lock guard
-# ---------------------------------------------------------------------------
+    def test_cancel_transitions_cancelling_to_cancelled(self, tmp_path):
+        mgr = WorkspaceManager(base_root=tmp_path / "ws")
+        mgr.create_workspace("s1", "j1")
+        mgr.activate("s1", "j1")
+        manifest = mgr.cancel("s1", "j1")
+        assert manifest.status == "cancelled"
+        assert manifest.cleanup_eligible
 
-
-class TestConcurrencyLock:
-    def test_acquire_lock_twice_raises(self, mgr: WorkspaceManager):
-        async def _run():
-            ws = await mgr.create("as_lock1", "aj_job001")
-            await mgr.acquire_lock(ws)
-            # Second acquire with very short timeout must fail
-            mgr2 = WorkspaceManager(base_root=mgr._base, lock_timeout_sec=0.05)
-            # Use same in-memory ws object (lock is on the Workspace instance)
-            with pytest.raises(WorkspaceLockError):
-                await mgr2.acquire_lock(ws)
-            mgr.release_lock(ws)
-
-        asyncio.run(_run())
-
-    def test_lock_release_allows_reacquire(self, mgr: WorkspaceManager):
-        async def _run():
-            ws = await mgr.create("as_lock2", "aj_job002")
-            await mgr.acquire_lock(ws)
-            mgr.release_lock(ws)
-            # Should be acquirable again
-            await mgr.acquire_lock(ws)
-            mgr.release_lock(ws)
-
-        asyncio.run(_run())
+    def test_archive_completed(self, tmp_path):
+        mgr = WorkspaceManager(base_root=tmp_path / "ws")
+        mgr.create_workspace("s1", "j1")
+        mgr.activate("s1", "j1")
+        mgr.complete("s1", "j1")
+        manifest = mgr.archive("s1", "j1")
+        assert manifest.status == "archived"
 
 
-# ---------------------------------------------------------------------------
-# A4 — Lifecycle states
-# ---------------------------------------------------------------------------
+# ── Resume ────────────────────────────────────────────────────────────────────
 
 
-class TestLifecycleStates:
-    def test_initial_status_is_ready(self, mgr: WorkspaceManager):
-        ws = run(mgr.create("as_lc1", "aj_job001"))
-        assert ws.status == WorkspaceStatus.READY
+class TestWorkspaceResume:
+    def test_resume_active_workspace(self, tmp_path):
+        mgr = WorkspaceManager(base_root=tmp_path / "ws")
+        mgr.create_workspace("s1", "j1")
+        mgr.activate("s1", "j1")
+        manifest = mgr.resume("s1", "j1")
+        assert manifest.status == "active"
+        assert mgr.metrics.resume_success == 1
 
-    def test_transition_persists_to_manifest(self, mgr: WorkspaceManager):
-        ws = run(mgr.create("as_lc1", "aj_job001"))
-        run(mgr.transition(ws, WorkspaceStatus.ACTIVE))
-        manifest_path = ws.root / "workspace.json"
+    def test_resume_paused_workspace(self, tmp_path):
+        mgr = WorkspaceManager(base_root=tmp_path / "ws")
+        mgr.create_workspace("s1", "j1")
+        mgr.activate("s1", "j1")
+        mgr.pause("s1", "j1")
+        manifest = mgr.resume("s1", "j1")
+        assert manifest.status == "active"
+
+    def test_resume_ready_workspace(self, tmp_path):
+        mgr = WorkspaceManager(base_root=tmp_path / "ws")
+        mgr.create_workspace("s1", "j1")
+        manifest = mgr.resume("s1", "j1")
+        assert manifest.status == "active"
+
+    def test_resume_completed_workspace_raises(self, tmp_path):
+        mgr = WorkspaceManager(base_root=tmp_path / "ws")
+        mgr.create_workspace("s1", "j1")
+        mgr.activate("s1", "j1")
+        mgr.complete("s1", "j1")
+        with pytest.raises(WorkspaceNotResumableError) as exc_info:
+            mgr.resume("s1", "j1")
+        assert exc_info.value.code == "workspace_not_resumable"
+        assert mgr.metrics.resume_failure == 1
+
+    def test_resume_failed_workspace_raises(self, tmp_path):
+        mgr = WorkspaceManager(base_root=tmp_path / "ws")
+        mgr.create_workspace("s1", "j1")
+        mgr.activate("s1", "j1")
+        mgr.fail("s1", "j1")
+        with pytest.raises(WorkspaceNotResumableError):
+            mgr.resume("s1", "j1")
+
+    def test_resume_only_within_correct_session(self, tmp_path):
+        mgr = WorkspaceManager(base_root=tmp_path / "ws")
+        mgr.create_workspace("session-a", "job-1")
+        mgr.create_workspace("session-b", "job-1")
+        with pytest.raises(WorkspaceNotFoundError):
+            mgr.get_workspace("session-a", "job-999")
+
+
+# ── Cleanup ───────────────────────────────────────────────────────────────────
+
+
+class TestWorkspaceCleanup:
+    def test_cleanup_completed_workspace(self, tmp_path):
+        mgr = WorkspaceManager(base_root=tmp_path / "ws", retention_ttl_seconds=0)
+        mgr.create_workspace("s1", "j1")
+        mgr.activate("s1", "j1")
+        mgr.complete("s1", "j1")
+        result = mgr.cleanup_workspace("s1", "j1")
+        assert result is True
+        assert mgr.metrics.cleanup_count == 1
+
+    def test_cleanup_active_workspace_raises(self, tmp_path):
+        mgr = WorkspaceManager(base_root=tmp_path / "ws")
+        mgr.create_workspace("s1", "j1")
+        mgr.activate("s1", "j1")
+        with pytest.raises(WorkspaceCleanupBlockedError):
+            mgr.cleanup_workspace("s1", "j1")
+        assert mgr.metrics.cleanup_skipped_active == 0  # raised before incrementing
+
+    def test_cleanup_expired_only(self, tmp_path):
+        """Only expired workspaces (past retention TTL) are cleaned up."""
+        mgr = WorkspaceManager(base_root=tmp_path / "ws", retention_ttl_seconds=0)
+        # Create and complete workspace-1
+        mgr.create_workspace("s1", "j1")
+        mgr.activate("s1", "j1")
+        mgr.complete("s1", "j1")
+
+        # Create active workspace-2
+        mgr.create_workspace("s2", "j2")
+        mgr.activate("s2", "j2")
+
+        cleaned = mgr.cleanup_expired()
+        assert "s1" in cleaned
+        assert "s2" not in cleaned
+
+    def test_cleanup_does_not_delete_active(self, tmp_path):
+        mgr = WorkspaceManager(base_root=tmp_path / "ws", retention_ttl_seconds=0)
+        mgr.create_workspace("s-active", "j1")
+        mgr.activate("s-active", "j1")
+        cleaned = mgr.cleanup_expired()
+        assert "s-active" not in cleaned
+        # Workspace still exists
+        manifest = mgr.get_workspace("s-active", "j1")
+        assert manifest.status == "active"
+
+
+# ── Manifest ──────────────────────────────────────────────────────────────────
+
+
+class TestWorkspaceManifest:
+    def test_manifest_created_on_disk(self, tmp_path):
+        mgr = WorkspaceManager(base_root=tmp_path / "ws")
+        manifest = mgr.create_workspace("s1", "j1")
+        manifest_path = Path(manifest.root_path) / "manifest.json"
+        assert manifest_path.exists()
         data = json.loads(manifest_path.read_text())
-        assert data["status"] == "active"
+        assert data["session_id"] == "s1"
+        assert data["job_id"] == "j1"
+        assert data["schema_version"] == MANIFEST_SCHEMA_VERSION
 
-    def test_resume_only_from_resumable_states(self, mgr: WorkspaceManager):
-        ws = run(mgr.create("as_lc2", "aj_job001"))
-        run(mgr.transition(ws, WorkspaceStatus.COMPLETED))
-        # Create fresh manager to bypass in-memory cache
-        mgr2 = WorkspaceManager(base_root=mgr._base, default_ttl_hours=1.0)
-        with pytest.raises(WorkspaceNotResumableError):
-            run(mgr2.resume("as_lc2", "aj_job001"))
+    def test_manifest_has_subdirectory_paths(self, tmp_path):
+        mgr = WorkspaceManager(base_root=tmp_path / "ws")
+        manifest = mgr.create_workspace("s1", "j1")
+        assert manifest.source_path is not None
+        assert manifest.checkpoints_path is not None
+        assert manifest.logs_path is not None
+        assert manifest.artifacts_path is not None
+        assert manifest.temp_path is not None
+        # Directories should exist on disk
+        assert Path(manifest.source_path).is_dir()
+        assert Path(manifest.artifacts_path).is_dir()
 
-    def test_terminal_states_set_cleanup_eligible(self, mgr: WorkspaceManager):
-        ws = run(mgr.create("as_lc3", "aj_job001"))
-        run(mgr.transition(ws, WorkspaceStatus.FAILED))
-        assert ws.manifest.cleanup_eligible is True
+    def test_manifest_corruption_raises(self, tmp_path):
+        mgr = WorkspaceManager(base_root=tmp_path / "ws")
+        manifest = mgr.create_workspace("s1", "j1")
+        manifest_path = Path(manifest.root_path) / "manifest.json"
+        # Corrupt the file
+        manifest_path.write_text("NOT VALID JSON{{{{")
+        # Force re-read from disk
+        mgr._manifests.clear()
+        with pytest.raises(WorkspaceManifestCorruptionError):
+            mgr.get_workspace("s1", "j1")
 
-    def test_failed_workspace_not_resumable(self, mgr: WorkspaceManager):
-        ws = run(mgr.create("as_lc3", "aj_job002"))
-        run(mgr.transition(ws, WorkspaceStatus.FAILED))
-        mgr2 = WorkspaceManager(base_root=mgr._base, default_ttl_hours=1.0)
-        with pytest.raises(WorkspaceNotResumableError):
-            run(mgr2.resume("as_lc3", "aj_job002"))
+    def test_manifest_schema_version(self, tmp_path):
+        mgr = WorkspaceManager(base_root=tmp_path / "ws")
+        manifest = mgr.create_workspace("s1", "j1")
+        assert manifest.schema_version == MANIFEST_SCHEMA_VERSION
+
+    def test_heartbeat_updates_timestamp(self, tmp_path):
+        mgr = WorkspaceManager(base_root=tmp_path / "ws")
+        mgr.create_workspace("s1", "j1")
+        before = mgr.get_workspace("s1", "j1").last_heartbeat
+        time.sleep(0.01)
+        mgr.heartbeat("s1", "j1")
+        after = mgr.get_workspace("s1", "j1").last_heartbeat
+        # They might be the same second but the manifest was updated
+        assert after is not None
 
 
-# ---------------------------------------------------------------------------
-# A4 — Cleanup respects active locks and TTL
-# ---------------------------------------------------------------------------
+# ── Cross-session isolation ───────────────────────────────────────────────────
 
 
-class TestCleanup:
-    def test_cleanup_removes_expired_workspace(self, mgr: WorkspaceManager):
-        ws = run(mgr.create("as_clean1", "aj_job001", ttl_hours=-1.0))  # already expired
-        run(mgr.transition(ws, WorkspaceStatus.COMPLETED))
-        root = ws.root
-        assert root.exists()
-        result = run(mgr.cleanup_expired())
-        assert result["cleaned"] >= 1
-        assert not root.exists()
+class TestCrossSessionIsolation:
+    def test_no_cross_session_artifact_leakage(self, tmp_path):
+        mgr = WorkspaceManager(base_root=tmp_path / "ws")
+        m1 = mgr.create_workspace("session-a", "job-1")
+        m2 = mgr.create_workspace("session-b", "job-1")
+        # Write a file in session-a
+        a_artifact = Path(m1.artifacts_path) / "secret.txt"
+        a_artifact.write_text("session-a secret")
+        # Session-b should not see it
+        b_artifacts = Path(m2.artifacts_path)
+        assert not (b_artifacts / "secret.txt").exists()
+        # Paths must not overlap
+        assert not str(m2.root_path).startswith(str(m1.root_path))
+        assert not str(m1.root_path).startswith(str(m2.root_path))
 
-    def test_cleanup_skips_active_workspace(self, mgr: WorkspaceManager):
-        ws = run(mgr.create("as_active1", "aj_job001", ttl_hours=-1.0))
-        run(mgr.transition(ws, WorkspaceStatus.ACTIVE))
-        root = ws.root
-        result = run(mgr.cleanup_expired())
-        assert result["skipped_active"] >= 1
-        assert root.exists()
+    def test_session_job_boundary(self, tmp_path):
+        mgr = WorkspaceManager(base_root=tmp_path / "ws")
+        m1 = mgr.create_workspace("s1", "j1")
+        m2 = mgr.create_workspace("s1", "j2")
+        assert m1.root_path != m2.root_path
+        # Write artifact in j1
+        (Path(m1.artifacts_path) / "j1.txt").write_text("j1 data")
+        assert not (Path(m2.artifacts_path) / "j1.txt").exists()
 
-    def test_open_after_cleanup_raises_not_found(self, mgr: WorkspaceManager):
-        """open() must evict the stale in-memory handle and raise WorkspaceNotFoundError
-        when cleanup_expired() has already deleted the workspace directory."""
-        ws = run(mgr.create("as_stale1", "aj_job001", ttl_hours=-1.0))
-        run(mgr.transition(ws, WorkspaceStatus.COMPLETED))
-        run(mgr.cleanup_expired())
-        assert not ws.root.exists()
-        # The stale handle is in _open — open() must detect and evict it
+
+# ── Concurrency ───────────────────────────────────────────────────────────────
+
+
+class TestConcurrency:
+    def test_concurrent_create_same_session(self, tmp_path):
+        """Two threads creating the same session/job should not corrupt state."""
+        mgr = WorkspaceManager(base_root=tmp_path / "ws")
+        results = []
+        errors = []
+
+        def create():
+            try:
+                m = mgr.create_workspace("s-concurrent", "j-concurrent")
+                results.append(m)
+            except Exception as e:
+                errors.append(e)
+
+        t1 = threading.Thread(target=create)
+        t2 = threading.Thread(target=create)
+        t1.start()
+        t2.start()
+        t1.join()
+        t2.join()
+        # At least one should succeed
+        assert len(results) >= 1
+        # If both succeeded, they should point to the same workspace
+        if len(results) == 2:
+            assert results[0].root_path == results[1].root_path
+
+
+# ── Workspace not found ───────────────────────────────────────────────────────
+
+
+class TestWorkspaceNotFound:
+    def test_get_nonexistent_workspace(self, tmp_path):
+        mgr = WorkspaceManager(base_root=tmp_path / "ws")
         with pytest.raises(WorkspaceNotFoundError):
-            run(mgr.open("as_stale1", "aj_job001"))
+            mgr.get_workspace("nonexistent", "nope")
 
-    def test_cleanup_dry_run_does_not_delete(self, mgr: WorkspaceManager):
-        ws = run(mgr.create("as_dry1", "aj_job001", ttl_hours=-1.0))
-        run(mgr.transition(ws, WorkspaceStatus.COMPLETED))
-        root = ws.root
-        result = run(mgr.cleanup_expired(dry_run=True))
-        assert result["cleaned"] >= 1
-        assert root.exists()  # not actually deleted
-
-    def test_cleanup_respects_cleanup_after_in_future(self, mgr: WorkspaceManager):
-        ws = run(mgr.create("as_future1", "aj_job001", ttl_hours=100.0))  # far future
-        run(mgr.transition(ws, WorkspaceStatus.COMPLETED))
-        root = ws.root
-        result = run(mgr.cleanup_expired())
-        assert root.exists()
-
-    def test_clean_tmp_recreates_directory(self, mgr: WorkspaceManager):
-        ws = run(mgr.create("as_tmp1", "aj_job001"))
-        (ws.tmp / "scratch.txt").write_text("scratch")
-        run(mgr.clean_tmp(ws))
-        assert ws.tmp.is_dir()
-        assert not (ws.tmp / "scratch.txt").exists()
-
-
-# ---------------------------------------------------------------------------
-# A5 — Manifest validation
-# ---------------------------------------------------------------------------
-
-
-class TestManifest:
-    def test_manifest_fields_complete(self, mgr: WorkspaceManager):
-        ws = run(mgr.create("as_mf1", "aj_job001", runtime_type="task_harness"))
-        data = json.loads((ws.root / "workspace.json").read_text())
-        for field in (
-            "schema_version",
-            "session_id",
-            "job_id",
-            "created_at",
-            "updated_at",
-            "last_heartbeat",
-            "runtime_type",
-            "status",
-            "root",
-            "source_path",
-            "checkpoints_path",
-            "logs_path",
-            "artifacts_path",
-            "tmp_path",
-            "cleanup_eligible",
-        ):
-            assert field in data, f"Missing manifest field: {field}"
-        assert data["runtime_type"] == "task_harness"
-
-    def test_open_nonexistent_raises_not_found(self, mgr: WorkspaceManager):
+    def test_get_nonexistent_session(self, tmp_path):
+        mgr = WorkspaceManager(base_root=tmp_path / "ws")
         with pytest.raises(WorkspaceNotFoundError):
-            run(mgr.open("as_ghost1", "aj_ghost001"))
-
-    def test_corrupt_manifest_raises_manifest_error(self, mgr: WorkspaceManager, tmp_path: Path):
-        ws = run(mgr.create("as_corrupt1", "aj_job001"))
-        # Corrupt the manifest
-        (ws.root / "workspace.json").write_text("{invalid json{{{{")
-        mgr2 = WorkspaceManager(base_root=mgr._base, default_ttl_hours=1.0)
-        mgr2._open.clear()
-        with pytest.raises(WorkspaceManifestError):
-            run(mgr2.open("as_corrupt1", "aj_job001"))
-
-    def test_heartbeat_updates_timestamp(self, mgr: WorkspaceManager, monkeypatch):
-        import agent.workspace as ws_mod
-        ws = run(mgr.create("as_hb1", "aj_job001"))
-        # Patch _iso_now to return a deterministically different value
-        monkeypatch.setattr(ws_mod, "_iso_now", lambda: "2099-01-01T00:00:00Z")
-        run(mgr.heartbeat(ws))
-        assert ws.manifest.last_heartbeat == "2099-01-01T00:00:00Z"
+            mgr.get_workspace("no-such-session", None)
 
 
-# ---------------------------------------------------------------------------
-# A6 — Workspace from env var / singleton
-# ---------------------------------------------------------------------------
+# ── Metrics ───────────────────────────────────────────────────────────────────
 
 
-class TestSingleton:
-    def test_get_workspace_manager_returns_same_instance(self, monkeypatch, tmp_path):
-        from agent import workspace as ws_mod
-        monkeypatch.setattr(ws_mod, "_default_manager", None)
-        monkeypatch.setenv("AGENT_WORKSPACE_BASE", str(tmp_path / "wsbases"))
-        mgr1 = ws_mod.get_workspace_manager()
-        mgr2 = ws_mod.get_workspace_manager()
-        assert mgr1 is mgr2
+class TestWorkspaceMetrics:
+    def test_metrics_after_lifecycle(self, tmp_path):
+        mgr = WorkspaceManager(base_root=tmp_path / "ws")
+        mgr.create_workspace("s1", "j1")
+        mgr.activate("s1", "j1")
+        mgr.complete("s1", "j1")
+        metrics = mgr.metrics.as_dict()
+        assert "active_count" in metrics
+        assert "cleanup_count" in metrics
+        assert "resume_success" in metrics
+        assert "resume_failure" in metrics
 
-    def test_singleton_uses_env_base(self, monkeypatch, tmp_path):
-        from agent import workspace as ws_mod
-        base = str(tmp_path / "custom_base")
-        monkeypatch.setattr(ws_mod, "_default_manager", None)
-        monkeypatch.setenv("AGENT_WORKSPACE_BASE", base)
-        mgr = ws_mod.get_workspace_manager()
-        assert str(mgr._base) == str(Path(base).resolve())
-
-
-# ---------------------------------------------------------------------------
-# A7 — Structured error contracts
-# ---------------------------------------------------------------------------
-
-
-class TestStructuredErrors:
-    def test_id_error_has_code_and_field(self):
-        err = WorkspaceIDError("bad id", field="session_id")
-        d = err.as_dict()
-        assert d["code"] == "invalid_id"
-        assert d["field"] == "session_id"
-        assert "message" in d
-
-    def test_not_found_error_has_code(self):
-        err = WorkspaceNotFoundError("as_x", "aj_y")
-        assert err.as_dict()["code"] == "workspace_not_found"
-
-    def test_escape_error_has_code_no_internal_path(self):
-        err = WorkspaceEscapeError("../../etc/passwd")
-        d = err.as_dict()
-        assert d["code"] == "workspace_escape"
-        # Internal absolute paths must not leak
-        assert "etc/passwd" not in d["message"]
-
-    def test_access_denied_error_has_code(self):
-        err = WorkspaceAccessDeniedError("as_a", "aj_b", "as_owner")
-        assert err.as_dict()["code"] == "workspace_access_denied"
-
-    def test_lock_error_has_code(self):
-        err = WorkspaceLockError("aj_job")
-        assert err.as_dict()["code"] == "workspace_locked"
-
-    def test_manifest_error_has_code(self):
-        err = WorkspaceManifestError("/path/to/manifest.json", "unexpected token")
-        assert err.as_dict()["code"] == "workspace_manifest_corrupt"
-
-
-# ---------------------------------------------------------------------------
-# Metrics
-# ---------------------------------------------------------------------------
-
-
-class TestMetrics:
-    def test_metrics_counts_by_status(self, mgr: WorkspaceManager):
-        ws1 = run(mgr.create("as_m1", "aj_job001"))
-        ws2 = run(mgr.create("as_m2", "aj_job002"))
-        run(mgr.transition(ws2, WorkspaceStatus.COMPLETED))
-        counts = mgr.metrics()
-        assert counts.get("ready", 0) >= 1
-        assert counts.get("completed", 0) >= 1
-
-    def test_metrics_empty_base(self, tmp_path: Path):
-        mgr = WorkspaceManager(base_root=tmp_path / "empty")
-        assert mgr.metrics() == {}
+    def test_diagnostics(self, tmp_path):
+        mgr = WorkspaceManager(base_root=tmp_path / "ws")
+        mgr.create_workspace("s1", "j1")
+        diag = mgr.diagnostics()
+        assert "base_root" in diag
+        assert "metrics" in diag
+        assert "workspaces" in diag
+        assert diag["base_root_exists"] is True

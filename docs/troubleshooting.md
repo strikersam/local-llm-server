@@ -352,108 +352,93 @@ Ollama processes one request at a time by default. Queue depth increases with co
 - Use smaller models for high-concurrency use cases
 - The proxy's rate limiting (`RATE_LIMIT_RPM`) helps prevent queue pile-up
 
+
 ---
 
 ## Workspace Issues
 
-### Workspace not found
+### "Workspace not found" error
 
-**Error code:** `workspace_not_found`
-
-**Symptom:** Agent resume fails with "Workspace not found".
-
-**Causes:**
-
-| Cause | Fix |
-|-------|-----|
-| `AGENT_WORKSPACE_BASE` changed between runs | Set it to the same path as the original run |
-| Workspace was cleaned up (expired TTL) | The job cannot be resumed; start a new job |
-| Session/job ID mismatch | Verify you are using the correct `session_id` and `job_id` |
-
-### Session/job mismatch (access denied)
-
-**Error code:** `workspace_access_denied`
-
-**Symptom:** "Session X cannot access workspace owned by Y".
-
-Only the session that created a workspace can resume or access it.  Cross-session
-access is explicitly blocked.  Start a new session if you need to continue
-unrelated work.
-
-### Invalid workspace manifest
-
-**Error code:** `workspace_manifest_corrupt`
-
-**Symptom:** Agent fails with manifest corruption error.
-
-**Cause:** The `workspace.json` file was truncated or corrupted (power loss, disk
-full, etc.).
-
-**Fix:** The workspace cannot be recovered automatically.  Either:
-1. Manually inspect `<AGENT_WORKSPACE_BASE>/<session_hash>/<job_hash>/workspace.json`
-2. Delete the workspace directory and retry the job
-3. Run `GET /admin/api/workspaces/metrics` to audit workspace states
-
-### Cleanup blocked due to active workspace
-
-**Error code:** `workspace_locked`
-
-**Symptom:** Cleanup tries to remove a workspace but a worker holds the lock.
-
-`cleanup_expired()` automatically skips workspaces in `creating` or `active`
-states.  Wait for the job to finish before cleanup applies.
-
----
-
-## Feature Availability Issues
-
-### Feature is disabled / unavailable
-
-**Error code:** `feature_unavailable`
-
-**Symptom:** API returns `{"code": "feature_unavailable", "feature_id": "...", "maturity": "..."}`
+**Symptom:** API returns `workspace_not_found` when trying to access a session/job workspace.
 
 **Causes and fixes:**
 
 | Cause | Fix |
 |-------|-----|
-| Feature in `experimental` tier | Add its ID to `FEATURE_ENABLE` in `.env` |
-| Feature force-disabled via `FEATURE_DISABLE` | Remove its ID from `FEATURE_DISABLE` |
-| Feature depends on missing binary/service | Install the dependency listed in `dependencies` |
-| Feature has maturity=`disabled` | Cannot be enabled; it is permanently off |
+| Session/job ID is wrong | Verify the session ID and job ID in the request |
+| Workspace was cleaned up | Completed workspaces past the retention TTL are removed. Increase `WORKSPACE_RETENTION_TTL_SECONDS` if needed |
+| Server restarted after workspace was created in memory | Workspaces are persisted to disk. Check `WORKSPACE_BASE_ROOT` is persistent storage |
 
-### Beta/experimental feature warning in logs
+### "Invalid session ID" or "Invalid job ID" error
 
-```text
-WARNING  qwen-proxy:matrix.py: Feature 'async_agent_jobs' is in BETA — behaviour may change
-```
+**Symptom:** API returns `invalid_session_id` or `invalid_job_id`.
 
-This is expected for beta and experimental features.  The feature works; the
-warning is informational.  Add the feature ID to `FEATURE_DISABLE` to turn it
-off completely, or suppress by setting `LOG_LEVEL=ERROR` (not recommended).
+**Fix:** Session and job IDs must be 1–128 characters, start with an alphanumeric character, and contain only letters, numbers, dashes, underscores, and dots. Path traversal characters (`../`) and slashes are rejected.
 
-### How to see which features are available
+### "Workspace outside root" error
 
-```bash
-curl -H "x-admin-secret: $ADMIN_SECRET" http://localhost:8000/admin/api/features
-```
+**Symptom:** API returns `workspace_outside_root`.
 
-Returns the full support matrix with maturity tiers, enabled state, and config flags.
+**Cause:** The resolved workspace path escaped the configured base root. This can happen if:
+- A symlink inside the workspace points outside the root
+- The base root configuration was changed after workspace creation
 
-### Missing runtime dependency
+**Fix:** Check for symlinks in the workspace directory. If the base root was moved, update `WORKSPACE_BASE_ROOT` to the correct location.
 
-**Error code:** `missing_binary`
+### "Workspace not resumable" error
 
-**Symptom:** Preflight validation fails before a task starts.
+**Symptom:** API returns `workspace_not_resumable` when trying to resume a session.
 
-The preflight report `issues[]` array contains an entry with the missing binary
-name and a `fix_hint`.  Either install the binary or switch to a different runtime
-that doesn't require it.
+**Cause:** Only workspaces in `ready`, `active`, or `paused` state can be resumed. Completed, failed, or cancelled workspaces cannot be resumed.
 
-```json
-{
-  "code": "missing_binary",
-  "message": "Required binary 'aider' is not available",
-  "fix_hint": "Install aider: pip install aider-chat"
-}
-```
+**Fix:** Start a new session/job instead of trying to resume an old one.
+
+### "Workspace manifest corrupt" error
+
+**Symptom:** API returns `workspace_manifest_corrupt`.
+
+**Cause:** The `manifest.json` file in the workspace directory is invalid JSON or has unexpected fields.
+
+**Fix:** Delete the workspace directory and re-create the session/job. If you need to recover data, inspect the manifest file manually.
+
+### "Workspace cleanup blocked" error
+
+**Symptom:** API returns `workspace_cleanup_blocked`.
+
+**Cause:** The workspace is still in an active state (creating, ready, active, paused). Cleanup only works on completed/failed/cancelled/archived workspaces.
+
+**Fix:** Wait for the session/job to complete, or cancel it first.
+
+---
+
+## Feature Maturity Issues
+
+### "Feature unavailable" error
+
+**Symptom:** API returns `feature_unavailable` when trying to use a feature.
+
+**Causes and fixes:**
+
+| Cause | Fix |
+|-------|-----|
+| Feature is disabled in the support matrix | Set `FEATURE_<ID>=enabled` in `.env` to override |
+| Feature maturity is set to `disabled` | Change the tier: `FEATURE_<ID>=beta` or `FEATURE_<ID>=stable` |
+| Feature not found in matrix | Check the feature ID spelling. Use `GET /admin/features` to list all features |
+
+### Beta/experimental warning in API response
+
+**Symptom:** API responses include a `warning` field for certain features.
+
+**Cause:** The feature is classified as beta or experimental in the support matrix.
+
+**What it means:** The feature works but may have edge cases, behavioral changes, or higher operational risk. Not recommended for production without testing.
+
+**Action:** Acknowledge the warning. If the feature is critical for production, override its maturity: `FEATURE_<ID>=stable`.
+
+### Feature not appearing in admin UI
+
+**Symptom:** A feature is missing from the admin features list.
+
+**Cause:** The feature entry has `admin_visible: false`.
+
+**Fix:** This is by design — some internal features are hidden from the admin UI. Use the API directly: `GET /admin/features/<feature_id>`.

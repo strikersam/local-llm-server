@@ -29,7 +29,7 @@ from agent.user_memory import UserMemoryStore
 from provider_router import CommercialFallbackRequiredError, ProviderConfig, ProviderRouter
 from router import get_router
 
-log = logging.getLogger("qwen-agent")
+log = logging.getLogger("qwen-proxy")
 
 # Security-sensitive files the planner/runner must flag for extra scrutiny.
 # Any step that touches these triggers a risky-module warning and extra
@@ -45,25 +45,25 @@ _RISKY_FILES: frozenset[str] = frozenset({
 # These are overridden by env vars when local Ollama models are preferred.
 DEFAULT_PLANNER_MODEL = os.environ.get(
     "AGENT_PLANNER_MODEL",
-    "nvidia/llama-3.1-nemotron-ultra-253b-v1"
+    "nvidia/nemotron-3-super-120b-a12b"
     if (os.environ.get("NVIDIA_API_KEY") or os.environ.get("NVidiaApiKey"))
     else "deepseek-r1:32b",
 )
 DEFAULT_EXECUTOR_MODEL = os.environ.get(
     "AGENT_EXECUTOR_MODEL",
-    "qwen/qwen2.5-coder-32b-instruct"
+    "nvidia/nemotron-3-super-120b-a12b"
     if (os.environ.get("NVIDIA_API_KEY") or os.environ.get("NVidiaApiKey"))
     else "qwen3-coder:30b",
 )
 DEFAULT_VERIFIER_MODEL = os.environ.get(
     "AGENT_VERIFIER_MODEL",
-    "deepseek-ai/deepseek-r1"
+    "nvidia/nemotron-3-super-120b-a12b"
     if (os.environ.get("NVIDIA_API_KEY") or os.environ.get("NVidiaApiKey"))
     else "deepseek-r1:32b",
 )
 DEFAULT_JUDGE_MODEL = os.environ.get(
     "AGENT_JUDGE_MODEL",
-    "nvidia/llama-3.1-nemotron-ultra-253b-v1"
+    "nvidia/nemotron-3-super-120b-a12b"
     if (os.environ.get("NVIDIA_API_KEY") or os.environ.get("NVidiaApiKey"))
     else DEFAULT_VERIFIER_MODEL,
 )
@@ -90,6 +90,7 @@ class AgentRunner:
         email: str | None = None,
         department: str | None = None,
         key_id: str | None = None,
+        mcp_base_url: str | None = None,
     ) -> None:
         # NOTE: "ollama_base" is kept for backwards compatibility; this runner only needs an
         # OpenAI-compatible base URL with /v1/chat/completions.
@@ -105,6 +106,10 @@ class AgentRunner:
         from agent.github_tools import GitHubTools
         self.github = GitHubTools(github_token)
         self.ctx = ContextManager()
+        # MCP client — delegates heavy workspace/git ops to the mcp-server container.
+        # Falls back to local tools if None or if the circuit breaker is open.
+        from agent.mcp_client import get_mcp_client
+        self._mcp = get_mcp_client(mcp_base_url)
         # Optional session store for event-log writes (append-only durable log).
         # When provided the harness logs key events so the session is
         # recoverable and queryable outside the LLM context window.
@@ -164,6 +169,7 @@ class AgentRunner:
         key_id: str | None = None,
         memory_store: UserMemoryStore | None = None,
         session_id: str | None = None,
+        metadata: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         # Context compaction: if history is long, summarise the old portion
         # before planning so the planner doesn't spend tokens on verbatim
@@ -178,13 +184,13 @@ class AgentRunner:
         self._log_event(session_id, "user_message", {"instruction": instruction})
 
         plan = await self._generate_plan(
-            instruction, effective_history, requested_model, model_overrides, max_steps, user_id, memory_store
+            instruction, effective_history, requested_model, model_overrides, max_steps, user_id, memory_store, metadata
         )
         self._log_event(session_id, "step_start", {"goal": plan.goal, "steps": len(plan.steps)})
 
         # Risky module detection: warn loudly if the plan touches security-sensitive files.
         # Per risky-module-review skill and agent/CLAUDE.md.
-        def _step_touches_risky(step_files: list[str]) -> bool:
+        def _step_touches_risky(step_files: list[str]) -> bool: 
             return any(
                 sf.replace("\\", "/") == rf or sf.replace("\\", "/").endswith(f"/{rf}")
                 for sf in step_files
@@ -241,6 +247,7 @@ class AgentRunner:
                 user_id,
                 memory_store,
                 session_id=session_id,
+                metadata=metadata,
             )
             # Sub-agent condensed summary: trim step results before storing so
             # the orchestrator's context stays lean.  (1-2k token budget.)
@@ -293,9 +300,10 @@ class AgentRunner:
         max_steps: int,
         user_id: str | None = None,
         memory_store: UserMemoryStore | None = None,
+        metadata: dict[str, Any] | None = None,
     ) -> AgentPlan:
         user_memories = memory_store.recall_all(user_id) if memory_store and user_id else {}
-        messages = build_planning_prompt(instruction, history, user_memories=user_memories)
+        messages = build_planning_prompt(instruction, history, user_memories=user_memories, metadata=metadata)
         planner_decision = get_router().route(
             requested_model=requested_model,
             messages=messages,
@@ -370,6 +378,7 @@ class AgentRunner:
         user_id: str | None = None,
         memory_store: UserMemoryStore | None = None,
         session_id: str | None = None,
+        metadata: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         observations: list[dict[str, Any]] = []
         context_items: list[dict[str, Any]] = []
@@ -406,7 +415,7 @@ class AgentRunner:
             executor_model, verifier_model,
         )
 
-        for remaining in range(15, 0, -1):
+        for remaining in range(30, 0, -1):
             try:
                 # Observation masking: pass truncated older observations to
                 # keep the tool-selection prompt lean.  Recent observations are
@@ -437,7 +446,7 @@ class AgentRunner:
                     "status": "running",
                 },
             )
-            result = await self._run_tool(call.tool, call.args, user_id=user_id, memory_store=memory_store)
+            result = await self._run_tool(call.tool, call.args, user_id=user_id, memory_store=memory_store, metadata=metadata)
             tool_failed = isinstance(result, str) and result.startswith("[tool error:")
             self._log_event(
                 session_id,
@@ -453,14 +462,19 @@ class AgentRunner:
             )
             observations.append({"tool": call.tool, "args": call.args, "result": result})
             context_items.append({"tool": call.tool, "result": result})
-
         if not target_files and step.get("type") not in ("github", "analyze"):
             search_hits = self.tools.search_code(step["description"], limit=3)
             target_files = [hit["path"] for hit in search_hits if isinstance(hit.get("path"), str)]
 
-        if not target_files and step.get("type") not in ("github", "analyze"):
+        # Check if any non-inspection tools were called (e.g. run_command, write_file)
+        non_inspection_called = any(
+            obs.get("tool") in ("run_command", "write_file", "apply_diff", "github_comment_on_issue", "github_close_issue")
+            for obs in observations
+        )
+
+        if not target_files and step.get("type") not in ("github", "analyze") and not non_inspection_called:
             return {
-                "step_id": step["id"],
+                "step_id": step["id"], 
                 "description": step["description"],
                 "status": "skipped",
                 "reason": "No target files identified",
@@ -468,9 +482,8 @@ class AgentRunner:
                 "observations": observations,
                 "models": {"executor": executor_model, "verifier": verifier_model},
             }
-
-        if step.get("type") in ("github", "analyze"):
-            # For analysis/Q&A steps, synthesize a readable answer from observations.
+        if step.get("type") in ("github", "analyze") or (not target_files and non_inspection_called):
+            # For analysis, Q&A, or purely command-based steps, synthesize a readable answer from observations.
             answer = await self._synthesize_answer(
                 goal, step, observations, executor_model
             )
@@ -535,7 +548,6 @@ class AgentRunner:
                             "models": {"executor": executor_model, "verifier": verifier_model},
                         }
                     continue
-
                 out_path, new_content = parsed
                 new_content = self._clean_generated_file_content(new_content)
                 syntax_issues = self._local_syntax_check(out_path, new_content)
@@ -566,8 +578,9 @@ class AgentRunner:
                     }
                 if verdict.status == "pass" and not syntax_issues:
                     diff_result = self.tools.apply_diff(out_path, new_content)
-                    changed_files.append(out_path)
                     context_items.append({"tool": "apply_diff", "result": diff_result})
+                    if out_path not in changed_files:
+                        changed_files.append(out_path)
                     file_applied = True
                     break
 
@@ -615,15 +628,40 @@ class AgentRunner:
             "models": {"executor": executor_model, "verifier": verifier_model},
         }
 
+
+    async def _mcp_call(self, tool: str, args: dict) -> Any:
+        """Call a tool on the MCP server. Raises MCPUnavailableError if unreachable."""
+        from agent.mcp_client import MCPUnavailableError
+        if self._mcp is None:
+            raise MCPUnavailableError("MCP client not configured")
+        return await self._mcp.call_tool(tool, args)
+
+    async def _run_command(self, cmd: str, timeout: int = 120) -> str:
+        """Execute a shell command within the workspace root."""
+        try:
+            proc = await asyncio.create_subprocess_shell(
+                cmd,
+                cwd=str(self.tools.root),
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+            )
+            stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=timeout)
+            out_text = stdout.decode(errors="replace")
+            err_text = stderr.decode(errors="replace")
+            return f"{out_text}\n[stderr]\n{err_text}\n[exit {proc.returncode}]"
+        except Exception as exc:
+            return f"[command error: {exc}]"
+
     async def _run_tool(
         self,
         tool: str,
         args: dict[str, Any],
         user_id: str | None = None,
         memory_store: UserMemoryStore | None = None,
+        metadata: dict[str, Any] | None = None,
     ) -> Any:
         try:
-            return await self._dispatch_tool(tool, args, user_id=user_id, memory_store=memory_store)
+            return await self._dispatch_tool(tool, args, user_id=user_id, memory_store=memory_store, metadata=metadata)
         except CommercialFallbackRequiredError:
             raise
         except Exception as exc:
@@ -640,6 +678,7 @@ class AgentRunner:
         args: dict[str, Any],
         user_id: str | None = None,
         memory_store: UserMemoryStore | None = None,
+        metadata: dict[str, Any] | None = None,
     ) -> Any:
         if tool == "read_file":
             return self.tools.read_file(str(args.get("path", "")))
@@ -654,6 +693,15 @@ class AgentRunner:
             return self.tools.list_files(str(args.get("path", ".")), int(args.get("limit", 200)))
         if tool == "search_code":
             return self.tools.search_code(str(args.get("query", "")), int(args.get("limit", 20)))
+
+        if tool == "get_overview":
+            return self.tools.get_overview()
+        if tool == "get_context":
+            return self.tools.get_context(args.get("targets", []), args.get("include", ["source"]))
+        if tool == "get_risk":
+            return self.tools.get_risk(args.get("targets"), args.get("changed_files"))
+        if tool == "get_why":
+            return self.tools.get_why(str(args.get("target", "")))
         if tool == "recall_memory":
             if not memory_store or not user_id:
                 return "(memory not available)"
@@ -663,7 +711,63 @@ class AgentRunner:
                 return "(memory not available)"
             return self.tools.save_memory(str(args.get("key", "")), str(args.get("value", "")), user_id=user_id, memory_store=memory_store)
         
+
+        if tool == "run_command":
+            from agent.mcp_client import MCPUnavailableError
+            if self._mcp is not None:
+                try:
+                    ws_id = str(args.get("workspace_id") or self.tools.root.name)
+                    return await self._mcp_call("run_command", {
+                        "workspace_id": ws_id,
+                        "cmd": str(args.get("cmd", "")),
+                        "timeout": int(args.get("timeout", 60)),
+                    })
+                except MCPUnavailableError:
+                    log.debug("MCP unavailable for run_command, falling back to local")
+            return await self._run_command(str(args.get("cmd", "")))
+        if tool == "write_file":
+            from agent.mcp_client import MCPUnavailableError
+            if self._mcp is not None:
+                try:
+                    ws_id = str(args.get("workspace_id") or self.tools.root.name)
+                    return await self._mcp_call("write_file", {
+                        "workspace_id": ws_id,
+                        "path": str(args.get("path", "")),
+                        "content": str(args.get("content", "")),
+                    })
+                except MCPUnavailableError:
+                    log.debug("MCP unavailable for write_file, falling back to local")
+            return self.tools.write_file(str(args.get("path", "")), str(args.get("content", "")))
+        if tool == "apply_diff":
+            return self.tools.apply_diff(str(args.get("path", "")), str(args.get("content", "")))
+
+        # ── MCP workspace tools (heavy ops delegated to mcp-server container) ──
+        # These tools require a running mcp-server; they have no local fallback.
+        _mcp_only_tools = {
+            "clone_repo", "git_status", "git_diff",
+            "git_create_branch", "git_commit", "git_push",
+            "delete_workspace",
+        }
+        if tool in _mcp_only_tools:
+            from agent.mcp_client import MCPUnavailableError
+            if self._mcp is None:
+                return f"[mcp unavailable: MCP_SERVER_BASE_URL not set — cannot run {tool}]"
+            try:
+                return await self._mcp_call(tool, args)
+            except MCPUnavailableError as exc:
+                return f"[mcp unavailable: {exc}]"
+
         # GitHub Tools
+        if tool == "github_get_issue":
+            owner, repo = str(args.get("repo_name", "owner/repo")).split("/", 1)
+            return await self.github.get_issue(owner, repo, int(args.get("issue_number", 0)))
+        if tool == "github_comment_on_issue":
+            owner, repo = str(args.get("repo_name", "owner/repo")).split("/", 1)
+            return await self.github.comment_on_issue(owner, repo, int(args.get("issue_number", 0)), str(args.get("body", "")))
+        if tool == "github_close_issue":
+            owner, repo = str(args.get("repo_name", "owner/repo")).split("/", 1)
+            return await self.github.close_issue(owner, repo, int(args.get("issue_number", 0)), args.get("comment"))
+
         if tool == "github_read_repo_file":
             return await self.github.read_repo_file_compat(
                 repo_name=str(args.get("repo_name", "")),
@@ -706,6 +810,7 @@ class AgentRunner:
                 max_steps=int(args.get("max_steps", 5)),
                 user_id=user_id,
                 memory_store=memory_store,
+                metadata=metadata,
             )
 
         raise ValueError(f"Unsupported tool: {tool}")
@@ -800,7 +905,6 @@ class AgentRunner:
     # ------------------------------------------------------------------
     # State checkpointing  (.claude/state/)
     # ------------------------------------------------------------------
-
     def _write_checkpoint(self, session_id: str | None, plan: AgentPlan) -> None:
         """Persist the current plan to .claude/state/agent-state-{session_id}.json.
 
@@ -839,6 +943,7 @@ class AgentRunner:
         max_steps: int,
         user_id: str | None = None,
         memory_store: UserMemoryStore | None = None,
+        metadata: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         """Run a child AgentRunner for a self-contained subtask and return its condensed result."""
         if not instruction.strip():
@@ -864,13 +969,13 @@ class AgentRunner:
             max_steps=max_steps,
             user_id=user_id,
             memory_store=memory_store,
+            metadata=metadata,
         )
         return ContextManager.condense_step_result(result)
 
     # ------------------------------------------------------------------
     # Auto-parallelization
     # ------------------------------------------------------------------
-
     @staticmethod
     def _steps_are_independent(steps: list[Any]) -> bool:
         """Return True when no file appears in more than one step (safe to parallelize)."""
@@ -960,15 +1065,14 @@ class AgentRunner:
     # ------------------------------------------------------------------
     # Event log helpers  (stateless harness / durable session log)
     # ------------------------------------------------------------------
-
     def _log_event(self, session_id: str | None, event_type: str, payload: dict[str, Any]) -> None:
         """Append an event to the durable session log if a store is wired in."""
-        if session_id and self._session_store:
-            try:
-                self._session_store.append_event(session_id, event_type, payload)
-            except Exception as exc:
-                log.debug("event log write failed (non-fatal): %s", exc)
-
+        if not session_id or not self._session_store:
+            return
+        try:
+            self._session_store.append_event(session_id, event_type, payload)
+        except Exception as exc:
+            log.debug("event log write failed (non-fatal): %s", exc)
     # ------------------------------------------------------------------
     # Context compaction
     # ------------------------------------------------------------------
@@ -1004,7 +1108,6 @@ class AgentRunner:
         payload: dict[str, Any] = {"model": model, "messages": messages, "stream": False}
         if self.provider_temperature is not None:
             payload["temperature"] = self.provider_temperature
-
         # Fast path: return cached response without touching the LLM.
         cache_kwargs: dict[str, Any] = {}
         if self.provider_temperature is not None:
@@ -1134,12 +1237,10 @@ class AgentRunner:
             except SyntaxError as exc:
                 issues.append(f"Python syntax error: {exc.msg} at line {exc.lineno}")
         return issues
-
     def _local_safety_check(self, path: str, content: str) -> list[str]:
         issues: list[str] = []
         if not path.endswith(".py"):
             return issues
-
         lowered = content.lower()
         if "jwt" in lowered or "oauth2" in lowered or "authentication" in lowered:
             if re.search(r"SECRET_KEY\s*=\s*[\"'][^\"']+[\"']", content):
@@ -1147,15 +1248,12 @@ class AgentRunner:
             if "fake_users_db" in lowered:
                 issues.append("Auth/JWT code introduces fake in-memory users, which is not a safe default for real authentication work.")
         return issues
-
     def _review_step_result(self, *, step: dict[str, Any], changed_files: list[str]) -> list[str]:
         issues: list[str] = []
         desc = str(step.get("description", "")).lower()
         changed_set = {path.replace("\\", "/").lower() for path in changed_files}
-
         if "across this module" in desc and len(changed_files) < 2:
             issues.append("Module-wide change touched too few files to be complete.")
-
         if "shared logger utility" in desc:
             has_logger_utility = any(
                 path.endswith(("logger.py", "logging_utils.py", "logger_util.py"))
@@ -1165,11 +1263,9 @@ class AgentRunner:
                 issues.append("Shared logger utility was requested but no logger utility file was created or updated.")
             if len(changed_files) < 2:
                 issues.append("Logging task changed too few files to count as a module-wide update.")
-
         if "jwt" in desc or "authentication" in desc:
             if not any(path.endswith(("requirements.txt", "pyproject.toml", "poetry.lock")) for path in changed_set):
                 issues.append("Auth task did not update dependency metadata for JWT/auth packages.")
-
             hardcoded_secret = False
             for path in changed_files:
                 content = self._safe_read(path)
@@ -1301,7 +1397,6 @@ class AgentRunner:
                     lines.append(f"   ⚠️ {issue}")
 
             lines.append("")
-
         unique_files = sorted(set(all_changed))
         if unique_files:
             lines.append("**Files modified:**")

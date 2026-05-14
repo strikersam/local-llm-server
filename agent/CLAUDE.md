@@ -16,6 +16,7 @@ Verifier (deepseek-r1:32b)  → validates each change before it is written
 ```
 
 The `AgentRunner.run()` method in `loop.py` drives the whole cycle.
+`RepowiseIntelligence` in `repowise.py` provides advanced codebase understanding.
 `WorkspaceTools` in `tools.py` is the only place that writes to the filesystem.
 
 ---
@@ -60,7 +61,7 @@ To add a new tool:
 1. Implement the operation in `tools.py`.
 2. Add a dispatch case in `_run_tool()`.
 3. Document the tool in `agent/models.py` (ToolCall schema).
-4. Add tests in `tests/test_agent_tools.py`.
+4. Add tests in `tests/test_agent_tools.py` (or `tests/test_repowise_intelligence.py` for intelligence tools).
 
 ---
 

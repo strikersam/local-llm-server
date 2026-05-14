@@ -85,7 +85,7 @@ function buildNavSections(isAdmin, isPowerUser) {
 const MOBILE_PRIMARY_NAV = [
   { to: '/', icon: LayoutDashboard, label: 'Home', end: true },
   { to: '/tasks', icon: CheckSquare, label: 'Tasks' },
-  { to: '/chat', icon: MessageSquare, label: 'Chat' },
+  { to: '/agents', icon: Bot, label: 'Agents' },
   { to: '/knowledge', icon: BookOpen, label: 'Knowledge' },
   { to: '/settings', icon: Settings, label: 'Settings' },
 ];
@@ -330,8 +330,47 @@ export default function DashboardLayout() {
       <nav className="lg:hidden sticky bottom-0 z-30 app-glass border-t px-2 pb-[max(env(safe-area-inset-bottom,0px),0.5rem)] pt-2"
         style={{ borderColor: 'var(--border)' }}
         aria-label="Primary">
-        <div className="grid grid-cols-5 gap-1">
-          {mobileNavItems.map(({ to, icon: Icon, label, end }) => (
+        <div className="grid grid-cols-5 gap-1 items-end">
+          {mobileNavItems.slice(0, 2).map(({ to, icon: Icon, label, end }) => (
+            <NavLink
+              key={`${to}-${label}`}
+              to={to}
+              end={end}
+              className={({ isActive }) =>
+                `flex min-h-[3.5rem] flex-col items-center justify-center gap-1 rounded-2xl px-2 py-2 transition-all ${
+                  isActive
+                    ? 'bg-[var(--accent-soft)] text-white'
+                    : 'text-[var(--text-muted)]'
+                }`
+              }
+            >
+              {({ isActive }) => (
+                <>
+                  <Icon size={18} className={isActive ? 'text-[var(--accent)]' : 'text-[var(--text-muted)]'} />
+                  <span className="text-[0.62rem] font-mono uppercase tracking-[0.12em]">{label}</span>
+                </>
+              )}
+            </NavLink>
+          ))}
+
+          {/* Center FAB — New Chat */}
+          <NavLink
+            to="/chat"
+            className="flex flex-col items-center justify-center gap-1 -mt-3"
+            aria-label="New chat"
+            onClick={() => {}}
+          >
+            {({ isActive }) => (
+              <>
+                <div className={`w-12 h-12 rounded-full flex items-center justify-center shadow-[0_4px_16px_rgba(93,162,255,0.35)] transition-transform active:scale-95 ${isActive ? 'bg-[var(--accent-hover)]' : 'bg-[var(--accent)]'}`}>
+                  <MessageSquare size={20} className="text-[#06111f]" />
+                </div>
+                <span className="text-[0.58rem] font-mono uppercase tracking-[0.12em] text-[var(--text-muted)]">Chat</span>
+              </>
+            )}
+          </NavLink>
+
+          {mobileNavItems.slice(2).map(({ to, icon: Icon, label, end }) => (
             <NavLink
               key={`${to}-${label}`}
               to={to}

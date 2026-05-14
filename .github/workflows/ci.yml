@@ -24,7 +24,7 @@ jobs:
           --health-cmd "mongosh --quiet --eval 'db.runCommand({ ping: 1 }).ok' | grep -q 1"
           --health-interval 10s
           --health-timeout 5s
-          --health-retries 10
+          --health-retries 15
 
     strategy:
       matrix:
@@ -52,13 +52,13 @@ jobs:
             -not -path "./.venv/*" \
             -not -path "./.git/*" \
             -exec python -m py_compile {} +
-          echo "✓ Python syntax OK"
+          printf '✓ Python syntax OK\n'
 
       - name: Wait for MongoDB
         run: |
           for i in {1..30}; do
             if nc -z localhost 27017; then
-              echo "✓ MongoDB is reachable on localhost:27017"
+              printf '✓ MongoDB is reachable on localhost:27017\n'
               exit 0
             fi
             echo "Waiting for MongoDB... ($i/30)"
@@ -114,7 +114,7 @@ jobs:
             echo "::error::Hardcoded SECRET_KEY found — use environment variables"
             exit 1
           fi
-          echo "✓ No hardcoded secrets found"
+          printf '✓ No hardcoded secrets found\n'
 
   frontend:
     name: Frontend test + build

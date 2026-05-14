@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { healthCheck, getPlatformInfo, githubStatus, getGithubStatus, startGithubOAuth, setGithubToken, deleteGithubToken, listGithubRepos, authorizeGithubRepos, getBackendUrl } from '../api';
-import { Settings, CheckCircle, XCircle, ExternalLink, Github, Globe, Server, Cpu, Key, Loader2, Trash2, Lock, ChevronDown, ChevronUp } from 'lucide-react';
+import { Settings, CheckCircle, XCircle, ExternalLink, Github, Globe, Server, Cpu, Key, Loader2, Trash2, Lock, ChevronDown, ChevronUp, ArrowLeft } from 'lucide-react';
 
 function getBackendOrigin() {
   const configuredBackend = getBackendUrl();
@@ -17,9 +17,13 @@ function getBackendOrigin() {
 export default function SettingsPage() {
   const location = useLocation();
   const navigate = useNavigate();
+  const [activeTab, setActiveTab] = useState('connections');
   const [health, setHealth] = useState(null);
   const [platform, setPlatform] = useState(null);
   const [ghStatus, setGhStatus] = useState(null);
+
+  // Back-to-chat context (P5) — set when navigating here from chat
+  const fromChat = location.state?.from || null;
 
   // PAT fallback state
   const [showPat, setShowPat] = useState(false);
@@ -166,219 +170,211 @@ export default function SettingsPage() {
 
   return (
     <div className="p-5 lg:p-7 max-w-4xl" data-testid="settings-page">
-      <div className="mb-6 animate-fade-in">
-        <h1 className="text-2xl font-bold tracking-tighter" style={{ fontFamily: 'Outfit, sans-serif' }}>Settings</h1>
-        <p className="text-xs text-[#737373] mt-0.5">System configuration, health status, and deployment info</p>
+      {/* Back-to-chat banner (P5) */}
+      {fromChat && (
+        <button
+          onClick={() => navigate(fromChat)}
+          className="flex items-center gap-1.5 text-[10px] font-mono uppercase tracking-wider text-[var(--accent)] hover:text-[var(--accent-hover)] mb-5 transition-colors"
+        >
+          <ArrowLeft size={11} /> Back to chat
+        </button>
+      )}
+
+      <div className="mb-5 animate-fade-in">
+        <h1 className="text-2xl font-bold tracking-tighter" style={{ fontFamily: 'var(--font-main)' }}>Settings</h1>
+        <p className="text-xs text-[#737373] mt-0.5">Connections, system health, and platform configuration</p>
       </div>
 
-      <div className="grid gap-3">
-        <div className="border border-white/10 bg-[#141414] stagger-1">
-          <div className="px-4 py-2.5 border-b border-white/10 flex items-center gap-2">
-            <Settings size={13} className="text-[#A0A0A0]" />
-            <span className="text-[10px] tracking-[0.15em] uppercase text-[#A0A0A0] font-mono font-bold">Setup Wizard</span>
-          </div>
-          <div className="p-4 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-            <div>
-              <div className="text-[11px] text-white font-bold">Re-open onboarding and saved setup</div>
-              <div className="text-[10px] text-[#737373] mt-1 leading-relaxed">Review or update providers, runtimes, Langfuse, and policy settings without resetting your account.</div>
+      {/* Tab bar */}
+      <div className="flex gap-2 mb-5 border-b border-white/10 pb-0">
+        {[
+          { id: 'connections', label: 'Connections' },
+          { id: 'system',      label: 'System' },
+        ].map(tab => (
+          <button
+            key={tab.id}
+            onClick={() => setActiveTab(tab.id)}
+            className={`pb-2.5 px-1 text-[11px] font-mono uppercase tracking-wider border-b-2 transition-colors ${
+              activeTab === tab.id
+                ? 'border-[var(--accent)] text-[var(--accent)]'
+                : 'border-transparent text-[#737373] hover:text-[#A0A0A0]'
+            }`}
+          >
+            {tab.label}
+          </button>
+        ))}
+      </div>
+
+      {/* ── CONNECTIONS TAB ── */}
+      {activeTab === 'connections' && (
+        <div className="grid gap-3">
+          {/* Setup Wizard */}
+          <div className="border border-white/10 bg-[#141414] stagger-1">
+            <div className="px-4 py-2.5 border-b border-white/10 flex items-center gap-2">
+              <Settings size={13} className="text-[#A0A0A0]" />
+              <span className="text-[10px] tracking-[0.15em] uppercase text-[#A0A0A0] font-mono font-bold">Setup Wizard</span>
             </div>
-            <Link
-              to="/setup"
-              className="inline-flex items-center justify-center gap-2 bg-[#002FA7] hover:bg-[#002585] text-white px-4 py-2 text-[10px] tracking-wider uppercase font-mono transition-colors"
-            >
-              <Settings size={11} /> Open Setup Wizard
-            </Link>
-          </div>
-        </div>
-
-        {/* Health */}
-        <div className="border border-white/10 bg-[#141414] stagger-2">
-          <div className="px-4 py-2.5 border-b border-white/10"><span className="text-[10px] tracking-[0.15em] uppercase text-[#A0A0A0] font-mono font-bold">System Health</span></div>
-          <div className="p-4 grid grid-cols-3 gap-4">
-            <S ok={health?.status === 'ok'} label="System" />
-            <S ok={health?.mongo} label="MongoDB" />
-            {health?.ollama_relevant !== false && <S ok={health?.ollama} label="Ollama" />}
-          </div>
-        </div>
-
-        {/* Public Access / ngrok */}
-        <div className="border border-white/10 bg-[#141414] stagger-2">
-          <div className="px-4 py-2.5 border-b border-white/10"><span className="text-[10px] tracking-[0.15em] uppercase text-[#A0A0A0] font-mono font-bold">Public Access (ngrok)</span></div>
-          <div className="p-4">
-            {platform?.ngrok_configured ? (
-              <div className="flex items-center gap-3">
-                <Globe size={16} className="text-green-500" />
-                <div>
-                  <div className="text-[11px] text-white font-bold">ngrok Configured</div>
-                  <a href={`https://${platform.ngrok_domain}`} target="_blank" rel="noopener noreferrer" className="text-[10px] text-[#002FA7] font-mono flex items-center gap-1 mt-0.5">
-                    {platform.ngrok_domain} <ExternalLink size={10} />
-                  </a>
-                </div>
+            <div className="p-4 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+              <div>
+                <div className="text-[11px] text-white font-bold">Re-open onboarding and saved setup</div>
+                <div className="text-[10px] text-[#737373] mt-1 leading-relaxed">Review or update providers, runtimes, Langfuse, and policy settings without resetting your account.</div>
               </div>
-            ) : (
-              <div className="text-[11px] text-[#737373]">ngrok not configured. Set NGROK_AUTHTOKEN and NGROK_DOMAIN in .env</div>
-            )}
+              <Link
+                to="/setup"
+                className="inline-flex items-center justify-center gap-2 bg-[var(--accent)] hover:bg-[var(--accent-hover)] text-[#06111f] px-4 py-2 text-[10px] tracking-wider uppercase font-mono transition-colors rounded-full"
+              >
+                <Settings size={11} /> Open Setup Wizard
+              </Link>
+            </div>
           </div>
-        </div>
 
-        {/* Architecture */}
-        <div className="border border-white/10 bg-[#141414] stagger-3">
-          <div className="px-4 py-2.5 border-b border-white/10"><span className="text-[10px] tracking-[0.15em] uppercase text-[#A0A0A0] font-mono font-bold">Architecture — Karpathy LLM Wiki Pattern</span></div>
-          <div className="p-4 grid grid-cols-3 gap-3">
-            {[
-              { n: '01', label: 'RAW SOURCES', desc: 'Files, URLs, text — ingested and AI-processed' },
-              { n: '02', label: 'WIKI', desc: 'LLM-maintained markdown knowledge base' },
-              { n: '03', label: 'AGENT', desc: 'Query, lint, cross-reference, expand' },
-            ].map(l => (
-              <div key={l.n} className="border border-white/10 p-3">
-                <div className="text-xl font-bold text-[#002FA7] mb-1" style={{ fontFamily: 'Outfit, sans-serif' }}>{l.n}</div>
-                <div className="text-[9px] tracking-[0.15em] uppercase text-white font-mono font-bold mb-0.5">{l.label}</div>
-                <p className="text-[10px] text-[#737373] leading-relaxed">{l.desc}</p>
-              </div>
-            ))}
-          </div>
-        </div>
-
-        {/* GitHub Integration */}
-        <div className="border border-white/10 bg-[#141414] stagger-4">
-          <div className="px-4 py-2.5 border-b border-white/10 flex items-center gap-2">
-            <Github size={13} className="text-[#A0A0A0]" />
-            <span className="text-[10px] tracking-[0.15em] uppercase text-[#A0A0A0] font-mono font-bold">GitHub Integration</span>
-          </div>
-          <div className="p-4 space-y-4">
-
-            {/* ── Connected state ── */}
-            {ghStatus?.connected ? (
-              <div className="space-y-3">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-3">
-                    <div className="w-8 h-8 bg-[#002FA7]/20 border border-[#002FA7]/40 flex items-center justify-center">
-                      <Github size={15} className="text-[#002FA7]" />
-                    </div>
-                    <div>
-                      <div className="flex items-center gap-1.5">
-                        <CheckCircle size={11} className="text-green-500" />
-                        <span className="text-[11px] text-white font-bold">GitHub connected</span>
+          {/* GitHub Integration (merged) */}
+          <div className="border border-white/10 bg-[#141414] stagger-2">
+            <div className="px-4 py-2.5 border-b border-white/10 flex items-center gap-2">
+              <Github size={13} className="text-[#A0A0A0]" />
+              <span className="text-[10px] tracking-[0.15em] uppercase text-[#A0A0A0] font-mono font-bold">GitHub</span>
+            </div>
+            <div className="p-4 space-y-4">
+              {ghStatus?.connected ? (
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-3">
+                      <div className="w-8 h-8 bg-[rgba(93,162,255,0.12)] border border-[rgba(93,162,255,0.3)] flex items-center justify-center rounded-lg">
+                        <Github size={15} className="text-[var(--accent)]" />
                       </div>
-                      <div className="text-[10px] text-[#737373] font-mono mt-0.5">@{ghStatus.login}</div>
-                    </div>
-                  </div>
-                  <button onClick={handleDisconnect}
-                    className="flex items-center gap-1 text-[9px] text-[#737373] hover:text-[#FF3333] transition-colors font-mono uppercase tracking-wider border border-white/10 hover:border-[#FF3333]/30 px-2 py-1">
-                    <Trash2 size={10} /> Disconnect
-                  </button>
-                </div>
-                <Link to="/github"
-                  className="inline-flex items-center gap-1.5 bg-[#002FA7] hover:bg-[#002585] text-white px-4 py-2 text-[10px] tracking-wider uppercase font-mono transition-colors">
-                  <Github size={11} /> Open GitHub Repos
-                </Link>
-              </div>
-            ) : (
-              /* ── Not connected state ── */
-              <div className="space-y-3">
-                <p className="text-[11px] text-[#737373] leading-relaxed">
-                  Connect your GitHub account to browse repos, edit files, and create pull requests directly from this dashboard.
-                </p>
-
-                {/* OAuth button — shown when the server has GITHUB_CLIENT_ID configured */}
-                {ghStatus?.oauth_enabled ? (
-                  <button
-                    onClick={handleOAuthConnect}
-                    disabled={oauthLoading}
-                    className="w-full flex items-center justify-center gap-2 border border-white/20 hover:border-[#002FA7] bg-[#141414] hover:bg-[#002FA7]/10 text-white py-2.5 text-[11px] tracking-wider uppercase font-mono transition-all disabled:opacity-50 group"
-                  >
-                    {oauthLoading
-                      ? <Loader2 size={14} className="animate-spin" />
-                      : <Github size={14} className="group-hover:text-[#002FA7] transition-colors" />}
-                    {oauthLoading ? 'Waiting for GitHub…' : 'Connect with GitHub'}
-                  </button>
-                ) : (
-                  /* Server not configured for OAuth — show PAT directly */
-                  <div className="border border-yellow-500/20 bg-yellow-500/5 p-3 text-[10px] text-yellow-400/80 font-mono leading-relaxed">
-                    OAuth not configured on this server. Set <code>GITHUB_CLIENT_ID</code> &amp; <code>GITHUB_CLIENT_SECRET</code> to enable one-click connect, or use a token below.
-                  </div>
-                )}
-
-                {ghErr && <div className="text-[10px] text-[#FF3333] font-mono">{ghErr}</div>}
-                {ghOk && <div className="text-[10px] text-green-400 font-mono">{ghOk}</div>}
-
-                {/* PAT fallback — always available as an alternative */}
-                <div>
-                  <button
-                    onClick={() => setShowPat(v => !v)}
-                    className="flex items-center gap-1.5 text-[9px] text-[#737373] hover:text-[#A0A0A0] transition-colors font-mono uppercase tracking-wider"
-                  >
-                    <Lock size={10} />
-                    {ghStatus?.oauth_enabled ? 'Use a Personal Access Token instead' : 'Enter Personal Access Token'}
-                    {showPat ? <ChevronUp size={10} /> : <ChevronDown size={10} />}
-                  </button>
-
-                  {showPat && (
-                    <div className="mt-2 space-y-2 animate-fade-in">
-                      <p className="text-[10px] text-[#737373]">
-                        Generate a classic token with <code className="text-[#002FA7]">repo</code> scope at{' '}
-                        <a href="https://github.com/settings/tokens/new?scopes=repo&description=local-llm-server"
-                          target="_blank" rel="noopener noreferrer"
-                          className="text-[#002FA7] hover:underline inline-flex items-center gap-0.5">
-                          github.com/settings/tokens <ExternalLink size={9} />
-                        </a>
-                      </p>
-                      <div className="flex gap-2">
-                        <input
-                          type="password"
-                          value={ghToken}
-                          onChange={e => setGhToken(e.target.value)}
-                          placeholder="ghp_…"
-                          className="flex-1 bg-[#0A0A0A] border border-white/10 px-3 py-2 text-xs text-white font-mono outline-none focus:border-[#002FA7]"
-                          onKeyDown={e => e.key === 'Enter' && handleSaveToken()}
-                          autoComplete="off"
-                        />
-                        <button onClick={handleSaveToken} disabled={ghSaving || !ghToken.trim()}
-                          className="flex items-center gap-1.5 bg-[#002FA7] hover:bg-[#002585] text-white px-4 py-2 text-[10px] tracking-wider uppercase font-mono disabled:opacity-40 shrink-0">
-                          {ghSaving ? <Loader2 size={11} className="animate-spin" /> : <Key size={11} />} Save
-                        </button>
+                      <div>
+                        <div className="flex items-center gap-1.5">
+                          <CheckCircle size={11} className="text-green-500" />
+                          <span className="text-[11px] text-white font-bold">GitHub connected</span>
+                        </div>
+                        <div className="text-[10px] text-[#737373] font-mono mt-0.5">@{ghStatus.login}</div>
                       </div>
+                    </div>
+                    <button onClick={handleDisconnect}
+                      className="flex items-center gap-1 text-[9px] text-[#737373] hover:text-[#FF3333] transition-colors font-mono uppercase tracking-wider border border-white/10 hover:border-[#FF3333]/30 px-2 py-1 rounded">
+                      <Trash2 size={10} /> Disconnect
+                    </button>
+                  </div>
+                  <Link to="/github"
+                    className="inline-flex items-center gap-1.5 bg-[var(--accent)] hover:bg-[var(--accent-hover)] text-[#06111f] px-4 py-2 text-[10px] tracking-wider uppercase font-mono transition-colors rounded-full">
+                    <Github size={11} /> Open GitHub Repos
+                  </Link>
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  <p className="text-[11px] text-[#737373] leading-relaxed">
+                    Connect your GitHub account to browse repos, edit files, and create pull requests directly from this dashboard.
+                  </p>
+                  {ghStatus?.oauth_enabled ? (
+                    <button
+                      onClick={handleOAuthConnect}
+                      disabled={oauthLoading}
+                      className="w-full flex items-center justify-center gap-2 border border-white/20 hover:border-[var(--accent)] bg-[#141414] hover:bg-[rgba(93,162,255,0.08)] text-white py-2.5 text-[11px] tracking-wider uppercase font-mono transition-all disabled:opacity-50 group rounded-full"
+                    >
+                      {oauthLoading
+                        ? <Loader2 size={14} className="animate-spin" />
+                        : <Github size={14} className="group-hover:text-[var(--accent)] transition-colors" />}
+                      {oauthLoading ? 'Waiting for GitHub…' : 'Connect with GitHub'}
+                    </button>
+                  ) : (
+                    <div className="border border-yellow-500/20 bg-yellow-500/5 p-3 text-[10px] text-yellow-400/80 font-mono leading-relaxed rounded-lg">
+                      OAuth not configured on this server. Set <code>GITHUB_CLIENT_ID</code> &amp; <code>GITHUB_CLIENT_SECRET</code> to enable one-click connect, or use a token below.
                     </div>
                   )}
+                  {ghErr && <div className="text-[10px] text-[#FF3333] font-mono">{ghErr}</div>}
+                  {ghOk && <div className="text-[10px] text-green-400 font-mono">{ghOk}</div>}
+                  <div>
+                    <button
+                      onClick={() => setShowPat(v => !v)}
+                      className="flex items-center gap-1.5 text-[9px] text-[#737373] hover:text-[#A0A0A0] transition-colors font-mono uppercase tracking-wider"
+                    >
+                      <Lock size={10} />
+                      {ghStatus?.oauth_enabled ? 'Use a Personal Access Token instead' : 'Enter Personal Access Token'}
+                      {showPat ? <ChevronUp size={10} /> : <ChevronDown size={10} />}
+                    </button>
+                    {showPat && (
+                      <div className="mt-2 space-y-2 animate-fade-in">
+                        <p className="text-[10px] text-[#737373]">
+                          Generate a classic token with <code className="text-[var(--accent)]">repo</code> scope at{' '}
+                          <a href="https://github.com/settings/tokens/new?scopes=repo&description=local-llm-server"
+                            target="_blank" rel="noopener noreferrer"
+                            className="text-[var(--accent)] hover:underline inline-flex items-center gap-0.5">
+                            github.com/settings/tokens <ExternalLink size={9} />
+                          </a>
+                        </p>
+                        <div className="flex gap-2">
+                          <input
+                            type="password"
+                            value={ghToken}
+                            onChange={e => setGhToken(e.target.value)}
+                            placeholder="ghp_…"
+                            className="flex-1 bg-[#0A0A0A] border border-white/10 px-3 py-2 text-xs text-white font-mono outline-none focus:border-[var(--accent)] rounded-lg"
+                            onKeyDown={e => e.key === 'Enter' && handleSaveToken()}
+                            autoComplete="off"
+                          />
+                          <button onClick={handleSaveToken} disabled={ghSaving || !ghToken.trim()}
+                            className="flex items-center gap-1.5 bg-[var(--accent)] hover:bg-[var(--accent-hover)] text-[#06111f] px-4 py-2 text-[10px] tracking-wider uppercase font-mono disabled:opacity-40 shrink-0 rounded-full">
+                            {ghSaving ? <Loader2 size={11} className="animate-spin" /> : <Key size={11} />} Save
+                          </button>
+                        </div>
+                      </div>
+                    )}
+                  </div>
                 </div>
-              </div>
-            )}
-          </div>
-        </div>
-
-        {/* Quick Start */}
-        <div className="border border-white/10 bg-[#141414] stagger-5">
-          <div className="px-4 py-2.5 border-b border-white/10"><span className="text-[10px] tracking-[0.15em] uppercase text-[#A0A0A0] font-mono font-bold">Self-Hosting Guide</span></div>
-          <div className="p-4 space-y-3">
-            <div className="bg-[#0A0A0A] border border-white/10 p-3 text-[10px] font-mono text-[#A0A0A0]">
-              <div className="text-[#737373]"># Clone & run</div>
-              <div>git clone https://github.com/strikersam/local-llm-server</div>
-              <div>docker compose up -d</div>
-              <div className="text-[#737373] mt-2"># Default credentials</div>
-              <div>Email: admin@llmrelay.local</div>
-              <div>Password: WikiAdmin2026!</div>
+              )}
             </div>
-            <a href="https://github.com/strikersam/local-llm-server" target="_blank" rel="noopener noreferrer"
-              className="flex items-center gap-2 text-[11px] text-[#002FA7] hover:underline">
-              <Github size={13} /> View on GitHub <ExternalLink size={10} />
-            </a>
+          </div>
+
+          {/* GitHub Repository Access (merged into one card) */}
+          <GitHubAccessSection />
+        </div>
+      )}
+
+      {/* ── SYSTEM TAB ── */}
+      {activeTab === 'system' && (
+        <div className="grid gap-3">
+          {/* Health */}
+          <div className="border border-white/10 bg-[#141414] stagger-1">
+            <div className="px-4 py-2.5 border-b border-white/10"><span className="text-[10px] tracking-[0.15em] uppercase text-[#A0A0A0] font-mono font-bold">System Health</span></div>
+            <div className="p-4 grid grid-cols-3 gap-4">
+              <S ok={health?.status === 'ok'} label="System" />
+              <S ok={health?.mongo} label="MongoDB" />
+              {health?.ollama_relevant !== false && <S ok={health?.ollama} label="Ollama" />}
+            </div>
+          </div>
+
+          {/* Public Access / ngrok */}
+          <div className="border border-white/10 bg-[#141414] stagger-2">
+            <div className="px-4 py-2.5 border-b border-white/10"><span className="text-[10px] tracking-[0.15em] uppercase text-[#A0A0A0] font-mono font-bold">Public Access (ngrok)</span></div>
+            <div className="p-4">
+              {platform?.ngrok_configured ? (
+                <div className="flex items-center gap-3">
+                  <Globe size={16} className="text-green-500" />
+                  <div>
+                    <div className="text-[11px] text-white font-bold">ngrok Configured</div>
+                    <a href={`https://${platform.ngrok_domain}`} target="_blank" rel="noopener noreferrer" className="text-[10px] text-[var(--accent)] font-mono flex items-center gap-1 mt-0.5">
+                      {platform.ngrok_domain} <ExternalLink size={10} />
+                    </a>
+                  </div>
+                </div>
+              ) : (
+                <div className="text-[11px] text-[#737373]">ngrok not configured. Set NGROK_AUTHTOKEN and NGROK_DOMAIN in .env</div>
+              )}
+            </div>
+          </div>
+
+          {/* Platform Info */}
+          <div className="border border-white/10 bg-[#141414] stagger-3">
+            <div className="px-4 py-2.5 border-b border-white/10"><span className="text-[10px] tracking-[0.15em] uppercase text-[#A0A0A0] font-mono font-bold">Platform Info</span></div>
+            <div className="p-4 grid grid-cols-2 gap-3 text-[11px]">
+              <div><span className="text-[#737373]">Version: </span><span className="text-white font-mono">{platform?.version || '—'}</span></div>
+              <div><span className="text-[#737373]">Ollama Base: </span><span className="text-white font-mono">{platform?.ollama_base || '—'}</span></div>
+              <div><span className="text-[#737373]">Langfuse: </span><span className={platform?.langfuse_configured ? 'text-green-500' : 'text-[#737373]'}>{platform?.langfuse_configured ? 'Configured' : 'Not configured'}</span></div>
+              <div><span className={platform?.ngrok_configured ? 'text-green-500' : 'text-[#737373]'}>{platform?.ngrok_configured ? 'ngrok Active' : 'ngrok Not configured'}</span></div>
+            </div>
           </div>
         </div>
-
-        {/* Platform Info */}
-        <div className="border border-white/10 bg-[#141414] stagger-5">
-          <div className="px-4 py-2.5 border-b border-white/10"><span className="text-[10px] tracking-[0.15em] uppercase text-[#A0A0A0] font-mono font-bold">Platform Info</span></div>
-          <div className="p-4 grid grid-cols-2 gap-3 text-[11px]">
-            <div><span className="text-[#737373]">Version: </span><span className="text-white font-mono">{platform?.version || '—'}</span></div>
-            <div><span className="text-[#737373]">Ollama Base: </span><span className="text-white font-mono">{platform?.ollama_base || '—'}</span></div>
-            <div><span className="text-[#737373]">Langfuse: </span><span className={platform?.langfuse_configured ? 'text-green-500' : 'text-[#737373]'}>{platform?.langfuse_configured ? 'Configured' : 'Not configured'}</span></div>
-            <div><span className={platform?.ngrok_configured ? 'text-green-500' : 'text-[#737373]'}>{platform?.ngrok_configured ? 'ngrok Configured' : 'ngrok Not configured'}</span></div>
-          </div>
-        </div>
-
-        {/* GitHub Repository Access */}
-        <GitHubAccessSection />
-      </div>
+      )}
     </div>
   );
 }

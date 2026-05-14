@@ -1,48 +1,67 @@
-# Feature Maturity Matrix
+# Feature Maturity / Support Matrix
 
-> **Single source of truth:** `features/matrix.py`
->
-> The tables below reflect the registry in that file.  For the full API
-> representation, call `GET /admin/api/features` (admin auth required).
+> **This document is a summary.** The canonical, machine-readable source of truth is `features/matrix.py`. The admin API at `/admin/features` and the generated docs at [docs/support-matrix.md](../support-matrix.md) reflect the same state.
 
-See [docs/support-matrix.md](../support-matrix.md) for the full human-readable
-support matrix including recommended production configuration and operator
-override instructions.
+## Maturity Tiers
 
----
+| Tier | Description | Production Use |
+|------|-------------|---------------|
+| **stable** | Fully tested, production-ready | ✅ Recommended |
+| **beta** | Functional, may change | ⚠️ With caution |
+| **experimental** | Proof-of-concept, may be unstable | ❌ Not recommended |
+| **disabled** | Turned off | ❌ Requires explicit override |
 
-## Tiers
+## Stable Core
 
-| Tier | Enforcement |
-|------|------------|
-| `stable` | No warnings; gated only by config |
-| `beta` | WARNING log on first use; available by default |
-| `experimental` | WARNING log; disabled by default; opt-in via `FEATURE_ENABLE` |
-| `disabled` | Cannot be enabled at all |
+- OpenAI / Anthropic / Ollama API compatibility
+- Multi-user key management
+- Provider routing & fallback (timeout/cooldown/failover)
+- Rate limiting
+- Runtime preflight validation
+- Admin dashboard
+- Langfuse observability (direct chat)
+- Workspace isolation
+- Planner / executor / verifier pipeline
+- Judge (release gate)
+- Local runtime (internal_agent)
+- Local-first model routing
 
----
+## Beta
 
-## Quick reference
+- Async agent jobs (202 + pollable job ID)
+- Runtime readiness diagnostics
+- Policies & governance
+- CRISPY workflow engine
+- Task-harness runtime
 
-### Stable core
+## Experimental
 
-- proxy endpoints, auth, rate limiting, provider routing, model routing,
-  key management, direct chat, local runtime, Langfuse observability
+- OpenHands runtime (opt-in via `OPENHANDS_ENABLED=true`)
+- Sidecar runtimes (Hermes/OpenCode/Goose)
+- Telegram bot
+- Tunnels (Cloudflare/ngrok)
+- Multi-agent / swarm
+- OpenClaw integration
+- JCode runtime
+- Quick Actions / iOS Shortcuts
+- Machine sync / peer sync
 
-### Beta
+## Enforcement
 
-- async agent jobs, planner/verifier/judge pipeline, workspace isolation,
-  runtime preflight, task-harness runtime, aider, hermes, per-job progress,
-  Telegram bot, tunnel, admin command runner
+The matrix is enforced in code, not just documentation:
 
-### Experimental
+- `FeatureMatrix.check_available(feature_id)` raises `FeatureUnavailableError` for disabled features
+- `FeatureMatrix.maturity_warning(feature_id)` returns warnings for beta/experimental features
+- Admin API reflects the actual support state
+- Config overrides allow operators to adjust tiers at deployment time
 
-- jcode, OpenHands, OpenCode, Goose, social auth, multi-agent swarm,
-  CRISPY workflow engine
+## Config Overrides
 
----
+```bash
+# Pattern: FEATURE_<UPPERCASE_FEATURE_ID>=<value>
+FEATURE_TELEGRAM_BOT=disabled    # Disable
+FEATURE_ASYNC_AGENT_JOBS=stable  # Promote to stable
+FEATURE_OPENHANDS_RUNTIME=true   # Enable
+```
 
-## Rule
-
-Unstable integrations must fail in preflight or stay behind explicit
-runtime selection rather than failing late during execution.
+See [docs/configuration-reference.md](../configuration-reference.md) for the full list.

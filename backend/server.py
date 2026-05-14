@@ -15,7 +15,7 @@ from contextlib import asynccontextmanager
 from copy import deepcopy
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import Any
+from typing import Any, Optional, Dict, List, Tuple, Union
 
 import bcrypt
 import httpx
@@ -135,7 +135,7 @@ _CHAT_AGENT_WORKSPACE_ROOT = Path(
 )
 
 
-def _safe_object_id(value: str | None) -> ObjectId | None:
+def _safe_object_id(value: Optional[str]) -> Optional[ObjectId]:
     if not value:
         return None
     try:
@@ -144,7 +144,7 @@ def _safe_object_id(value: str | None) -> ObjectId | None:
         return None
 
 
-def _get_limited_chat_session(session_id: str, user_id: str) -> dict[str, object] | None:
+def _get_limited_chat_session(session_id: str, user_id: str) -> Optional[Dict[str, object]]:
     session = _LIMITED_CHAT_SESSIONS.get(session_id)
     if not session or session.get("user_id") != user_id:
         return None
@@ -181,10 +181,10 @@ def _new_chat_session_record(
     session_id: str,
     user_id: str,
     title: str,
-    provider_id: str | None,
-    model: str | None,
-    temperature: float | None,
-    messages: list[dict] | None = None,
+    provider_id: Optional[str],
+    model: Optional[str],
+    temperature: Optional[float],
+    messages: Optional[List[Dict]] = None,
 ) -> dict[str, object]:
     now = datetime.now(timezone.utc).isoformat()
     return {
@@ -205,13 +205,13 @@ async def _persist_chat_session(
     session_id: str,
     user_id: str,
     storage_mode: str,
-    db_session_id: ObjectId | None,
+    db_session_id: Optional[ObjectId],
     title: str,
-    provider_id: str | None,
-    model: str | None,
-    temperature: float | None,
+    provider_id: Optional[str],
+    model: Optional[str],
+    temperature: Optional[float],
     messages: list[dict],
-    created_at: str | None,
+    created_at: Optional[str],
 ) -> None:
     updated_at = datetime.now(timezone.utc).isoformat()
     if storage_mode == "db" and db_session_id is not None:
@@ -251,10 +251,10 @@ def _default_agent_role_models() -> dict[str, str]:
     if nim_enabled:
         return {
             "default": os.environ.get("NVIDIA_DEFAULT_MODEL") or "nvidia/nemotron-3-super-120b-a12b",
-            "planner": os.environ.get("AGENT_PLANNER_MODEL") or "nvidia/llama-3.1-nemotron-ultra-253b-v1",
+            "planner": os.environ.get("AGENT_PLANNER_MODEL") or "nvidia/nemotron-3-super-120b-a12b",
             "executor": os.environ.get("AGENT_EXECUTOR_MODEL") or "nvidia/nemotron-3-super-120b-a12b",
             "verifier": os.environ.get("AGENT_VERIFIER_MODEL") or "nvidia/nemotron-3-super-120b-a12b",
-            "judge": os.environ.get("AGENT_JUDGE_MODEL") or "nvidia/llama-3.1-nemotron-ultra-253b-v1",
+            "judge": os.environ.get("AGENT_JUDGE_MODEL") or "nvidia/nemotron-3-super-120b-a12b",
         }
     return {
         "default": os.environ.get("OLLAMA_MODEL") or "qwen3-coder:30b",
@@ -304,10 +304,10 @@ class AgentStatusEntry(BaseModel):
     name: str
     role: str
     status: str
-    current_task: str | None = None
-    last_active: str | None = None
-    tools_used: list[str] = Field(default_factory=list)
-    messages_sent: int | None = None
+    current_task: Optional[str] = None
+    last_active: Optional[str] = None
+    tools_used: List[str] = Field(default_factory=list)
+    messages_sent: Optional[int] = None
 
 
 class AgentToolCallEntry(BaseModel):
@@ -315,22 +315,22 @@ class AgentToolCallEntry(BaseModel):
     tool_name: str
     agent: str
     status: str
-    input: dict[str, object] | None = None
-    output: str | None = None
-    error: str | None = None
-    started_at: str | None = None
-    completed_at: str | None = None
-    duration_ms: int | None = None
+    input: Optional[Dict[str, object]] = None
+    output: Optional[str] = None
+    error: Optional[str] = None
+    started_at: Optional[str] = None
+    completed_at: Optional[str] = None
+    duration_ms: Optional[int] = None
 
 
 class AgentStatusResponse(BaseModel):
-    session_id: str | None = None
+    session_id: Optional[str] = None
     has_events: bool = False
     agents: list[AgentStatusEntry] = Field(default_factory=list)
     tool_calls: list[AgentToolCallEntry] = Field(default_factory=list)
-    latest_summary: str | None = None
-    latest_error: str | None = None
-    updated_at: str | None = None
+    latest_summary: Optional[str] = None
+    latest_error: Optional[str] = None
+    updated_at: Optional[str] = None
 
 
 def _get_agent_session_for_user(session_id: str, user_id: str):
@@ -562,7 +562,7 @@ def _build_agent_stream_event(
     agent: str,
     event_type: str,
     content: str,
-    metadata: dict[str, object] | None = None,
+    metadata: Optional[Dict[str, object]] = None,
 ) -> dict[str, object]:
     return {
         "id": f"{session_id}:{position}",
@@ -733,7 +733,7 @@ def _build_auto_skill_guidance(content: str) -> tuple[str, list[dict[str, str]]]
     return "\n".join(lines), skills
 
 
-def _resolve_ollama_url(url: str | None) -> str:
+def _resolve_ollama_url(url: Optional[str]) -> str:
     """Swap localhost → `ollama` when running inside Docker.
 
     Inside a container, 127.0.0.1/localhost refers to the container itself,
@@ -1055,8 +1055,8 @@ PREDEFINED_MODELS: dict[str, list[dict]] = {
     ],
     "moonshot": [
         {
-            "id": "kimi-k2.5",
-            "name": "Kimi-K2.5",
+            "id": "kimi-k2.6",
+            "name": "Kimi-K2.6",
             "role": ["planner", "executor", "verifier"],
             "tier": "flagship",
         },
@@ -1112,9 +1112,9 @@ AGENT_ROLE_MODELS: dict[str, dict[str, str]] = {
         "verifier": "gemma-4",
     },
     "moonshot": {
-        "planner": "kimi-k2.5",
-        "executor": "kimi-k2.5",
-        "verifier": "kimi-k2.5",
+        "planner": "kimi-k2.6",
+        "executor": "kimi-k2.6",
+        "verifier": "kimi-k2.6",
     },
 }
 
@@ -1230,9 +1230,9 @@ async def get_current_user(request: Request) -> dict:
 
 @asynccontextmanager
 async def lifespan(app_: "FastAPI"):
-    dispatcher: TaskDispatcher | None = None
-    dispatcher_task: asyncio.Task | None = None
-    task_automation: TaskAutomationService | None = None
+    dispatcher: Optional[TaskDispatcher] = None
+    dispatcher_task: Optional[asyncio.Task] = None
+    task_automation: Optional[TaskAutomationService] = None
     runtime_manager = get_runtime_manager()
     try:
         await ensure_bootstrap()
@@ -1996,7 +1996,7 @@ async def seed_default_providers():
         os.environ.get("NVIDIA_BASE_URL") or "https://integrate.api.nvidia.com/v1"
     ).rstrip("/")
     _nvidia_model = (
-        os.environ.get("NVIDIA_DEFAULT_MODEL") or "nvidia/nemotron-3-super-120b-a12b"
+        os.environ.get("NVIDIA_DEFAULT_MODEL") or "nvidia/llama-3.1-70b-instruct"
     )
     defaults = [
         {
@@ -2115,9 +2115,9 @@ async def seed_default_providers():
             "type": "openai-compatible",
             "base_url": MOONSHOT_BASE_URL,
             "api_key": MOONSHOT_API_KEY,
-            "default_model": "kimi-k2.5",
+            "default_model": "kimi-k2.6",
             "is_default": LLM_PROVIDER == "moonshot",
-            "priority": 80,
+            "priority": 10,
             "status": "configured" if MOONSHOT_API_KEY else "unconfigured",
         },
         {
@@ -2405,7 +2405,7 @@ def _requires_agent_mode_for_safe_repo_help(content: str) -> bool:
 
 def _direct_chat_agent_handoff(
     content: str, *, github_connected: bool
-) -> dict[str, object] | None:
+) -> Optional[Dict[str, object]]:
     lower = content.lower()
     stripped = lower.strip()
     reason_codes: list[str] = []
@@ -2553,7 +2553,7 @@ def _build_direct_chat_task_suggestion(
 
 def _build_direct_chat_schedule_suggestion(
     content: str, reason_codes: list[str]
-) -> dict[str, object] | None:
+) -> Optional[Dict[str, object]]:
     if not _looks_like_recurring_automation(content):
         return None
     cron, cadence = _infer_schedule_cron(content)
@@ -2602,7 +2602,7 @@ def _sanitize_chat_messages(messages: list[dict]) -> list[dict[str, str]]:
 async def _compact_context(
     messages: list[dict],
     provider_cfg: "LlmProviderConfig",
-    model: str | None,
+    model: Optional[str],
 ) -> list[dict]:
     """Summarize older messages when history grows beyond COMPACT_THRESHOLD."""
     if len(messages) <= _COMPACT_THRESHOLD:
@@ -2692,13 +2692,13 @@ async def _run_agent_loop(
     session_messages: list[dict],
     wiki_index: str,
     provider: dict,
-    session_id: str | None = None,
-    requested_model: str | None = None,
-    model_overrides: dict[str, str] | None = None,
-    github_token: str | None = None,
-    provider_chain: list[ProviderConfig] | None = None,
+    session_id: Optional[str] = None,
+    requested_model: Optional[str] = None,
+    model_overrides: Optional[Dict[str, str]] = None,
+    github_token: Optional[str] = None,
+    provider_chain: Optional[List[ProviderConfig]] = None,
     allow_commercial_fallback: bool = True,
-    workspace_root: str | Path | None = None,
+    workspace_root: Optional[Union[str, Path]] = None,
 ) -> str:
     try:
         from agent.loop import AgentRunner
@@ -2935,7 +2935,7 @@ async def get_active_provider():
         return None
 
 
-def _fallback_local_provider_record() -> dict[str, str | int]:
+def _fallback_local_provider_record() -> Dict[str, Union[str, int]]:
     return {
         "provider_id": "ollama-local",
         "name": "Ollama (Local)",
@@ -2947,7 +2947,7 @@ def _fallback_local_provider_record() -> dict[str, str | int]:
     }
 
 
-def _nvidia_nim_provider_record() -> dict | None:
+def _nvidia_nim_provider_record() -> Optional[Dict]:
     """Return a provider record for Nvidia NIM if the API key is set in env."""
     key = (
         os.environ.get("NVIDIA_API_KEY") or os.environ.get("NVidiaApiKey") or ""
@@ -2958,7 +2958,7 @@ def _nvidia_nim_provider_record() -> dict | None:
         os.environ.get("NVIDIA_BASE_URL") or "https://integrate.api.nvidia.com/v1"
     ).rstrip("/")
     model = (
-        os.environ.get("NVIDIA_DEFAULT_MODEL") or "nvidia/nemotron-3-super-120b-a12b"
+        os.environ.get("NVIDIA_DEFAULT_MODEL") or "nvidia/llama-3.1-70b-instruct"
     )
     return {
         "provider_id": "nvidia-nim",
@@ -3010,7 +3010,7 @@ def _chat_provider_policy(
 
 async def _build_provider_router(
     *,
-    primary_provider_id: str | None,
+    primary_provider_id: Optional[str],
     allow_commercial_fallback_once: bool = False,
 ) -> tuple[ProviderRouter, dict[str, bool], dict]:
     records = await _list_configured_provider_records()
@@ -3040,13 +3040,13 @@ async def _build_provider_router(
 async def call_llm(
     messages: list[dict],
     *,
-    model: str | None = None,
+    model: Optional[str] = None,
     temperature: float = 0.3,
-    provider_id: str | None = None,
+    provider_id: Optional[str] = None,
     allow_commercial_fallback_once: bool = False,
     max_retries: int = 2,
     provider_timeout_sec: float = 300.0,
-    observation: dict[str, object] | None = None,
+    observation: Optional[Dict[str, object]] = None,
 ) -> str:
     provider = (
         await db.providers.find_one({"provider_id": provider_id})
@@ -3140,10 +3140,10 @@ async def call_llm(
 
 class ChatMessage(BaseModel):
     content: str
-    session_id: str | None = None
-    model: str | None = None
-    provider_id: str | None = None
-    temperature: float | None = Field(default=None, ge=0.0, le=2.0)
+    session_id: Optional[str] = None
+    model: Optional[str] = None
+    provider_id: Optional[str] = None
+    temperature: Optional[float] = Field(default=None, ge=0.0, le=2.0)
     agent_mode: bool = (
         False  # When True, forces multi-agent orchestration regardless of complexity
     )
@@ -3159,13 +3159,13 @@ async def _persist_agent_chat_response(
     session_id: str,
     user_id: str,
     storage_mode: str,
-    db_session_id: ObjectId | None,
+    db_session_id: Optional[ObjectId],
     title: str,
-    provider_id: str | None,
-    model: str | None,
-    temperature: float | None,
+    provider_id: Optional[str],
+    model: Optional[str],
+    temperature: Optional[float],
     messages: list[dict],
-    created_at: str | None,
+    created_at: Optional[str],
     response_text: str,
 ) -> None:
     final_messages = list(messages) + [{"role": "assistant", "content": response_text}]
@@ -3186,13 +3186,13 @@ async def _persist_agent_chat_response(
 async def _agent_timeout_fallback_response(
     *,
     content: str,
-    provider_id: str | None,
-    model: str | None,
-    provider_default_model: str | None,
+    provider_id: Optional[str],
+    model: Optional[str],
+    provider_default_model: Optional[str],
     temperature: float,
-    session_model: str | None,
+    session_model: Optional[str],
     allow_commercial_fallback_once: bool,
-    observation: dict[str, object] | None = None,
+    observation: Optional[Dict[str, object]] = None,
 ) -> str:
     fallback_messages = [
         {
@@ -3207,13 +3207,13 @@ async def _agent_timeout_fallback_response(
         },
         {"role": "user", "content": content},
     ]
-    candidate_models: list[str | None] = []
+    candidate_models: list[Optional[str]] = []
     for candidate in (model, provider_default_model, session_model, None):
         if candidate not in candidate_models:
             candidate_models.append(candidate)
 
-    last_exc: Exception | None = None
-    recovered: str | None = None
+    last_exc: Optional[Exception] = None
+    recovered: Optional[str] = None
     for candidate in candidate_models:
         try:
             recovered = await asyncio.wait_for(
@@ -3257,14 +3257,14 @@ def _chat_error_detail_text(detail: object) -> str:
 
 
 def _direct_chat_recovery_attempts(
-    *, provider_id: str | None, requested_model: str | None
-) -> list[tuple[str | None, str | None]]:
-    attempts: list[tuple[str | None, str | None]] = []
+    *, provider_id: Optional[str], requested_model: Optional[str]
+) -> list[tuple[Optional[str], Optional[str]]]:
+    attempts: list[tuple[Optional[str], Optional[str]]] = []
     if requested_model:
         attempts.append((provider_id, None))
     attempts.append((None, None))
 
-    deduped: list[tuple[str | None, str | None]] = []
+    deduped: list[tuple[Optional[str], Optional[str]]] = []
     for candidate in attempts:
         if candidate not in deduped:
             deduped.append(candidate)
@@ -3274,13 +3274,13 @@ def _direct_chat_recovery_attempts(
 async def _recover_direct_chat_response(
     *,
     llm_messages: list[dict],
-    provider_id: str | None,
-    requested_model: str | None,
-    session_model: str | None,
+    provider_id: Optional[str],
+    requested_model: Optional[str],
+    session_model: Optional[str],
     temperature: float,
     allow_commercial_fallback_once: bool,
     failure_detail: str,
-    observation: dict[str, object] | None = None,
+    observation: Optional[Dict[str, object]] = None,
 ) -> str:
     recovery_model = requested_model or session_model
     log.warning("Direct chat primary attempt failed: %s", failure_detail)
@@ -3420,7 +3420,7 @@ async def chat_send(body: ChatMessage, user: dict = Depends(get_current_user)):
         if body.temperature is not None
         else (session.get("temperature") or 0.3)
     )
-    assistant_meta: dict[str, object] | None = None
+    assistant_meta: Optional[Dict[str, object]] = None
     observation_payload = {
         "email": user.get("email") or ADMIN_EMAIL,
         "department": user.get("department") or "general",
@@ -3811,7 +3811,7 @@ async def delete_session(session_id: str, user: dict = Depends(get_current_user)
 
 @app.get("/api/agent/status", response_model=AgentStatusResponse)
 async def get_agent_status(
-    session_id: str | None = None,
+    session_id: Optional[str] = None,
     user: dict = Depends(get_current_user),
 ):
     if not session_id:
@@ -3823,7 +3823,7 @@ async def get_agent_status(
 
 @app.get("/api/agent/stream")
 async def stream_agent_activity(
-    session_id: str | None = None,
+    session_id: Optional[str] = None,
     user: dict = Depends(get_current_user),
 ):
     if session_id:
@@ -4487,7 +4487,7 @@ async def _load_local_metrics_since(cutoff: datetime) -> list[dict]:
     return docs
 
 
-def _to_dt(value: object) -> datetime | None:
+def _to_dt(value: object) -> Optional[datetime]:
     if isinstance(value, datetime):
         return value.astimezone(timezone.utc)
     return None
@@ -4738,7 +4738,7 @@ async def health():
         or "11434" in active_base
     )
 
-    ollama_ok: bool | None = None
+    ollama_ok: Optional[bool] = None
     if ollama_relevant:
         ollama_ok = False
         try:
@@ -4764,7 +4764,7 @@ async def health():
 GITHUB_API = "https://api.github.com"
 
 
-async def _get_github_token(user_id: str) -> str | None:
+async def _get_github_token(user_id: str) -> Optional[str]:
     doc = await db.github_settings.find_one({"user_id": user_id})
     return doc.get("token") if doc else None
 
@@ -4838,10 +4838,10 @@ def _oauth_popup_html(
 
 @app.get("/api/github/oauth/callback")
 async def github_oauth_callback(
-    code: str | None = None,
-    state: str | None = None,
-    error: str | None = None,
-    error_description: str | None = None,
+    code: Optional[str] = None,
+    state: Optional[str] = None,
+    error: Optional[str] = None,
+    error_description: Optional[str] = None,
 ):
     """GitHub redirects here after the user authorises (or denies) the OAuth App."""
 
@@ -5162,7 +5162,7 @@ class GitHubFileWrite(BaseModel):
     path: str = Field(..., min_length=1, max_length=2000)
     content: str
     message: str = Field(..., min_length=1, max_length=1000)
-    sha: str | None = None  # required for updates, omit for new files
+    sha: Optional[str] = None  # required for updates, omit for new files
     branch: str = Field(default="main", min_length=1, max_length=200)
 
 
@@ -5316,9 +5316,9 @@ class LegacyScheduleJobRequest(BaseModel):
     name: str = Field(..., min_length=1, max_length=200)
     cron: str = Field(..., min_length=9, max_length=100)
     instruction: str = Field(..., min_length=1, max_length=4000)
-    agent_id: str | None = Field(default=None, max_length=64)
-    runtime_id: str | None = Field(default=None, max_length=64)
-    model: str | None = Field(default=None, max_length=200)
+    agent_id: Optional[str] = Field(default=None, max_length=64)
+    runtime_id: Optional[str] = Field(default=None, max_length=64)
+    model: Optional[str] = Field(default=None, max_length=200)
     task_type: str = Field(default="scheduled", max_length=64)
     requires_approval: bool = False
     tags: list[str] = Field(default_factory=list)

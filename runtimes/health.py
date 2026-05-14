@@ -23,7 +23,7 @@ if TYPE_CHECKING:
 log = logging.getLogger("qwen-proxy")
 
 # ── Circuit-breaker constants ─────────────────────────────────────────────────
-CB_FAILURE_THRESHOLD = 3    # consecutive failures → OPEN
+CB_FAILURE_THRESHOLD = 5    # consecutive failures → OPEN
 CB_RECOVERY_SEC      = 60   # seconds before attempting recovery from OPEN
 
 
@@ -140,17 +140,18 @@ class RuntimeHealthService:
         if circuit.is_open:
             return
         try:
-            health = await asyncio.wait_for(adapter.health_check(), timeout=10.0)
+            health = await asyncio.wait_for(adapter.health_check(), timeout=30.0)
             self._cache[runtime_id] = health
             if health.available:
                 circuit.record_success()
             else:
                 circuit.record_failure()
         except Exception as exc:
-            log.debug("Health check failed for %s: %s", runtime_id, exc)
+            log.error("Health check failed for %s: %s (circuit failures: %d)",
+                      runtime_id, exc, circuit.consecutive_failures + 1)
             circuit.record_failure()
             self._cache[runtime_id] = RuntimeHealth(
                 runtime_id=runtime_id,
                 available=False,
-                error=str(exc),
+                error=f"{type(exc).__name__}: {exc}",
             )

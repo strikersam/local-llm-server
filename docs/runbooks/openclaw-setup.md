@@ -2,7 +2,7 @@
 
 ## What is OpenClaw?
 
-OpenClaw (https://github.com/getmoss/openclaw-claude-code) is an open-source local
+OpenClaw (https://github.com/openclaw/openclaw) is an open-source local
 control plane for Claude Code sessions. It provides:
 - Persistent session management
 - Workspace-aware prompt injection
@@ -31,8 +31,8 @@ control plane for Claude Code sessions. It provides:
 npm install -g @anthropic-ai/claude-code    # if not already installed
 
 # Install OpenClaw
-git clone https://github.com/getmoss/openclaw-claude-code
-cd openclaw-claude-code
+git clone https://github.com/openclaw/openclaw
+cd openclaw
 npm install
 
 # Start the OpenClaw daemon

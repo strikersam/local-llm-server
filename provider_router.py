@@ -117,15 +117,10 @@ class ProviderResult:
 class ProviderFallbackError(RuntimeError):
     def __init__(self, attempts: list[ProviderAttempt]) -> None:
         self.attempts = attempts
-        # Prefer showing HTTP-level failures (actionable: bad keys, model missing) over
-        # pure connection failures (Ollama offline) which are not actionable from the UI.
-        recent = attempts[-5:]
-        http_failures = [a for a in recent if a.status_code is not None]
-        display = http_failures if http_failures else recent
         summary = (
             "; ".join(
                 f"{a.provider_id}/{a.model}: {a.status_code or a.error}"
-                for a in display
+                for a in attempts[-5:]
             )
             or "no providers attempted"
         )
@@ -326,12 +321,9 @@ class ProviderRouter:
         if primary_provider:
             providers.append(primary_provider)
         else:
-            # Include Ollama as local fallback unless a cloud-hosted NVIDIA key is present.
-            # When NVIDIA_API_KEY is set, skip Ollama by default (it's likely not running);
-            # set INCLUDE_LOCAL_FALLBACK=true to force-include it even in hosted mode.
+            # Include Ollama as a fallback only if explicitly opted in via settings
             include_local_fallback = os.environ.get("INCLUDE_LOCAL_FALLBACK", "false").lower() == "true"
-            has_nvidia_key = bool(nvidia_key)
-            if not has_nvidia_key or include_local_fallback:
+            if include_local_fallback:
                 providers.append(
                     ProviderConfig(
                         provider_id="ollama-local",
@@ -345,6 +337,7 @@ class ProviderRouter:
                         priority=0,  # local Ollama beats windows-server (5) and cloud fallbacks
                     )
                 )
+        # If we have NVIDIA key and not including local fallback, we skip Ollama
 
         windows_base = (
             (os.environ.get("OLLAMA_WINDOWS_SERVER") or "").strip().rstrip("/")
@@ -541,10 +534,9 @@ class ProviderRouter:
                 except Exception as exc:
                     latency_ms = int((time.perf_counter() - started) * 1000)
                     attempts.append(ProviderAttempt(
-                        provider.provider_id, model, None, error=str(exc)[:200], latency_ms=latency_ms,
+                        provider.provider_id, model, None, error=str(exc), latency_ms=latency_ms,
                     ))
                     last_was_conn_error = True
-                    break  # connection refused/timeout — retrying won't help, apply cooldown and move on
                 if attempt_number < max_retries:
                     await asyncio.sleep(min(0.25 * (2**attempt_number), 2.0))
         # Apply failure-type-aware cooldown: auth errors last longer than transient failures.

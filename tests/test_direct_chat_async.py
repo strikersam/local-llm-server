@@ -147,3 +147,137 @@ def test_make_isolated_workspace_hashes_valid_identifiers(tmp_path: Path):
     assert workspace.parent.name != "session-1"
     assert workspace.name != "job-1"
     assert workspace.exists()
+
+
+def test_agent_mode_github_preflight_missing_token(monkeypatch, tmp_path: Path):
+    proxy.app.dependency_overrides[direct_chat._get_current_user] = _fake_user
+    monkeypatch.setattr(direct_chat, "_direct_chat_store", AgentSessionStore(db_path=str(tmp_path / "chat4.db")))
+    monkeypatch.setattr(direct_chat, "_agent_jobs", AgentJobManager())
+    monkeypatch.setattr(direct_chat, "_agent_workspace_root", tmp_path / "workspaces")
+
+    # Ensure git binary appears present but no token is returned
+    import shutil
+    monkeypatch.setattr(shutil, "which", lambda name: "/usr/bin/git")
+    monkeypatch.setattr(direct_chat, "_get_github_token_for_user", lambda email: None)
+
+    class _FakeProvider:
+        priority = 1
+        api_key = None
+        normalized_base_url = "http://localhost:11434"
+        def auth_headers(self) -> dict[str, str]:
+            """
+            Return authentication headers for the provider.
+            
+            Returns:
+                dict[str, str]: Mapping of HTTP header names to values; empty if the provider requires no authentication.
+            """
+            return {}
+
+    class _FakeRouter:
+        providers = (_FakeProvider(),)
+
+    monkeypatch.setattr(proxy.app.state, "PROVIDER_ROUTER", _FakeRouter(), raising=False)
+
+    client = TestClient(proxy.app)
+    response = client.post("/api/chat/send", json={"content": "Please clone my repo and create a PR", "agent_mode": True})
+    assert response.status_code == 412
+    detail = response.json().get("detail")
+    assert detail and detail.get("ready") is False
+    issues = detail.get("issues") or []
+    codes = {i.get("code") for i in issues}
+    assert "missing_github_token" in codes
+
+    proxy.app.dependency_overrides.clear()
+
+
+def test_job_result_normalizes_and_exposes_final_message():
+    import asyncio
+    from agent.job_manager import AgentJobManager
+
+    async def _run():
+        mgr = AgentJobManager()
+        job = mgr.create_job(session_id="s1", instruction="do work")
+
+        async def runner(heartbeat):
+            heartbeat("planning", "planning")
+            return {"summary": "Final textual summary", "steps": []}
+
+        mgr.start_job(job.job_id, runner)
+
+        for _ in range(200):
+            if job.status in ("succeeded", "failed"):
+                break
+            await asyncio.sleep(0.01)
+
+        assert job.status == "succeeded"
+        assert isinstance(job.result, dict)
+        assert job.result.get("response") == "Final textual summary"
+        d = job.as_dict()
+        assert d.get("final_message") == "Final textual summary"
+
+    asyncio.run(_run())
+
+
+def test_job_failure_structures_runtime_preflight():
+    import asyncio
+    from agent.job_manager import AgentJobManager
+    from runtimes.base import RuntimePreflightError
+    mgr = AgentJobManager()
+    job = mgr.create_job(session_id="s2", instruction="run git ops")
+
+    class DummyReport:
+        def __init__(self):
+            """
+            Initialize the report with defaults indicating the internal agent runtime is not ready.
+            
+            Sets:
+                runtime_id: "internal_agent"
+                ready: False
+                selected_runtime: "internal_agent"
+            """
+            self.runtime_id = "internal_agent"
+            self.ready = False
+            self.selected_runtime = "internal_agent"
+            self.summary = "docker missing"
+        def as_dict(self):
+            """
+            Serialize the readiness report to a plain dictionary.
+            
+            Returns:
+                dict: A mapping with keys:
+                    - "runtime_id" (str): the identifier of the runtime.
+                    - "ready" (bool): readiness flag.
+                    - "summary" (str): human-readable summary (here: "docker missing").
+            """
+            return {"runtime_id": self.runtime_id, "ready": self.ready, "summary": "docker missing"}
+
+    async def runner(heartbeat):
+        # Simulate runtime preflight failure thrown during execution
+        """
+        Simulates a runner that fails preflight by raising a RuntimePreflightError.
+        
+        This asynchronous runner always raises RuntimePreflightError for runtime "internal_agent"
+        using a DummyReport instance.
+        
+        Parameters:
+            heartbeat: Callable[[str, str], None] — progress callback invoked by runners (unused here).
+        
+        Raises:
+            RuntimePreflightError: Indicates the runtime preflight failed with an attached report.
+        """
+        raise RuntimePreflightError("internal_agent", DummyReport())
+
+    async def _run():
+        mgr.start_job(job.job_id, runner)
+        for _ in range(200):
+            if job.status in ("succeeded", "failed"):
+                break
+            await asyncio.sleep(0.01)
+
+    import asyncio
+    asyncio.run(_run())
+
+    assert job.status == "failed"
+    assert isinstance(job.error, dict)
+    assert job.error.get("code") == "runtime_preflight"
+    assert "report" in job.error and isinstance(job.error["report"], dict)

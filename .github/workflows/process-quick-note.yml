@@ -287,6 +287,12 @@ jobs:
       - name: Council review (Security / Correctness / Performance / Maintainability)
         id: review
         if: steps.pr.outputs.pr_number != ''
+        # IMPORTANT: continue-on-error must be true.
+        # review_agent.py always exits 0, but a crash (e.g. network error) would
+        # otherwise mark this step failed and skip ALL downstream steps (merge,
+        # close-issue, human-review comment) because GitHub Actions skips
+        # subsequent steps whose `if:` does not include always()/failure().
+        continue-on-error: true
         env:
           NVIDIA_API_KEY: ${{ secrets.NVIDIA_API_KEY }}
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -333,6 +339,7 @@ jobs:
 
       # ── 14. Close issue on success ─────────────────────────────────────────
       - name: Close issue — success
+        id: close_success
         if: steps.merge.outputs.merged == 'true'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -379,14 +386,32 @@ jobs:
           )"
 
       # ── 16. Auto-retry: reopen issue on failure ────────────────────────────
-      # Runs whenever ANY earlier step failed and we found an issue to process.
-      # After 3 failures the issue is exhausted.
+      # Runs whenever the issue was found but was NOT successfully closed.
+      #
+      # Previous behaviour used failure() which only fires on non-zero step
+      # exits.  This missed two silent-skip cases that kept issues open forever:
+      #
+      #   a) Tests fail after implementation — step 9 exits 0 (if/else), so
+      #      subsequent steps are skipped via their `if:` conditions, not via a
+      #      step failure.  failure() == false → retry handler never ran.
+      #
+      #   b) Agent succeeds but makes no file changes (nothing to commit) —
+      #      same pattern: step 10 exits 0 with changed=false, no PR is created,
+      #      no failure(), retry handler never ran.
+      #
+      # Fix: use always() + check that the issue was neither closed (close_success
+      # not successful) nor handed to a human (verdict == 'FAIL').  The additional
+      # guard `(failure() || steps.pr.outputs.pr_number == '')` ensures we don't
+      # spuriously retry when the pipeline completed normally but the close step
+      # had a transient hiccup — in that case pr_number is set and no failure
+      # occurred.
       - name: Handle failure — reopen for retry
         if: >
-          failure() &&
+          always() &&
           steps.pick.outputs.found == 'true' &&
-          steps.merge.outputs.merged != 'true' &&
-          steps.review.outputs.verdict != 'FAIL'
+          steps.close_success.outcome != 'success' &&
+          steps.review.outputs.verdict != 'FAIL' &&
+          (failure() || steps.pr.outputs.pr_number == '')
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |

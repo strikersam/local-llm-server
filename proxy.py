@@ -28,7 +28,7 @@ load_dotenv()
 from collections import defaultdict
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
-from typing import AsyncIterator
+from typing import Optional, Dict, List, Union,  AsyncIterator
 
 import httpx
 from fastapi import Depends, FastAPI, Header, HTTPException, Request
@@ -97,8 +97,9 @@ from tasks.store import get_task_store, set_task_store
 from webui.config_store import JsonConfigStore
 from webui.providers import ProviderManager
 from webui.router import register_webui
+from features.api import features_router
 from webui.workspaces import WorkspaceManager
-from features.matrix import get_matrix, FeatureUnavailableError
+from features.matrix import get_feature_matrix, FeatureUnavailableError
 from agent.workspace import get_workspace_manager
 from workflow import WorkflowEngine, workflow_router
 from workflow.engine import get_engine
@@ -217,7 +218,7 @@ class AuthContext:
     key: str
     email: str
     department: str
-    key_id: str | None
+    key_id: Optional[str]
     source: str  # "store" | "legacy"
 
 
@@ -276,8 +277,8 @@ def _localhost_auth_bypass_allowed(request: Request) -> bool:
 
 def verify_api_key(
     request: Request,
-    authorization: str | None = Header(default=None),
-    x_api_key: str | None = Header(default=None, alias="x-api-key"),
+    authorization: Optional[str] = Header(default=None),
+    x_api_key: Optional[str] = Header(default=None, alias="x-api-key"),
 ) -> AuthContext:
     """Accept API key from: Bearer token, x-api-key header, or ?api_key= query param (for Claude SDK).
 
@@ -382,7 +383,7 @@ class AdminUpdateKeyBody(BaseModel):
     department: str = Field(..., min_length=1, max_length=128)
 
 
-def _require_admin(x_admin_secret: str | None, authorization: str | None) -> None:
+def _require_admin(x_admin_secret: Optional[str], authorization: Optional[str]) -> None:
     if not ADMIN_SECRET:
         raise HTTPException(status_code=404, detail="Not Found")
     got = (x_admin_secret or "").strip()
@@ -396,7 +397,7 @@ def _require_admin(x_admin_secret: str | None, authorization: str | None) -> Non
 
 def _get_admin_identity_from_request(
     request: Request,
-    authorization: str | None = Header(default=None),
+    authorization: Optional[str] = Header(default=None),
 ) -> AdminIdentity:
     token = ""
     if authorization and authorization.startswith("Bearer "):
@@ -414,7 +415,7 @@ def _get_admin_identity_from_request(
     raise HTTPException(status_code=401, detail="Unauthorized")
 
 
-def _origin_tuple(url: str) -> tuple[str, str, int | None]:
+def _origin_tuple(url: str) -> tuple[str, str, Optional[int]]:
     parsed = urlsplit(url)
     scheme = parsed.scheme.lower()
     host = (parsed.hostname or "").lower()
@@ -429,7 +430,7 @@ def _origin_tuple(url: str) -> tuple[str, str, int | None]:
 
 def _provider_headers_for_request(
     secret: object, request: Request, auth: AuthContext
-) -> dict[str, str] | None:
+) -> Optional[Dict[str, str]]:
     api_key = str(getattr(secret, "api_key", "") or "").strip()
     if api_key:
         return {"Authorization": f"Bearer {api_key}"}
@@ -458,8 +459,8 @@ def _agent_failure_result(instruction: str) -> dict[str, object]:
 
 _mongo_client: AsyncIOMotorClient | None = None
 _mongo_db: AsyncIOMotorDatabase | None = None
-_task_dispatcher: TaskDispatcher | None = None
-_dispatcher_task: asyncio.Task | None = None
+_task_dispatcher: Optional[TaskDispatcher] = None
+_dispatcher_task: Optional[asyncio.Task] = None
 
 
 @asynccontextmanager
@@ -575,6 +576,7 @@ async def lifespan(app: FastAPI):
     _dispatcher_task = asyncio.create_task(_task_dispatcher.run_forever())
     log.info("Task dispatcher started in background")
 
+    app.state.webui_workspaces = WEBUI_WORKSPACES
     app.state.PROVIDER_ROUTER = PROVIDER_ROUTER
 
     try:
@@ -838,6 +840,10 @@ app.include_router(
 )
 log.info("Workspace sync mounted at /api/sync/*")
 
+# ─── Admin: Feature support matrix ────────────────────────────────────────────
+app.include_router(features_router)
+log.info("Feature support matrix mounted at /admin/features/*")
+
 # ─── v2: Multi-agent coordinate ───────────────────────────────────────────────
 app.include_router(coordinate_v2_router)
 log.info("Multi-agent coordinate v2 mounted at /v2/agent/coordinate")
@@ -857,8 +863,8 @@ log.info("Routing policy API mounted at /api/routing/*")
 @app.post("/admin/keys")
 async def admin_create_key(
     body: AdminCreateKeyBody,
-    x_admin_secret: str | None = Header(default=None, alias="X-Admin-Secret"),
-    authorization: str | None = Header(default=None),
+    x_admin_secret: Optional[str] = Header(default=None, alias="X-Admin-Secret"),
+    authorization: Optional[str] = Header(default=None),
 ):
     """Issue a new user API key (requires ADMIN_SECRET). Plain key returned once in JSON."""
     _require_admin(x_admin_secret, authorization)
@@ -920,7 +926,7 @@ async def admin_login(body: AdminLoginBody):
 @app.post("/admin/api/logout")
 async def admin_logout(
     request: Request,
-    authorization: str | None = Header(default=None),
+    authorization: Optional[str] = Header(default=None),
     admin: AdminIdentity = Depends(_get_admin_identity_from_request),
 ):
     if authorization and authorization.startswith("Bearer "):
@@ -1062,7 +1068,7 @@ async def admin_list_features(
     every feature.  Operators can see what is stable, beta, experimental, or
     disabled at a glance.
     """
-    return get_matrix().as_dict(admin_only=True)
+    return get_feature_matrix().as_dict(admin_only=True)
 
 
 @app.get("/admin/api/workspaces/metrics")
@@ -1186,8 +1192,8 @@ async def api_health():
 
 class AgentChatRequest(BaseModel):
     instruction: str = Field(..., min_length=1, max_length=8000)
-    session_id: str | None = Field(default=None, max_length=128)
-    model: str | None = Field(default=None, max_length=200)
+    session_id: Optional[str] = Field(default=None, max_length=128)
+    model: Optional[str] = Field(default=None, max_length=200)
     max_steps: int = Field(default=10, ge=1, le=50)
     timeout: float = Field(default=300.0, ge=10.0, le=600.0)
 
@@ -1236,7 +1242,7 @@ async def agent_chat(
         raise HTTPException(status_code=503, detail="No LLM providers configured")
 
     providers = sorted(PROVIDER_ROUTER.providers, key=lambda p: p.priority)
-    last_error: Exception | None = None
+    last_error: Optional[Exception] = None
 
     for provider in providers:
         # Skip providers on cooldown
@@ -1761,7 +1767,7 @@ async def background_submit(
 
 @app.get("/agent/background/tasks")
 async def background_list(
-    status: str | None = None,
+    status: Optional[str] = None,
     auth: AuthContext = Depends(verify_api_key),
 ):
     tasks = BACKGROUND_AGENT.list_tasks(status=status)
@@ -1783,9 +1789,9 @@ class ScheduleJobRequest(BaseModel):
     name: str = Field(..., min_length=1, max_length=200)
     cron: str = Field(..., min_length=9, max_length=100)
     instruction: str = Field(..., min_length=1, max_length=4000)
-    agent_id: str | None = Field(default=None, max_length=64)
-    runtime_id: str | None = Field(default=None, max_length=64)
-    model: str | None = Field(default=None, max_length=200)
+    agent_id: Optional[str] = Field(default=None, max_length=64)
+    runtime_id: Optional[str] = Field(default=None, max_length=64)
+    model: Optional[str] = Field(default=None, max_length=200)
     task_type: str = Field(default="scheduled", max_length=64)
     requires_approval: bool = False
     tags: list[str] = Field(default_factory=list)
@@ -1877,7 +1883,7 @@ async def playbook_register(
 
 @app.get("/agent/playbooks")
 async def playbook_list(
-    tag: str | None = None, auth: AuthContext = Depends(verify_api_key)
+    tag: Optional[str] = None, auth: AuthContext = Depends(verify_api_key)
 ):
     return {"playbooks": [p.as_dict() for p in PLAYBOOKS.list(tag=tag)]}
 
@@ -2008,7 +2014,7 @@ class MpcSkillRequest(BaseModel):
 
 @app.get("/agent/skills")
 async def skills_list(
-    source: str | None = None, auth: AuthContext = Depends(verify_api_key)
+    source: Optional[str] = None, auth: AuthContext = Depends(verify_api_key)
 ):
     return {"skills": [s.as_dict() for s in SKILL_LIBRARY.list(source=source)]}
 
@@ -2068,11 +2074,11 @@ class BrowserActionRequest(BaseModel):
     action: str = Field(
         ..., pattern="^(navigate|click|fill|screenshot|evaluate|get_state)$"
     )
-    url: str | None = None
-    selector: str | None = None
-    value: str | None = None
-    path: str | None = None
-    expression: str | None = None
+    url: Optional[str] = None
+    selector: Optional[str] = None
+    value: Optional[str] = None
+    path: Optional[str] = None
+    expression: Optional[str] = None
 
 
 @app.post("/agent/browser/action")
@@ -2167,7 +2173,7 @@ async def stream_response(
 
 
 async def proxy_request(
-    request: Request, target_path: str, auth: AuthContext | None = None
+    request: Request, target_path: str, auth: Optional[AuthContext] = None
 ):
     body = await request.body()
     content_type = request.headers.get("content-type", "application/json")

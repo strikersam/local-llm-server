@@ -71,6 +71,10 @@ class AgentPlan(BaseModel):
 class ToolCall(BaseModel):
     tool: Literal[
         "read_file",
+        "get_overview",
+        "get_context",
+        "get_risk",
+        "get_why",
         "head_file",      # JIT retrieval: first N lines only
         "file_index",     # JIT retrieval: lightweight file list with sizes
         "write_file",

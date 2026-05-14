@@ -1,145 +1,80 @@
 # Feature Support Matrix
 
-This document describes the stability classification of every feature in
-local-llm-server.  The **single source of truth** is `features/matrix.py` —
-this document is generated from the same registry.
-
-For operator override instructions see the [Configuration Reference](configuration-reference.md#feature-flags).
-
----
+This document is generated from the single source of truth in `features/matrix.py`.
 
 ## Maturity Tiers
 
-| Tier | Meaning |
-|------|---------|
-| **stable** | Production-ready.  API and behaviour are stable.  No warnings. |
-| **beta** | Usable but may have rough edges.  API may evolve.  Generates a warning log on use. |
-| **experimental** | Opt-in only.  Disabled by default.  Not recommended for production. |
-| **disabled** | Permanently off.  Cannot be enabled by operators. |
+| Tier | Meaning | Recommended for Production |
+|------|---------|---------------------------|
+| **stable** | Fully tested, production-ready, no known major issues | ✅ Yes |
+| **beta** | Functional but may have edge cases or behavioral changes | ⚠️ With caution |
+| **experimental** | Proof-of-concept, may be unstable or incomplete | ❌ Not recommended |
+| **disabled** | Turned off, cannot be used without explicit override | ❌ No |
 
----
+## Feature Matrix
 
-## Support Matrix
+<!-- AUTO-GENERATED from features/matrix.py -->
 
-### Stable Core
+| Feature | ID | Maturity | Enabled | Dependencies | Config Flags | Notes |
+|---------|----|----------|---------|--------------|-------------|-------|
+| Direct Chat | `direct_chat` | stable | ✅ | Ollama or cloud provider | — | Core synchronous chat feature. |
+| OpenAI API Compatibility | `openai_compat` | stable | ✅ | Ollama | — | /v1/ chat completions endpoint. |
+| Anthropic API Compatibility | `anthropic_compat` | stable | ✅ | Ollama | — | /v1/messages endpoint for Claude Code etc. |
+| Ollama Native Passthrough | `ollama_passthrough` | stable | ✅ | Ollama | — | /api/* endpoints. |
+| Multi-User Key Management | `key_management` | stable | ✅ | — | KEYS_FILE, API_KEYS | |
+| Provider Routing & Fallback | `provider_routing_fallback` | stable | ✅ | — | PROVIDER_COOLDOWN_SECONDS | Timeout/cooldown/failover for providers. |
+| Rate Limiting | `rate_limiting` | stable | ✅ | — | RATE_LIMIT_RPM | Per-key RPM limiting. |
+| Runtime Preflight Validation | `runtime_preflight` | stable | ✅ | — | — | Structured readiness checks before execution. |
+| Admin Dashboard | `admin_dashboard` | stable | ✅ | — | ADMIN_SECRET | |
+| Langfuse Observability (Direct Chat) | `observability_langfuse` | stable | ✅ | Langfuse account | LANGFUSE_PUBLIC_KEY, LANGFUSE_SECRET_KEY | Traces + cost metadata. |
+| Workspace Isolation | `workspace_isolation` | stable | ✅ | — | WORKSPACE_BASE_ROOT, WORKSPACE_RETENTION_TTL_SECONDS | Per-session/job isolated workspaces with manifests. |
+| Planner / Executor / Verifier Pipeline | `agent_planner_executor_verifier` | stable | ✅ | Ollama or cloud provider | AGENT_PLANNER_MODEL, AGENT_EXECUTOR_MODEL, AGENT_VERIFIER_MODEL | Three-role plan-execute-verify loop. |
+| Judge (Release Gate) | `agent_judge` | stable | ✅ | Ollama or cloud provider | AGENT_JUDGE_MODEL | Quality gate after verification. |
+| Local Runtime (internal_agent) | `local_runtime` | stable | ✅ | — | RUNTIME_DEFAULT | Built-in agent loop, always available. |
+| Local-First Model Routing | `local_model_routing` | stable | ✅ | Ollama | — | |
+| Async Agent Jobs | `async_agent_jobs` | beta | ✅ | Agent runtime | DIRECT_CHAT_AGENT_WORKSPACE_ROOT | Agent mode returns 202 + pollable job ID. |
+| Runtime Readiness Diagnostics | `runtime_readiness_diagnostics` | beta | ✅ | — | — | Preflight validation with structured issues. |
+| Policies & Governance | `policies_governance` | beta | ✅ | — | — | Approval gates, RBAC, admin controls. |
+| CRISPY Workflow Engine | `crispy_workflow` | beta | ✅ | — | CRISPY_ARTIFACTS_ROOT | Structured build workflow with approval gates. |
+| Task-Harness Runtime | `task_harness_runtime` | beta | ✅ | task-harness binary | TASK_HARNESS_REQUIRED, TASK_HARNESS_BIN | Requires external harness binary. |
+| OpenHands Runtime | `openhands_runtime` | experimental | ❌ | Docker, OpenHands image | OPENHANDS_ENABLED | Opt-in, requires Docker. Set OPENHANDS_ENABLED=true. |
+| Sidecar Runtimes (Hermes/OpenCode/Goose) | `sidecar_runtimes` | experimental | ✅ | Sidecar process running | — | Registered but may be unhealthy if sidecar is not running. |
+| Telegram Bot | `telegram_bot` | experimental | ✅ | Telegram Bot Token | TELEGRAM_BOT_TOKEN, TELEGRAM_ALLOWED_USER_IDS | Remote control via Telegram. |
+| Tunnels (Cloudflare/ngrok) | `tunnels` | experimental | ✅ | cloudflared or ngrok | NGROK_AUTH_TOKEN, CLOUDFLARED_EXE | Exposes proxy over HTTPS. |
+| Multi-Agent / Swarm | `multi_agent_swarm` | experimental | ✅ | — | — | Agent coordination and swarm dispatch. |
+| OpenClaw Integration | `openclaw_integration` | experimental | ✅ | OpenClaw | — | Maintenance: vulnerability fixes, code scans. |
+| JCode Runtime | `jcode_runtime` | experimental | ✅ | JCode | — | JCode execution runtime. |
+| Quick Actions / iOS Shortcuts | `quick_actions_ios` | experimental | ✅ | — | — | iOS Shortcuts integration for remote commands. |
+| Machine Sync / Peer Sync | `machine_peer_sync` | experimental | ✅ | — | — | Sync service for multi-machine coordination. |
 
-| Feature | ID | Notes |
-|---------|-----|-------|
-| OpenAI / Ollama / Anthropic proxy endpoints | `proxy_endpoints` | Always on |
-| Bearer token + key-store auth | `auth` | Always on |
-| Per-key rate limiting | `rate_limiting` | Configurable via `RATE_LIMIT_RPM` |
-| Multi-provider routing and fallback | `provider_routing` | Always on |
-| Local model routing + alias resolution | `model_routing` | Configurable via `MODEL_MAP` |
-| API key CRUD (generate / revoke) | `key_management` | Requires `KEYS_FILE` |
-| Direct chat (sync, non-blocking) | `direct_chat` | Always on |
-| Built-in local agent runtime | `local_runtime` | Always on |
-| Langfuse trace / cost observability | `langfuse_observability` | Activated by `LANGFUSE_PUBLIC_KEY` + `LANGFUSE_SECRET_KEY` |
+## Config Overrides
 
-### Beta
-
-| Feature | ID | Notes |
-|---------|-----|-------|
-| Async agent job queue (202 + job ID) | `async_agent_jobs` | Poll `/api/chat/agent-jobs/<id>` for status |
-| Planner / verifier / judge pipeline | `planner_verifier_judge` | Requires `AGENT_*_MODEL` env vars |
-| Per-job isolated workspace | `workspace_isolation` | Configurable via `AGENT_WORKSPACE_BASE`, `WORKSPACE_TTL_HOURS` |
-| Runtime readiness / preflight validation | `runtime_preflight` | Always on when runtimes are enabled |
-| Task-harness runtime | `task_harness_runtime` | Requires Docker sidecar |
-| Aider runtime | `aider_runtime` | Requires `aider` binary on PATH |
-| Hermes runtime | `hermes_runtime` | Requires Hermes sidecar |
-| Per-job progress polling | `per_job_progress` | Poll `GET /api/chat/agent-jobs/<id>` |
-| Telegram bot remote control | `telegram_bot` | Requires `TELEGRAM_BOT_TOKEN` |
-| Tunnel / ngrok / Cloudflare remote access | `tunnel` | Requires token |
-| Admin command runner | `admin_command_runner` | Requires `ADMIN_SECRET` |
-
-### Experimental
-
-| Feature | ID | Notes |
-|---------|-----|-------|
-| jcode runtime | `jcode_runtime` | Requires binary on PATH or `JCODE_BIN` |
-| OpenHands runtime (Docker) | `openhands_runtime` | Opt-in via `OPENHANDS_ENABLED=true` |
-| OpenCode runtime (sidecar) | `opencode_runtime` | Requires OpenCode sidecar |
-| Goose runtime (sidecar) | `goose_runtime` | Requires Goose sidecar |
-| Social / OAuth login | `social_auth` | Requires `GOOGLE_CLIENT_ID` or `GITHUB_CLIENT_ID` |
-| Multi-agent swarm orchestration | `multi_agent_swarm` | No dedicated config flag |
-| CRISPY workflow engine | `workflow_engine` | No dedicated config flag |
-
----
-
-## Recommended Production Configuration
-
-For stable production operation, enable only:
-
-- Stable core features (always on)
-- `async_agent_jobs` + `workspace_isolation` (beta, well-tested)
-- `langfuse_observability` if you have a Langfuse account
-- `telegram_bot` if you need remote control
-
-Avoid in production:
-- Experimental runtimes (OpenHands, OpenCode, Goose, jcode)
-- Multi-agent swarm / CRISPY workflow engine
-
----
-
-## Operator Overrides
-
-Operators can override the default availability of beta and experimental features
-using environment variables:
+Any feature can be overridden via environment variables:
 
 ```bash
-# Force-disable beta features
-FEATURE_DISABLE=async_agent_jobs,telegram_bot
+# Disable a feature
+FEATURE_TELEGRAM_BOT=disabled
 
-# Force-enable an experimental feature
-FEATURE_ENABLE=openhands_runtime
+# Change a feature's maturity
+FEATURE_ASYNC_AGENT_JOBS=stable
+
+# Enable/disable explicitly
+FEATURE_OPENHANDS_RUNTIME=true
+FEATURE_SIDECAE_RUNTIMES=false
 ```
 
-`FEATURE_DISABLE` cannot be overridden by `FEATURE_ENABLE` (disable takes precedence
-when applied first).  Features with maturity=`disabled` cannot be enabled by any
-operator override.
-
----
+The environment variable pattern is `FEATURE_<UPPERCASE_FEATURE_ID>`.
 
 ## Admin API
 
-`GET /admin/api/features`  (requires admin auth)
+The support matrix is exposed at:
 
-Returns the full matrix as JSON:
+- `GET /admin/features` — full matrix with summary
+- `GET /admin/features/{feature_id}` — single feature details + warnings
+- `POST /admin/features/check` — check if a feature is available
 
-```json
-{
-  "schema_version": "1",
-  "total": 27,
-  "by_maturity": {
-    "stable": 9,
-    "beta": 11,
-    "experimental": 7
-  },
-  "entries": [
-    {
-      "feature_id": "proxy_endpoints",
-      "display_name": "OpenAI / Ollama / Anthropic proxy endpoints",
-      "maturity": "stable",
-      "enabled": true,
-      "default_available": true,
-      "dependencies": [],
-      "config_flags": [],
-      "admin_visible": true,
-      "notes": "Core proxy; always on."
-    }
-  ]
-}
-```
+## Gating Behavior
 
----
-
-## Enforcement
-
-The support matrix is **not documentation-only**.  It is enforced at runtime:
-
-1. Disabled features raise `FeatureUnavailableError` when accessed via
-   `require_feature(feature_id)`.
-2. Beta and experimental features emit a `WARNING` log on first use.
-3. Admin API and UI reflect the actual runtime state (not docs).
-4. Operator overrides are applied at startup, not on every request.
-
-See `features/matrix.py` for the full registry.
+- **disabled** features: code calling `matrix.check_available(feature_id)` receives a `FeatureUnavailableError` with structured `code`, `feature_id`, `maturity`, `reason`, and `fix_hint`.
+- **beta/experimental** features: `matrix.maturity_warning(feature_id)` returns a warning string. API responses include a `warning` field.
+- **enabled + stable** features: no warnings, normal operation.

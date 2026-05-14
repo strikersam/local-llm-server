@@ -19,7 +19,13 @@ jobs:
           node-version: '22'
 
       - name: Install OpenClaw
+        env:
+          GH_PAT: ${{ secrets.GH_PAT }}
         run: |
-          git clone https://github.com/getmoss/openclaw-claude-code openclaw
+          if [ -n "${GH_PAT}" ]; then
+            git clone "https://x-access-token:${GH_PAT}@github.com/openclaw/openclaw" openclaw
+          else
+            git clone https://github.com/openclaw/openclaw openclaw
+          fi
           cd openclaw && npm install
-          node openclaw/index.js --version || node openclaw/bin/openclaw --version || echo "OpenClaw installed"
+          node index.js --version || node bin/openclaw --version || echo "OpenClaw installed"

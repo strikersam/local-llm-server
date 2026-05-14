@@ -104,7 +104,7 @@ This is documented as a future capability — the current implementation is sequ
 
 This design was inspired by:
 - open-multi-agent patterns (generator/reviewer separation)
-- openclaw-claude-code council/ultraplan/ultrareview patterns
+- openclaw council/ultraplan/ultrareview patterns
 - Microsoft AutoGen-style role separation
 
 No proprietary code was copied. Architecture was re-implemented independently.
