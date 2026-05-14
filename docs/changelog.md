@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 ### Fixed
+- `agent/workspace.py` — `WorkspaceManager.safe_path()` now raises `WorkspaceEscapeError` with `from None` to suppress internal path context in error chains, consistent with `Workspace.safe_path()`.
+- `agent/workspace.py` — `_cleanup_expired_sync()` and `metrics()` now log a `DEBUG` message (including the manifest path and exception) before skipping corrupt workspace manifests, making silent parse failures observable.
 - `agent/github_tools.py` — added missing `import re`; `_validate_repo_parts` used `re.match` but the module never imported `re`, causing `NameError: name 're' is not defined` on every `github_read_repo_file` call.
 - `agent/github_tools.py` — `LocalWorkspace.__init__` was missing `self.token = token`; `clone_url` property and `push()` referenced `self.token` and raised `AttributeError` on every clone/push with a token.
 - `agent/github_tools.py` — `LocalWorkspace.create_branch()` had a copy-paste error: its body referenced undefined `paths` and `message` variables (commit logic pasted into a branch-creation method). Replaced with correct `git checkout -b <branch> <base_branch>` implementation; added validation for `base_branch`; `base_branch` parameter was previously ignored.

@@ -45,6 +45,24 @@ from pydantic import BaseModel, Field
 log = logging.getLogger("qwen-proxy")
 
 # ---------------------------------------------------------------------------
+# Module-level lock registry — shared across WorkspaceManager instances
+# ---------------------------------------------------------------------------
+# asyncio.Lock objects cannot cross process boundaries, but within a single
+# process multiple WorkspaceManager instances (or cache-evict/reload) must
+# share the same lock for a given workspace root so the exclusive-worker
+# guarantee isn't broken.  A simple dict protected by the GIL is sufficient
+# for the registry itself; the values are asyncio.Locks.
+_WORKSPACE_LOCKS: dict[str, asyncio.Lock] = {}
+
+
+def _get_workspace_lock(root: Path) -> asyncio.Lock:
+    """Return the process-wide asyncio.Lock for *root*, creating it if needed."""
+    key = str(root.resolve())
+    if key not in _WORKSPACE_LOCKS:
+        _WORKSPACE_LOCKS[key] = asyncio.Lock()
+    return _WORKSPACE_LOCKS[key]
+
+# ---------------------------------------------------------------------------
 # ID validation
 # ---------------------------------------------------------------------------
 
@@ -229,14 +247,14 @@ class Workspace:
     def safe_path(self, relative: str) -> Path:
         """Resolve *relative* inside source dir and reject traversal/symlink escapes."""
         if ".." in relative:
-            raise WorkspaceEscapeError(relative)
+            raise WorkspaceEscapeError(relative) from None
         source_abs = self.source.resolve()
         candidate = (source_abs / relative.lstrip("/").lstrip("\\")).resolve()
         try:
             if os.path.commonpath([str(source_abs), str(candidate)]) != str(source_abs):
-                raise WorkspaceEscapeError(relative)
+                raise WorkspaceEscapeError(relative) from None
         except ValueError:
-            raise WorkspaceEscapeError(relative)
+            raise WorkspaceEscapeError(relative) from None
         return candidate
 
     @property
@@ -434,14 +452,14 @@ class WorkspaceManager:
         are also caught because Path(source) / "/abs" == Path("/abs").
         """
         if ".." in relative:
-            raise WorkspaceEscapeError(relative)
+            raise WorkspaceEscapeError(relative) from None
         source_abs = ws.source.resolve()
         candidate = (source_abs / relative.lstrip("/").lstrip("\\")).resolve()
         try:
             if os.path.commonpath([str(source_abs), str(candidate)]) != str(source_abs):
-                raise WorkspaceEscapeError(relative)
+                raise WorkspaceEscapeError(relative) from None
         except ValueError:
-            raise WorkspaceEscapeError(relative)
+            raise WorkspaceEscapeError(relative) from None
         return candidate
 
     # ── Lifecycle transitions ──────────────────────────────────────────────────
@@ -518,7 +536,8 @@ class WorkspaceManager:
                     manifest = WorkspaceManifest.model_validate_json(
                         manifest_path.read_text(encoding="utf-8")
                     )
-                except Exception:
+                except Exception as exc:
+                    log.debug("Skipping workspace with invalid manifest %s: %s", manifest_path, exc)
                     continue
 
                 if manifest.status in _ACTIVE_STATES:
@@ -538,7 +557,7 @@ class WorkspaceManager:
 
                 try:
                     if not dry_run:
-                        shutil.rmtree(job_dir, ignore_errors=True)
+                        shutil.rmtree(job_dir)
                         # Remove session dir if now empty
                         try:
                             session_dir.rmdir()
@@ -582,7 +601,8 @@ class WorkspaceManager:
                         manifest_path.read_text(encoding="utf-8")
                     )
                     counts[m.status.value] = counts.get(m.status.value, 0) + 1
-                except Exception:
+                except Exception as exc:
+                    log.debug("Skipping workspace with invalid manifest %s: %s", manifest_path, exc)
                     counts["corrupt"] = counts.get("corrupt", 0) + 1
         return counts
 
@@ -683,6 +703,7 @@ def _ws_from_manifest(
         logs=logs_dir,
         artifacts=artifacts,
         tmp=tmp,
+        _lock=_get_workspace_lock(root),
     )
 
 
@@ -695,4 +716,5 @@ def _load_workspace(root: Path, manifest: WorkspaceManifest) -> Workspace:
         logs=root / "logs",
         artifacts=root / "artifacts",
         tmp=root / "tmp",
+        _lock=_get_workspace_lock(root),
     )
