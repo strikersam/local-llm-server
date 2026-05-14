@@ -2,9 +2,16 @@
 
 ## [Unreleased]
 ### Fixed
-- `.github/workflows/process-quick-note.yml` — Added `continue-on-error: true` to the council-review step so a crash there no longer silently skips the merge and close-issue steps.  Added `id: close_success` to the close step so the retry handler can reliably detect whether an issue was closed.  Replaced `failure()` with `always()` + compound condition in the retry handler to also catch the two previously-silent cases: (a) tests fail after implementation (step exits 0 via if/else, no `failure()` fires) and (b) agent finds nothing to change (no PR created, no `failure()` fires).  Both now correctly queue the issue for retry.
+- `agent/github_tools.py` — added missing `import re`; `_validate_repo_parts` used `re.match` but the module never imported `re`, causing `NameError: name 're' is not defined` on every `github_read_repo_file` call.
+- `agent/github_tools.py` — `LocalWorkspace.__init__` was missing `self.token = token`; `clone_url` property and `push()` referenced `self.token` and raised `AttributeError` on every clone/push with a token.
+- `agent/github_tools.py` — `LocalWorkspace.create_branch()` had a copy-paste error: its body referenced undefined `paths` and `message` variables (commit logic pasted into a branch-creation method). Replaced with correct `git checkout -b <branch> <base_branch>` implementation; added validation for `base_branch`; `base_branch` parameter was previously ignored.
+- `agent/github_tools.py` — added `stage_and_commit()` to `LocalWorkspace`; the `/workspace/commit` endpoint called `ws.stage_and_commit()` but the method did not exist; `git add` return codes are now checked before attempting `git commit`.
+- `agent/models.py` — added `github_get_issue`, `github_comment_on_issue`, `github_close_issue` to `ToolCall` Literal so the executor loop accepts these tools without Pydantic validation failure.
+- `agent/loop.py` — MCP fallback for `run_command`/`write_file` now catches only `MCPUnavailableError` (transport/circuit-breaker failures) instead of bare `RuntimeError`; server-side tool errors (bad workspace_id, missing file, etc.) now surface as real errors rather than silently falling back to local execution and bypassing container isolation.
+- `agent/loop.py` — `_MUTATING_TOOLS` set now includes all GitHub write tools (`github_commit_changes`, `github_create_branch`, `github_open_pull_request`, `github_comment_on_issue`, `github_close_issue`) and MCP git tools so steps using only these operations are correctly classified as "applied" rather than "skipped".
+- `.github/workflows/process-quick-note.yml` — Added `continue-on-error: true` to the council-review step so a crash there no longer silently skips the merge and close-issue steps. Added `id: close_success` to the close step so the retry handler can reliably detect whether an issue was closed. Replaced `failure()` with `always()` + compound condition in the retry handler to also catch the two previously-silent cases: (a) tests fail after implementation (step exits 0 via if/else, no `failure()` fires) and (b) agent finds nothing to change (no PR created, no `failure()` fires). Both now correctly queue the issue for retry.
 - `.github/scripts/review_agent.py` — Complete rewrite: added PASS / WARN / FAIL three-tier verdict (FAIL only for real security/data-loss issues; WARN for minor concerns); model fallback through all NVIDIA NIM candidates; always exits 0 so the workflow conditional logic — not the exit code — controls routing; defaults to WARN on any API or format error so auto-merge is never silently blocked by a reviewer crash.
-- `.github/scripts/implement_agent.py` — Replaced `model_dump(exclude_unset=False)` assistant-message serialisation with a hand-built dict containing only `role`, `content`, and `tool_calls`.  The previous approach emitted null sentinel fields (`refusal`, `audio`, etc.) that some NVIDIA NIM model endpoints reject with a 422, silently breaking the agentic loop mid-session.
+- `.github/scripts/implement_agent.py` — Replaced `model_dump(exclude_unset=False)` assistant-message serialisation with a hand-built dict containing only `role`, `content`, and `tool_calls`. The previous approach emitted null sentinel fields (`refusal`, `audio`, etc.) that some NVIDIA NIM model endpoints reject with a 422, silently breaking the agentic loop mid-session.
 
 ### Security
 - `mcp_server/workspace.py` — Replaced `asyncio.create_subprocess_shell` with an explicit `/bin/sh -c` exec so the shell string is never interpolated by the Python subprocess layer (CodeQL: uncontrolled command line). Added early type/empty checks on `path` parameters before `_safe_path` to satisfy CodeQL uncontrolled-path-expression findings.
@@ -25,7 +32,6 @@
 - `tests/test_mcp_server.py` — 39 tests: workspace ops, MCP endpoints, circuit breaker, agent loop delegation + local fallback.
 - `agent/repowise.py`, `agent/tools.py` — Implemented Repowise-inspired codebase intelligence tools: `get_overview`, `get_context`, `get_risk`, and `get_why` for enhanced agent reasoning.
 
-### Fixed
 - `agent/github_tools.py` — added missing compat methods (`create_branch_compat`, `commit_changes`, `open_pull_request_compat`, `list_branches_compat`) so the agent loop can call GitHub tools using the `owner/repo` string format it passes. Previously, `github_commit_changes` would raise `AttributeError` at runtime because `commit_changes` did not exist on `GitHubTools`.
 - `agent/loop.py` — fixed all GitHub tool dispatches to call the correct compat methods instead of the raw owner/repo API surface, resolving runtime `AttributeError` for `github_read_repo_file`, `github_create_branch`, `github_open_pull_request`, and `github_list_branches` in agent mode.
 - `direct_chat.py` — added a system prompt to regular (non-agent) chat so the LLM understands its role and capabilities. Previously, no system prompt was sent, causing local models to fall back to their training-data defaults and respond with "I cannot access GitHub repositories."
@@ -36,7 +42,6 @@
 - `agent/github_tools.py` — Fixed directory creation for local workspaces to ensure parent directories exist; added input sanitization to prevent path injection.
 - `agent/job_manager.py` — Normalize job results to expose a canonical `result.response` and `final_message` for client consumption; preserve raw runner payload under `result.raw`.
 - `runtimes/adapters/internal_agent.py` — Conservative health probe: when Ollama is used (no NVIDIA key), perform a lightweight probe and mark the runtime unavailable if Ollama is unreachable to avoid routing into broken local runtimes.
-- `agent/loop.py` — MCP tool fallback for `run_command`/`write_file` now also catches `RuntimeError` (not just `MCPUnavailableError`) so transient MCP call failures still fall back to local execution. MCP-only unavailability now returns `[tool error: ...]` instead of `[mcp unavailable: ...]` so the agent harness correctly treats them as failures.
 - `agent/models.py` — Added MCP tool names (`run_command`, `clone_repo`, `git_*`, `delete_workspace`) to `ToolCall` Literal so executor loop validation accepts them.
 - `mcp_server/workspace.py` — `git_status` and `git_diff` now raise on non-zero exit code rather than silently returning empty output. Individual `git add` calls in `commit()` now check return codes.
 - `proxy.py` — `list_models_openai` now includes alias registry entries with `owned_by: "llm-relay-alias"` and a human-readable description.
@@ -53,6 +58,9 @@
 - `agent/tools.py` — Implemented strict path traversal prevention using robust prefix validation.
 - `.github/scripts/security_fix_agent.py` — Fixed OpenClaw execution path.
 - `.github/workflows/openclaw-security-automation.yml` — Restored corrupted workflow file.
+
+### Removed
+- None.
 
 ### Changed
 - `runtimes/adapters/internal_agent.py` — Increased default `max_steps` from 8 to 30 and improved task success criteria to allow purely informational tasks to succeed.

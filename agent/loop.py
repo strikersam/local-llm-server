@@ -467,10 +467,14 @@ class AgentRunner:
             target_files = [hit["path"] for hit in search_hits if isinstance(hit.get("path"), str)]
 
         # Check if any non-inspection tools were called (e.g. run_command, write_file)
-        non_inspection_called = any(
-            obs.get("tool") in ("run_command", "write_file", "apply_diff", "github_comment_on_issue", "github_close_issue")
-            for obs in observations
-        )
+        _MUTATING_TOOLS = {
+            "run_command", "write_file", "apply_diff",
+            "github_comment_on_issue", "github_close_issue",
+            "github_commit_changes", "github_create_branch", "github_open_pull_request",
+            "clone_repo", "git_create_branch", "git_commit", "git_push",
+            "delete_workspace",
+        }
+        non_inspection_called = any(obs.get("tool") in _MUTATING_TOOLS for obs in observations)
 
         if not target_files and step.get("type") not in ("github", "analyze") and not non_inspection_called:
             return {
@@ -722,7 +726,7 @@ class AgentRunner:
                         "cmd": str(args.get("cmd", "")),
                         "timeout": int(args.get("timeout", 60)),
                     })
-                except (MCPUnavailableError, RuntimeError):
+                except MCPUnavailableError:
                     log.debug("MCP unavailable for run_command, falling back to local")
             return await self._run_command(str(args.get("cmd", "")))
         if tool == "write_file":
@@ -735,7 +739,7 @@ class AgentRunner:
                         "path": str(args.get("path", "")),
                         "content": str(args.get("content", "")),
                     })
-                except (MCPUnavailableError, RuntimeError):
+                except MCPUnavailableError:
                     log.debug("MCP unavailable for write_file, falling back to local")
             return self.tools.write_file(str(args.get("path", "")), str(args.get("content", "")))
         if tool == "apply_diff":

@@ -25,6 +25,7 @@ import asyncio
 import base64
 import logging
 import os
+import re
 import shlex
 import subprocess
 import time
@@ -330,6 +331,7 @@ class LocalWorkspace:
         # Strong prefix check to satisfy static analysis
         if not safe_path.startswith(base_abs + os.sep):
              raise ValueError("Path escapes workspace root")
+        self.token = token
         self.path = Path(safe_path)
 
     @property
@@ -397,18 +399,34 @@ class LocalWorkspace:
         _, out, _ = await self._run("git", "status", "--short")
         return out
 
-    async def create_branch(self, owner: str, repo: str, branch_name: str, base_branch: str = "main") -> dict[str, Any]:
-        self._validate_repo_parts(owner, repo, branch=base_branch)
+    async def stage_and_commit(self, message: str, paths: list[str] | None = None) -> dict[str, Any]:
+        """Stage files and commit. paths=None stages everything; paths=[] raises."""
+        if paths is not None and not paths:
+            raise ValueError("paths must be None (stage all) or a non-empty list")
         if paths:
             for p in paths:
-                await self._run("git", "add", p)
+                rc, _, err = await self._run("git", "add", "--", p)
+                if rc != 0:
+                    raise RuntimeError(f"git add failed for {p!r}: {err.strip()}")
         else:
-            await self._run("git", "add", "-u")
-
+            rc, _, err = await self._run("git", "add", "-A")
+            if rc != 0:
+                raise RuntimeError(f"git add -A failed: {err.strip()}")
         rc, out, err = await self._run("git", "commit", "-m", message)
         if rc != 0:
-            raise RuntimeError(f"git commit failed: {err}")
+            raise RuntimeError(f"git commit failed: {err.strip()}")
         return {"committed": True, "message": message, "output": out}
+
+    async def create_branch(self, branch_name: str, base_branch: str = "main") -> dict[str, Any]:
+        """Create and checkout a new branch from base_branch."""
+        if not re.match(r"^[a-zA-Z0-9/_\-\.]{1,100}$", branch_name):
+            raise ValueError(f"Invalid branch name: {branch_name!r}")
+        if not re.match(r"^[a-zA-Z0-9/_\-\.]{1,100}$", base_branch):
+            raise ValueError(f"Invalid base branch name: {base_branch!r}")
+        rc, _, err = await self._run("git", "checkout", "-b", branch_name, base_branch)
+        if rc != 0:
+            raise RuntimeError(f"git checkout -b failed: {err.strip()}")
+        return {"branch": branch_name, "created": True}
 
     async def push(self, branch: str | None = None) -> dict[str, Any]:
         """Push the current branch.  Sets upstream on first push."""
