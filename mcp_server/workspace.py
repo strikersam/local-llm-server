@@ -106,6 +106,8 @@ class Workspace:
 
     async def diff(self) -> str:
         rc, out, err = await _run("git", "diff", "HEAD", cwd=self.root)
+        if rc != 0:
+            raise RuntimeError(f"git diff failed: {err.strip()}")
         return out
 
     async def create_branch(self, branch_name: str) -> dict[str, Any]:
@@ -120,9 +122,13 @@ class Workspace:
         if paths:
             for p in paths:
                 safe = _safe_path(self.root, p)
-                await _run("git", "add", str(safe.relative_to(self.root)), cwd=self.root)
+                rc, _, err = await _run("git", "add", str(safe.relative_to(self.root)), cwd=self.root)
+                if rc != 0:
+                    raise RuntimeError(f"git add failed for {p!r}: {err.strip()}")
         else:
-            await _run("git", "add", "-A", cwd=self.root)
+            rc, _, err = await _run("git", "add", "-A", cwd=self.root)
+            if rc != 0:
+                raise RuntimeError(f"git add -A failed: {err.strip()}")
         rc, out, err = await _run("git", "commit", "-m", message, cwd=self.root)
         if rc != 0:
             raise RuntimeError(f"git commit failed: {err.strip()}")
@@ -130,19 +136,27 @@ class Workspace:
 
     async def push(self, branch: str | None = None) -> dict[str, Any]:
         token = os.environ.get("GITHUB_TOKEN") or os.environ.get("GH_TOKEN")
-        env: dict[str, str] = {}
         if token:
-            # Pass token via GIT_ASKPASS so it never appears in process args
-            env["GIT_ASKPASS"] = "echo"
-            env["GIT_USERNAME"] = "x-token"
-            env["GIT_PASSWORD"] = token
-        if branch:
-            rc, out, err = await _run(
-                "git", "push", "--set-upstream", "origin", branch,
-                cwd=self.root, env=env,
-            )
-        else:
-            rc, out, err = await _run("git", "push", cwd=self.root, env=env)
+            # Inject token into the remote URL so git never needs an interactive prompt.
+            # Mirror the same pattern used in clone() — rewrite origin URL then restore it.
+            rc_url, remote_url, _ = await _run("git", "remote", "get-url", "origin", cwd=self.root)
+            remote_url = remote_url.strip()
+            authed_url = remote_url
+            if remote_url.startswith("https://github.com/"):
+                authed_url = remote_url.replace("https://github.com/", f"https://{token}@github.com/")
+            await _run("git", "remote", "set-url", "origin", authed_url, cwd=self.root)
+        try:
+            if branch:
+                rc, out, err = await _run(
+                    "git", "push", "--set-upstream", "origin", branch,
+                    cwd=self.root,
+                )
+            else:
+                rc, out, err = await _run("git", "push", cwd=self.root)
+        finally:
+            if token and remote_url:
+                # Restore the clean URL so the token is not persisted in .git/config
+                await _run("git", "remote", "set-url", "origin", remote_url, cwd=self.root)
         err_clean = err.replace(token or "", "***") if token else err
         if rc != 0:
             raise RuntimeError(f"git push failed: {err_clean.strip()}")

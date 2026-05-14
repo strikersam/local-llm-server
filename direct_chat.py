@@ -129,14 +129,17 @@ def _is_trivial_message(content: str) -> bool:
     if lowered in trivial_phrases:
         return True
     words = stripped.split()
-    # Short messages that mention git/PR ops are non-trivial regardless of word count
-    _git_keywords = (
-        "pr", "pull request", "commit", "push", "clone", "branch",
-        "repo", "git", "merge", "diff", "patch",
-        "file", "code", "write", "create", "fix", "build", "run",
+    # Short messages that mention git/PR ops are non-trivial regardless of word count.
+    # Use token-based matching to avoid false positives ("pr" in "april", "run" in "return").
+    _git_multi_word = ("pull request", "pull requests", "code review")
+    _git_keywords = {
+        "pr", "prs", "commit", "commits", "push", "clone", "branch", "branches",
+        "repo", "repos", "repository", "git", "merge", "diff", "patch",
+        "file", "files", "code", "write", "create", "fix", "build", "run",
         "edit", "generate", "deploy", "implement", "refactor",
-    )
-    if any(kw in lowered for kw in _git_keywords):
+    }
+    word_tokens = {w.strip(".,!?;:()[]{}\"'").lower() for w in stripped.split()}
+    if any(phrase in lowered for phrase in _git_multi_word) or (word_tokens & _git_keywords):
         return False
     if len(words) <= 4:
         return True

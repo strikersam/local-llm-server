@@ -2326,7 +2326,7 @@ async def list_models_openai(auth: AuthContext = Depends(verify_api_key)):
                 "id": name,
                 "object": "model",
                 "owned_by": "llm-relay-alias",
-                "description": f"Alias → routed to best available local model",
+                "description": "Alias → routed to best available local model",
             })
         else:
             registry_only.append({"id": name, "object": "model", "owned_by": "router-registry"})

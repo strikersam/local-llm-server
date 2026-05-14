@@ -356,7 +356,7 @@ class TestAgentLoopMCPIntegration:
         runner._mcp = mcp_client
         from agent.tools import WorkspaceTools
         runner.tools = MagicMock(spec=WorkspaceTools)
-        runner.tools.root = Path("/tmp/fake-workspace")
+        runner.tools.root = Path("fake-workspace")
         return runner
 
     def test_mcp_only_tool_returns_unavailable_when_no_client(self):

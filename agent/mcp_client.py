@@ -97,12 +97,15 @@ class MCPClient:
             async with httpx.AsyncClient(timeout=self.timeout) as client:
                 resp = await client.post(f"{self.base_url}/mcp", json=payload)
                 resp.raise_for_status()
+            body = resp.json()
         except (httpx.ConnectError, httpx.TimeoutException, httpx.HTTPStatusError) as exc:
             self._on_failure()
             raise MCPUnavailableError(f"MCP server unreachable: {exc}") from exc
+        except (ValueError, Exception) as exc:
+            self._on_failure()
+            raise MCPUnavailableError(f"MCP server returned invalid JSON: {exc}") from exc
 
         self._on_success()
-        body = resp.json()
         if "error" in body:
             err = body["error"]
             raise RuntimeError(f"MCP error {err.get('code')}: {err.get('message')}")

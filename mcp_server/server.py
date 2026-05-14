@@ -27,9 +27,9 @@ Tools exposed (heavy lifting, runs in Docker container):
 """
 from __future__ import annotations
 
+import json
 import logging
 import os
-import traceback
 from typing import Any
 
 from fastapi import FastAPI, Request
@@ -317,8 +317,7 @@ async def mcp_dispatch(request: Request) -> JSONResponse:
             return JSONResponse(_err(req_id, -32601, f"Tool not found: {tool_name}"))
         try:
             result = await _handle_tool(tool_name, arguments)
-            import json as _json
-            text = result if isinstance(result, str) else _json.dumps(result, default=str)
+            text = result if isinstance(result, str) else json.dumps(result, default=str)
             return JSONResponse(_ok(req_id, {
                 "content": [{"type": "text", "text": text}],
                 "isError": False,

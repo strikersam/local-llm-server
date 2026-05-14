@@ -7,12 +7,6 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
     && rm -rf /var/lib/apt/lists/*
 
-# Configure git identity for commits made by the agent
-RUN git config --global user.email "mcp-agent@local-llm-server" \
- && git config --global user.name "MCP Agent" \
- && git config --global credential.helper "" \
- && git config --global safe.directory "*"
-
 WORKDIR /app
 
 # Install Python dependencies
@@ -26,6 +20,18 @@ COPY mcp_server/ ./mcp_server/
 
 # Workspace directory (mounted from host or created fresh)
 RUN mkdir -p /workspaces
+
+# Create a non-root user and transfer ownership
+RUN useradd -m -u 1000 -s /bin/bash mcpuser \
+ && chown -R mcpuser:mcpuser /app /workspaces
+
+USER mcpuser
+
+# Configure git identity for commits made by the agent (runs as mcpuser)
+RUN git config --global user.email "mcp-agent@local-llm-server" \
+ && git config --global user.name "MCP Agent" \
+ && git config --global credential.helper "" \
+ && git config --global safe.directory "/workspaces/*"
 
 EXPOSE 8008
 
