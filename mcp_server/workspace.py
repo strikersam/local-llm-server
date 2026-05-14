@@ -10,7 +10,6 @@ import logging
 import os
 import re
 import shutil
-import subprocess
 from pathlib import Path
 from typing import Any
 
@@ -228,5 +227,14 @@ class Workspace:
     # ── lifecycle ────────────────────────────────────────────────────────
 
     def delete(self) -> None:
-        if self.root.exists():
-            shutil.rmtree(self.root, ignore_errors=True)
+        # Enumerate the constant WORKSPACE_BASE via the OS to get the canonical
+        # path from the filesystem rather than from the user-supplied ws_id.
+        # This breaks the taint flow that would arise from WORKSPACE_BASE / ws_id.
+        try:
+            with os.scandir(WORKSPACE_BASE) as entries:
+                for entry in entries:
+                    if entry.name == self.ws_id and entry.is_dir(follow_symlinks=False):
+                        shutil.rmtree(entry.path, ignore_errors=True)
+                        break
+        except OSError:
+            pass
