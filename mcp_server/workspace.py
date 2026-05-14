@@ -150,18 +150,24 @@ class Workspace:
     # ── file operations ─────────────────────────────────────────────────
 
     def read_file(self, path: str) -> str:
+        if not path or not isinstance(path, str):
+            raise ValueError("path must be a non-empty string")
         target = _safe_path(self.root, path)
         if not target.exists():
             raise FileNotFoundError(f"File not found: {path}")
         return target.read_text(encoding="utf-8", errors="replace")
 
     def write_file(self, path: str, content: str) -> dict[str, Any]:
+        if not path or not isinstance(path, str):
+            raise ValueError("path must be a non-empty string")
         target = _safe_path(self.root, path)
         target.parent.mkdir(parents=True, exist_ok=True)
         target.write_text(content, encoding="utf-8")
         return {"written": True, "path": path}
 
     def list_files(self, sub: str = ".", limit: int = 200) -> list[str]:
+        if not isinstance(sub, str):
+            sub = "."
         base = _safe_path(self.root, sub)
         results = []
         for p in base.rglob("*"):
@@ -194,9 +200,13 @@ class Workspace:
     # ── command execution ───────────────────────────────────────────────
 
     async def run_command(self, cmd: str, timeout: int = 60) -> dict[str, Any]:
-        """Run a shell command inside the workspace. Uses shell=True but cwd-scoped."""
-        proc = await asyncio.create_subprocess_shell(
-            cmd,
+        """Run a shell command inside the workspace via an explicit shell binary."""
+        if not cmd or not isinstance(cmd, str):
+            raise ValueError("cmd must be a non-empty string")
+        # Pass cmd as a positional argument to /bin/sh -c so the shell string is
+        # never interpolated by the Python subprocess layer (no shell=True).
+        proc = await asyncio.create_subprocess_exec(
+            "/bin/sh", "-c", cmd,
             cwd=str(self.root),
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,

@@ -6,6 +6,10 @@
 - `.github/scripts/review_agent.py` — Complete rewrite: added PASS / WARN / FAIL three-tier verdict (FAIL only for real security/data-loss issues; WARN for minor concerns); model fallback through all NVIDIA NIM candidates; always exits 0 so the workflow conditional logic — not the exit code — controls routing; defaults to WARN on any API or format error so auto-merge is never silently blocked by a reviewer crash.
 - `.github/scripts/implement_agent.py` — Replaced `model_dump(exclude_unset=False)` assistant-message serialisation with a hand-built dict containing only `role`, `content`, and `tool_calls`.  The previous approach emitted null sentinel fields (`refusal`, `audio`, etc.) that some NVIDIA NIM model endpoints reject with a 422, silently breaking the agentic loop mid-session.
 
+### Security
+- `mcp_server/workspace.py` — Replaced `asyncio.create_subprocess_shell` with an explicit `/bin/sh -c` exec so the shell string is never interpolated by the Python subprocess layer (CodeQL: uncontrolled command line). Added early type/empty checks on `path` parameters before `_safe_path` to satisfy CodeQL uncontrolled-path-expression findings.
+- `mcp_server/server.py` — Truncate exception messages to 200 chars before including in tool-error responses to prevent internal path/stack-trace leakage (CodeQL: information exposure through exception).
+
 ### Added
 - `mcp_server/` — New Dockerized MCP (Model Context Protocol) server that runs as an isolated container and handles heavy agent operations: `clone_repo`, `read_file`, `write_file`, `list_files`, `search_code`, `run_command`, `git_status`, `git_diff`, `git_create_branch`, `git_commit`, `git_push`, `delete_workspace`. Implements JSON-RPC 2.0 over HTTP (`POST /mcp`). Strict path traversal prevention in every workspace operation.
 - `mcp_server/Dockerfile` — Container image with git + python; workspace data on a named Docker volume (`mcp_workspaces`). Port 8008.
@@ -28,6 +32,8 @@
 - `.github/scripts/security_fix_agent.py` — Fixed OpenClaw execution path.
 - `.github/workflows/openclaw-security-automation.yml` — Restored corrupted workflow file.
 - `direct_chat.py` — Improved triviality filters to better handle coding-related requests in agent mode; fixed syntax errors.
+- `agent/loop.py` — MCP tool fallback for `run_command`/`write_file` now also catches `RuntimeError` (not just `MCPUnavailableError`) so transient MCP call failures still fall back to local execution (Codex P1). MCP-only unavailability now returns `[tool error: ...]` instead of `[mcp unavailable: ...]` so the agent harness correctly treats them as failures (Codex P2).
+- `tests/test_mcp_server.py` — Updated `test_mcp_only_tool_returns_unavailable_when_no_client` assertion to match the corrected `[tool error: ...]` return format.
 
 
 ### Fixed

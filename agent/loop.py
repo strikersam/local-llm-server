@@ -722,7 +722,7 @@ class AgentRunner:
                         "cmd": str(args.get("cmd", "")),
                         "timeout": int(args.get("timeout", 60)),
                     })
-                except MCPUnavailableError:
+                except (MCPUnavailableError, RuntimeError):
                     log.debug("MCP unavailable for run_command, falling back to local")
             return await self._run_command(str(args.get("cmd", "")))
         if tool == "write_file":
@@ -735,7 +735,7 @@ class AgentRunner:
                         "path": str(args.get("path", "")),
                         "content": str(args.get("content", "")),
                     })
-                except MCPUnavailableError:
+                except (MCPUnavailableError, RuntimeError):
                     log.debug("MCP unavailable for write_file, falling back to local")
             return self.tools.write_file(str(args.get("path", "")), str(args.get("content", "")))
         if tool == "apply_diff":
@@ -751,11 +751,11 @@ class AgentRunner:
         if tool in _mcp_only_tools:
             from agent.mcp_client import MCPUnavailableError
             if self._mcp is None:
-                return f"[mcp unavailable: MCP_SERVER_BASE_URL not set — cannot run {tool}]"
+                return f"[tool error: MCP_SERVER_BASE_URL not set — cannot run {tool}]"
             try:
                 return await self._mcp_call(tool, args)
             except MCPUnavailableError as exc:
-                return f"[mcp unavailable: {exc}]"
+                return f"[tool error: mcp unavailable — {exc}]"
 
         # GitHub Tools
         if tool == "github_get_issue":

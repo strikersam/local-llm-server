@@ -325,8 +325,11 @@ async def mcp_dispatch(request: Request) -> JSONResponse:
             }))
         except Exception as exc:
             log.warning("tool %r failed: %s", tool_name, exc)
+            # Truncate and sanitize before returning to caller to avoid leaking
+            # internal paths or stack-trace fragments.
+            safe_msg = str(exc)[:200]
             return JSONResponse(_ok(req_id, {
-                "content": [{"type": "text", "text": f"[tool error: {exc}]"}],
+                "content": [{"type": "text", "text": f"[tool error: {safe_msg}]"}],
                 "isError": True,
             }))
 

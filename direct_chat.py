@@ -129,18 +129,19 @@ def _is_trivial_message(content: str) -> bool:
     if lowered in trivial_phrases:
         return True
     words = stripped.split()
+    # Short messages that mention git/PR ops are non-trivial regardless of word count
+    _git_keywords = (
+        "pr", "pull request", "commit", "push", "clone", "branch",
+        "repo", "git", "merge", "diff", "patch",
+        "file", "code", "write", "create", "fix", "build", "run",
+        "edit", "generate", "deploy", "implement", "refactor",
+    )
+    if any(kw in lowered for kw in _git_keywords):
+        return False
     if len(words) <= 4:
         return True
-    if lowered.endswith("?") and len(words) <= 12 and not any(
-        kw in lowered for kw in (
-            "file", "code", "write", "create", "fix", "build", "run",
-            "edit", "generate", "deploy", "commit", "push", "implement", "refactor",
-        )
-    ):
+    if lowered.endswith("?") and len(words) <= 12:
         return True
-    # If the message contains specific coding keywords and is short, it is NOT trivial
-    if len(words) <= 10 and any(kw in lowered for kw in ("fix", "bug", "implement", "create", "edit", "code")):
-        return False
     return False
 
 
