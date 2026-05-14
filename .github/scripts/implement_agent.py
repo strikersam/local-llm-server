@@ -114,7 +114,26 @@ def main() -> None:
             break
 
         msg = res.choices[0].message
-        messages.append(msg.model_dump(exclude_unset=False))
+        # Serialise the assistant turn as a plain dict containing only the
+        # fields that the NVIDIA NIM API accepts.  Using model_dump(exclude_
+        # unset=False) includes null sentinel fields (refusal, audio, etc.)
+        # that some NIM endpoints reject with a 422.
+        assistant_entry: dict = {"role": "assistant"}
+        if msg.content:
+            assistant_entry["content"] = msg.content
+        if msg.tool_calls:
+            assistant_entry["tool_calls"] = [
+                {
+                    "id": tc.id,
+                    "type": "function",
+                    "function": {
+                        "name": tc.function.name,
+                        "arguments": tc.function.arguments,
+                    },
+                }
+                for tc in msg.tool_calls
+            ]
+        messages.append(assistant_entry)
 
         if not msg.tool_calls:
             if msg.content and "IMPLEMENTATION_COMPLETE" in msg.content and last_pytest_passed:
