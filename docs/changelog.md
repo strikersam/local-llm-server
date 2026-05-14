@@ -1,10 +1,12 @@
 # Changelog
 
 ## [Unreleased]
+### Fixed
+- `.github/workflows/process-quick-note.yml` — Added `continue-on-error: true` to the council-review step so a crash there no longer silently skips the merge and close-issue steps.  Added `id: close_success` to the close step so the retry handler can reliably detect whether an issue was closed.  Replaced `failure()` with `always()` + compound condition in the retry handler to also catch the two previously-silent cases: (a) tests fail after implementation (step exits 0 via if/else, no `failure()` fires) and (b) agent finds nothing to change (no PR created, no `failure()` fires).  Both now correctly queue the issue for retry.
+- `.github/scripts/review_agent.py` — Complete rewrite: added PASS / WARN / FAIL three-tier verdict (FAIL only for real security/data-loss issues; WARN for minor concerns); model fallback through all NVIDIA NIM candidates; always exits 0 so the workflow conditional logic — not the exit code — controls routing; defaults to WARN on any API or format error so auto-merge is never silently blocked by a reviewer crash.
+- `.github/scripts/implement_agent.py` — Replaced `model_dump(exclude_unset=False)` assistant-message serialisation with a hand-built dict containing only `role`, `content`, and `tool_calls`.  The previous approach emitted null sentinel fields (`refusal`, `audio`, etc.) that some NVIDIA NIM model endpoints reject with a 422, silently breaking the agentic loop mid-session.
+
 ### Added
-- **Structured output normalization** (`chat_handlers.py`) — The proxy now transforms OpenAI's `response_format: {"type": "json_schema", "json_schema": {...}}` into Ollama's native `format: {...}` field before forwarding to local models. `json_object` mode maps to `format: "json"`. Cloud/Nvidia models (model name contains "/") receive `response_format` unchanged. Improves compatibility with Claude Code, Cursor, and any client using structured output schemas against Ollama-backed local models.
-- **Claude/Anthropic alias entries in `/v1/models`** (`proxy.py`) — The `/v1/models` endpoint now includes all Claude model alias names (e.g. `claude-sonnet-4-6`, `claude-opus-4-7`, `claude-haiku-4-5-20251001`) with `owned_by: "llm-relay-alias"` and a description showing the resolved target. Enables Claude Code's gateway model picker to list proxy-recognized models when `ANTHROPIC_BASE_URL` points at this proxy.
-- **Token budget response headers** (`proxy.py`) — Chat completion responses now include `X-Token-Budget-Remaining`, `X-Token-Budget-Cap`, and `X-Token-Budget-Used` headers when the request carries an `X-Session-Id` or `X-Claude-Code-Session-Id` header that has an active budget cap configured. Clients can monitor spend without a separate API call.
 - `agent/repowise.py`, `agent/tools.py` — Implemented Repowise-inspired codebase intelligence tools: `get_overview`, `get_context`, `get_risk`, and `get_why` for enhanced agent reasoning.
 ### Fixed
 - `direct_chat.py` — Fixed `AttributeError` when provider response is invalid; added preflight repo validation to return 412 status code.
