@@ -101,6 +101,8 @@ class Workspace:
 
     async def status(self) -> str:
         rc, out, err = await _run("git", "status", "--short", cwd=self.root)
+        if rc != 0:
+            raise RuntimeError(f"git status failed: {err.strip()}")
         return out
 
     async def diff(self) -> str:

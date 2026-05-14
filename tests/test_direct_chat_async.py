@@ -190,35 +190,32 @@ def test_agent_mode_github_preflight_missing_token(monkeypatch, tmp_path: Path):
     proxy.app.dependency_overrides.clear()
 
 
-def test_job_result_normalizes_and_exposes_final_message():
+async def test_job_result_normalizes_and_exposes_final_message():
     import asyncio
     from agent.job_manager import AgentJobManager
 
-    async def _run():
-        mgr = AgentJobManager()
-        job = mgr.create_job(session_id="s1", instruction="do work")
+    mgr = AgentJobManager()
+    job = mgr.create_job(session_id="s1", instruction="do work")
 
-        async def runner(heartbeat):
-            heartbeat("planning", "planning")
-            return {"summary": "Final textual summary", "steps": []}
+    async def runner(heartbeat):
+        heartbeat("planning", "planning")
+        return {"summary": "Final textual summary", "steps": []}
 
-        mgr.start_job(job.job_id, runner)
+    mgr.start_job(job.job_id, runner)
 
-        for _ in range(200):
-            if job.status in ("succeeded", "failed"):
-                break
-            await asyncio.sleep(0.01)
+    for _ in range(200):
+        if job.status in ("succeeded", "failed"):
+            break
+        await asyncio.sleep(0.01)
 
-        assert job.status == "succeeded"
-        assert isinstance(job.result, dict)
-        assert job.result.get("response") == "Final textual summary"
-        d = job.as_dict()
-        assert d.get("final_message") == "Final textual summary"
-
-    asyncio.run(_run())
+    assert job.status == "succeeded"
+    assert isinstance(job.result, dict)
+    assert job.result.get("response") == "Final textual summary"
+    d = job.as_dict()
+    assert d.get("final_message") == "Final textual summary"
 
 
-def test_job_failure_structures_runtime_preflight():
+async def test_job_failure_structures_runtime_preflight():
     import asyncio
     from agent.job_manager import AgentJobManager
     from runtimes.base import RuntimePreflightError
@@ -267,15 +264,11 @@ def test_job_failure_structures_runtime_preflight():
         """
         raise RuntimePreflightError("internal_agent", DummyReport())
 
-    async def _run():
-        mgr.start_job(job.job_id, runner)
-        for _ in range(200):
-            if job.status in ("succeeded", "failed"):
-                break
-            await asyncio.sleep(0.01)
-
-    import asyncio
-    asyncio.run(_run())
+    mgr.start_job(job.job_id, runner)
+    for _ in range(200):
+        if job.status in ("succeeded", "failed"):
+            break
+        await asyncio.sleep(0.01)
 
     assert job.status == "failed"
     assert isinstance(job.error, dict)

@@ -34,6 +34,13 @@
 - `direct_chat.py` — Improved triviality filters to better handle coding-related requests in agent mode; fixed syntax errors.
 - `agent/loop.py` — MCP tool fallback for `run_command`/`write_file` now also catches `RuntimeError` (not just `MCPUnavailableError`) so transient MCP call failures still fall back to local execution (Codex P1). MCP-only unavailability now returns `[tool error: ...]` instead of `[mcp unavailable: ...]` so the agent harness correctly treats them as failures (Codex P2).
 - `tests/test_mcp_server.py` — Updated `test_mcp_only_tool_returns_unavailable_when_no_client` assertion to match the corrected `[tool error: ...]` return format.
+- `agent/models.py` — Added MCP tool names (`run_command`, `clone_repo`, `git_*`, `delete_workspace`) to `ToolCall` Literal so executor loop validation accepts them (Codex P1).
+- `docker-compose.yml` — Bound MCP server port to `127.0.0.1:8008:8008` to prevent unauthenticated `run_command` exposure on all interfaces (Codex P1 security).
+- `mcp_server/workspace.py` — `git_status` now raises on non-zero exit code rather than silently returning empty output (Codex P2).
+- `proxy.py` — `list_models_openai` now includes alias registry entries with `owned_by: "llm-relay-alias"` and a human-readable description.
+- `tests/test_daily_automation_2026_05_14.py` — Converted `TestModelsEndpointAliases` methods to `async def` to avoid `asyncio.get_event_loop()` failure under pytest-asyncio session-scoped loop management.
+- `tests/test_direct_chat_async.py` — Converted two sync tests that called `asyncio.run()` to proper `async def` functions so they no longer destroy the shared event loop.
+- `frontend/src/__tests__/agentJobPolling.test.jsx` — Fixed test timeout with `jest.useFakeTimers()` by passing `{ delay: null }` to `userEvent.setup()`.
 
 
 ### Fixed

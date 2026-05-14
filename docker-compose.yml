@@ -198,7 +198,7 @@ services:
     container_name: llm-server-mcp
     restart: unless-stopped
     ports:
-      - "8008:8008"
+      - "127.0.0.1:8008:8008"
     environment:
       - PORT=8008
       - MCP_WORKSPACE_BASE=/workspaces
