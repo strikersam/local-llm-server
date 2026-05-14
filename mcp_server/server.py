@@ -324,12 +324,11 @@ async def mcp_dispatch(request: Request) -> JSONResponse:
                 "isError": False,
             }))
         except Exception as exc:
-            log.warning("tool %r failed: %s", tool_name, exc)
-            # Truncate and sanitize before returning to caller to avoid leaking
-            # internal paths or stack-trace fragments.
-            safe_msg = str(exc)[:200]
+            # Log the full exception internally but never forward it to the caller:
+            # exception messages may contain internal paths or stack-trace fragments.
+            log.warning("tool %r failed: %s", tool_name, exc, exc_info=True)
             return JSONResponse(_ok(req_id, {
-                "content": [{"type": "text", "text": f"[tool error: {safe_msg}]"}],
+                "content": [{"type": "text", "text": "[tool error: internal error — check server logs]"}],
                 "isError": True,
             }))
 
