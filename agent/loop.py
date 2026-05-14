@@ -470,6 +470,7 @@ class AgentRunner:
         _MUTATING_TOOLS = {
             "run_command", "write_file", "apply_diff",
             "github_comment_on_issue", "github_close_issue",
+            "github_commit_changes", "github_create_branch", "github_open_pull_request",
             "clone_repo", "git_create_branch", "git_commit", "git_push",
             "delete_workspace",
         }
