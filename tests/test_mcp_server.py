@@ -262,7 +262,7 @@ class TestMCPServer:
             "arguments": {"workspace_id": "noexist", "path": "ghost.txt"},
         })
         assert resp["result"]["isError"] is True
-        assert "not found" in resp["result"]["content"][0]["text"].lower()
+        assert "[tool error:" in resp["result"]["content"][0]["text"]
 
     def test_path_traversal_is_tool_error(self, mcp_client):
         resp = self._rpc(mcp_client, "tools/call", {
