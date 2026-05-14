@@ -404,15 +404,6 @@ async def _handle_agent_mode(
     report = await adapter.readiness_check(spec)
     if not report.ready: raise HTTPException(status_code=412, detail=report.as_dict())
     async def _run_agent_job(heartbeat):
-        """
-        Run the agent job workflow and persist its final assistant message to the session store.
-        
-        Parameters:
-            heartbeat (Callable[[str, str], None]): Callback to report job phase and a short message; invoked with phase names like "planning", "execution", and "verification".
-        
-        Returns:
-            dict: Envelope containing `session_id` (str) and `response` (str) with the assistant's final message.
-        """
         from agent.loop import AgentRunner
         heartbeat("planning", "Runtime preflight passed")
         app_router: ProviderRouter = request.app.state.PROVIDER_ROUTER
@@ -420,6 +411,26 @@ async def _handle_agent_mode(
         primary_provider = sorted_providers[0] if sorted_providers else None
         ollama_base = primary_provider.normalized_base_url if primary_provider else OLLAMA_BASE
         primary_headers = primary_provider.auth_headers() if primary_provider and primary_provider.api_key else {}
+
+        # Emit each tool call into the job's progress_events so the Live Agent
+        # Workspace panel can display them via GET /api/chat/agent-status.
+        import time as _time
+        _active_job = _agent_jobs.get_job(job.job_id)
+
+        def _on_tool_call(tool_name: str, tool_args: dict, tool_result: Any) -> None:
+            if _active_job is None:
+                return
+            result_preview = str(tool_result)[:200] if tool_result is not None else ""
+            _active_job.progress_events.append({
+                "timestamp": _time.strftime("%Y-%m-%dT%H:%M:%SZ", _time.gmtime()),
+                "type": "tool_call",
+                "phase": "execution",
+                "tool_name": tool_name,
+                "args": {k: str(v)[:100] for k, v in (tool_args or {}).items()},
+                "result_preview": result_preview,
+                "message": f"Tool: {tool_name}",
+            })
+
         runner = AgentRunner(
             ollama_base=ollama_base,
             workspace_root=str(workspace_root),
@@ -433,6 +444,7 @@ async def _handle_agent_mode(
             department=None,
             key_id=None,
             mcp_base_url=os.environ.get("MCP_SERVER_BASE_URL"),
+            tool_callback=_on_tool_call,
         )
         heartbeat("execution", "Agent execution started")
         result = await runner.run(metadata=spec.context.get("metadata", {}), instruction=req.content, history=history, requested_model=req.model, auto_commit=True, max_steps=30, user_id=user.id, department=None, key_id=None, memory_store=UserMemoryStore(), session_id=session_id)
@@ -452,6 +464,55 @@ async def _handle_agent_mode(
         message="Agent workflow queued.",
     )
     return JSONResponse(status_code=202, content=accepted.model_dump())
+
+
+@direct_chat_router.get("/agent-status")
+async def get_agent_status(session_id: str | None = None):
+    """Live agent workspace snapshot consumed by the Chat UI's Live Agent Workspace panel.
+
+    The frontend polls GET /api/chat/agent-status?session_id=<id> every 2 s via
+    fetchAgentWorkspaceSnapshot().  Without this endpoint the request 404s,
+    fetchAgentWorkspaceSnapshot throws, and the UI stays in 'reconnecting' state
+    with '0 total' tool calls forever.
+    """
+    jobs = _agent_jobs.list_jobs(session_id=session_id)
+
+    tool_calls: list[dict] = []
+    agents: list[dict] = []
+    latest_summary = ""
+    latest_error = ""
+    has_events = False
+
+    for job in jobs:
+        jd = job.as_dict()
+        events = jd.get("progress_events") or []
+        if events:
+            has_events = True
+        agents.append({
+            "job_id": jd["job_id"],
+            "status": jd["status"],
+            "phase": jd["phase"],
+            "progress_events": events,
+        })
+        for evt in events:
+            if evt.get("type") == "tool_call":
+                tool_calls.append(evt)
+        err = jd.get("error") or {}
+        if err.get("message"):
+            latest_error = err["message"]
+        result = jd.get("result") or {}
+        if result.get("response"):
+            latest_summary = result["response"]
+        elif result.get("summary"):
+            latest_summary = result["summary"]
+
+    return JSONResponse(content={
+        "has_events": has_events,
+        "agents": agents,
+        "tool_calls": tool_calls,
+        "latest_summary": latest_summary,
+        "latest_error": latest_error,
+    })
 
 
 @direct_chat_router.get("/agent-jobs/{job_id}")

@@ -2,6 +2,16 @@
 
 ## [Unreleased]
 ### Fixed
+- `runtimes/api.py` — `_require_admin` was importing `get_current_user` from `backend.server` which uses a different JWT secret (`JWT_SECRET`) than the proxy (`V3_JWT_SECRET`), causing every `PUT /runtimes/policy` call to fail with 401. Now reads `request.state.user` set by `JWTAuthMiddleware` which uses the correct secret.
+- `tasks/api.py` — `_current_user` slow path was attempting the same broken `backend.server.get_current_user` import. Replaced with direct `tokens.verify_token` call using the same `V3_JWT_SECRET`, so tasks work even when the fast path (middleware-set user) is not available.
+- `direct_chat.py` / `frontend/src/utils/agentWorkspaceTransport.js` — The Chat UI's Live Agent Workspace panel permanently showed "reconnecting" and "0 total tool calls" because the frontend polled `GET /api/agent/status` which did not exist in the proxy. Added `GET /api/chat/agent-status` endpoint that reads from `AgentJobManager` and updated the frontend URL accordingly.
+- `agent/loop.py` — Added `tool_callback` parameter to `AgentRunner.__init__`; `_run_tool` now calls `tool_callback(tool, args, result)` after every dispatch so callers can record individual tool call events. Used in `direct_chat.py` to populate `progress_events` with `type: "tool_call"` entries visible in the Live Agent Workspace panel.
+- `runtimes/api.py` — `PUT /runtimes/policy` now also accepts the rich UI format sent by `RoutingPolicyPage` (`{pools, policy: {neverUseCommercial, …}, triggers}`). UI flags are mapped to core runtime policy fields (`neverUseCommercial` → `never_use_paid_providers`, `askBeforeCommercial` → `require_approval_before_paid_escalation`). The full rich payload is persisted via `JsonConfigStore` and returned by `GET /runtimes/policy` for round-trip fidelity.
+
+### Changed
+- `agent/loop.py` — Default NVIDIA NIM agent models are now role-specific: planner → `nvidia/GLM-5.1`, executor → `nvidia/StarCoder2-15B`, verifier → `nvidia/DeepSeek-V4-Pro`, judge → `nvidia/nemotron-3-super-120b-a12b` (overridden by `AGENT_*_MODEL` env vars as before).
+- `frontend/src/pages/SetupWizardPage.js` — `NVIDIA_MODELS` constants updated to match the role-specific defaults above; previously all roles defaulted to `nvidia/nemotron-3-super-120b-a12b`.
+- `frontend/src/pages/RoutingPolicyPage.js` — Free cloud pool now lists NVIDIA NIM free models first (`nvidia/nemotron-3-super-120b-a12b`, `nvidia/GLM-5.1`, `nvidia/StarCoder2-15B`, `nvidia/DeepSeek-V4-Pro`) followed by community free tiers, reflecting the user preference to route to free cloud rather than commercial APIs.
 - `agent/workspace.py` — `WorkspaceManager.safe_path()` now raises `WorkspaceEscapeError` with `from None` to suppress internal path context in error chains, consistent with `Workspace.safe_path()`.
 - `agent/workspace.py` — `_cleanup_expired_sync()` and `metrics()` now log a `DEBUG` message (including the manifest path and exception) before skipping corrupt workspace manifests, making silent parse failures observable.
 - `agent/github_tools.py` — added missing `import re`; `_validate_repo_parts` used `re.match` but the module never imported `re`, causing `NameError: name 're' is not defined` on every `github_read_repo_file` call.

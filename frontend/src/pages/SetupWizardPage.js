@@ -55,12 +55,12 @@ const STEPS = [
   { num: 5, title: 'Policy & Privacy',   icon: '🛡️' },
 ];
 
-// Nvidia NIM free models
+// Nvidia NIM free models — each role is matched to the best free NIM model for that task.
 const NVIDIA_MODELS = {
-  executor: 'nvidia/nemotron-3-super-120b-a12b',
-  planner:  'nvidia/nemotron-3-super-120b-a12b',
-  verifier: 'nvidia/nemotron-3-super-120b-a12b',
-  judge: 'nvidia/nemotron-3-super-120b-a12b',
+  executor: 'nvidia/StarCoder2-15B',
+  planner:  'nvidia/GLM-5.1',
+  verifier: 'nvidia/DeepSeek-V4-Pro',
+  judge:    'nvidia/nemotron-3-super-120b-a12b',
   default:  'nvidia/nemotron-3-super-120b-a12b',
 };
 const LOCAL_MODELS = {

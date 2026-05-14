@@ -3,8 +3,8 @@ import { getAuthHeaders, getBackendUrl, getAccessToken } from '../api';
 export function buildAgentStatusUrl(sessionId) {
   const base = (getBackendUrl() || '').replace(/\/$/, '');
   return sessionId
-    ? `${base}/api/agent/status?session_id=${encodeURIComponent(sessionId)}`
-    : `${base}/api/agent/status`;
+    ? `${base}/api/chat/agent-status?session_id=${encodeURIComponent(sessionId)}`
+    : `${base}/api/chat/agent-status`;
 }
 
 export function buildAgentStreamUrl(sessionId) {
