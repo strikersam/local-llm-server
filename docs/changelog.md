@@ -3,6 +3,10 @@
 ## [Unreleased]
 ### Fixed
 - `agent/github_tools.py` — added missing `import re`; `_validate_repo_parts` used `re.match` but the module never imported `re`, causing `NameError: name 're' is not defined` on every `github_read_repo_file` call.
+- `agent/github_tools.py` — `LocalWorkspace.__init__` was missing `self.token = token`; `clone_url` property and `push()` referenced `self.token` and raised `AttributeError` on every clone/push with a token.
+- `agent/github_tools.py` — `LocalWorkspace.create_branch()` had a copy-paste error: its body referenced undefined `paths` and `message` variables (commit logic pasted into a branch-creation method). Replaced with correct `git checkout -b` implementation.
+- `agent/github_tools.py` — added `stage_and_commit()` to `LocalWorkspace`; the `/workspace/commit` endpoint called `ws.stage_and_commit()` but the method did not exist, crashing every workspace commit request.
+- `agent/models.py` — added `github_get_issue`, `github_comment_on_issue`, `github_close_issue` to `ToolCall` Literal so the executor loop accepts these tools without Pydantic validation failure.
 - `agent/loop.py` — MCP fallback for `run_command`/`write_file` now catches only `MCPUnavailableError` (transport/circuit-breaker failures) instead of bare `RuntimeError`; server-side tool errors (bad workspace_id, missing file, etc.) now surface as real errors rather than silently falling back to local execution and bypassing container isolation.
 - `agent/loop.py` — `non_inspection_called` check now includes MCP git/clone/delete tool names (`clone_repo`, `git_create_branch`, `git_commit`, `git_push`, `delete_workspace`) so steps that perform only MCP git operations are correctly classified as "applied" rather than "skipped".
 
