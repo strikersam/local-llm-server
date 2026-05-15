@@ -31,7 +31,7 @@ def test_repo_ref_preflight_fails(monkeypatch, tmp_path: Path):
     monkeypatch.setattr(WorkspaceManager, "validate_repo_ref", lambda self, repo, ref, token=None: {"ok": False, "error": "ref_not_found"})
 
     client = TestClient(proxy.app)
-    payload = {"content": "Please open PR", "agent_mode": True, "metadata": {"repo_url": "https://github.com/example/repo.git", "repo_ref": "nonexistent-branch"}}
+    payload = {"content": "Please implement the feature and open a pull request with the changes", "agent_mode": True, "metadata": {"repo_url": "https://github.com/example/repo.git", "repo_ref": "nonexistent-branch"}}
     resp = client.post("/api/chat/send", json=payload)
     assert resp.status_code == 412
     detail = resp.json().get("detail")
@@ -60,7 +60,7 @@ def test_repo_path_preflight_fails(monkeypatch, tmp_path: Path):
     monkeypatch.setattr(WorkspaceManager, "validate_repo_path", lambda self, repo, ref, path, token=None: {"ok": False, "error": "http_404"})
 
     client = TestClient(proxy.app)
-    payload = {"content": "Please open PR", "agent_mode": True, "metadata": {"repo_url": "https://github.com/example/repo.git", "repo_ref": "main", "repo_path": "src/does/not/exist.py"}}
+    payload = {"content": "Please implement the feature and open a pull request with the changes", "agent_mode": True, "metadata": {"repo_url": "https://github.com/example/repo.git", "repo_ref": "main", "repo_path": "src/does/not/exist.py"}}
     resp = client.post("/api/chat/send", json=payload)
     assert resp.status_code == 412
     detail = resp.json().get("detail")
