@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import {
-  Github, FolderOpen, FileText, GitBranch, GitPullRequest,
+  GitFork as Github, FolderOpen, FileText, GitBranch, GitPullRequest,
   ChevronRight, ChevronDown, Loader2, Plus, RefreshCw,
   Check, X, ExternalLink, ArrowLeft, Save, GitCommit,
 } from 'lucide-react';

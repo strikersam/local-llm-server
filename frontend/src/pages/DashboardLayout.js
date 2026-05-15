@@ -4,7 +4,7 @@ import { useAuth } from '../AuthContext';
 import {
   LayoutDashboard, MessageSquare, BookOpen, Upload, Activity,
   Settings, LogOut, Menu, X, Cpu, Layers, BarChart3,
-  Github, Shield, Bot, CheckSquare, Radio,
+  GitFork as Github, Shield, Bot, CheckSquare, Radio,
   Zap, Lock, Calendar, TrendingUp, MoreHorizontal,
 } from 'lucide-react';
 import ControlPlanePage from './ControlPlanePage';

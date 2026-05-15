@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { BookOpen, Upload, Plus, ExternalLink, RefreshCw, AlertTriangle, Github, FileText, Globe, GitBranch, Loader } from 'lucide-react';
+import { BookOpen, Upload, Plus, ExternalLink, RefreshCw, AlertTriangle, GitFork as Github, FileText, Globe, GitBranch, Loader } from 'lucide-react';
 import {
   listWikiPages, createWikiPage, deleteWikiPage,
   listSources, ingestSource, deleteSource,

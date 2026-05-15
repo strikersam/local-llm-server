@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { healthCheck, getPlatformInfo, githubStatus, getGithubStatus, startGithubOAuth, setGithubToken, deleteGithubToken, listGithubRepos, authorizeGithubRepos, getBackendUrl } from '../api';
-import { Settings, CheckCircle, XCircle, ExternalLink, Github, Globe, Server, Cpu, Key, Loader2, Trash2, Lock, ChevronDown, ChevronUp, ArrowLeft } from 'lucide-react';
+import { Settings, CheckCircle, XCircle, ExternalLink, GitFork as Github, Globe, Server, Cpu, Key, Loader2, Trash2, Lock, ChevronDown, ChevronUp, ArrowLeft } from 'lucide-react';
 
 function getBackendOrigin() {
   const configuredBackend = getBackendUrl();
