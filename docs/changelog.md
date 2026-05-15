@@ -2,6 +2,7 @@
 
 ## [Unreleased]
 ### Fixed
+- `proxy.py` — `GET /api/agent/stream` SSE owner filter used `getattr(j, "owner_id", owner_email)` as the default, meaning jobs with no `owner_id` attribute would always pass the equality check and be visible to any authenticated caller. Changed default to `None` so only jobs explicitly owned by the caller are streamed (consistent with `get_agent_status` filter).
 - `direct_chat.py` — `GET /api/chat/agent-status` was returning 404 in production because the route's `Depends(_get_current_user)` dependency always raises 401 when no `Authorization` header is present, causing FastAPI to fail route resolution. Replaced the Depends chain with direct `request.state.user` access (already set by `JWTAuthMiddleware`), making the endpoint reliably reachable.
 - `tokens.py` — `_get_secret()` generated a fresh random secret on every call when `V3_JWT_SECRET` was not set in the environment. This meant tokens created by `create_tokens()` could never be verified by `verify_token()` (different random secret each call). Fixed by caching the generated secret in a module-level variable so it stays consistent for the process lifetime.
 - `proxy.py` — `JWTAuthMiddleware` Bearer scheme check was case-sensitive (`startswith("Bearer ")`), silently falling back to API-key lookup for `bearer …` or `BEARER …` headers from non-conforming clients. Changed to case-insensitive check (`auth_header[:7].lower() == "bearer "`).

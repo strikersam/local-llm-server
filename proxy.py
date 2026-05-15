@@ -928,7 +928,7 @@ async def stream_agent_activity(
         while True:
             jobs = _jobs.list_jobs(session_id=session_id)
             if owner_email:
-                jobs = [j for j in jobs if getattr(j, "owner_id", owner_email) == owner_email]
+                jobs = [j for j in jobs if getattr(j, "owner_id", None) == owner_email]
             emitted = False
             for job in jobs:
                 events = job.progress_events
