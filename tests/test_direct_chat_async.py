@@ -237,17 +237,7 @@ async def test_job_failure_structures_runtime_preflight():
             self.runtime_id = "internal_agent"
             self.ready = False
             self.selected_runtime = "internal_agent"
-            self.summary = "docker missing"
         def as_dict(self):
-            """
-            Serialize the readiness report to a plain dictionary.
-            
-            Returns:
-                dict: A mapping with keys:
-                    - "runtime_id" (str): the identifier of the runtime.
-                    - "ready" (bool): readiness flag.
-                    - "summary" (str): human-readable summary (here: "docker missing").
-            """
             return {"runtime_id": self.runtime_id, "ready": self.ready, "summary": "docker missing"}
         @property
         def summary(self):
