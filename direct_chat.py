@@ -34,6 +34,11 @@ direct_chat_router = APIRouter(prefix="/api/chat", tags=["chat"])
 from agent.state import AgentSessionStore
 _direct_chat_store = AgentSessionStore(db_path="direct_chat_sessions.db")
 _agent_jobs = AgentJobManager()
+
+
+def get_agent_job_manager() -> AgentJobManager:
+    """Public accessor for the module-level AgentJobManager singleton."""
+    return _agent_jobs
 _agent_workspace_root = Path(os.environ.get("DIRECT_CHAT_AGENT_WORKSPACE_ROOT", ".data/direct-chat-agent-workspaces"))
 
 

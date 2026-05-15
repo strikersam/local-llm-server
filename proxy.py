@@ -73,7 +73,7 @@ from agents.api import agent_router
 from agents.store import get_agent_store, set_agent_store
 from chat_handlers import handle_ollama_native_chat, handle_openai_chat_completions
 from cost_insights import observability_router
-from direct_chat import direct_chat_router
+from direct_chat import direct_chat_router, get_agent_job_manager
 from handlers.anthropic_compat import handle_anthropic_messages
 from handlers.v3_auth import router as v3_auth_router
 from handlers.v3_models import router as v3_models_router
@@ -890,6 +890,90 @@ log.info("Setup wizard mounted at /api/setup/* (public — no API key required)"
 # ─── v3.1: Direct Chat (requires JWT token) ────────────────────────────────────
 app.include_router(direct_chat_router)
 log.info("Direct Chat mounted at /api/chat/* (requires JWT token)")
+
+
+@app.get("/api/agent/stream")
+async def stream_agent_activity(
+    request: Request,
+    session_id: str | None = None,
+    access_token: str | None = None,
+):
+    """Server-Sent Events stream of agent job progress events.
+
+    EventSource cannot send custom headers, so the JWT access token is accepted
+    as the `access_token` query parameter in addition to the standard Bearer
+    header (which JWTAuthMiddleware already processes into request.state.user).
+    """
+    user = getattr(request.state, "user", None)
+    if user is None and access_token:
+        try:
+            payload = verify_token(access_token, token_type="access")
+            if payload:
+                user = {
+                    "email": payload.get("email"),
+                    "_id": payload.get("sub"),
+                    "role": payload.get("role", "user"),
+                }
+        except Exception:
+            pass
+
+    if user is None:
+        return JSONResponse(status_code=401, content={"detail": "Authentication required"})
+
+    owner_email: str | None = user.get("email") if isinstance(user, dict) else getattr(user, "email", None)
+    _jobs = get_agent_job_manager()
+
+    async def _event_stream():
+        seen: dict[str, int] = {}
+        while True:
+            jobs = _jobs.list_jobs(session_id=session_id)
+            if owner_email:
+                jobs = [j for j in jobs if getattr(j, "owner_id", owner_email) == owner_email]
+            emitted = False
+            for job in jobs:
+                events = job.progress_events
+                cursor = seen.get(job.job_id, 0)
+                new_events = events[cursor:]
+                for evt in new_events:
+                    data = json.dumps({
+                        "job_id": job.job_id,
+                        "session_id": job.session_id,
+                        "status": job.status,
+                        "phase": job.phase,
+                        **{k: v for k, v in evt.items()},
+                    })
+                    yield f"data: {data}\n\n"
+                    emitted = True
+                seen[job.job_id] = len(events)
+            if not emitted:
+                yield ": keepalive\n\n"
+            await asyncio.sleep(1.0)
+
+    return StreamingResponse(
+        _event_stream(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        },
+    )
+
+
+@app.get("/api/audit-log")
+async def get_audit_log_endpoint(
+    request: Request,
+    limit: int = 100,
+    user_id: str | None = None,
+    resource: str | None = None,
+    outcome: str | None = None,
+):
+    """Return RBAC audit log entries (newest first). Requires authentication."""
+    if getattr(request.state, "user", None) is None:
+        return JSONResponse(status_code=401, content={"detail": "Authentication required"})
+    from rbac import get_audit_log as _get_audit_log
+    entries = _get_audit_log(limit=min(limit, 500), user_id=user_id, resource=resource, outcome=outcome)
+    return {"entries": entries, "total": len(entries)}
 
 # ─── v3.1: Cost insights / observability ──────────────────────────────────────
 app.include_router(
