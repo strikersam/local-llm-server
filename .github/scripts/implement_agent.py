@@ -77,7 +77,10 @@ def tool_bash(cmd: str) -> str:
 
 def tool_read_file(path: str) -> str:
     try:
-        return Path(path).read_text(errors="replace")[:8000]
+        text = Path(path).read_text(errors="replace")
+        if len(text) > 12000:
+            return text[:12000] + f"\n\n[... truncated — file is {len(text)} chars total. Use bash(cmd='wc -l {path}') to check size, or read specific sections with bash(cmd='sed -n \"1,50p\" {path}')]"
+        return text
     except Exception as exc:
         return f"[error reading {path}: {exc}]"
 
@@ -86,10 +89,44 @@ def tool_write_file(path: str, content: str) -> str:
     try:
         p = Path(path)
         p.parent.mkdir(parents=True, exist_ok=True)
+        # Safety guard: refuse to shrink an existing file by more than 10 lines.
+        # This prevents the agent from accidentally overwriting files with truncated reads.
+        if p.exists():
+            existing_lines = p.read_text(errors="replace").count("\n")
+            new_lines = content.count("\n")
+            if existing_lines > 20 and new_lines < existing_lines - 10:
+                return (
+                    f"[BLOCKED] write_file would reduce {path} from {existing_lines} lines to {new_lines} lines "
+                    f"(lost {existing_lines - new_lines} lines). This usually means you read a truncated version "
+                    f"of the file and are writing it back incomplete. "
+                    f"For docs/changelog.md use add_changelog_entry instead. "
+                    f"For source files, use bash(cmd='cat >> file') to append or make targeted edits."
+                )
         p.write_text(content)
         return f"Written {len(content)} chars to {path}"
     except Exception as exc:
         return f"[error writing {path}: {exc}]"
+
+
+def tool_add_changelog_entry(entry: str) -> str:
+    """Safely insert an entry under ## [Unreleased] without touching the rest of the file."""
+    try:
+        p = Path("docs/changelog.md")
+        text = p.read_text(errors="replace")
+        marker = "## [Unreleased]"
+        idx = text.find(marker)
+        if idx == -1:
+            return "[error: '## [Unreleased]' marker not found in docs/changelog.md]"
+        insert_at = idx + len(marker)
+        # Find the next blank line after the marker to insert after the header
+        rest = text[insert_at:]
+        newline_pos = rest.find("\n")
+        insert_at += newline_pos + 1
+        new_text = text[:insert_at] + entry.rstrip() + "\n" + text[insert_at:]
+        p.write_text(new_text)
+        return f"Changelog updated — inserted {len(entry)} chars under ## [Unreleased]"
+    except Exception as exc:
+        return f"[error updating changelog: {exc}]"
 
 
 def tool_list_files(pattern: str = "**/*.py") -> str:
@@ -112,6 +149,7 @@ TOOL_DISPATCH = {
     "bash": lambda inp: tool_bash(inp["cmd"]),
     "read_file": lambda inp: tool_read_file(inp["path"]),
     "write_file": lambda inp: tool_write_file(inp["path"], inp["content"]),
+    "add_changelog_entry": lambda inp: tool_add_changelog_entry(inp["entry"]),
     "list_files": lambda inp: tool_list_files(inp.get("pattern", "**/*.py")),
     "search_code": lambda inp: tool_search(inp["query"]),
 }
@@ -138,7 +176,7 @@ TOOLS = [
         "type": "function",
         "function": {
             "name": "read_file",
-            "description": "Read the contents of a file (up to 8000 chars).",
+            "description": "Read the contents of a file (up to 12000 chars, truncated with notice if longer).",
             "parameters": {
                 "type": "object",
                 "properties": {"path": {"type": "string"}},
@@ -150,7 +188,13 @@ TOOLS = [
         "type": "function",
         "function": {
             "name": "write_file",
-            "description": "Write (overwrite) a file with the given content. Creates parent dirs.",
+            "description": (
+                "Write (overwrite) a file with the given content. Creates parent dirs. "
+                "BLOCKED if the new content is more than 10 lines shorter than the existing file — "
+                "this prevents accidentally writing back a truncated read. "
+                "NEVER use this for docs/changelog.md — use add_changelog_entry instead. "
+                "NEVER create backup files (e.g. proxy_original.py, proxy_backup.py)."
+            ),
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -158,6 +202,22 @@ TOOLS = [
                     "content": {"type": "string"},
                 },
                 "required": ["path", "content"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "add_changelog_entry",
+            "description": (
+                "Safely insert a new entry into docs/changelog.md under ## [Unreleased]. "
+                "Always use this instead of read_file + write_file for the changelog. "
+                "Pass the full entry text including the ### Added / ### Fixed header."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {"entry": {"type": "string"}},
+                "required": ["entry"],
             },
         },
     },
@@ -208,13 +268,10 @@ SYSTEM = textwrap.dedent("""
        - Tests go in `tests/` and must pass with `pytest -x -q --tb=short`.
 
     4. **Add a changelog entry** — this is REQUIRED for CI to pass:
-       Open `docs/changelog.md`, find `## [Unreleased]`, and add one or more lines
-       describing what you added/changed/fixed. Without this, the PR will be blocked.
+       Use the `add_changelog_entry` tool — NEVER read_file + write_file the changelog.
+       The changelog is large; writing it back from a read will truncate it and break CI.
        Example:
-       ```
-       ### Added
-       - `scripts/my_feature.py` — brief description of what it does.
-       ```
+       add_changelog_entry(entry="### Added\n- `module.py` — brief description.\n")
 
     5. **Run tests and verify** — API keys are automatically stripped for pytest:
        bash(cmd="pytest -x -q --tb=short 2>&1 | tail -20")
@@ -231,10 +288,10 @@ SYSTEM = textwrap.dedent("""
 
     ## Rules
     - Never signal IMPLEMENTATION_COMPLETE if the last pytest run had failures.
-    - Always update docs/changelog.md under ## [Unreleased] — CI will block the PR without it.
+    - Always use add_changelog_entry for docs/changelog.md — NEVER write_file it.
     - Only implement features clearly supported by the URL content.
     - Minimal focused changes — ADD new code only. Do NOT delete, refactor, or rewrite existing code.
-    - Never delete lines from docs/changelog.md — only append new entries.
+    - Never create backup files (proxy_original.py, any_file_backup.py, etc.).
     - Never hardcode secrets.
     - If the feature is already implemented, signal IMPLEMENTATION_COMPLETE immediately without changing any files.
 """).strip()
