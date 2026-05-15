@@ -1,6 +1,12 @@
 # Changelog
 
 ## [Unreleased]
+### Added
+- `handlers/anthropic_compat.py` + `proxy.py` — New `POST /v1/messages/count_tokens` endpoint matching the Anthropic API spec. Estimates input token count from messages, system prompt, and tool definitions using character-based heuristics (~4 chars/token). Claude Code CLI uses this endpoint for preflight context-size checks; it now works when `ANTHROPIC_BASE_URL` points at this proxy instead of raising a 404.
+- `handlers/anthropic_compat.py` — Extended thinking routing: when a request includes `thinking: {type: "enabled", budget_tokens: N}`, the proxy now routes to the best available reasoning model (DeepSeek-R1 or similar) by treating the request as `endpoint_type="agent_plan"` (which forces `category="reasoning"` in the classifier). The `thinking` param itself is still stripped before forwarding to Ollama — local models think natively via `<think>` tokens. Response now includes `X-Thinking-Budget: N` header so clients can log the requested budget.
+- `handlers/anthropic_compat.py` — Native Anthropic structured outputs support: `output_format: {type: "json_schema", json_schema: {schema: {...}}}` is translated to Ollama's `format` field (schema object). `output_format: {type: "json_object"}` maps to `format: "json"`. When `output_format` is used, the response includes `anthropic-beta: structured-outputs-2025-11-13` header, matching the real Anthropic API behaviour and enabling structured-output clients to round-trip correctly.
+- `tests/test_daily_automation_2026_05_15.py` — 26 tests covering all three new features: token estimator unit tests, `/v1/messages/count_tokens` endpoint integration tests, extended thinking routing logic tests, and `output_format` normalisation unit tests.
+
 ### Fixed
 - `proxy.py` — `GET /api/agent/stream` SSE owner filter used `getattr(j, "owner_id", owner_email)` as the default, meaning jobs with no `owner_id` attribute would always pass the equality check and be visible to any authenticated caller. Changed default to `None` so only jobs explicitly owned by the caller are streamed (consistent with `get_agent_status` filter).
 - `runtimes/adapters/internal_agent.py` — `health_check()` was using synchronous `httpx.get()` inside an async function, blocking the event loop on every health poll. Replaced with `async with httpx.AsyncClient()` and improved the error message when Ollama is unreachable to include the probe URL and a fix hint.

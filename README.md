@@ -11,7 +11,7 @@
 [![Forks](https://img.shields.io/github/forks/strikersam/local-llm-server?style=for-the-badge&color=4D8CFF&logo=git)](https://github.com/strikersam/local-llm-server/network)
 [![License](https://img.shields.io/badge/license-Open%20Source-22C55E?style=for-the-badge)](LICENSE)
 
-[**Quick start**](#quick-start) · [**What's new**](#whats-new-2026-05-14) · [**See the product**](#see-the-product) · [**What it can do**](#what-it-can-do) · [**Technical docs**](#technical-docs)
+[**Quick start**](#quick-start) · [**What's new**](#whats-new-2026-05-15) · [**See the product**](#see-the-product) · [**What it can do**](#what-it-can-do) · [**Technical docs**](#technical-docs)
 
 </div>
 
@@ -50,6 +50,14 @@ That means less setup pain, less tool sprawl, and fewer "wait, where did that an
 </p>
 
 ---
+
+## What's new (2026-05-15)
+
+**Token counting API, thinking-aware routing, and native structured outputs for the Anthropic compat layer.**
+
+- **`POST /v1/messages/count_tokens`** — Claude Code CLI calls this endpoint before sending long prompts to check whether they fit in the model's context window. The proxy now implements it: pass the same body as `/v1/messages` and receive `{"input_tokens": N}` back. No more 404s when `ANTHROPIC_BASE_URL` points at LLM Relay instead of Anthropic directly.
+- **Extended thinking → reasoning model routing** — When a request arrives with `thinking: {type: "enabled", budget_tokens: N}`, the proxy now routes to the best available reasoning model (DeepSeek-R1, QwQ) instead of routing as a plain chat request. Local models already think via `<think>` tokens — this change ensures the right model is selected for deep chain-of-thought work. The response includes an `X-Thinking-Budget` header echoing the requested budget.
+- **Anthropic `output_format` structured outputs** — The Anthropic API's native `output_format: {type: "json_schema", json_schema: {schema: {...}}}` is now translated to Ollama's `format` field for local structured generation. `json_object` mode maps to `format: "json"`. When active, responses carry `anthropic-beta: structured-outputs-2025-11-13`, matching the real API and enabling tools that check for that header to work correctly.
 
 ## What's new (2026-05-14)
 
