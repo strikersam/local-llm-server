@@ -14,7 +14,7 @@
     "react-scripts": "^5.0.1",
     "remark-gfm": "^4.0.1",
     "underscore": "^1.13.8",
-    "web-vitals": "^2.1.4"
+    "web-vitals": "^5.2.0"
   },
   "scripts": {
     "start": "react-scripts start",
