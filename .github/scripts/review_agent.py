@@ -29,8 +29,7 @@ PR_NUMBER = sys.argv[1] if len(sys.argv) > 1 else ""
 RESULT_FILE = "/tmp/review_result.json"  # nosec: B108 - Predictable temp file path used for backward compatibility
 
 CANDIDATE_MODELS = [
-    "qwen/qwen3-coder-480b-a35b-instruct",
-    "nvidia/llama-3.1-nemotron-ultra-253b-v1",
+    "nvidia/nemotron-3-super-120b-a12b",
     "nvidia/llama-3.3-nemotron-super-49b-v1",
     "meta/llama-3.3-70b-instruct",
     "qwen/qwen2.5-coder-32b-instruct",

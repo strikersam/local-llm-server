@@ -33,8 +33,7 @@ MAX_TURNS = 120
 # Model preference: heavy reasoning model first, reliable fallbacks after.
 # All are free-tier NVIDIA NIM models.
 CANDIDATE_MODELS = [
-    ("qwen/qwen3-coder-480b-a35b-instruct",      "coding (Qwen3-Coder 480B — primary)"),
-    ("nvidia/llama-3.1-nemotron-ultra-253b-v1", "reasoning (Nemotron Ultra 253B)"),
+    ("nvidia/nemotron-3-super-120b-a12b",       "reasoning (Nemotron 120B — primary)"),
     ("nvidia/llama-3.3-nemotron-super-49b-v1",  "reasoning (Nemotron Super 49B)"),
     ("meta/llama-3.3-70b-instruct",             "coding (Llama 3.3 70B)"),
     ("qwen/qwen2.5-coder-32b-instruct",         "coding (Qwen2.5 Coder 32B)"),
@@ -44,10 +43,22 @@ CANDIDATE_MODELS = [
 # ---------------------------------------------------------------------------
 # Tool implementations (run on the host)
 # ---------------------------------------------------------------------------
+_API_KEY_ENV_VARS = (
+    "NVIDIA_API_KEY", "ANTHROPIC_API_KEY", "OPENAI_API_KEY",
+    "GEMINI_API_KEY", "GROQ_API_KEY", "MISTRAL_API_KEY",
+)
+
+
 def tool_bash(cmd: str) -> str:
+    # Strip API keys when running pytest so tests that check model selection
+    # are not affected by whatever keys are set in the CI environment.
+    env = dict(os.environ)
+    if "pytest" in cmd:
+        for key in _API_KEY_ENV_VARS:
+            env.pop(key, None)
     try:
         result = subprocess.run(
-            cmd, shell=True, capture_output=True, text=True, timeout=120  # nosec B602
+            cmd, shell=True, capture_output=True, text=True, timeout=120, env=env  # nosec B602
         )
         out = result.stdout[-6000:] if len(result.stdout) > 6000 else result.stdout
         err = result.stderr[-2000:] if len(result.stderr) > 2000 else result.stderr
@@ -205,9 +216,11 @@ SYSTEM = textwrap.dedent("""
        - `scripts/my_feature.py` — brief description of what it does.
        ```
 
-    5. **Run tests and verify**:
+    5. **Run tests and verify** — API keys are automatically stripped for pytest:
        bash(cmd="pytest -x -q --tb=short 2>&1 | tail -20")
        Fix any failures. Only proceed when all tests pass.
+       If a test fails because an env var like NVIDIA_API_KEY changes routing,
+       fix the test to mock/monkeypatch it instead of relying on env state.
 
     6. **Verify staged changes exist**:
        bash(cmd="git add -A && git diff --staged --stat")
