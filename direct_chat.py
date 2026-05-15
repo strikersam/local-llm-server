@@ -552,7 +552,11 @@ async def get_agent_status(
                     type="tool_call",
                     # ToolCallViewer-required fields
                     tool_name=tool_name,
-                    status=evt.get("status", "success" if evt.get("result_preview") or evt.get("result") else "pending"),
+                    status=evt.get("status") or (
+                        "error" if str(evt.get("result_preview") or evt.get("result") or "").startswith("[error")
+                        else "success" if evt.get("result_preview") or evt.get("result")
+                        else "pending"
+                    ),
                     input=evt.get("args"),
                     output=evt.get("result_preview") or evt.get("result"),
                     # legacy fields

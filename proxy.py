@@ -985,9 +985,13 @@ async def get_audit_log_endpoint(
     resource: str | None = None,
     outcome: str | None = None,
 ) -> AuditLogResponse:
-    """Return RBAC audit log entries (newest first). Requires authentication."""
-    if getattr(request.state, "user", None) is None:
+    """Return RBAC audit log entries (newest first). Requires admin role."""
+    user = getattr(request.state, "user", None)
+    if user is None:
         return JSONResponse(status_code=401, content={"detail": "Authentication required"})
+    from rbac import is_admin as _is_admin
+    if not _is_admin(user):
+        return JSONResponse(status_code=403, content={"detail": "Admin access required"})
     from rbac import get_audit_log as _get_audit_log
     entries = _get_audit_log(limit=min(limit, 500), user_id=user_id, resource=resource, outcome=outcome)
     return AuditLogResponse(entries=entries, total=len(entries))
