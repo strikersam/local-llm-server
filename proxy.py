@@ -1147,6 +1147,17 @@ log.info("Schedules API mounted at /api/schedules/*")
 app.include_router(routing_router)
 log.info("Routing policy API mounted at /api/routing/*")
 
+# ── MCP Server (sub-app) ───────────────────────────────────────────────────────
+# Mounted at /mcp-internal so the agent loop can reach workspace/git tools
+# without a separate container.  On Render, MCP_SERVER_BASE_URL points at
+# this service's own external URL + "/mcp-internal".
+try:
+    from mcp_server.server import app as _mcp_app
+    app.mount("/mcp-internal", _mcp_app)
+    log.info("MCP server mounted at /mcp-internal")
+except Exception as _mcp_err:
+    log.warning("MCP server not mounted: %s", _mcp_err)
+
 
 # ─── Health (no auth) ──────────────────────────────────────────────────────────
 
