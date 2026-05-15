@@ -622,6 +622,19 @@ async def lifespan(app: FastAPI):
     log.info(
         "RuntimeManager started (%d runtimes registered)", len(mgr._registry.ids())
     )
+    # Warm up health state immediately so the first dispatch cycle has real data.
+    # The health service also kicks off its own async initial poll in start(),
+    # but verify_all() ensures we wait for results before accepting tasks.
+    try:
+        health_results = await mgr.verify_all()
+        healthy = [h["runtime_id"] for h in health_results if h.get("available")]
+        unavailable = [h["runtime_id"] for h in health_results if not h.get("available")]
+        log.info(
+            "Runtime health warm-up: %d healthy=%s, %d unavailable=%s",
+            len(healthy), healthy, len(unavailable), unavailable,
+        )
+    except Exception as _hc_exc:
+        log.warning("Runtime health warm-up failed: %s", _hc_exc)
 
     _task_dispatcher = TaskDispatcher(
         workspace_root=str(Path(__file__).resolve().parent),
@@ -928,7 +941,7 @@ async def stream_agent_activity(
         while True:
             jobs = _jobs.list_jobs(session_id=session_id)
             if owner_email:
-                jobs = [j for j in jobs if getattr(j, "owner_id", owner_email) == owner_email]
+                jobs = [j for j in jobs if getattr(j, "owner_id", None) == owner_email]
             emitted = False
             for job in jobs:
                 events = job.progress_events

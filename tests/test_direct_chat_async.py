@@ -190,6 +190,7 @@ def test_agent_mode_github_preflight_missing_token(monkeypatch, tmp_path: Path):
     proxy.app.dependency_overrides.clear()
 
 
+@pytest.mark.asyncio
 async def test_job_result_normalizes_and_exposes_final_message():
     import asyncio
     from agent.job_manager import AgentJobManager
@@ -215,6 +216,7 @@ async def test_job_result_normalizes_and_exposes_final_message():
     assert d.get("final_message") == "Final textual summary"
 
 
+@pytest.mark.asyncio
 async def test_job_failure_structures_runtime_preflight():
     import asyncio
     from agent.job_manager import AgentJobManager
@@ -235,18 +237,11 @@ async def test_job_failure_structures_runtime_preflight():
             self.runtime_id = "internal_agent"
             self.ready = False
             self.selected_runtime = "internal_agent"
-            self.summary = "docker missing"
         def as_dict(self):
-            """
-            Serialize the readiness report to a plain dictionary.
-            
-            Returns:
-                dict: A mapping with keys:
-                    - "runtime_id" (str): the identifier of the runtime.
-                    - "ready" (bool): readiness flag.
-                    - "summary" (str): human-readable summary (here: "docker missing").
-            """
             return {"runtime_id": self.runtime_id, "ready": self.ready, "summary": "docker missing"}
+        @property
+        def summary(self):
+            return "docker missing"
 
     async def runner(heartbeat):
         # Simulate runtime preflight failure thrown during execution
@@ -265,6 +260,7 @@ async def test_job_failure_structures_runtime_preflight():
         raise RuntimePreflightError("internal_agent", DummyReport())
 
     mgr.start_job(job.job_id, runner)
+
     for _ in range(200):
         if job.status in ("succeeded", "failed"):
             break
