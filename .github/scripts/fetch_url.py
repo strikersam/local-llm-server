@@ -71,6 +71,19 @@ def extract_real_url(html: str) -> str | None:
     return None
 
 
+def fetch_jina(url: str) -> tuple[str | None, str, object]:
+    """Fetch via Jina AI Reader which renders JavaScript and returns clean text."""
+    jina_url = "https://r.jina.ai/" + url
+    return fetch(jina_url, timeout=45)
+
+
+def nitter_url(url: str) -> str | None:
+    """Convert an x.com or twitter.com URL to a nitter.net URL, or return None."""
+    if re.search(r'https?://(x|twitter)\.com', url):
+        return re.sub(r'https?://(x|twitter)\.com', 'https://nitter.net', url)
+    return None
+
+
 def meaningful(text: str) -> bool:
     return len(text) >= MIN_CHARS
 
@@ -99,20 +112,37 @@ def main() -> None:
             if meaningful(text2):
                 html, final_url, status, text = html2, final_url2, status2, text2
 
-    # Strategy 3 — Google Cache
+    # Strategy 3 — Jina AI Reader (renders JavaScript, works for SPAs and X.com)
+    if not meaningful(text):
+        print(f"[fetch] Strategy 3 — Jina AI Reader: r.jina.ai/{TARGET}")
+        html, final_url, status = fetch_jina(TARGET)
+        text = strip_html(html) if html else ""
+        # Jina returns plain text/markdown — treat non-html content as-is if it's meaningful
+        if html and not meaningful(text) and len(html) >= MIN_CHARS:
+            text = html[:8000]
+
+    # Strategy 4 — Nitter mirror (for x.com / twitter.com URLs)
+    if not meaningful(text):
+        nitter = nitter_url(TARGET)
+        if nitter:
+            print(f"[fetch] Strategy 4 — Nitter: {nitter}")
+            html, final_url, status = fetch(nitter)
+            text = strip_html(html) if html else ""
+
+    # Strategy 5 — Google Cache
     if not meaningful(text):
         cache_url = (
             "https://webcache.googleusercontent.com/search?q=cache:"
             + urllib.parse.quote(TARGET, safe="")
         )
-        print(f"[fetch] Strategy 3 — Google Cache: {cache_url}")
+        print(f"[fetch] Strategy 5 — Google Cache: {cache_url}")
         html, final_url, status = fetch(cache_url)
         text = strip_html(html) if html else ""
 
-    # Strategy 4 — Wayback Machine (most recent snapshot)
+    # Strategy 6 — Wayback Machine (most recent snapshot)
     if not meaningful(text):
         wb_url = "https://web.archive.org/web/" + urllib.parse.quote(TARGET, safe="")
-        print(f"[fetch] Strategy 4 — Wayback Machine: {wb_url}")
+        print(f"[fetch] Strategy 6 — Wayback Machine: {wb_url}")
         html, final_url, status = fetch(wb_url)
         text = strip_html(html) if html else ""
 
