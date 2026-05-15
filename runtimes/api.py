@@ -16,6 +16,7 @@ Exposes:
 
 from __future__ import annotations
 
+import asyncio
 import secrets
 import logging
 from typing import Any
@@ -41,12 +42,19 @@ runtime_router = APIRouter(prefix="/runtimes", tags=["runtimes"])
 # ── Request/response models ───────────────────────────────────────────────────
 
 class PolicyUpdateBody(BaseModel):
+    # Core runtime policy fields
     never_use_paid_providers: bool | None = None
     require_approval_before_paid_escalation: bool | None = None
     max_paid_escalations_per_day: int | None = Field(default=None, ge=0, le=1000)
     preferred_runtime_id: str | None = Field(default=None, max_length=64)
     fallback_runtime_ids: list[str] | None = None
     task_type_runtime_overrides: dict[str, str] | None = None
+    # Rich UI format from RoutingPolicyPage: 4-tier pool config + escalation triggers.
+    # The frontend sends {pools, policy, triggers}; we persist the whole payload in
+    # the config store so GET /runtimes/policy can return it for round-trip fidelity.
+    pools: dict | None = None
+    policy: dict | None = None
+    triggers: list | None = None
 
 
 class RunTaskBody(BaseModel):
@@ -62,15 +70,17 @@ class RunTaskBody(BaseModel):
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
 async def _require_admin(request: Request) -> None:
-    """Dependency: reject non-admin callers."""
-    try:
-        from server import get_current_user
-    except ModuleNotFoundError:
-        from backend.server import get_current_user
+    """Dependency: reject unauthenticated or non-admin callers.
 
-    user = await get_current_user(request)
+    Returns 401 for missing/unsigned requests and 403 for authenticated
+    non-admin users so the frontend can distinguish "log in again" from
+    "you'll never have access".
+    """
+    user = getattr(request.state, "user", None)
+    if not user:
+        raise HTTPException(status_code=401, detail="Authentication required")
     role = user.get("role", "user") if isinstance(user, Mapping) else getattr(user, "role", "user")
-    if user is None or role != "admin":
+    if role != "admin":
         raise HTTPException(status_code=403, detail="Admin access required")
 
 
@@ -98,9 +108,34 @@ async def refresh_runtime_health() -> dict:
     return {"health": health, "message": "Health refresh complete"}
 
 
+_RICH_POLICY_KEY = "ui_routing_policy"
+
+
+async def _load_rich_policy() -> dict:
+    """Return the persisted rich UI policy (pools + policy + triggers), or {}."""
+    try:
+        from webui.config_store import JsonConfigStore
+        return (await asyncio.to_thread(JsonConfigStore().load, _RICH_POLICY_KEY)) or {}
+    except Exception:
+        log.debug("Could not load rich UI routing policy", exc_info=True)
+        return {}
+
+
+async def _save_rich_policy(data: dict) -> None:
+    from webui.config_store import JsonConfigStore
+    try:
+        await asyncio.to_thread(JsonConfigStore().save, _RICH_POLICY_KEY, data)
+    except Exception:
+        log.exception("Failed to persist rich UI routing policy")
+        raise
+
+
 @runtime_router.get("/policy")
 async def get_policy() -> dict:
-    return {"policy": get_runtime_manager().get_policy()}
+    core = get_runtime_manager().get_policy()
+    rich = await _load_rich_policy()
+    # Merge: rich provides UI-only keys (pools, triggers); core wins on any collision.
+    return {"policy": {**rich, **core}}
 
 
 @runtime_router.put("/policy")
@@ -109,11 +144,44 @@ async def update_policy(
     request: Request,
     _: Any = Depends(_require_admin),
 ) -> dict:
-    """Update the routing policy.  Admin only."""
+    """Update the routing policy.  Admin only.
+
+    Accepts both the minimal core format {never_use_paid_providers, …} and the
+    richer UI format {pools, policy: {neverUseCommercial, …}, triggers} from
+    RoutingPolicyPage.  The two formats are merged so the UI round-trips
+    cleanly.
+    """
     mgr = get_runtime_manager()
-    updates = body.model_dump(exclude_none=True)
-    mgr.update_policy(**updates)
-    return {"policy": mgr.get_policy(), "message": "Policy updated"}
+
+    # Map UI camelCase booleans → internal snake_case core flags
+    ui_policy: dict = body.policy or {}
+    core_updates: dict = body.model_dump(exclude_none=True, exclude={"pools", "policy", "triggers"})
+    if ui_policy.get("neverUseCommercial") is not None:
+        core_updates.setdefault("never_use_paid_providers", ui_policy["neverUseCommercial"])
+    if ui_policy.get("askBeforeCommercial") is not None:
+        core_updates.setdefault("require_approval_before_paid_escalation", ui_policy["askBeforeCommercial"])
+
+    if core_updates:
+        mgr.update_policy(**core_updates)
+
+    # Persist the rich UI payload (pools + policy + triggers) for round-trip fidelity.
+    rich: dict = {}
+    if body.pools is not None:
+        rich["pools"] = body.pools
+    if body.policy is not None:
+        rich["policy"] = body.policy
+    if body.triggers is not None:
+        rich["triggers"] = body.triggers
+    if rich:
+        existing = await _load_rich_policy()
+        existing.update(rich)
+        try:
+            await _save_rich_policy(existing)
+        except Exception:
+            raise HTTPException(status_code=500, detail="Failed to persist routing policy")
+
+    core = mgr.get_policy()
+    return {"policy": {**(await _load_rich_policy()), **core}, "message": "Policy updated"}
 
 
 @runtime_router.get("/decisions")

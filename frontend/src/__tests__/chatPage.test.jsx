@@ -287,7 +287,7 @@ test('renders the live agent workspace when session telemetry exists', async () 
   expect(screen.getAllByText(/live agent workspace/i).length).toBeGreaterThan(0);
   expect(screen.getAllByText(/tracked the full agent run/i).length).toBeGreaterThan(0);
   expect(global.fetch).toHaveBeenCalledWith(
-    '/api/agent/status?session_id=session-live',
+    '/api/chat/agent-status?session_id=session-live',
     { headers: { Authorization: 'Bearer token-123' } },
   );
 });

@@ -28,21 +28,29 @@ task_router = APIRouter(prefix="/api/tasks", tags=["tasks"])
 
 
 async def _current_user(request: Request) -> Any:
-    # Fast path: JWTUserStateMiddleware (production) or inject_user middleware
-    # (tests) has already validated the token and stored the user in request.state.
+    # Fast path: JWTAuthMiddleware has already validated the token and stored
+    # the user dict in request.state.user.
     user = getattr(request.state, "user", None)
     if user is not None:
         return user
-    # Slow path: validate the Bearer token directly.  Try both import paths so
-    # the code works when run from the repo root AND from within backend/.
-    for mod_name in ("server", "backend.server"):
+    # Slow path: re-verify the Bearer token directly using the same V3_JWT_SECRET
+    # that JWTAuthMiddleware uses.  The old approach (importing backend.server.
+    # get_current_user) used a different JWT_SECRET and always raised 401.
+    auth = request.headers.get("authorization", "")
+    token = auth[7:].strip() if auth.startswith("Bearer ") else request.headers.get("x-api-key", "").strip()
+    if token:
         try:
-            import importlib
-            mod = importlib.import_module(mod_name)
-            return await mod.get_current_user(request)
-        except ModuleNotFoundError:
-            continue
-    from fastapi import HTTPException
+            from tokens import verify_token
+            payload = verify_token(token, token_type="access")
+            if payload:
+                return {
+                    "email": payload.get("email"),
+                    "_id": payload.get("sub"),
+                    "name": payload.get("name"),
+                    "role": payload.get("role", "user"),
+                }
+        except Exception as exc:
+            log.warning("Token verification error: %s", exc)
     raise HTTPException(status_code=401, detail="Not authenticated")
 
 

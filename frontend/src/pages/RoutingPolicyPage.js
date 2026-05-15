@@ -31,10 +31,18 @@ const POOL_META = [
   },
 ];
 
+// Free cloud is the preferred tier — NVIDIA NIM free models first, then community free tiers.
 const DEFAULT_POOLS = {
   onDevice:        ['ollama/llama3.2:3b', 'ollama/codellama:7b', 'ollama/mistral:7b'],
   selfHosted:      ['server/llama3.2:8b', 'server/codellama:13b', 'server/qwen2.5:14b'],
-  freeCloud:       ['groq/llama-3.1-70b-versatile', 'gemini/gemini-1.5-flash', 'together/mixtral-8x7b'],
+  freeCloud:       [
+    'nvidia/nemotron-3-super-120b-a12b',
+    'nvidia/GLM-5.1',
+    'nvidia/StarCoder2-15B',
+    'nvidia/DeepSeek-V4-Pro',
+    'groq/llama-3.1-70b-versatile',
+    'gemini/gemini-1.5-flash',
+  ],
   commercialCloud: ['anthropic/claude-3-haiku-20240307', 'openai/gpt-4o-mini', 'anthropic/claude-3-5-sonnet-20241022'],
 };
 

@@ -275,10 +275,11 @@ class TestMCPServer:
 # ── MCPClient tests ───────────────────────────────────────────────────────────
 
 class TestMCPClient:
-    def test_returns_none_when_no_url(self):
+    def test_falls_back_to_default_url_when_no_url(self):
         from agent.mcp_client import get_mcp_client
         client = get_mcp_client("")
-        assert client is None
+        assert client is not None
+        assert "localhost:8008" in client.base_url
 
     def test_circuit_breaker_opens_after_failures(self):
         from agent.mcp_client import MCPClient, _CB_FAILURE_THRESHOLD

@@ -29,7 +29,7 @@ import httpx
 
 log = logging.getLogger("qwen-proxy")
 
-_DEFAULT_BASE_URL = os.environ.get("MCP_SERVER_BASE_URL", "")
+_DEFAULT_BASE_URL = os.environ.get("MCP_SERVER_BASE_URL", "http://localhost:8008")
 
 # Circuit breaker constants
 _CB_FAILURE_THRESHOLD = 3    # consecutive failures before opening
@@ -151,12 +151,15 @@ class MCPClient:
 _client: MCPClient | None = None
 
 
-def get_mcp_client(base_url: str | None = None) -> MCPClient | None:
-    """Return the module-level MCPClient, or None if not configured."""
+def get_mcp_client(base_url: str | None = None) -> MCPClient:
+    """Return the module-level MCPClient.
+
+    Reads MCP_SERVER_BASE_URL at call time (not import time) so env vars set
+    after module load (e.g. during proxy startup auto-discovery) are honoured.
+    Falls back to http://localhost:8008 if no env var is set.
+    """
     global _client
-    url = base_url or _DEFAULT_BASE_URL
-    if not url:
-        return None
-    if _client is None or (base_url and _client.base_url != base_url.rstrip("/")):
+    url = base_url or os.environ.get("MCP_SERVER_BASE_URL", "http://localhost:8008")
+    if _client is None or _client.base_url != url.rstrip("/"):
         _client = MCPClient(url)
     return _client

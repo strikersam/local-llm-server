@@ -41,30 +41,25 @@ _RISKY_FILES: frozenset[str] = frozenset({
     "proxy.py",          # auth middleware — changes need risky-module-review
 })
 
-# Default to Nvidia NIM free models — no local infra required.
-# These are overridden by env vars when local Ollama models are preferred.
+# Default to role-optimised Nvidia NIM free models — no local infra required.
+# Each role uses the model best suited for that task; override via env vars.
+_nvidia_key = os.environ.get("NVIDIA_API_KEY") or os.environ.get("NVidiaApiKey")
 DEFAULT_PLANNER_MODEL = os.environ.get(
     "AGENT_PLANNER_MODEL",
-    "nvidia/nemotron-3-super-120b-a12b"
-    if (os.environ.get("NVIDIA_API_KEY") or os.environ.get("NVidiaApiKey"))
-    else "deepseek-r1:32b",
+    "nvidia/GLM-5.1" if _nvidia_key else "deepseek-r1:32b",
 )
 DEFAULT_EXECUTOR_MODEL = os.environ.get(
     "AGENT_EXECUTOR_MODEL",
-    "nvidia/nemotron-3-super-120b-a12b"
-    if (os.environ.get("NVIDIA_API_KEY") or os.environ.get("NVidiaApiKey"))
-    else "qwen3-coder:30b",
+    "nvidia/StarCoder2-15B" if _nvidia_key else "qwen3-coder:30b",
 )
 DEFAULT_VERIFIER_MODEL = os.environ.get(
     "AGENT_VERIFIER_MODEL",
-    "nvidia/nemotron-3-super-120b-a12b"
-    if (os.environ.get("NVIDIA_API_KEY") or os.environ.get("NVidiaApiKey"))
-    else "deepseek-r1:32b",
+    "nvidia/DeepSeek-V4-Pro" if _nvidia_key else "deepseek-r1:32b",
 )
 DEFAULT_JUDGE_MODEL = os.environ.get(
     "AGENT_JUDGE_MODEL",
     "nvidia/nemotron-3-super-120b-a12b"
-    if (os.environ.get("NVIDIA_API_KEY") or os.environ.get("NVidiaApiKey"))
+    if _nvidia_key
     else DEFAULT_VERIFIER_MODEL,
 )
 
@@ -91,6 +86,7 @@ class AgentRunner:
         department: str | None = None,
         key_id: str | None = None,
         mcp_base_url: str | None = None,
+        tool_callback: Any | None = None,
     ) -> None:
         # NOTE: "ollama_base" is kept for backwards compatibility; this runner only needs an
         # OpenAI-compatible base URL with /v1/chat/completions.
@@ -107,7 +103,7 @@ class AgentRunner:
         self.github = GitHubTools(github_token)
         self.ctx = ContextManager()
         # MCP client — delegates heavy workspace/git ops to the mcp-server container.
-        # Falls back to local tools if None or if the circuit breaker is open.
+        # Auto-discovers at localhost:8008 if MCP_SERVER_BASE_URL is not set.
         from agent.mcp_client import get_mcp_client
         self._mcp = get_mcp_client(mcp_base_url)
         # Optional session store for event-log writes (append-only durable log).
@@ -118,6 +114,10 @@ class AgentRunner:
         self.email = email
         self.department = department
         self.key_id = key_id
+        # Optional callback invoked after every tool call: tool_callback(tool, args, result_str)
+        # Used by direct_chat.py to record tool_call events in AgentJob.progress_events so the
+        # Live Agent Workspace panel can display them in the Chat UI.
+        self.tool_callback = tool_callback
 
         # Build ProviderRouter once at init time rather than per LLM call.
         # payload["model"] always overrides default_model at routing time
@@ -637,7 +637,7 @@ class AgentRunner:
         """Call a tool on the MCP server. Raises MCPUnavailableError if unreachable."""
         from agent.mcp_client import MCPUnavailableError
         if self._mcp is None:
-            raise MCPUnavailableError("MCP client not configured")
+            raise MCPUnavailableError("MCP_SERVER_BASE_URL not set")
         return await self._mcp.call_tool(tool, args)
 
     async def _run_command(self, cmd: str, timeout: int = 120) -> str:
@@ -665,10 +665,21 @@ class AgentRunner:
         metadata: dict[str, Any] | None = None,
     ) -> Any:
         try:
-            return await self._dispatch_tool(tool, args, user_id=user_id, memory_store=memory_store, metadata=metadata)
+            result = await self._dispatch_tool(tool, args, user_id=user_id, memory_store=memory_store, metadata=metadata)
+            if self.tool_callback is not None:
+                try:
+                    self.tool_callback(tool, args, result)
+                except Exception as cb_exc:
+                    log.debug("tool_callback failed for %r: %s", tool, cb_exc)
+            return result
         except CommercialFallbackRequiredError:
             raise
         except Exception as exc:
+            if self.tool_callback is not None:
+                try:
+                    self.tool_callback(tool, args, f"[error: {exc}]")
+                except Exception as cb_exc:
+                    log.debug("tool_callback failed for %r: %s", tool, cb_exc)
             # The harness catches tool failures as tool-call errors and feeds
             # them back to the model — it never surfaces raw exceptions.
             # (Anthropic managed-agents: decoupled sandbox; if the container
@@ -754,12 +765,10 @@ class AgentRunner:
         }
         if tool in _mcp_only_tools:
             from agent.mcp_client import MCPUnavailableError
-            if self._mcp is None:
-                return f"[tool error: MCP_SERVER_BASE_URL not set — cannot run {tool}]"
             try:
                 return await self._mcp_call(tool, args)
             except MCPUnavailableError as exc:
-                return f"[tool error: mcp unavailable — {exc}]"
+                return f"[tool error: mcp server unreachable — {exc}. Ensure the MCP server is running (docker compose up mcp-server).]"
 
         # GitHub Tools
         if tool == "github_get_issue":

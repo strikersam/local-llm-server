@@ -7,6 +7,14 @@ from fastapi.testclient import TestClient
 from dotenv import load_dotenv
 from fastapi.testclient import TestClient
 
+# Ensure pip-installed packages (site-packages) take precedence over the system
+# python3-jwt in /usr/lib/python3/dist-packages/ which has a cffi/cryptography
+# ABI mismatch on some Ubuntu CI runners and panics on import.  Moving dist-
+# packages entries to the end of sys.path means PyJWT from pip is found first.
+_dist = [p for p in sys.path if "dist-packages" in p]
+_rest = [p for p in sys.path if "dist-packages" not in p]
+sys.path[:] = _rest + _dist
+
 # Pin test credentials before load_dotenv() so the real .env cannot override
 # these values during test runs. seed_admin will sync the DB to match.
 os.environ.setdefault("ADMIN_EMAIL", "admin@llmrelay.local")

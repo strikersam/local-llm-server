@@ -2,9 +2,22 @@
 
 ## [Unreleased]
 ### Fixed
+- `agent/mcp_client.py` — `get_mcp_client()` now reads `MCP_SERVER_BASE_URL` at call time (not module-import time) and falls back to `http://localhost:8008` when the env var is absent. Previously the client was `None` whenever the env var was unset, causing every `clone_repo` / `git_*` tool call to immediately fail with `[tool error: MCP_SERVER_BASE_URL not set]` instead of attempting a connection.
+- `agent/loop.py` — Removed now-redundant `self._mcp is None` guard in `_mcp_only_tools` dispatch; the MCP client is always initialised. Error message for unreachable MCP server now explains how to start the container.
+- `proxy.py` — Added `_autostart_services_bg()` background task that runs `docker compose up -d --no-recreate` at proxy startup, ensuring the MCP server, agent runtimes, MongoDB, and Ollama containers come up automatically without any manual `docker compose up` command. Silently skips when Docker is unavailable or when the proxy itself is running inside a compose container (the task fails gracefully).
+- `scripts/setup-autostart.sh` + `scripts/llm-relay.service` — New one-time setup script and systemd unit file: `sudo bash scripts/setup-autostart.sh` installs a systemd service that starts the full docker-compose stack on every boot, so the dashboard is available as soon as the machine comes up with zero manual steps.
+- `frontend/src/__tests__/chatPage.test.jsx` — Updated URL assertion in "renders the live agent workspace" test to match the renamed `/api/chat/agent-status` endpoint (was still asserting the old `/api/agent/status` path, causing the Frontend CI check to fail).
+- `runtimes/api.py` — `_require_admin` was importing `get_current_user` from `backend.server` which uses a different JWT secret (`JWT_SECRET`) than the proxy (`V3_JWT_SECRET`), causing every `PUT /runtimes/policy` call to fail with 401. Now reads `request.state.user` set by `JWTAuthMiddleware` which uses the correct secret.
+- `tasks/api.py` — `_current_user` slow path was attempting the same broken `backend.server.get_current_user` import. Replaced with direct `tokens.verify_token` call using the same `V3_JWT_SECRET`, so tasks work even when the fast path (middleware-set user) is not available.
+- `direct_chat.py` / `frontend/src/utils/agentWorkspaceTransport.js` — The Chat UI's Live Agent Workspace panel permanently showed "reconnecting" and "0 total tool calls" because the frontend polled `GET /api/agent/status` which did not exist in the proxy. Added `GET /api/chat/agent-status` endpoint that reads from `AgentJobManager` and updated the frontend URL accordingly.
+- `agent/loop.py` — Added `tool_callback` parameter to `AgentRunner.__init__`; `_run_tool` now calls `tool_callback(tool, args, result)` after every dispatch so callers can record individual tool call events. Used in `direct_chat.py` to populate `progress_events` with `type: "tool_call"` entries visible in the Live Agent Workspace panel.
+- `runtimes/api.py` — `PUT /runtimes/policy` now also accepts the rich UI format sent by `RoutingPolicyPage` (`{pools, policy: {neverUseCommercial, …}, triggers}`). UI flags are mapped to core runtime policy fields (`neverUseCommercial` → `never_use_paid_providers`, `askBeforeCommercial` → `require_approval_before_paid_escalation`). The full rich payload is persisted via `JsonConfigStore` and returned by `GET /runtimes/policy` for round-trip fidelity.
 - `.github/scripts/implement_agent.py` — Strip API keys (`NVIDIA_API_KEY`, `ANTHROPIC_API_KEY`, etc.) from the subprocess environment whenever the agent runs `pytest` via `tool_bash`. Previously, `NVIDIA_API_KEY` inherited from the CI step environment caused routing tests (e.g. `test_chat_mode_regressions.py`) to select NVIDIA models instead of local ones, making every pipeline run fail at the pytest verification step.
 
-### Fixed
+### Changed
+- `agent/loop.py` — Default NVIDIA NIM agent models are now role-specific: planner → `nvidia/GLM-5.1`, executor → `nvidia/StarCoder2-15B`, verifier → `nvidia/DeepSeek-V4-Pro`, judge → `nvidia/nemotron-3-super-120b-a12b` (overridden by `AGENT_*_MODEL` env vars as before).
+- `frontend/src/pages/SetupWizardPage.js` — `NVIDIA_MODELS` constants updated to match the role-specific defaults above; previously all roles defaulted to `nvidia/nemotron-3-super-120b-a12b`.
+- `frontend/src/pages/RoutingPolicyPage.js` — Free cloud pool now lists NVIDIA NIM free models first (`nvidia/nemotron-3-super-120b-a12b`, `nvidia/GLM-5.1`, `nvidia/StarCoder2-15B`, `nvidia/DeepSeek-V4-Pro`) followed by community free tiers, reflecting the user preference to route to free cloud rather than commercial APIs.
 - `agent/workspace.py` — `WorkspaceManager.safe_path()` now raises `WorkspaceEscapeError` with `from None` to suppress internal path context in error chains, consistent with `Workspace.safe_path()`.
 - `agent/workspace.py` — `_cleanup_expired_sync()` and `metrics()` now log a `DEBUG` message (including the manifest path and exception) before skipping corrupt workspace manifests, making silent parse failures observable.
 - `agent/github_tools.py` — added missing `import re`; `_validate_repo_parts` used `re.match` but the module never imported `re`, causing `NameError: name 're' is not defined` on every `github_read_repo_file` call.
@@ -17,6 +30,9 @@
 - `.github/workflows/process-quick-note.yml` — Added `continue-on-error: true` to the council-review step so a crash there no longer silently skips the merge and close-issue steps. Added `id: close_success` to the close step so the retry handler can reliably detect whether an issue was closed. Replaced `failure()` with `always()` + compound condition in the retry handler to also catch the two previously-silent cases: (a) tests fail after implementation (step exits 0 via if/else, no `failure()` fires) and (b) agent finds nothing to change (no PR created, no `failure()` fires). Both now correctly queue the issue for retry.
 - `.github/scripts/review_agent.py` — Complete rewrite: added PASS / WARN / FAIL three-tier verdict (FAIL only for real security/data-loss issues; WARN for minor concerns); model fallback through all NVIDIA NIM candidates; always exits 0 so the workflow conditional logic — not the exit code — controls routing; defaults to WARN on any API or format error so auto-merge is never silently blocked by a reviewer crash.
 - `.github/scripts/implement_agent.py` — Replaced `model_dump(exclude_unset=False)` assistant-message serialisation with a hand-built dict containing only `role`, `content`, and `tool_calls`. The previous approach emitted null sentinel fields (`refusal`, `audio`, etc.) that some NVIDIA NIM model endpoints reject with a 422, silently breaking the agentic loop mid-session.
+- `runtimes/adapters/internal_agent.py` — Increased default `max_steps` from 8 to 30 and improved task success criteria to allow purely informational tasks to succeed.
+- `agent/prompts.py` — Raised planner step limit to 30 to support advanced coding tasks.
+- `.github/scripts/implement_agent.py` — Enhanced with `search_code` tool and increased turn limits to match backend capabilities.
 
 ### Security
 - `mcp_server/workspace.py` — Replaced `asyncio.create_subprocess_shell` with an explicit `/bin/sh -c` exec so the shell string is never interpolated by the Python subprocess layer (CodeQL: uncontrolled command line). Added early type/empty checks on `path` parameters before `_safe_path` to satisfy CodeQL uncontrolled-path-expression findings.
@@ -66,11 +82,6 @@
 
 ### Removed
 - None.
-
-### Changed
-- `runtimes/adapters/internal_agent.py` — Increased default `max_steps` from 8 to 30 and improved task success criteria to allow purely informational tasks to succeed.
-- `agent/prompts.py` — Raised planner step limit to 30 to support advanced coding tasks.
-- `.github/scripts/implement_agent.py` — Enhanced with `search_code` tool and increased turn limits to match backend capabilities.
 
 ## [v4.1.0] — 2026-05-09
 
