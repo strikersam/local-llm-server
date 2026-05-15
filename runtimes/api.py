@@ -172,16 +172,16 @@ async def update_policy(
         rich["policy"] = body.policy
     if body.triggers is not None:
         rich["triggers"] = body.triggers
+    existing = await _load_rich_policy()
     if rich:
-        existing = await _load_rich_policy()
         existing.update(rich)
         try:
             await _save_rich_policy(existing)
-        except Exception:
-            raise HTTPException(status_code=500, detail="Failed to persist routing policy")
+        except Exception as exc:
+            raise HTTPException(status_code=500, detail="Failed to persist routing policy") from exc
 
     core = mgr.get_policy()
-    return {"policy": {**(await _load_rich_policy()), **core}, "message": "Policy updated"}
+    return {"policy": {**existing, **core}, "message": "Policy updated"}
 
 
 @runtime_router.get("/decisions")

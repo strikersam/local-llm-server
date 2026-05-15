@@ -892,12 +892,12 @@ app.include_router(direct_chat_router)
 log.info("Direct Chat mounted at /api/chat/* (requires JWT token)")
 
 
-@app.get("/api/agent/stream")
+@app.get("/api/agent/stream", response_model=None)
 async def stream_agent_activity(
     request: Request,
     session_id: str | None = None,
     access_token: str | None = None,
-):
+) -> StreamingResponse | JSONResponse:
     """Server-Sent Events stream of agent job progress events.
 
     EventSource cannot send custom headers, so the JWT access token is accepted
@@ -934,15 +934,27 @@ async def stream_agent_activity(
                 events = job.progress_events
                 cursor = seen.get(job.job_id, 0)
                 new_events = events[cursor:]
-                for evt in new_events:
-                    data = json.dumps({
+                for i, evt in enumerate(new_events, start=cursor):
+                    # Normalize to ActivityEvent shape expected by AgentActivityFeed.tsx:
+                    # {id, timestamp, agent, type, content, metadata}
+                    evt_type = evt.get("type", "status")
+                    agent = evt.get("phase") or job.phase or "system"
+                    content = evt.get("message") or evt.get("tool_name") or ""
+                    activity_event = {
+                        "id": f"{job.job_id}-{i}",
+                        "timestamp": evt.get("timestamp", ""),
+                        "agent": agent,
+                        "type": evt_type,
+                        "content": content,
+                        "metadata": {
+                            k: v for k, v in evt.items()
+                            if k not in {"timestamp", "type", "phase", "message"}
+                        },
+                        # extra job context for consumers that want it
                         "job_id": job.job_id,
-                        "session_id": job.session_id,
-                        "status": job.status,
-                        "phase": job.phase,
-                        **{k: v for k, v in evt.items()},
-                    })
-                    yield f"data: {data}\n\n"
+                        "job_status": job.status,
+                    }
+                    yield f"data: {json.dumps(activity_event)}\n\n"
                     emitted = True
                 seen[job.job_id] = len(events)
             if not emitted:
@@ -960,6 +972,11 @@ async def stream_agent_activity(
     )
 
 
+class AuditLogResponse(BaseModel):
+    entries: list[dict]
+    total: int
+
+
 @app.get("/api/audit-log")
 async def get_audit_log_endpoint(
     request: Request,
@@ -967,13 +984,13 @@ async def get_audit_log_endpoint(
     user_id: str | None = None,
     resource: str | None = None,
     outcome: str | None = None,
-):
+) -> AuditLogResponse:
     """Return RBAC audit log entries (newest first). Requires authentication."""
     if getattr(request.state, "user", None) is None:
         return JSONResponse(status_code=401, content={"detail": "Authentication required"})
     from rbac import get_audit_log as _get_audit_log
     entries = _get_audit_log(limit=min(limit, 500), user_id=user_id, resource=resource, outcome=outcome)
-    return {"entries": entries, "total": len(entries)}
+    return AuditLogResponse(entries=entries, total=len(entries))
 
 # ─── v3.1: Cost insights / observability ──────────────────────────────────────
 app.include_router(

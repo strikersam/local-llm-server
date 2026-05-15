@@ -14,11 +14,9 @@ ExecStart=docker compose up -d
 ExecStop=docker compose down
 # Give containers time to pull images on first run
 TimeoutStartSec=300
-# Restart the service if docker compose exits unexpectedly
-Restart=on-failure
-RestartSec=30
-StartLimitBurst=5
-StartLimitIntervalSec=300
+# Container-level restart policies (restart: unless-stopped) in docker-compose.yml
+# handle individual service recovery — systemd restart directives have no effect
+# on oneshot units after ExecStart exits successfully.
 
 [Install]
 WantedBy=multi-user.target

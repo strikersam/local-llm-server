@@ -65,7 +65,20 @@ class UserInfo(BaseModel):
 
 
 class AgentEventModel(BaseModel):
+    """Tool-call event shape consumed by ToolCallViewer.jsx.
+
+    ToolCallViewer reads call.tool_name, call.status, call.input, call.output,
+    and call.id — the old field names (tool/args/result) are preserved as
+    aliases for backward compatibility.
+    """
+    id: str | None = None
     type: str
+    # ToolCallViewer fields
+    tool_name: str | None = None
+    status: str | None = None
+    input: dict | None = None
+    output: str | None = None
+    # legacy/extra fields kept for other consumers
     tool: str | None = None
     args: dict | None = None
     result: str | None = None
@@ -531,9 +544,23 @@ async def get_agent_status(
             phase=jd["phase"],
             progress_events=events,
         ))
-        for evt in events:
+        for idx, evt in enumerate(events):
             if evt.get("type") == "tool_call":
-                tool_calls.append(AgentEventModel(**{k: v for k, v in evt.items() if k in AgentEventModel.model_fields}))
+                tool_name = evt.get("tool_name") or evt.get("tool")
+                tool_calls.append(AgentEventModel(
+                    id=f"{jd['job_id']}-{idx}",
+                    type="tool_call",
+                    # ToolCallViewer-required fields
+                    tool_name=tool_name,
+                    status=evt.get("status", "success" if evt.get("result_preview") or evt.get("result") else "pending"),
+                    input=evt.get("args"),
+                    output=evt.get("result_preview") or evt.get("result"),
+                    # legacy fields
+                    tool=tool_name,
+                    args=evt.get("args"),
+                    result=evt.get("result_preview") or evt.get("result"),
+                    message=evt.get("message"),
+                ))
         err = jd.get("error") or {}
         if err.get("message"):
             latest_error = err["message"]

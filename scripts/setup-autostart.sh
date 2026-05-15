@@ -32,6 +32,12 @@ if ! command -v docker &>/dev/null; then
   exit 1
 fi
 
+if ! docker compose version &>/dev/null 2>&1; then
+  echo "Error: 'docker compose' (v2 plugin) is not available." >&2
+  echo "Install Docker Compose v2: https://docs.docker.com/compose/install/" >&2
+  exit 1
+fi
+
 if ! command -v systemctl &>/dev/null; then
   echo "Error: systemd not found. This script requires a systemd-based Linux distro." >&2
   exit 1
