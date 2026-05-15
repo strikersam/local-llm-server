@@ -141,3 +141,40 @@ services:
         value: "nvidia/nemotron-3-super-120b-a12b"
       - key: AIDER_NO_AUTO_COMMIT
         value: "false"
+
+      # ================================================================
+      # MCP SERVER — wired automatically from the mcp-server service below
+      # ================================================================
+      - key: MCP_SERVER_BASE_URL
+        fromService:
+          name: llm-mcp-server
+          type: web
+          envVarKey: RENDER_EXTERNAL_URL
+      - key: MCP_SECRET_TOKEN
+        fromService:
+          name: llm-mcp-server
+          type: web
+          envVarKey: MCP_SECRET_TOKEN
+
+  # ── MCP Server (workspace + git tools for agent loop) ────────────────────────
+  - type: web
+    name: llm-mcp-server
+    env: docker
+    dockerfilePath: ./mcp_server/Dockerfile
+    plan: free
+    healthCheckPath: /health
+    disk:
+      name: mcp-workspaces
+      mountPath: /workspaces
+      sizeGB: 1
+    envVars:
+      - key: PORT
+        value: "8008"
+      - key: MCP_WORKSPACE_BASE
+        value: /workspaces
+      - key: MCP_SECRET_TOKEN
+        generateValue: true
+      - key: GITHUB_TOKEN
+        sync: false
+      - key: GH_TOKEN
+        sync: false

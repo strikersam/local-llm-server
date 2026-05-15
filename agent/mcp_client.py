@@ -44,9 +44,10 @@ class MCPClient:
     Thread-safe only within a single asyncio event loop (no cross-loop sharing).
     """
 
-    def __init__(self, base_url: str | None = None, timeout: float = 30.0) -> None:
+    def __init__(self, base_url: str | None = None, timeout: float = 30.0, secret_token: str | None = None) -> None:
         self.base_url = (base_url or "").rstrip("/")
         self.timeout = timeout
+        self._secret_token = secret_token or os.environ.get("MCP_SECRET_TOKEN") or None
         self._id_counter = itertools.count(1)
         # Circuit breaker state
         self._failures = 0
@@ -91,9 +92,12 @@ class MCPClient:
             "method": method,
             "params": params or {},
         }
+        headers: dict[str, str] = {}
+        if self._secret_token:
+            headers["Authorization"] = f"Bearer {self._secret_token}"
         try:
             async with httpx.AsyncClient(timeout=self.timeout) as client:
-                resp = await client.post(f"{self.base_url}/mcp", json=payload)
+                resp = await client.post(f"{self.base_url}/mcp", json=payload, headers=headers)
                 resp.raise_for_status()
             body = resp.json()
         except (httpx.ConnectError, httpx.TimeoutException, httpx.HTTPStatusError) as exc:

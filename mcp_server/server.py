@@ -41,6 +41,18 @@ log = logging.getLogger("mcp-server")
 
 app = FastAPI(title="MCP Server", version="1.0.0")
 
+_SECRET_TOKEN: str | None = os.environ.get("MCP_SECRET_TOKEN") or None
+
+
+def _check_auth(request: Request) -> None:
+    """Raise 401 if MCP_SECRET_TOKEN is set and the request doesn't present it."""
+    if not _SECRET_TOKEN:
+        return
+    auth = request.headers.get("Authorization", "")
+    if not auth.startswith("Bearer ") or auth[7:] != _SECRET_TOKEN:
+        from fastapi import HTTPException
+        raise HTTPException(status_code=401, detail="Unauthorized")
+
 # ── Tool registry ────────────────────────────────────────────────────────────
 
 _TOOLS: list[dict[str, Any]] = [
@@ -282,6 +294,7 @@ async def health() -> dict[str, str]:
 
 @app.post("/mcp")
 async def mcp_dispatch(request: Request) -> JSONResponse:
+    _check_auth(request)
     try:
         body = await request.json()
     except Exception:
