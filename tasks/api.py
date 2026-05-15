@@ -37,7 +37,7 @@ async def _current_user(request: Request) -> Any:
     # that JWTAuthMiddleware uses.  The old approach (importing backend.server.
     # get_current_user) used a different JWT_SECRET and always raised 401.
     auth = request.headers.get("authorization", "")
-    token = auth[7:].strip() if auth.startswith("Bearer ") else request.headers.get("x-api-key", "").strip()
+    token = auth[7:].strip() if auth[:7].lower() == "bearer " else request.headers.get("x-api-key", "").strip()
     if token:
         try:
             from tokens import verify_token

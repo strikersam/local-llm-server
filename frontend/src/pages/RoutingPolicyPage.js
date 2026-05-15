@@ -21,7 +21,7 @@ const POOL_META = [
   },
   {
     id: 'freeCloud', label: 'Free Cloud', sub: 'Rate-limited, no cost',
-    desc: 'Ollama Cloud, Groq (free tier), Google Gemini Free, Together AI free, Mistral Le Platforme free.',
+    desc: 'NVIDIA NIM free models first, then Groq (free tier) and Google Gemini Free.',
     color: '#A78BFA', badge: 'free', cost: '$0.00', privacy: 'Low', latency: '~300–800ms',
   },
   {
