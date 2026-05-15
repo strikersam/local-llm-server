@@ -241,6 +241,41 @@ jobs:
             echo "changed=true" >> "$GITHUB_OUTPUT"
           fi
 
+      # ── 10b. Close as already done when no file changes were needed ─────────
+      # Fires when the agent succeeded, tests passed, but nothing was staged.
+      # This means the agent correctly determined the feature is already present.
+      # Closing here prevents the retry handler from treating it as a failure.
+      - name: Close issue — already implemented (no changes needed)
+        id: close_no_changes
+        if: >
+          steps.tests.outputs.passed == 'true' &&
+          steps.commit.outputs.changed == 'false'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          IMPL_SUMMARY=$(python3 -c "
+          import json
+          try:
+              d = json.load(open('/tmp/impl_result.json'))
+              print(d.get('summary',''))
+          except Exception:
+              print('')
+          " 2>/dev/null || echo "")
+
+          gh issue comment "${{ steps.issue.outputs.number }}" \
+            --repo "${{ github.repository }}" \
+            --body "$(cat <<MSG
+          ✅ Done — no code changes needed.
+
+          The agent reviewed the codebase and determined the requested features are already implemented.
+
+          **Agent summary:** $IMPL_SUMMARY
+          MSG
+          )"
+          gh issue close "${{ steps.issue.outputs.number }}" \
+            --repo "${{ github.repository }}" \
+            --reason completed
+
       # ── 11. Create pull request ────────────────────────────────────────────
       - name: Create pull request
         id: pr
@@ -413,6 +448,7 @@ jobs:
           always() &&
           steps.pick.outputs.found == 'true' &&
           steps.close_success.outcome != 'success' &&
+          steps.close_no_changes.outcome != 'success' &&
           steps.review.outputs.verdict != 'FAIL' &&
           (failure() || steps.pr.outputs.pr_number == '')
         env:
