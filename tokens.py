@@ -1,6 +1,7 @@
 """JWT token generation and validation for v3 API."""
 from __future__ import annotations
 
+import logging
 import os
 import secrets
 from datetime import datetime, timedelta, timezone
@@ -8,6 +9,8 @@ from typing import Any
 
 import jwt
 from pydantic import BaseModel
+
+log = logging.getLogger("qwen-proxy")
 
 
 class TokenPayload(BaseModel):
@@ -29,19 +32,22 @@ class TokenPair(BaseModel):
     expires_in: int
 
 
+_generated_secret: str | None = None
+
+
 def _get_secret() -> str:
-    """Get or create JWT secret from environment."""
+    """Get JWT secret from env, or generate and cache one for the process lifetime."""
+    global _generated_secret
     secret = os.environ.get("V3_JWT_SECRET")
-    if not secret:
-        # Auto-generate if not set (warn user)
-        secret = secrets.token_urlsafe(32)
-        import logging
-        log = logging.getLogger("tokens")
+    if secret:
+        return secret
+    if _generated_secret is None:
+        _generated_secret = secrets.token_urlsafe(32)
         log.warning(
-            f"V3_JWT_SECRET not set. Generated: {secret}. "
-            "Add to .env to persist across restarts."
+            "V3_JWT_SECRET not set — generated a per-process secret. "
+            "Tokens will be invalid after restart. Set V3_JWT_SECRET in your environment."
         )
-    return secret
+    return _generated_secret
 
 
 def create_tokens(user_id: str, email: str, name: str, role: str = "admin") -> TokenPair:

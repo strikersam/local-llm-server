@@ -509,8 +509,8 @@ async def _handle_agent_mode(
 
 @direct_chat_router.get("/agent-status", response_model=AgentStatusResponse)
 async def get_agent_status(
+    request: Request,
     session_id: str | None = None,
-    user: Annotated[UserInfo, Depends(_get_current_user)] = None,
 ) -> AgentStatusResponse:
     """Live agent workspace snapshot consumed by the Chat UI's Live Agent Workspace panel.
 
@@ -521,11 +521,12 @@ async def get_agent_status(
 
     Results are scoped to the authenticated caller's jobs only.
     """
+    user_state = getattr(request.state, "user", None)
+    if not isinstance(user_state, dict) or not user_state.get("email"):
+        raise HTTPException(status_code=401, detail="Authentication required")
+    owner_id: str = user_state["email"]
     all_jobs = _agent_jobs.list_jobs(session_id=session_id)
-    # Filter to only the caller's jobs so progress_events / tool args from other
-    # users are never exposed through this endpoint.
-    owner_id = user.email if user else None
-    jobs = [j for j in all_jobs if owner_id is None or getattr(j, "owner_id", owner_id) == owner_id]
+    jobs = [j for j in all_jobs if getattr(j, "owner_id", None) == owner_id]
 
     tool_calls: list[AgentEventModel] = []
     agents: list[AgentJobModel] = []

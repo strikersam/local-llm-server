@@ -715,7 +715,7 @@ class JWTAuthMiddleware(BaseHTTPMiddleware):
         request.state.user = None
         auth_header = request.headers.get("authorization", "")
         token = None
-        if auth_header.startswith("Bearer "):
+        if auth_header[:7].lower() == "bearer ":
             token = auth_header[7:].strip()
         elif request.headers.get("x-api-key"):
             token = request.headers.get("x-api-key")
