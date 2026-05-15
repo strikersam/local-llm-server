@@ -1,16 +1,32 @@
 name: Fix Security Alerts (NIM Agent)
 
-# Triggered every 6 h, on workflow_dispatch, or by a sentinel-file push.
-# Picks the oldest open code-scanning alert and uses the NIM agent to fix it.
+# Fires immediately when a new CodeQL or Dependabot alert appears,
+# and also every 6 h as a sweep for anything missed.
 on:
+  # ── Real-time: new CodeQL alert detected in any branch ──────────────────
+  code_scanning_alert:
+    types: [appeared_in_branch]
+
+  # ── Real-time: new Dependabot vulnerability alert ────────────────────────
+  # Fires when Dependabot finds a new vulnerability in a dependency.
+  # The dependabot-auto-merge workflow handles the resulting PR;
+  # this trigger is a belt-and-suspenders to ensure nothing slips through.
+  dependabot_alert:
+    types: [created, reintroduced]
+
+  # ── Periodic sweep — catches anything the event missed ───────────────────
   schedule:
     - cron: '0 */6 * * *'
+
+  # ── Manual override ───────────────────────────────────────────────────────
   workflow_dispatch:
     inputs:
       alert_number:
         description: "CodeQL alert number to fix (blank = auto-pick oldest open)"
         required: false
         type: string
+
+  # ── Sentinel push trigger ─────────────────────────────────────────────────
   push:
     branches: [master]
     paths: ['.github/workflows/.trigger-security-fix']
@@ -35,27 +51,51 @@ jobs:
           token: ${{ secrets.GITHUB_TOKEN }}
           fetch-depth: 0
 
-      # ── 2. Pick the oldest open CodeQL alert ───────────────────────────────
-      - name: Find oldest open security alert
+      # ── 2. Pick alert — from event payload or API fallback ────────────────
+      - name: Find alert to fix
         id: pick
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          EVENT_NAME: ${{ github.event_name }}
         run: |
+          NUM=""
+
+          # Priority 1: manual dispatch override
           if [ -n "${{ github.event.inputs.alert_number }}" ]; then
             NUM="${{ github.event.inputs.alert_number }}"
-            echo "Manual override — using alert #$NUM"
+            echo "Source: manual override — alert #$NUM"
+
+          # Priority 2: code_scanning_alert event carries the alert number directly
+          elif [ "$EVENT_NAME" = "code_scanning_alert" ]; then
+            NUM="${{ github.event.alert.number }}"
+            echo "Source: code_scanning_alert event — alert #$NUM"
+
+          # Priority 3: dependabot_alert event — convert to a code-scanning fix task
+          # The Dependabot PR auto-merge flow already handles the dep upgrade;
+          # here we record which package is affected for awareness / logging.
+          elif [ "$EVENT_NAME" = "dependabot_alert" ]; then
+            PKG="${{ github.event.alert.dependency.package.name }}"
+            echo "Source: dependabot_alert — package $PKG (PR auto-merge flow will handle upgrade)"
+            # Fall through to code-scanning sweep below so we also fix any
+            # related code-scanning issues while the runner is already up.
+            NUM=$(gh api \
+              "/repos/${{ github.repository }}/code-scanning/alerts?state=open&sort=created&direction=asc&per_page=1" \
+              --jq '.[0].number // empty' 2>/dev/null || echo "")
+
+          # Priority 4: scheduled sweep / sentinel push — pick oldest open alert
           else
             NUM=$(gh api \
               "/repos/${{ github.repository }}/code-scanning/alerts?state=open&sort=created&direction=asc&per_page=1" \
               --jq '.[0].number // empty' 2>/dev/null || echo "")
+            [ -n "$NUM" ] && echo "Source: scheduled sweep — alert #$NUM"
           fi
 
           if [ -z "$NUM" ]; then
             echo "No open code-scanning alerts — nothing to do."
             echo "found=false" >> "$GITHUB_OUTPUT"
           else
-            echo "found=true"   >> "$GITHUB_OUTPUT"
-            echo "number=$NUM"  >> "$GITHUB_OUTPUT"
+            echo "found=true"  >> "$GITHUB_OUTPUT"
+            echo "number=$NUM" >> "$GITHUB_OUTPUT"
             echo "Picked alert #$NUM"
           fi
 
