@@ -46,19 +46,19 @@ _RISKY_FILES: frozenset[str] = frozenset({
 _nvidia_key = os.environ.get("NVIDIA_API_KEY") or os.environ.get("NVidiaApiKey")
 DEFAULT_PLANNER_MODEL = os.environ.get(
     "AGENT_PLANNER_MODEL",
-    "nvidia/GLM-5.1" if _nvidia_key else "deepseek-r1:32b",
+    "deepseek-ai/deepseek-r1" if _nvidia_key else "deepseek-r1:32b",
 )
 DEFAULT_EXECUTOR_MODEL = os.environ.get(
     "AGENT_EXECUTOR_MODEL",
-    "nvidia/StarCoder2-15B" if _nvidia_key else "qwen3-coder:30b",
+    "qwen/qwen2.5-coder-32b-instruct" if _nvidia_key else "qwen3-coder:30b",
 )
 DEFAULT_VERIFIER_MODEL = os.environ.get(
     "AGENT_VERIFIER_MODEL",
-    "nvidia/DeepSeek-V4-Pro" if _nvidia_key else "deepseek-r1:32b",
+    "deepseek-ai/deepseek-r1" if _nvidia_key else "deepseek-r1:32b",
 )
 DEFAULT_JUDGE_MODEL = os.environ.get(
     "AGENT_JUDGE_MODEL",
-    "nvidia/nemotron-3-super-120b-a12b"
+    "nvidia/llama-3.1-nemotron-70b-instruct"
     if _nvidia_key
     else DEFAULT_VERIFIER_MODEL,
 )

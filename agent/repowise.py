@@ -31,7 +31,7 @@ class RepowiseIntelligence:
                 cmd, cwd=self.root, capture_output=True, text=True, check=True
             )
             return result.stdout.strip()
-        except subprocess.CalledProcessError:
+        except (subprocess.CalledProcessError, OSError):
             return ""
 
     def _get_last_commit(self) -> str:
