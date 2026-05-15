@@ -233,8 +233,10 @@ SYSTEM = textwrap.dedent("""
     - Never signal IMPLEMENTATION_COMPLETE if the last pytest run had failures.
     - Always update docs/changelog.md under ## [Unreleased] — CI will block the PR without it.
     - Only implement features clearly supported by the URL content.
-    - Minimal focused changes — no sprawling refactors.
+    - Minimal focused changes — ADD new code only. Do NOT delete, refactor, or rewrite existing code.
+    - Never delete lines from docs/changelog.md — only append new entries.
     - Never hardcode secrets.
+    - If the feature is already implemented, signal IMPLEMENTATION_COMPLETE immediately without changing any files.
 """).strip()
 
 

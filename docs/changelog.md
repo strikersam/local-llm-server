@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 ### Fixed
+- `.github/scripts/implement_agent.py` — Strengthened SYSTEM prompt rules: agent must only ADD new code, never delete/refactor existing code; must never remove changelog entries; must signal IMPLEMENTATION_COMPLETE immediately when feature is already present without changing any files.
+- `.github/workflows/process-quick-note.yml` — Pip install step now explicitly installs `PyJWT>=2.12.0` and `cryptography>=46.0.6` with `--ignore-installed` before the full requirements install, preventing the broken system-installed Debian jwt/cryptography packages from causing `pyo3_runtime.PanicException` in step 9 pytest.
 - `.github/workflows/process-quick-note.yml` — Added step 10b "Close issue — already implemented": when the agent returns success and tests pass but no files were staged, the issue is now closed with a "no changes needed" message instead of being retried. Updated retry handler to check `close_no_changes.outcome != 'success'`, preventing infinite retry loops on issues whose features are already present in the codebase.
 - `agent/mcp_client.py` — `get_mcp_client()` now reads `MCP_SERVER_BASE_URL` at call time (not module-import time) and falls back to `http://localhost:8008` when the env var is absent. Previously the client was `None` whenever the env var was unset, causing every `clone_repo` / `git_*` tool call to immediately fail with `[tool error: MCP_SERVER_BASE_URL not set]` instead of attempting a connection.
 - `agent/loop.py` — Removed now-redundant `self._mcp is None` guard in `_mcp_only_tools` dispatch; the MCP client is always initialised. Error message for unreachable MCP server now explains how to start the container.
