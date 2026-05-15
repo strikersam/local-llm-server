@@ -70,6 +70,7 @@ class RuntimeManager:
     def update_policy(self, **kwargs: Any) -> None: self._router.update_policy(**kwargs)
     def get_decision_log(self, limit: int = 100) -> list[dict[str, Any]]: return self._router.get_decision_log(limit)
     def health_summary(self) -> list[dict[str, Any]]: return self._health.all_health()
+    async def verify_all(self) -> list[dict[str, Any]]: return await self._health.verify_all()
     async def refresh_runtime_health(self, runtime_id: str) -> dict[str, Any] | None:
         adapter = self._registry.get(runtime_id)
         if adapter is None: return None

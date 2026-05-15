@@ -129,26 +129,32 @@ class InternalAgentAdapter(RuntimeAdapter):
                 details={"workspace_root": self._workspace_root, "provider": provider_label},
             )
 
-        # Probe local Ollama endpoint conservatively
+        # Probe local Ollama endpoint conservatively using async HTTP
         import httpx
+        base = (os.environ.get("OLLAMA_BASE") or os.environ.get("OLLAMA_BASE_URL") or self._ollama_base).rstrip("/")
+        # Prefer a lightweight endpoint; many Ollama installs respond on root
+        probe_url = f"{base}/v1/health" if base.endswith(":11434") else base
         try:
-            base = (os.environ.get("OLLAMA_BASE") or os.environ.get("OLLAMA_BASE_URL") or self._ollama_base).rstrip("/")
-            # Prefer a lightweight endpoint; many Ollama installs respond on root
-            probe_url = f"{base}/v1/health" if base.endswith(":11434") else base
-            resp = httpx.get(probe_url, timeout=1.0)
+            async with httpx.AsyncClient(timeout=2.0) as client:
+                resp = await client.get(probe_url)
             if resp.status_code >= 200 and resp.status_code < 400:
                 return RuntimeHealth(
                     runtime_id=self.RUNTIME_ID,
                     available=True,
                     details={"workspace_root": self._workspace_root, "provider": provider_label, "probe_url": probe_url},
                 )
+            return RuntimeHealth(
+                runtime_id=self.RUNTIME_ID,
+                available=False,
+                error=f"Ollama probe returned HTTP {resp.status_code} at {probe_url}",
+                details={"workspace_root": self._workspace_root, "provider": provider_label},
+            )
         except Exception:
-            # fall through to unavailable
             pass
         return RuntimeHealth(
             runtime_id=self.RUNTIME_ID,
             available=False,
-            error="Local Ollama not reachable",
+            error=f"Local Ollama not reachable at {probe_url} — start Ollama or set OLLAMA_BASE",
             details={"workspace_root": self._workspace_root, "provider": provider_label},
         )
 

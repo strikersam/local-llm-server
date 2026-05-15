@@ -23,8 +23,8 @@ if TYPE_CHECKING:
 log = logging.getLogger("qwen-proxy")
 
 # ── Circuit-breaker constants ─────────────────────────────────────────────────
-CB_FAILURE_THRESHOLD = 5    # consecutive failures → OPEN
-CB_RECOVERY_SEC      = 60   # seconds before attempting recovery from OPEN
+CB_FAILURE_THRESHOLD = 3    # consecutive failures → OPEN
+CB_RECOVERY_SEC      = 30   # seconds before re-probing after OPEN
 
 
 @dataclass
@@ -70,8 +70,11 @@ class RuntimeHealthService:
     # ── Lifecycle ─────────────────────────────────────────────────────────────
 
     def start(self) -> None:
-        """Start the background polling loop."""
+        """Start the background polling loop with an immediate initial check."""
         if self._task is None or self._task.done():
+            # Fire an immediate poll so health state is populated before the
+            # first request arrives — don't wait for the full poll interval.
+            asyncio.create_task(self._poll_all())
             self._task = asyncio.create_task(self._poll_loop())
             log.info("RuntimeHealthService started (interval=%ds)", self._poll_interval)
 
@@ -135,15 +138,22 @@ class RuntimeHealthService:
         if adapter is None:
             return
         circuit = self._circuits.setdefault(runtime_id, CircuitState(runtime_id))
-        # If circuit is open and not yet past recovery window, skip the check
-        # unless the window has passed (then do a probe check)
+        # Skip health check while inside the recovery window; once the window
+        # expires is_open returns False and we fall through to probe.  Reset
+        # open_since so each re-probe gets a fresh CB_RECOVERY_SEC window.
         if circuit.is_open:
             return
+        if circuit.open_since is not None:
+            # Recovery window just elapsed — reset for the next possible open
+            circuit.open_since = None
+            log.info("Circuit probe for runtime %s (was OPEN, attempting recovery)", runtime_id)
         try:
             health = await asyncio.wait_for(adapter.health_check(), timeout=30.0)
             self._cache[runtime_id] = health
             if health.available:
                 circuit.record_success()
+                if circuit.consecutive_failures == 0:
+                    log.info("Runtime %s is healthy again", runtime_id)
             else:
                 circuit.record_failure()
         except Exception as exc:

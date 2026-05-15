@@ -10,7 +10,7 @@ from threading import Lock
 from typing import Any
 
 from agents.store import AgentDefinition, AgentStore, get_agent_store
-from runtimes.base import TaskResult, TaskSpec
+from runtimes.base import RuntimeUnavailableError, TaskResult, TaskSpec
 from runtimes.manager import RuntimeManager, get_runtime_manager
 from tasks.models import Task, TaskComment, TaskStatus
 from tasks.store import TaskStore, get_task_store
@@ -332,6 +332,9 @@ class TaskWorkflowService:
         return best
 
 
+_DISPATCH_RETRY_LIMIT = 10  # max re-queues before a task is blocked
+
+
 class TaskExecutionCoordinator:
     """Executes tasks through the runtime layer using agent definitions."""
 
@@ -435,6 +438,42 @@ class TaskExecutionCoordinator:
                 actor="system:coordinator",
                 message=message,
             )
+        except RuntimeUnavailableError as exc:
+            # No healthy runtime was available at dispatch time.  Re-queue the
+            # task instead of failing it so the next dispatcher cycle retries.
+            unavailable_events = sum(
+                1 for e in task.execution_log
+                if e.event_type == "runtime_unavailable"
+            )
+            if unavailable_events >= _DISPATCH_RETRY_LIMIT:
+                log.error(
+                    "Task %s blocked after %d failed dispatch attempts: %s",
+                    task.task_id, unavailable_events, exc,
+                )
+                task.error_message = str(exc)
+                self.workflow.transition(
+                    task,
+                    TaskStatus.BLOCKED,
+                    actor="system:coordinator",
+                    blocked_reason=f"No runtime available after {unavailable_events} attempts: {exc}",
+                    message=f"Task blocked — no healthy runtime after {unavailable_events} retries",
+                )
+            else:
+                log.warning(
+                    "Task %s re-queued — no healthy runtime (attempt %d/%d): %s",
+                    task.task_id, unavailable_events + 1, _DISPATCH_RETRY_LIMIT, exc,
+                )
+                # Restore pending state so the dispatcher picks it up again
+                task.pending_agent_run = True
+                if task.status == TaskStatus.IN_PROGRESS:
+                    task.status = TaskStatus.TODO
+                task.add_log(
+                    f"No runtime available (attempt {unavailable_events + 1}/{_DISPATCH_RETRY_LIMIT}): {exc}",
+                    level="warning",
+                    event_type="runtime_unavailable",
+                    actor="system:coordinator",
+                    task_status=task.status,
+                )
         except Exception as exc:
             log.error("Error executing task %s: %s", task.task_id, exc, exc_info=True)
             task.error_message = str(exc)
