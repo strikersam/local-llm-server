@@ -74,7 +74,7 @@ from agents.store import get_agent_store, set_agent_store
 from chat_handlers import handle_ollama_native_chat, handle_openai_chat_completions
 from cost_insights import observability_router
 from direct_chat import direct_chat_router
-from handlers.anthropic_compat import handle_anthropic_messages
+from handlers.anthropic_compat import handle_anthropic_messages, handle_count_tokens
 from handlers.v3_auth import router as v3_auth_router
 from handlers.v3_models import router as v3_models_router
 from hardware import hardware_router
@@ -2363,6 +2363,19 @@ async def anthropic_messages(
         department=auth.department,
         key_id=auth.key_id,
     )
+
+
+@app.post("/v1/messages/count_tokens")
+async def anthropic_count_tokens(
+    request: Request, auth: AuthContext = Depends(verify_api_key)
+):
+    """Anthropic token counting endpoint.
+
+    Estimates how many input tokens the given messages would consume.
+    Used by Claude Code CLI for preflight context-size checks.
+    Returns: {"input_tokens": N}
+    """
+    return await handle_count_tokens(request=request)
 
 
 @app.get("/v1/models")
