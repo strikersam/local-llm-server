@@ -62,6 +62,9 @@ from agent.playbook import PlaybookLibrary
 from agent.quick_note import QuickNoteQueue, start_processor, set_quick_note_queue
 from agent.improvement_loop import ImprovementLoop, set_improvement_loop
 from agent.self_healing import SelfHealingAgent, set_self_healing_agent
+from agent.log_monitor import LogMonitor, set_log_monitor
+from agent.error_interceptor import ErrorInterceptorMiddleware
+from agent.agency import Agency, set_agency
 from agent.v4_router import v4_router
 from agent.scaffolding import ProjectScaffolder
 from agent.scheduler import AgentScheduler
@@ -715,6 +718,9 @@ class DebugHeadersMiddleware(BaseHTTPMiddleware):
 if LOG_LEVEL == "DEBUG":
     app.add_middleware(DebugHeadersMiddleware)
 
+# Error interceptor: catches unhandled 5xx responses and creates self-healing tasks.
+app.add_middleware(ErrorInterceptorMiddleware)
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=CORS_ORIGINS,
@@ -847,6 +853,16 @@ IMPROVEMENT_LOOP = ImprovementLoop(
 )
 set_improvement_loop(IMPROVEMENT_LOOP)
 IMPROVEMENT_LOOP.start()
+
+# Log monitor: captures backend ERROR/CRITICAL log records and creates fix tasks.
+LOG_MONITOR = LogMonitor()
+set_log_monitor(LOG_MONITOR)
+LOG_MONITOR.attach()
+
+# Agency: CEO + specialist agents (Dev, Security, Reviewer, Release).
+AGENCY = Agency()
+set_agency(AGENCY)
+AGENCY.start()
 
 WEBUI_STORE = JsonConfigStore()
 WEBUI_PROVIDERS = ProviderManager(WEBUI_STORE)

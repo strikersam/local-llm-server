@@ -2,6 +2,22 @@
 
 ## [Unreleased]
 ### Added
+- `agent/agency.py` — Autonomous Agency with CEO + Dev/Security/Reviewer/Release specialist agents. CEO assesses improvement-loop state every 15 minutes and dispatches directives as scheduler jobs. Prioritises: failing tests (P1) → security findings (P2) → TODO markers (P4) → periodic council review (P6) → release readiness check (P8). Escalates unresolvable issues to GitHub.
+- `agent/log_monitor.py` — `LogMonitor`: custom Python `logging.Handler` attached at startup that captures `ERROR`/`CRITICAL` records from non-noisy loggers and auto-creates self-healing fix tasks. Rate-limited to one task per unique error signature per hour. Singleton with `set/get_log_monitor()` accessors.
+- `agent/error_interceptor.py` — `ErrorInterceptorMiddleware`: Starlette middleware that catches unhandled 500 responses and exception tracebacks, creates fix tasks via `SelfHealingAgent`. Rate-limited per endpoint+exception-type.
+- `agent/security_scanner.py` — `SecurityScanner`: runs bandit (SAST), safety (CVEs), and grep-based secret detection. Returns `SecurityFinding` dataclasses integrated into `ImprovementLoop._scan_security()`.
+- `.github/workflows/security-scan.yml` — Three-job security workflow (bandit SAST, safety CVE audit, secret grep) on push/PR to master and weekly schedule. Auto-creates GitHub issues for high-severity findings.
+- `.github/workflows/agency-cycle.yml` — 6-hourly agency workflow: runs pytest baseline, bandit, issues CEO assessment, dispatches Dev Agent to fix failing tests via Claude CLI, commits fixes to master, creates escalation issues when automated fix fails.
+- `tests/test_log_monitor.py` — 11 unit tests for LogMonitor.
+- `tests/test_security_scanner.py` — 10 unit tests for SecurityScanner.
+- `tests/test_agency.py` — 8 unit tests for Agency.
+
+### Changed
+- `agent/improvement_loop.py` — Added `_scan_security()` to scan cycle. Fixed state file path to use `self._repo_root` (instance-scoped) rather than module-level constant, preventing state leakage between test instances.
+- `agent/log_monitor.py` — Fixed cooldown sentinel from `0.0` to `-(COOLDOWN+1)` so the first occurrence of any error is never blocked by the cooldown window.
+- `agent/v4_router.py` — Added `POST /v4/improvements/security-scan`, `GET /v4/log-monitor/stats`, `GET /v4/agency/status`, `POST /v4/agency/run-cycle` endpoints.
+- `proxy.py` — Adds `ErrorInterceptorMiddleware`, starts `LogMonitor` and `Agency` at boot. Also imports `Agency` and wires singleton.
+
 - `agent/improvement_loop.py` — Continuous Improvement Engine: background scanner that detects failing tests, FIXME/TODO markers, and missing test coverage every 6 hours, then dispatches repair tasks via AgentScheduler. Persists state to `.claude/state/improvement-state.json`. Exposes `ImprovementLoop`, `DetectedIssue`, `IssueSeverity`, `IssueCategory` and a module-level singleton (get/set pattern).
 - `agent/self_healing.py` — Self-Healing Agent: translates CI failure webhooks, GitHub bug-issue events, and dashboard manual reports into improvement tasks dispatched through `ImprovementLoop`. Singleton `SelfHealingAgent` with `on_ci_failure()`, `on_github_issue()`, and `on_manual_report()` async handlers.
 - `agent/v4_router.py` — LLM Relay v4 Dashboard API (`/v4/*`): REST surface exposing improvement loop status, active/resolved issues, scan trigger, bug reporting, quick-note management, and scheduler job control. Mounted in `proxy.py` at startup.

@@ -186,6 +186,7 @@ class ImprovementLoop:
         issues.extend(self._scan_test_failures())
         issues.extend(self._scan_todo_fixme())
         issues.extend(self._scan_missing_tests())
+        issues.extend(self._scan_security())
 
         new_issues = self._filter_new_issues(issues)
         for issue in new_issues:
@@ -299,6 +300,28 @@ class ImprovementLoop:
             log.warning("ImprovementLoop: missing-test scan error: %s", exc)
         return []
 
+    def _scan_security(self) -> list[DetectedIssue]:
+        try:
+            from agent.security_scanner import SecurityScanner
+            scanner = SecurityScanner(repo_root=self._repo_root)
+            findings = scanner.run_all()
+            issues = []
+            for f in findings:
+                sev = IssueSeverity.HIGH if f.severity == "high" else IssueSeverity.MEDIUM
+                issues.append(DetectedIssue(
+                    issue_id=f.finding_id,
+                    category=IssueCategory.SECURITY,
+                    severity=sev,
+                    title=f.title,
+                    description=f.description,
+                    file_path=f.file_path,
+                    line_number=f.line_number,
+                ))
+            return issues
+        except Exception as exc:
+            log.warning("ImprovementLoop: security scan error: %s", exc)
+        return []
+
     def _filter_new_issues(self, issues: list[DetectedIssue]) -> list[DetectedIssue]:
         with self._lock:
             known = {i.get("title") for i in self._state.active_issues}
@@ -324,17 +347,21 @@ class ImprovementLoop:
         except Exception as exc:
             log.warning("ImprovementLoop: could not schedule fix for %s: %s", issue.issue_id, exc)
 
+    def _state_file(self) -> Path:
+        return self._repo_root / ".claude" / "state" / "improvement-state.json"
+
     def _load_state(self) -> ImprovementLoopState:
         try:
-            data = json.loads(_STATE_FILE.read_text())
+            data = json.loads(self._state_file().read_text())
             valid = {k for k in ImprovementLoopState.__dataclass_fields__}
             return ImprovementLoopState(**{k: v for k, v in data.items() if k in valid})
         except Exception:
             return ImprovementLoopState()
 
     def _save_state(self) -> None:
-        _STATE_FILE.parent.mkdir(parents=True, exist_ok=True)
-        _STATE_FILE.write_text(json.dumps(self._state.as_dict(), indent=2))
+        sf = self._state_file()
+        sf.parent.mkdir(parents=True, exist_ok=True)
+        sf.write_text(json.dumps(self._state.as_dict(), indent=2))
 
 
 # ── Singleton ─────────────────────────────────────────────────────────────────

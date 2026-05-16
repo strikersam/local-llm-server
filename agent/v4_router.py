@@ -4,7 +4,8 @@ REST surface for the continuous-improvement dashboard:
 
   GET  /v4/status                      — system health + improvement loop status
   GET  /v4/improvements                — list active/resolved issues
-  POST /v4/improvements/scan           — trigger immediate scan
+  POST /v4/improvements/scan           — trigger immediate scan (all checks)
+  POST /v4/improvements/security-scan  — trigger security scan only
   POST /v4/improvements/{id}/resolve   — mark issue resolved
   POST /v4/report-bug                  — manual bug report → self-healing agent
   GET  /v4/quick-notes                 — list quick notes
@@ -12,6 +13,7 @@ REST surface for the continuous-improvement dashboard:
   GET  /v4/scheduler/jobs              — list improvement jobs
   POST /v4/scheduler/trigger/{job_id}  — fire a job immediately
   POST /v4/ci-failure                  — webhook for CI failure events
+  GET  /v4/log-monitor/stats           — log monitor stats
 """
 from __future__ import annotations
 
@@ -263,6 +265,71 @@ async def trigger_job(
         raise HTTPException(status_code=503, detail=str(exc)) from exc
     except KeyError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@v4_router.post("/improvements/security-scan")
+async def trigger_security_scan(
+    _: Annotated[None, Depends(_require_admin)],
+) -> dict:
+    """Run bandit + safety + secret grep and register findings as improvement issues."""
+    import asyncio
+
+    from agent.improvement_loop import get_improvement_loop
+
+    loop = get_improvement_loop()
+    if not loop:
+        raise HTTPException(status_code=503, detail="Improvement loop not running")
+
+    findings = await asyncio.get_event_loop().run_in_executor(None, loop._scan_security)
+    new_issues = loop._filter_new_issues(findings)
+    for issue in new_issues:
+        loop._register_issue(issue)
+        loop._schedule_fix(issue)
+    return {
+        "findings": len(findings),
+        "new_issues": len(new_issues),
+        "details": [i.as_dict() for i in findings],
+        "scanned_at": _now(),
+    }
+
+
+@v4_router.get("/log-monitor/stats")
+async def log_monitor_stats() -> dict:
+    """Return log monitor statistics — no auth required."""
+    from agent.log_monitor import get_log_monitor
+
+    monitor = get_log_monitor()
+    if not monitor:
+        return {"active": False}
+    return {"active": True, **monitor.get_stats()}
+
+
+# ── Agency endpoints ──────────────────────────────────────────────────────────
+
+@v4_router.get("/agency/status")
+async def agency_status() -> dict:
+    """Return agency status and recent cycle history."""
+    from agent.agency import get_agency
+
+    agency = get_agency()
+    if not agency:
+        return {"active": False}
+    return {"active": True, **agency.get_status()}
+
+
+@v4_router.post("/agency/run-cycle")
+async def agency_run_cycle(
+    _: Annotated[None, Depends(_require_admin)],
+) -> dict:
+    """Trigger an immediate CEO assessment cycle."""
+    from agent.agency import get_agency
+
+    agency = get_agency()
+    if not agency:
+        raise HTTPException(status_code=503, detail="Agency not running")
+
+    result = await agency.run_cycle()
+    return result.as_dict()
 
 
 def _now() -> str:
