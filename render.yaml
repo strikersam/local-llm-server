@@ -29,17 +29,17 @@ services:
       - key: NVIDIA_BASE_URL
         value: "https://integrate.api.nvidia.com/v1"
       - key: NVIDIA_DEFAULT_MODEL
-        value: "nvidia/nemotron-3-super-120b-a12b"
+        value: "meta/llama-3.3-70b-instruct"
 
-      # Agent model defaults (Nvidia NIM free models)
+      # Agent model defaults (Nvidia NIM free models — confirmed live on NIM API)
       - key: AGENT_PLANNER_MODEL
-        value: "nvidia/nemotron-3-super-120b-a12b"
+        value: "deepseek-ai/deepseek-r1"
       - key: AGENT_EXECUTOR_MODEL
-        value: "nvidia/nemotron-3-super-120b-a12b"
+        value: "qwen/qwen2.5-coder-32b-instruct"
       - key: AGENT_VERIFIER_MODEL
-        value: "nvidia/nemotron-3-super-120b-a12b"
+        value: "deepseek-ai/deepseek-r1"
       - key: AGENT_JUDGE_MODEL
-        value: "nvidia/nemotron-3-super-120b-a12b"
+        value: "meta/llama-3.3-70b-instruct"
 
       # LLM Provider
       - key: LLM_PROVIDER
@@ -138,7 +138,7 @@ services:
       - key: GOOSE_PROFILE
         value: "default"
       - key: AIDER_MODEL
-        value: "nvidia/nemotron-3-super-120b-a12b"
+        value: "meta/llama-3.3-70b-instruct"
       - key: AIDER_NO_AUTO_COMMIT
         value: "false"
 

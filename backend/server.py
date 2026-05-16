@@ -250,11 +250,11 @@ def _default_agent_role_models() -> dict[str, str]:
     )
     if nim_enabled:
         return {
-            "default": os.environ.get("NVIDIA_DEFAULT_MODEL") or "nvidia/nemotron-3-super-120b-a12b",
-            "planner": os.environ.get("AGENT_PLANNER_MODEL") or "nvidia/nemotron-3-super-120b-a12b",
-            "executor": os.environ.get("AGENT_EXECUTOR_MODEL") or "nvidia/nemotron-3-super-120b-a12b",
-            "verifier": os.environ.get("AGENT_VERIFIER_MODEL") or "nvidia/nemotron-3-super-120b-a12b",
-            "judge": os.environ.get("AGENT_JUDGE_MODEL") or "nvidia/nemotron-3-super-120b-a12b",
+            "default": os.environ.get("NVIDIA_DEFAULT_MODEL") or "meta/llama-3.3-70b-instruct",
+            "planner": os.environ.get("AGENT_PLANNER_MODEL") or "deepseek-ai/deepseek-r1",
+            "executor": os.environ.get("AGENT_EXECUTOR_MODEL") or "qwen/qwen2.5-coder-32b-instruct",
+            "verifier": os.environ.get("AGENT_VERIFIER_MODEL") or "deepseek-ai/deepseek-r1",
+            "judge": os.environ.get("AGENT_JUDGE_MODEL") or "meta/llama-3.3-70b-instruct",
         }
     return {
         "default": os.environ.get("OLLAMA_MODEL") or "qwen3-coder:30b",
@@ -1996,7 +1996,7 @@ async def seed_default_providers():
         os.environ.get("NVIDIA_BASE_URL") or "https://integrate.api.nvidia.com/v1"
     ).rstrip("/")
     _nvidia_model = (
-        os.environ.get("NVIDIA_DEFAULT_MODEL") or "nvidia/llama-3.1-70b-instruct"
+        os.environ.get("NVIDIA_DEFAULT_MODEL") or "meta/llama-3.3-70b-instruct"
     )
     defaults = [
         {
@@ -2958,7 +2958,7 @@ def _nvidia_nim_provider_record() -> Optional[Dict]:
         os.environ.get("NVIDIA_BASE_URL") or "https://integrate.api.nvidia.com/v1"
     ).rstrip("/")
     model = (
-        os.environ.get("NVIDIA_DEFAULT_MODEL") or "nvidia/llama-3.1-70b-instruct"
+        os.environ.get("NVIDIA_DEFAULT_MODEL") or "meta/llama-3.3-70b-instruct"
     )
     return {
         "provider_id": "nvidia-nim",
@@ -3810,6 +3810,7 @@ async def delete_session(session_id: str, user: dict = Depends(get_current_user)
 
 
 @app.get("/api/agent/status", response_model=AgentStatusResponse)
+@app.get("/api/chat/agent-status", response_model=AgentStatusResponse)
 async def get_agent_status(
     session_id: Optional[str] = None,
     user: dict = Depends(get_current_user),
