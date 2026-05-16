@@ -1,7 +1,7 @@
 {
-  "last_scan": "2026-05-16T19:53:56Z",
-  "scan_count": 7,
-  "issues_detected": 19,
+  "last_scan": "2026-05-16T20:20:13Z",
+  "scan_count": 9,
+  "issues_detected": 20,
   "issues_resolved": 2,
   "active_issues": [
     {
@@ -301,6 +301,18 @@
       "file_path": "./agent/improvement_loop.py",
       "line_number": 271,
       "detected_at": "2026-05-16T19:50:04Z",
+      "task_id": null,
+      "resolved": false
+    },
+    {
+      "issue_id": "td_e936497b",
+      "category": "todo_fixme",
+      "severity": "medium",
+      "title": "Code marker in ./proxy.py:989",
+      "description": "Unresolved marker: `\"Search the codebase for FIXME and TODO:FIX markers. \"`",
+      "file_path": "./proxy.py",
+      "line_number": 989,
+      "detected_at": "2026-05-16T20:13:19Z",
       "task_id": null,
       "resolved": false
     }
