@@ -84,8 +84,8 @@ export default function LoginPage() {
             </div>
             <div>
               <div className="text-[1.35rem] font-extrabold text-[var(--text-primary)] tracking-[-0.04em]"
-                style={{ fontFamily: 'var(--font-main)' }}>LLM Relay v4.0</div>
-              <div className="text-[0.8rem] text-[var(--text-muted)] font-mono leading-none mt-1 tracking-[0.16em] uppercase">native black control plane</div>
+                style={{ fontFamily: 'var(--font-main)' }}>LLM Relay v4.1</div>
+              <div className="text-[0.8rem] text-[var(--text-muted)] font-mono leading-none mt-1 tracking-[0.16em] uppercase">Autonomous AI Agency</div>
             </div>
           </div>
 
@@ -94,24 +94,24 @@ export default function LoginPage() {
             <div className="app-kicker">Private by default</div>
             <div className="space-y-4">
             <div className="flex items-center gap-3">
-              <CheckCircle size={16} className="flex-shrink-0 text-[var(--success)]" />
+              <Bot size={16} className="flex-shrink-0 text-[var(--accent)]" />
               <div className="flex-1">
-                <h3 className="text-[1rem] font-semibold text-[var(--text-primary)] mb-1">Enterprise security</h3>
-                <p className="text-[0.92rem] text-[var(--text-tertiary)]">Local-first architecture keeps your data private and your control plane close at hand.</p>
+                <h3 className="text-[1rem] font-semibold text-[var(--text-primary)] mb-1">CEO-coordinated agency</h3>
+                <p className="text-[0.92rem] text-[var(--text-tertiary)]">LLM-powered CEO agent assesses the codebase every 15 min and dispatches Dev, Security, Reviewer, and Scout specialists across 8 runtimes.</p>
               </div>
             </div>
             <div className="flex items-center gap-3">
-              <Bot size={16} className="flex-shrink-0 text-[var(--accent)]" />
+              <CheckCircle size={16} className="flex-shrink-0 text-[var(--success)]" />
               <div className="flex-1">
-                <h3 className="text-[1rem] font-semibold text-[var(--text-primary)] mb-1">Multi-agent orchestration</h3>
-                <p className="text-[0.92rem] text-[var(--text-tertiary)]">Coordinate planning, execution, and review flows from one streamlined workspace.</p>
+                <h3 className="text-[1rem] font-semibold text-[var(--text-primary)] mb-1">Self-healing & trend watching</h3>
+                <p className="text-[0.92rem] text-[var(--text-tertiary)]">Backend errors auto-create fix tasks. AI trend watcher fetches arXiv, HuggingFace, Ollama releases, and GitHub weekly.</p>
               </div>
             </div>
             <div className="flex items-center gap-3">
               <Database size={16} className="flex-shrink-0 text-[var(--role-power-user)]" />
               <div className="flex-1">
-                <h3 className="text-[1rem] font-semibold text-[var(--text-primary)] mb-1">Knowledge integration</h3>
-                <p className="text-[0.92rem] text-[var(--text-tertiary)]">Connect agents to documents, runtime context, and the repositories they need to operate on.</p>
+                <h3 className="text-[1rem] font-semibold text-[var(--text-primary)] mb-1">Local-first, private by default</h3>
+                <p className="text-[0.92rem] text-[var(--text-tertiary)]">Route to Ollama, Hermes, Goose, Claude Code, or Aider — all on your own hardware with no data leaving your network.</p>
               </div>
             </div>
             </div>
@@ -135,8 +135,8 @@ export default function LoginPage() {
               <Lock size={18} className="text-white" />
             </div>
             <div>
-              <div className="text-[1.1rem] font-extrabold tracking-[-0.04em] text-[var(--text-primary)]">LLM Relay v4.0</div>
-              <div className="text-[0.72rem] font-mono uppercase tracking-[0.16em] text-[var(--text-muted)]">Secure mobile control plane</div>
+              <div className="text-[1.1rem] font-extrabold tracking-[-0.04em] text-[var(--text-primary)]">LLM Relay v4.1</div>
+              <div className="text-[0.72rem] font-mono uppercase tracking-[0.16em] text-[var(--text-muted)]">Autonomous AI Agency</div>
             </div>
           </div>
 
@@ -145,7 +145,7 @@ export default function LoginPage() {
               <div className="app-kicker">Sign in</div>
               <h1 className="app-title text-[var(--text-primary)]">Sign in to Control Plane</h1>
               <p className="app-subtitle">
-                Control your local AI stack from anywhere with a polished dark workspace designed for mobile and desktop.
+                Autonomous AI agency that continuously improves your local LLM stack — CEO agent, 8 runtimes, self-healing, and trend intelligence.
               </p>
             </div>
 

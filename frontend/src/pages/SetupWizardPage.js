@@ -1,5 +1,5 @@
 /**
- * SetupWizardPage.js — LLM Relay v4.0 first-run setup wizard (5 steps)
+ * SetupWizardPage.js — LLM Relay v4.1 first-run setup wizard (5 steps)
  *
  * Steps:
  *   1 Provider Setup      — select Ollama / cloud providers
@@ -677,7 +677,7 @@ export default function SetupWizardPage({ onComplete }) {
             </div>
           ))}
         </nav>
-        <div className="text-[var(--text-muted)] text-xs mt-6 font-mono uppercase tracking-[0.16em]">LLM Relay v4.0 · AI Control Plane</div>
+        <div className="text-[var(--text-muted)] text-xs mt-6 font-mono uppercase tracking-[0.16em]">LLM Relay v4.1 · AI Control Plane</div>
       </div>
 
       {/* Main */}

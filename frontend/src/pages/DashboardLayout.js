@@ -28,7 +28,7 @@ import KnowledgePage from './KnowledgePage';
 import LogsPage from './LogsPage';
 
 /**
- * navSections — LLM Relay v4.0 navigation matching the Control Plane design system.
+ * navSections — LLM Relay v4.1 navigation matching the Control Plane design system.
  *
  * Sections mirror the design bundle layout:
  *  WORKSPACE   — Control Plane, Tasks
@@ -82,12 +82,12 @@ function buildNavSections(isAdmin, isPowerUser) {
   ];
 }
 
+// 4 items: 2 before Chat FAB + 2 after = 5 total columns (grid-cols-5)
 const MOBILE_PRIMARY_NAV = [
   { to: '/', icon: LayoutDashboard, label: 'Home', end: true },
   { to: '/tasks', icon: CheckSquare, label: 'Tasks' },
   { to: '/agents', icon: Bot, label: 'Agents' },
-  { to: '/knowledge', icon: BookOpen, label: 'Knowledge' },
-  { to: '/settings', icon: Settings, label: 'Settings' },
+  { to: '/schedules', icon: Calendar, label: 'Agency' },
 ];
 
 function NavItem({ to, icon: Icon, label, end, onClick, adminOnly }) {
@@ -142,8 +142,8 @@ function SidebarContent({ user, onLogout, onClose }) {
           </div>
           <div>
             <div className="text-[14px] font-bold text-white tracking-tight"
-              style={{ fontFamily: 'var(--font-main)' }}>LLM Relay v4.0</div>
-            <div className="text-[10px] text-[var(--text-muted)] font-mono leading-none mt-0.5">native black control plane</div>
+              style={{ fontFamily: 'var(--font-main)' }}>LLM Relay v4.1</div>
+            <div className="text-[10px] text-[var(--text-muted)] font-mono leading-none mt-0.5">Autonomous AI Agency</div>
           </div>
         </div>
       </div>
@@ -247,7 +247,7 @@ export default function DashboardLayout() {
             <Cpu size={14} className="text-white" />
           </div>
           <div className="min-w-0">
-            <div className="text-[0.95rem] font-extrabold tracking-[-0.04em] text-white">LLM Relay v4.0</div>
+            <div className="text-[0.95rem] font-extrabold tracking-[-0.04em] text-white">LLM Relay v4.1</div>
             <div className="text-[0.65rem] font-mono uppercase tracking-[0.16em] text-[var(--text-muted)] truncate">
               {user?.name || user?.email || 'Control plane'}
             </div>

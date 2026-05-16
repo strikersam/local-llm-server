@@ -5,7 +5,7 @@ export default function PanelSection() {
         <div className="cl-card w-full min-w-0 p-6">
           <div className="cl-header mb-6">
             <div className="cl-internal-x0fvpz">
-              <h1 className="cl-headerTitle text-2xl font-bold">Sign in to LLM Relay v4.0</h1>
+              <h1 className="cl-headerTitle text-2xl font-bold">Sign in to LLM Relay v4.1</h1>
               <p className="cl-headerSubtitle text-muted-foreground mt-2">
                 Welcome back! Please sign in to continue
               </p>

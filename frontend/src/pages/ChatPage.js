@@ -1098,7 +1098,7 @@ export default function ChatPage() {
           </>
         )}
         {/* ── Messages ── */}
-        <div className="flex-1 overflow-y-auto overscroll-contain px-4 pb-24 pt-4 md:px-6 md:pb-32 md:pt-6 space-y-4">
+        <div className="flex-1 overflow-y-auto overscroll-contain px-4 pb-32 pt-4 md:px-6 md:pb-36 md:pt-6 space-y-4">
           {messages.length === 0 && (
             <div className="h-full flex flex-col items-center justify-center text-center animate-fade-in px-4">
               <Bot size={40} className="text-[var(--accent)] mb-4" />
@@ -1227,7 +1227,7 @@ export default function ChatPage() {
         </div>
 
         {/* ── Composer ── */}
-        <div className="sticky bottom-0 z-20 border-t border-white/10 p-3 md:p-4 bg-[rgba(5,6,8,0.92)] backdrop-blur-xl pb-[calc(env(safe-area-inset-bottom,0px)+0.75rem)]">
+        <div className="sticky bottom-0 z-20 border-t border-white/10 p-3 md:p-4 bg-[rgba(5,6,8,0.92)] backdrop-blur-xl pb-[max(env(safe-area-inset-bottom,0px),0.75rem)]">
           {composerRecommendation && (
             <div className="mb-3 border border-[rgba(93,162,255,0.3)] bg-[rgba(93,162,255,0.08)] px-3 py-3" data-testid="agent-mode-preflight-banner">
               <div className="flex flex-wrap items-start justify-between gap-3">

@@ -516,7 +516,7 @@ export default function ControlPlanePage() {
 
               <h1 className="mt-4 text-3xl font-semibold tracking-[-0.04em] text-white sm:text-4xl">Dashboard</h1>
               <p className="mt-3 max-w-2xl text-sm leading-relaxed sm:text-[15px]" style={{ color: C.secondary }}>
-                LLM Relay v4.0 workspace command center. Monitor agent work, keep NVIDIA-first routing visible, and move between tasks, chats, and infrastructure without leaving the root dashboard.
+                LLM Relay v4.1 autonomous agency command center. Monitor agent work, keep NVIDIA-first routing visible, and move between tasks, chats, and infrastructure without leaving the root dashboard.
               </p>
 
               <div className="mt-4 flex flex-wrap items-center gap-2">
