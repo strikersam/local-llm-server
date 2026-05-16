@@ -155,6 +155,26 @@ class AgentRunner:
         # the LLM again.  Useful across retries and similar sequential tasks.
         self._inference_cache = InferenceCache()
 
+        # Re-read Nvidia key at construction time so model defaults reflect env
+        # state at the moment the runner is created, not at module-import time.
+        _current_nvidia_key = os.environ.get("NVIDIA_API_KEY") or os.environ.get("NVidiaApiKey")
+        self._default_planner_model: str = os.environ.get(
+            "AGENT_PLANNER_MODEL",
+            "nvidia/GLM-5.1" if _current_nvidia_key else "deepseek-r1:32b",
+        )
+        self._default_executor_model: str = os.environ.get(
+            "AGENT_EXECUTOR_MODEL",
+            "nvidia/StarCoder2-15B" if _current_nvidia_key else "qwen3-coder:30b",
+        )
+        self._default_verifier_model: str = os.environ.get(
+            "AGENT_VERIFIER_MODEL",
+            "nvidia/DeepSeek-V4-Pro" if _current_nvidia_key else "deepseek-r1:32b",
+        )
+        self._default_judge_model: str = os.environ.get(
+            "AGENT_JUDGE_MODEL",
+            "nvidia/nemotron-3-super-120b-a12b" if _current_nvidia_key else self._default_verifier_model,
+        )
+
     async def run(
         self,
         *,
@@ -313,7 +333,7 @@ class AgentRunner:
         planner_override = (model_overrides or {}).get("planner")
         planner_model = planner_override or planner_decision.resolved_model
         if not planner_model:
-            planner_model = DEFAULT_PLANNER_MODEL
+            planner_model = self._default_planner_model
         log.debug(
             "agent plan: model=%s [%s/%s]",
             planner_model, planner_decision.mode, planner_decision.selection_source,
@@ -399,7 +419,7 @@ class AgentRunner:
         executor_override = requested_model or (model_overrides or {}).get("executor")
         executor_model = executor_override or executor_decision.resolved_model
         if not executor_model:
-            executor_model = DEFAULT_EXECUTOR_MODEL
+            executor_model = self._default_executor_model
 
         verifier_decision = get_router().route(
             requested_model=requested_model,
@@ -408,7 +428,7 @@ class AgentRunner:
         verifier_override = (model_overrides or {}).get("verifier")
         verifier_model = verifier_override or verifier_decision.resolved_model
         if not verifier_model:
-            verifier_model = DEFAULT_VERIFIER_MODEL
+            verifier_model = self._default_verifier_model
 
         log.debug(
             "agent execute: executor=%s verifier=%s",
@@ -855,7 +875,7 @@ class AgentRunner:
             # Nothing happened — no judgement needed
             return {"verdict": "APPROVED", "notes": "No changes were made."}
 
-        judge_model = (model_overrides or {}).get("judge") or DEFAULT_JUDGE_MODEL
+        judge_model = (model_overrides or {}).get("judge") or self._default_judge_model
         messages = [
             {
                 "role": "system",
@@ -1103,7 +1123,7 @@ class AgentRunner:
         """
         try:
             summary_text = await self._chat_text(
-                requested_model or DEFAULT_PLANNER_MODEL,
+                requested_model or self._default_planner_model,
                 build_compaction_prompt(history),
             )
             self._log_event(

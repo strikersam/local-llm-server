@@ -31,14 +31,34 @@ _ENV: dict[str, str] = {
 }
 
 # ── Hard-coded defaults (distinct coder ≠ reviewer by design) ────────────────
+# Prefer Nvidia NIM free-tier models (no local infra) when a key is configured;
+# fall back to local Ollama models otherwise.  The coder ≠ reviewer asymmetry is
+# preserved in both paths.
 
-_DEFAULTS: dict[str, str] = {
-    "architect": "qwen3-coder:30b",
-    "scout":     "deepseek-r1:32b",
-    "coder":     "qwen3-coder:30b",   # ← implementation model
-    "reviewer":  "deepseek-r1:32b",   # ← intentionally DIFFERENT
-    "verifier":  "qwen3-coder:7b",    # only asked for CLI commands, not verdicts
-}
+def _nvidia_defaults() -> dict[str, str]:
+    key = os.environ.get("NVIDIA_API_KEY") or os.environ.get("NVidiaApiKey")
+    if key:
+        return {
+            "architect": "nvidia/GLM-5.1",
+            "scout":     "nvidia/GLM-5.1",
+            "coder":     "nvidia/StarCoder2-15B",
+            "reviewer":  "nvidia/GLM-5.1",
+            "verifier":  "nvidia/GLM-5.1",
+        }
+    return {
+        "architect": "qwen3-coder:30b",
+        "scout":     "deepseek-r1:32b",
+        "coder":     "qwen3-coder:30b",
+        "reviewer":  "deepseek-r1:32b",
+        "verifier":  "qwen3-coder:7b",
+    }
+
+
+def _get_defaults() -> dict[str, str]:
+    return _nvidia_defaults()
+
+
+_DEFAULTS: dict[str, str] = _nvidia_defaults()
 
 # ── System prompts ────────────────────────────────────────────────────────────
 
@@ -175,7 +195,7 @@ def make_scout_profile() -> AgentProfile:
     return AgentProfile(
         role="scout",
         name="Scout",
-        model=os.environ.get(_ENV["scout"], _DEFAULTS["scout"]),
+        model=os.environ.get(_ENV["scout"], _get_defaults()["scout"]),
         system_prompt=SCOUT_SYSTEM,
         can_read=True,
         can_write=False,
@@ -188,7 +208,7 @@ def make_architect_profile() -> AgentProfile:
     return AgentProfile(
         role="architect",
         name="Architect",
-        model=os.environ.get(_ENV["architect"], _DEFAULTS["architect"]),
+        model=os.environ.get(_ENV["architect"], _get_defaults()["architect"]),
         system_prompt=ARCHITECT_SYSTEM,
         can_read=True,
         can_write=False,
@@ -201,7 +221,7 @@ def make_coder_profile() -> AgentProfile:
     return AgentProfile(
         role="coder",
         name="Coder",
-        model=os.environ.get(_ENV["coder"], _DEFAULTS["coder"]),
+        model=os.environ.get(_ENV["coder"], _get_defaults()["coder"]),
         system_prompt=CODER_SYSTEM,
         can_read=True,
         can_write=True,
@@ -214,7 +234,7 @@ def make_reviewer_profile() -> AgentProfile:
     return AgentProfile(
         role="reviewer",
         name="Reviewer",
-        model=os.environ.get(_ENV["reviewer"], _DEFAULTS["reviewer"]),
+        model=os.environ.get(_ENV["reviewer"], _get_defaults()["reviewer"]),
         system_prompt=REVIEWER_SYSTEM,
         can_read=True,
         can_write=False,
@@ -227,7 +247,7 @@ def make_verifier_profile() -> AgentProfile:
     return AgentProfile(
         role="verifier",
         name="Verifier",
-        model=os.environ.get(_ENV["verifier"], _DEFAULTS["verifier"]),
+        model=os.environ.get(_ENV["verifier"], _get_defaults()["verifier"]),
         system_prompt=VERIFIER_SYSTEM,
         can_read=True,
         can_write=False,

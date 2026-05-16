@@ -180,19 +180,13 @@ class InternalAgentAdapter(RuntimeAdapter):
         nvidia_chain = _nvidia_provider_chain()
 
         # When Nvidia NIM is configured use its base URL as the primary endpoint
-        # so AgentRunner builds the right ProviderConfig internally.
-        if nvidia_chain:
-            primary_base = nvidia_chain[0].base_url
-            # Pass remaining chain entries (if any) as extra providers
-            extra_chain = nvidia_chain[1:]
-        else:
-            primary_base = self._ollama_base
-            extra_chain = []
+        # so AgentRunner detects a non-Ollama base and attaches the API key.
+        primary_base = nvidia_chain[0].base_url if nvidia_chain else self._ollama_base
 
         runner = AgentRunner(
             ollama_base=primary_base,
             workspace_root=spec.workspace_path or self._workspace_root,
-            provider_chain=extra_chain,
+            provider_chain=None,  # None → ProviderRouter.from_env() discovers all configured providers
             github_token=spec.context.get("github_token"),
             email=spec.context.get("user_email"),
             department=spec.context.get("department"),

@@ -24,7 +24,16 @@ OLLAMA_BASE = os.environ.get("OLLAMA_BASE", "http://localhost:11434")
 OLLAMA_FALLBACK_BASE = os.environ.get(
     "OLLAMA_FALLBACK_BASE", "http://host.docker.internal:11434"
 )
-DEFAULT_MODEL = os.environ.get("DEFAULT_MODEL", "qwen3-coder:30b")
+# Nvidia NIM free cloud — priority 1 when API key is present
+_NVIDIA_KEY = (os.environ.get("NVIDIA_API_KEY") or os.environ.get("NVidiaApiKey") or "").strip()
+_NVIDIA_BASE = os.environ.get("NVIDIA_BASE_URL", "https://integrate.api.nvidia.com/v1").rstrip("/")
+_NVIDIA_DEFAULT_MODEL = os.environ.get("NVIDIA_DEFAULT_MODEL", "nvidia/nemotron-3-super-120b-a12b")
+
+# Resolve the effective default model: prefer Nvidia NIM when key is present
+DEFAULT_MODEL = os.environ.get(
+    "DEFAULT_MODEL",
+    _NVIDIA_DEFAULT_MODEL if _NVIDIA_KEY else "qwen3-coder:30b",
+)
 TASK_RESULTS: dict[str, dict] = {}
 
 
@@ -75,7 +84,9 @@ class RuntimeRunRequest(BaseModel):
 
 @app.get("/health")
 async def health():
-    """Health check — always 200 if container is up; reports ollama status in body."""
+    """Health check — reports Nvidia NIM when key present, otherwise Ollama status."""
+    if _NVIDIA_KEY:
+        return {"status": "ok", "runtime": RUNTIME_NAME, "provider": "nvidia-nim", "model": DEFAULT_MODEL}
     try:
         async with httpx.AsyncClient(timeout=5.0) as client:
             resp = await client.get(f"{OLLAMA_BASE}/api/tags")
@@ -83,12 +94,14 @@ async def health():
             return {
                 "status": "ok",
                 "runtime": RUNTIME_NAME,
+                "provider": "ollama",
                 "models": len(resp.json().get("models", [])),
             }
     except Exception as e:
         return {
             "status": "degraded",
             "runtime": RUNTIME_NAME,
+            "provider": "ollama",
             "backend": str(e),
         }
 
@@ -148,6 +161,24 @@ async def _pick_fallback_target(
     raise HTTPException(status_code=503, detail="No Ollama models are installed")
 
 
+async def _chat_with_nvidia(
+    *,
+    messages: list[dict],
+    model: str,
+    temperature: float = 0.7,
+    timeout_sec: float = 60.0,
+) -> tuple[str, str]:
+    """Call Nvidia NIM via OpenAI-compatible /v1/chat/completions. Returns (content, model)."""
+    headers = {"Authorization": f"Bearer {_NVIDIA_KEY}", "Content-Type": "application/json"}
+    payload = {"model": model, "messages": messages, "temperature": temperature, "stream": False}
+    async with httpx.AsyncClient(timeout=timeout_sec) as client:
+        resp = await client.post(f"{_NVIDIA_BASE}/chat/completions", headers=headers, json=payload)
+        resp.raise_for_status()
+        data = resp.json()
+        content = data["choices"][0]["message"]["content"]
+        return content, data.get("model", model)
+
+
 async def _chat_with_ollama(
     *,
     instruction: str,
@@ -173,6 +204,29 @@ async def _chat_with_ollama(
         return resp.json(), model
 
 
+async def _chat(
+    *,
+    instruction: str,
+    model: str,
+    temperature: float = 0.7,
+    timeout_sec: float = 60.0,
+) -> tuple[str, str]:
+    """Route to Nvidia NIM (priority 1) when key present, otherwise Ollama."""
+    if _NVIDIA_KEY:
+        try:
+            messages = [{"role": "user", "content": instruction}]
+            content, resolved = await _chat_with_nvidia(
+                messages=messages, model=model, temperature=temperature, timeout_sec=timeout_sec
+            )
+            return content, resolved
+        except Exception:
+            pass  # fall through to Ollama
+    data, resolved_model = await _chat_with_ollama(
+        instruction=instruction, model=model, temperature=temperature, timeout_sec=timeout_sec
+    )
+    return data.get("message", {}).get("content", ""), resolved_model
+
+
 def _completed_task_payload(*, task_id: str, model: str, output: str) -> dict:
     return {
         "task_id": task_id,
@@ -194,12 +248,11 @@ def _completed_task_payload(*, task_id: str, model: str, output: str) -> dict:
 async def run_task(req: RuntimeTaskRequest):
     """Hermes-compatible task execution endpoint."""
     try:
-        data, resolved_model = await _chat_with_ollama(
+        output, resolved_model = await _chat(
             instruction=req.instruction,
             model=req.model,
             timeout_sec=float(req.timeout_sec),
         )
-        output = data.get("message", {}).get("content", "")
         result = _completed_task_payload(
             task_id=req.task_id,
             model=resolved_model,
@@ -226,11 +279,10 @@ async def get_task(task_id: str):
 async def run_instruction(req: RuntimeRunRequest):
     """OpenCode-compatible single instruction endpoint."""
     try:
-        data, resolved_model = await _chat_with_ollama(
+        output, resolved_model = await _chat(
             instruction=req.instruction,
             model=req.model,
         )
-        output = data.get("message", {}).get("content", "")
         task_id = req.task_id or f"run-{int(time.time() * 1000)}"
         result = {
             "task_id": task_id,
@@ -255,8 +307,9 @@ async def run_instruction(req: RuntimeRunRequest):
 async def chat_completions(req: ChatRequest):
     """OpenAI-compatible chat completion endpoint."""
     try:
-        data, resolved_model = await _chat_with_ollama(
-            instruction="\n\n".join(f"{m.role}: {m.content}" for m in req.messages),
+        instruction = "\n\n".join(f"{m.role}: {m.content}" for m in req.messages)
+        content, resolved_model = await _chat(
+            instruction=instruction,
             model=req.model,
             temperature=req.temperature,
         )
@@ -271,7 +324,7 @@ async def chat_completions(req: ChatRequest):
                     "index": 0,
                     "message": {
                         "role": "assistant",
-                        "content": data.get("message", {}).get("content", ""),
+                        "content": content,
                     },
                     "finish_reason": "stop",
                 }
