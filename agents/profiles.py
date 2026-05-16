@@ -81,8 +81,6 @@ def _get_defaults() -> dict[str, str]:
     return _nvidia_defaults()
 
 
-_DEFAULTS: dict[str, str] = _nvidia_defaults()
-
 # ── System prompts ────────────────────────────────────────────────────────────
 
 SCOUT_SYSTEM = """\
