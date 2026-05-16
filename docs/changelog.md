@@ -3,6 +3,10 @@
 ## [Unreleased]
 
 ## [4.1.0] — 2026-05-16
+### Fixed
+- CI: `npm install` in frontend and deploy-frontend workflows now uses `--legacy-peer-deps` to handle `react@19` / `react-dom@19` peer dep resolution.
+- CI: Secret credential scan now excludes the `tests/` directory so test fixtures with fake API key strings don't trigger false positives.
+- `frontend/package.json`: Aligned `react` to `^19.2.6` to match `react-dom@^19.2.6` (Dependabot had bumped only `react-dom`). Regenerated `package-lock.json`.
 ### Added
 - `agent/knowledge_sync.py` — Knowledge ingestion pipeline bridging internet trend intelligence into the local RAG system. `fetch_and_store(url, title, tags)` ingests any URL into Sources for RAG search. `sync_trends()` auto-pushes high-relevance alerts to Sources and creates a weekly Wiki digest page. `run_weekly_sync()` is the cron entry-point. Singleton `KnowledgeSync` class wired in `proxy.py`.
 - `/v4/knowledge/ingest` — POST endpoint (admin auth) for on-demand URL ingestion into Sources.

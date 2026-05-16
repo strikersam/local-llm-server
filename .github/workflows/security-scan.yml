@@ -221,6 +221,7 @@ jobs:
               --exclude-dir=".git" \
               --exclude-dir="node_modules" \
               --exclude-dir=".venv" \
+              --exclude-dir="tests" \
               --exclude="generate_api_key.py" \
               | grep -v "^\s*#" | wc -l || echo 0)
             TOTAL=$((TOTAL + COUNT))
