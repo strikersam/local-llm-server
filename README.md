@@ -111,22 +111,18 @@ When `ANTHROPIC_BASE_URL` points at LLM Relay, Claude Code's model picker lists 
 
 ## Providers
 
-The provider chain is sorted automatically: **NVIDIA NIM → free cloud → local Ollama → commercial**. Set env vars to activate providers; unset vars disable them silently.
+The provider chain is sorted automatically: **NVIDIA NIM → local Ollama → free cloud → commercial**. Set env vars to activate providers; unset vars disable them silently.
 
 ```
 Provider priority order (lower number = tried first)
 ─────────────────────────────────────────────────────
- -10  NVIDIA NIM          (free, no local GPU needed)
-   0  Free cloud APIs     (Groq, Gemini, DeepSeek, Cerebras, …)
-  10  Local Ollama        (private, GPU-optional)
-  15  Commercial APIs     (Bedrock, Anthropic, OpenRouter, …)
+  0  NVIDIA NIM          (free, no local GPU needed)
+  1  Local Ollama        (private, on-device — only when INCLUDE_LOCAL_FALLBACK=true or no NIM key)
+  3  Free cloud APIs     (Groq, Gemini, DeepSeek, Cerebras, …)
+  4  Commercial APIs     (Bedrock, Anthropic, OpenRouter, …)
 ```
 
-Override strategy with `ROUTING_STRATEGY`:
-- `free_first` — NVIDIA NIM → free cloud → local → commercial (default)
-- `local_first` — Ollama → free cloud → commercial
-- `cost_aware` — balance speed/quality/cost
-- `quality` — always use the highest-ranked available model
+Priority is determined by provider tier, then the numeric `priority` field on each provider record. To influence ordering, set the `priority` field when registering a custom provider via the admin UI or API.
 
 Each provider gets a bounded per-request timeout and failure-type-aware cooldown:
 - `401/403` → 5-minute cooldown
