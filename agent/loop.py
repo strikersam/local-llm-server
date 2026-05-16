@@ -155,24 +155,35 @@ class AgentRunner:
         # the LLM again.  Useful across retries and similar sequential tasks.
         self._inference_cache = InferenceCache()
 
-        # Re-read Nvidia key at construction time so model defaults reflect env
-        # state at the moment the runner is created, not at module-import time.
+        # Re-read keys at construction time so model defaults reflect env state
+        # at task execution time, not at module-import time.
         _current_nvidia_key = os.environ.get("NVIDIA_API_KEY") or os.environ.get("NVidiaApiKey")
-        self._default_planner_model: str = os.environ.get(
-            "AGENT_PLANNER_MODEL",
-            "deepseek-ai/deepseek-r1" if _current_nvidia_key else "deepseek-r1:32b",
+        _current_deepseek_key = os.environ.get("DEEPSEEK_API_KEY")
+        _current_groq_key = os.environ.get("GROQ_API_KEY")
+        _current_qwen_key = os.environ.get("DASHSCOPE_API_KEY") or os.environ.get("QWEN_API_KEY")
+
+        def _pick(nvidia_val: str, deepseek_val: str, groq_val: str, qwen_val: str, local_val: str) -> str:
+            if _current_nvidia_key:
+                return nvidia_val
+            if _current_deepseek_key:
+                return deepseek_val
+            if _current_groq_key:
+                return groq_val
+            if _current_qwen_key:
+                return qwen_val
+            return local_val
+
+        self._default_planner_model: str = os.environ.get("AGENT_PLANNER_MODEL") or _pick(
+            "deepseek-ai/deepseek-r1", "deepseek-reasoner", "llama-3.3-70b-versatile", "qwen-plus", "deepseek-r1:32b",
         )
-        self._default_executor_model: str = os.environ.get(
-            "AGENT_EXECUTOR_MODEL",
-            "qwen/qwen2.5-coder-32b-instruct" if _current_nvidia_key else "qwen3-coder:30b",
+        self._default_executor_model: str = os.environ.get("AGENT_EXECUTOR_MODEL") or _pick(
+            "qwen/qwen2.5-coder-32b-instruct", "deepseek-coder", "llama-3.3-70b-versatile", "qwen-coder-plus", "qwen3-coder:30b",
         )
-        self._default_verifier_model: str = os.environ.get(
-            "AGENT_VERIFIER_MODEL",
-            "deepseek-ai/deepseek-r1" if _current_nvidia_key else "deepseek-r1:32b",
+        self._default_verifier_model: str = os.environ.get("AGENT_VERIFIER_MODEL") or _pick(
+            "deepseek-ai/deepseek-r1", "deepseek-reasoner", "llama-3.3-70b-versatile", "qwen-plus", "deepseek-r1:32b",
         )
-        self._default_judge_model: str = os.environ.get(
-            "AGENT_JUDGE_MODEL",
-            "nvidia/llama-3.1-nemotron-70b-instruct" if _current_nvidia_key else self._default_verifier_model,
+        self._default_judge_model: str = os.environ.get("AGENT_JUDGE_MODEL") or _pick(
+            "nvidia/llama-3.1-nemotron-70b-instruct", "deepseek-chat", "llama-3.3-70b-versatile", "qwen-plus", self._default_verifier_model,
         )
 
     async def run(

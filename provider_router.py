@@ -174,6 +174,10 @@ _FREE_CLOUD_PROVIDER_IDS = {
     "huggingface-serverless",
     "huggingface",
     "deepseek",
+    "groq",
+    "groq-cloud",
+    "qwen-dashscope",
+    "together-free",
 }
 # Nvidia NIM is free-tier — treated as highest-priority free cloud provider
 _NVIDIA_PROVIDER_IDS = {"nvidia-nim", "nvidia"}
@@ -192,6 +196,8 @@ _KNOWN_FREE_HOSTS = (
     "huggingface.co",
     "hf.space",
     "deepseek.com",
+    "api.groq.com",
+    "dashscope.aliyuncs.com",
 )
 _KNOWN_NVIDIA_HOSTS = ("integrate.api.nvidia.com",)
 
@@ -373,8 +379,10 @@ class ProviderRouter:
             )
 
         openrouter_key = os.environ.get("OPENROUTER_API_KEY")
-        openrouter_base = os.environ.get("OPENROUTER_BASE_URL")
-        if openrouter_key and openrouter_base:
+        if openrouter_key:
+            openrouter_base = (
+                os.environ.get("OPENROUTER_BASE_URL") or "https://openrouter.ai/api/v1"
+            ).rstrip("/")
             providers.append(
                 ProviderConfig(
                     provider_id="openrouter",
@@ -382,14 +390,16 @@ class ProviderRouter:
                     base_url=openrouter_base,
                     api_key=openrouter_key,
                     default_model=os.environ.get("OPENROUTER_MODEL")
-                    or "qwen/qwen3-235b-a22b",
-                    priority=30,
+                    or "qwen/qwen3-235b-a22b:free",
+                    priority=40,
                 )
             )
 
         deepseek_key = os.environ.get("DEEPSEEK_API_KEY")
-        deepseek_base = os.environ.get("DEEPSEEK_BASE_URL")
-        if deepseek_key and deepseek_base:
+        if deepseek_key:
+            deepseek_base = (
+                os.environ.get("DEEPSEEK_BASE_URL") or "https://api.deepseek.com"
+            ).rstrip("/")
             providers.append(
                 ProviderConfig(
                     provider_id="deepseek",
@@ -397,7 +407,53 @@ class ProviderRouter:
                     base_url=deepseek_base,
                     api_key=deepseek_key,
                     default_model=os.environ.get("DEEPSEEK_MODEL") or "deepseek-chat",
-                    priority=40,
+                    priority=20,
+                )
+            )
+
+        groq_key = os.environ.get("GROQ_API_KEY")
+        if groq_key:
+            providers.append(
+                ProviderConfig(
+                    provider_id="groq",
+                    type="openai-compatible",
+                    base_url="https://api.groq.com/openai/v1",
+                    api_key=groq_key,
+                    default_model=os.environ.get("GROQ_MODEL") or "llama-3.3-70b-versatile",
+                    priority=25,
+                )
+            )
+
+        qwen_key = os.environ.get("DASHSCOPE_API_KEY") or os.environ.get("QWEN_API_KEY")
+        if qwen_key:
+            qwen_base = (
+                os.environ.get("DASHSCOPE_BASE_URL")
+                or "https://dashscope.aliyuncs.com/compatible-mode/v1"
+            ).rstrip("/")
+            providers.append(
+                ProviderConfig(
+                    provider_id="qwen-dashscope",
+                    type="openai-compatible",
+                    base_url=qwen_base,
+                    api_key=qwen_key,
+                    default_model=os.environ.get("QWEN_MODEL") or "qwen-plus",
+                    priority=30,
+                )
+            )
+
+        together_key = os.environ.get("TOGETHER_API_KEY")
+        if together_key:
+            together_base = (
+                os.environ.get("TOGETHER_BASE_URL") or "https://api.together.xyz/v1"
+            ).rstrip("/")
+            providers.append(
+                ProviderConfig(
+                    provider_id="together-free",
+                    type="openai-compatible",
+                    base_url=together_base,
+                    api_key=together_key,
+                    default_model=os.environ.get("TOGETHER_MODEL") or "meta-llama/Llama-3.3-70B-Instruct-Turbo-Free",
+                    priority=35,
                 )
             )
 

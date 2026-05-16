@@ -1,7 +1,13 @@
 """Internal runtime adapter that executes tasks via the built-in AgentRunner.
 
-Routes through Nvidia NIM free models by default (no local infra needed).
-Falls back to Ollama when NVIDIA_API_KEY is not set.
+Routes through free cloud LLMs in priority order:
+  1. Nvidia NIM        (NVIDIA_API_KEY)
+  2. DeepSeek API      (DEEPSEEK_API_KEY)
+  3. Groq              (GROQ_API_KEY)
+  4. Qwen/DashScope    (DASHSCOPE_API_KEY / QWEN_API_KEY)
+  5. OpenRouter        (OPENROUTER_API_KEY)
+  6. Together AI free  (TOGETHER_API_KEY)
+  7. Local Ollama      (last resort — no key required)
 """
 
 from __future__ import annotations
@@ -50,6 +56,38 @@ def _nvidia_provider_chain() -> list[ProviderConfig]:
             priority=0,
         )
     ]
+
+
+def _best_cloud_primary_base(local_ollama_base: str) -> str:
+    """Return the highest-priority available cloud LLM base URL.
+
+    Tries free cloud providers in priority order. Falls back to local Ollama
+    only when no cloud key is configured, keeping local out of the fallback
+    chain when a cloud alternative exists.
+    """
+    nvidia_key = (os.environ.get("NVIDIA_API_KEY") or os.environ.get("NVidiaApiKey") or "").strip()
+    if nvidia_key:
+        return (os.environ.get("NVIDIA_BASE_URL") or _NVIDIA_BASE_URL).rstrip("/")
+
+    if os.environ.get("DEEPSEEK_API_KEY"):
+        return (os.environ.get("DEEPSEEK_BASE_URL") or "https://api.deepseek.com").rstrip("/")
+
+    if os.environ.get("GROQ_API_KEY"):
+        return "https://api.groq.com/openai/v1"
+
+    if os.environ.get("DASHSCOPE_API_KEY") or os.environ.get("QWEN_API_KEY"):
+        return (
+            os.environ.get("DASHSCOPE_BASE_URL")
+            or "https://dashscope.aliyuncs.com/compatible-mode/v1"
+        ).rstrip("/")
+
+    if os.environ.get("OPENROUTER_API_KEY"):
+        return (os.environ.get("OPENROUTER_BASE_URL") or "https://openrouter.ai/api/v1").rstrip("/")
+
+    if os.environ.get("TOGETHER_API_KEY"):
+        return (os.environ.get("TOGETHER_BASE_URL") or "https://api.together.xyz/v1").rstrip("/")
+
+    return local_ollama_base
 
 
 class InternalAgentAdapter(RuntimeAdapter):
@@ -179,9 +217,9 @@ class InternalAgentAdapter(RuntimeAdapter):
         """
         nvidia_chain = _nvidia_provider_chain()
 
-        # When Nvidia NIM is configured use its base URL as the primary endpoint
-        # so AgentRunner detects a non-Ollama base and attaches the API key.
-        primary_base = nvidia_chain[0].base_url if nvidia_chain else self._ollama_base
+        # Pick the best available cloud primary — keeps local Ollama out of the
+        # fallback chain whenever any free cloud key is configured.
+        primary_base = _best_cloud_primary_base(self._ollama_base)
 
         runner = AgentRunner(
             ollama_base=primary_base,

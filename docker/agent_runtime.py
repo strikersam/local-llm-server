@@ -24,16 +24,36 @@ OLLAMA_BASE = os.environ.get("OLLAMA_BASE", "http://localhost:11434")
 OLLAMA_FALLBACK_BASE = os.environ.get(
     "OLLAMA_FALLBACK_BASE", "http://host.docker.internal:11434"
 )
-# Nvidia NIM free cloud — priority 1 when API key is present
+# Free cloud providers — tried in priority order before local Ollama
 _NVIDIA_KEY = (os.environ.get("NVIDIA_API_KEY") or os.environ.get("NVidiaApiKey") or "").strip()
 _NVIDIA_BASE = os.environ.get("NVIDIA_BASE_URL", "https://integrate.api.nvidia.com/v1").rstrip("/")
 _NVIDIA_DEFAULT_MODEL = os.environ.get("NVIDIA_DEFAULT_MODEL", "nvidia/llama-3.1-nemotron-70b-instruct")
 
-# Resolve the effective default model: prefer Nvidia NIM when key is present
-DEFAULT_MODEL = os.environ.get(
-    "DEFAULT_MODEL",
-    _NVIDIA_DEFAULT_MODEL if _NVIDIA_KEY else "qwen3-coder:30b",
-)
+_DEEPSEEK_KEY = os.environ.get("DEEPSEEK_API_KEY", "").strip()
+_DEEPSEEK_BASE = os.environ.get("DEEPSEEK_BASE_URL", "https://api.deepseek.com").rstrip("/")
+_DEEPSEEK_MODEL = os.environ.get("DEEPSEEK_MODEL", "deepseek-chat")
+
+_GROQ_KEY = os.environ.get("GROQ_API_KEY", "").strip()
+_GROQ_BASE = "https://api.groq.com/openai/v1"
+_GROQ_MODEL = os.environ.get("GROQ_MODEL", "llama-3.3-70b-versatile")
+
+_QWEN_KEY = (os.environ.get("DASHSCOPE_API_KEY") or os.environ.get("QWEN_API_KEY") or "").strip()
+_QWEN_BASE = os.environ.get("DASHSCOPE_BASE_URL", "https://dashscope.aliyuncs.com/compatible-mode/v1").rstrip("/")
+_QWEN_MODEL = os.environ.get("QWEN_MODEL", "qwen-plus")
+
+# Resolve the effective default model: prefer first available cloud key
+def _default_model() -> str:
+    if _NVIDIA_KEY:
+        return _NVIDIA_DEFAULT_MODEL
+    if _DEEPSEEK_KEY:
+        return _DEEPSEEK_MODEL
+    if _GROQ_KEY:
+        return _GROQ_MODEL
+    if _QWEN_KEY:
+        return _QWEN_MODEL
+    return "qwen3-coder:30b"
+
+DEFAULT_MODEL = os.environ.get("DEFAULT_MODEL") or _default_model()
 TASK_RESULTS: dict[str, dict] = {}
 
 
@@ -82,11 +102,24 @@ class RuntimeRunRequest(BaseModel):
     task_id: str | None = None
 
 
+def _active_cloud_provider() -> str | None:
+    if _NVIDIA_KEY:
+        return "nvidia-nim"
+    if _DEEPSEEK_KEY:
+        return "deepseek"
+    if _GROQ_KEY:
+        return "groq"
+    if _QWEN_KEY:
+        return "qwen-dashscope"
+    return None
+
+
 @app.get("/health")
 async def health():
-    """Health check — reports Nvidia NIM when key present, otherwise Ollama status."""
-    if _NVIDIA_KEY:
-        return {"status": "ok", "runtime": RUNTIME_NAME, "provider": "nvidia-nim", "model": DEFAULT_MODEL}
+    """Health check — reports active cloud provider when any key present, otherwise Ollama."""
+    provider = _active_cloud_provider()
+    if provider:
+        return {"status": "ok", "runtime": RUNTIME_NAME, "provider": provider, "model": DEFAULT_MODEL}
     try:
         async with httpx.AsyncClient(timeout=5.0) as client:
             resp = await client.get(f"{OLLAMA_BASE}/api/tags")
@@ -161,23 +194,6 @@ async def _pick_fallback_target(
     raise HTTPException(status_code=503, detail="No Ollama models are installed")
 
 
-async def _chat_with_nvidia(
-    *,
-    messages: list[dict],
-    model: str,
-    temperature: float = 0.7,
-    timeout_sec: float = 60.0,
-) -> tuple[str, str]:
-    """Call Nvidia NIM via OpenAI-compatible /v1/chat/completions. Returns (content, model)."""
-    headers = {"Authorization": f"Bearer {_NVIDIA_KEY}", "Content-Type": "application/json"}
-    payload = {"model": model, "messages": messages, "temperature": temperature, "stream": False}
-    async with httpx.AsyncClient(timeout=timeout_sec) as client:
-        resp = await client.post(f"{_NVIDIA_BASE}/chat/completions", headers=headers, json=payload)
-        resp.raise_for_status()
-        data = resp.json()
-        content = data["choices"][0]["message"]["content"]
-        return content, data.get("model", model)
-
 
 async def _chat_with_ollama(
     *,
@@ -204,6 +220,26 @@ async def _chat_with_ollama(
         return resp.json(), model
 
 
+async def _chat_with_openai_compat(
+    *,
+    base_url: str,
+    api_key: str,
+    messages: list[dict],
+    model: str,
+    temperature: float = 0.7,
+    timeout_sec: float = 60.0,
+) -> tuple[str, str]:
+    """Generic OpenAI-compatible /v1/chat/completions call."""
+    headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
+    payload = {"model": model, "messages": messages, "temperature": temperature, "stream": False}
+    async with httpx.AsyncClient(timeout=timeout_sec) as client:
+        resp = await client.post(f"{base_url}/chat/completions", headers=headers, json=payload)
+        resp.raise_for_status()
+        data = resp.json()
+        content = data["choices"][0]["message"]["content"]
+        return content, data.get("model", model)
+
+
 async def _chat(
     *,
     instruction: str,
@@ -211,16 +247,29 @@ async def _chat(
     temperature: float = 0.7,
     timeout_sec: float = 60.0,
 ) -> tuple[str, str]:
-    """Route to Nvidia NIM (priority 1) when key present, otherwise Ollama."""
-    if _NVIDIA_KEY:
+    """Try free cloud providers in priority order, fall back to local Ollama."""
+    messages = [{"role": "user", "content": instruction}]
+
+    cloud_providers = [
+        (_NVIDIA_KEY,   _NVIDIA_BASE,   _NVIDIA_DEFAULT_MODEL),
+        (_DEEPSEEK_KEY, _DEEPSEEK_BASE, _DEEPSEEK_MODEL),
+        (_GROQ_KEY,     _GROQ_BASE,     _GROQ_MODEL),
+        (_QWEN_KEY,     _QWEN_BASE,     _QWEN_MODEL),
+    ]
+    for key, base, default_mdl in cloud_providers:
+        if not key:
+            continue
         try:
-            messages = [{"role": "user", "content": instruction}]
-            content, resolved = await _chat_with_nvidia(
-                messages=messages, model=model, temperature=temperature, timeout_sec=timeout_sec
+            resolved_model = model if model != DEFAULT_MODEL else default_mdl
+            content, used = await _chat_with_openai_compat(
+                base_url=base, api_key=key, messages=messages,
+                model=resolved_model, temperature=temperature, timeout_sec=timeout_sec,
             )
-            return content, resolved
+            return content, used
         except Exception:
-            pass  # fall through to Ollama
+            continue  # try next provider
+
+    # Last resort: local Ollama
     data, resolved_model = await _chat_with_ollama(
         instruction=instruction, model=model, temperature=temperature, timeout_sec=timeout_sec
     )

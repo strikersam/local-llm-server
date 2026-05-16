@@ -36,14 +36,37 @@ _ENV: dict[str, str] = {
 # preserved in both paths.
 
 def _nvidia_defaults() -> dict[str, str]:
-    key = os.environ.get("NVIDIA_API_KEY") or os.environ.get("NVidiaApiKey")
-    if key:
+    if os.environ.get("NVIDIA_API_KEY") or os.environ.get("NVidiaApiKey"):
         return {
             "architect": "deepseek-ai/deepseek-r1",
             "scout":     "deepseek-ai/deepseek-r1",
             "coder":     "qwen/qwen2.5-coder-32b-instruct",
             "reviewer":  "deepseek-ai/deepseek-r1",
             "verifier":  "deepseek-ai/deepseek-r1",
+        }
+    if os.environ.get("DEEPSEEK_API_KEY"):
+        return {
+            "architect": "deepseek-reasoner",
+            "scout":     "deepseek-reasoner",
+            "coder":     "deepseek-coder",
+            "reviewer":  "deepseek-reasoner",
+            "verifier":  "deepseek-chat",
+        }
+    if os.environ.get("GROQ_API_KEY"):
+        return {
+            "architect": "llama-3.3-70b-versatile",
+            "scout":     "llama-3.3-70b-versatile",
+            "coder":     "llama-3.3-70b-versatile",
+            "reviewer":  "llama-3.3-70b-versatile",
+            "verifier":  "llama-3.3-70b-versatile",
+        }
+    if os.environ.get("DASHSCOPE_API_KEY") or os.environ.get("QWEN_API_KEY"):
+        return {
+            "architect": "qwen-plus",
+            "scout":     "qwen-plus",
+            "coder":     "qwen-coder-plus",
+            "reviewer":  "qwen-plus",
+            "verifier":  "qwen-plus",
         }
     return {
         "architect": "qwen3-coder:30b",
