@@ -27,7 +27,7 @@ OLLAMA_FALLBACK_BASE = os.environ.get(
 # Nvidia NIM free cloud — priority 1 when API key is present
 _NVIDIA_KEY = (os.environ.get("NVIDIA_API_KEY") or os.environ.get("NVidiaApiKey") or "").strip()
 _NVIDIA_BASE = os.environ.get("NVIDIA_BASE_URL", "https://integrate.api.nvidia.com/v1").rstrip("/")
-_NVIDIA_DEFAULT_MODEL = os.environ.get("NVIDIA_DEFAULT_MODEL", "nvidia/nemotron-3-super-120b-a12b")
+_NVIDIA_DEFAULT_MODEL = os.environ.get("NVIDIA_DEFAULT_MODEL", "nvidia/llama-3.1-nemotron-70b-instruct")
 
 # Resolve the effective default model: prefer Nvidia NIM when key is present
 DEFAULT_MODEL = os.environ.get(

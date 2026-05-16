@@ -39,11 +39,11 @@ def _nvidia_defaults() -> dict[str, str]:
     key = os.environ.get("NVIDIA_API_KEY") or os.environ.get("NVidiaApiKey")
     if key:
         return {
-            "architect": "nvidia/GLM-5.1",
-            "scout":     "nvidia/GLM-5.1",
-            "coder":     "nvidia/StarCoder2-15B",
-            "reviewer":  "nvidia/GLM-5.1",
-            "verifier":  "nvidia/GLM-5.1",
+            "architect": "deepseek-ai/deepseek-r1",
+            "scout":     "deepseek-ai/deepseek-r1",
+            "coder":     "qwen/qwen2.5-coder-32b-instruct",
+            "reviewer":  "deepseek-ai/deepseek-r1",
+            "verifier":  "deepseek-ai/deepseek-r1",
         }
     return {
         "architect": "qwen3-coder:30b",

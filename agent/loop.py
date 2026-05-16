@@ -160,19 +160,19 @@ class AgentRunner:
         _current_nvidia_key = os.environ.get("NVIDIA_API_KEY") or os.environ.get("NVidiaApiKey")
         self._default_planner_model: str = os.environ.get(
             "AGENT_PLANNER_MODEL",
-            "nvidia/GLM-5.1" if _current_nvidia_key else "deepseek-r1:32b",
+            "deepseek-ai/deepseek-r1" if _current_nvidia_key else "deepseek-r1:32b",
         )
         self._default_executor_model: str = os.environ.get(
             "AGENT_EXECUTOR_MODEL",
-            "nvidia/StarCoder2-15B" if _current_nvidia_key else "qwen3-coder:30b",
+            "qwen/qwen2.5-coder-32b-instruct" if _current_nvidia_key else "qwen3-coder:30b",
         )
         self._default_verifier_model: str = os.environ.get(
             "AGENT_VERIFIER_MODEL",
-            "nvidia/DeepSeek-V4-Pro" if _current_nvidia_key else "deepseek-r1:32b",
+            "deepseek-ai/deepseek-r1" if _current_nvidia_key else "deepseek-r1:32b",
         )
         self._default_judge_model: str = os.environ.get(
             "AGENT_JUDGE_MODEL",
-            "nvidia/nemotron-3-super-120b-a12b" if _current_nvidia_key else self._default_verifier_model,
+            "nvidia/llama-3.1-nemotron-70b-instruct" if _current_nvidia_key else self._default_verifier_model,
         )
 
     async def run(
