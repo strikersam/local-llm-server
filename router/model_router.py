@@ -102,14 +102,14 @@ def _build_builtin_model_map() -> dict[str, str]:
     _heavy = "nvidia/nemotron-3-super-120b-a12b" if nvidia else "deepseek-r1:32b"
     # Largest model: same on NIM (nemotron-3-super is the heaviest free model available)
     _largest = "nvidia/nemotron-3-super-120b-a12b" if nvidia else "deepseek-r1:671b"
-    # Coding/execution model: StarCoder2-15B (Nvidia) or qwen3-coder (local)
-    _coder = "nvidia/StarCoder2-15B" if nvidia else "qwen3-coder:30b"
+    # Coding/execution model: nemotron-3-super-120b (NIM) or qwen3-coder (local)
+    _coder = "nvidia/nemotron-3-super-120b-a12b" if nvidia else "qwen3-coder:30b"
     # Fast/small model
     _fast  = "meta/llama-3.1-8b-instruct" if nvidia else "qwen3-coder:7b"
     # Default general model: nemotron-3-super-120b (NIM) or qwen3-coder (local)
     _gen   = "nvidia/nemotron-3-super-120b-a12b" if nvidia else "qwen3-coder:30b"
-    # Deepseek reasoning (available on Nvidia NIM too)
-    _reason = "nvidia/DeepSeek-V4-Pro" if nvidia else "deepseek-r1:32b"
+    # Deepseek reasoning / judge
+    _reason = "deepseek-ai/deepseek-v4-pro" if nvidia else "deepseek-r1:32b"
 
     return {
         # Claude 4.7 family (largest → heaviest reasoning)

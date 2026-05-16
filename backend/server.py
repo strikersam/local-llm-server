@@ -251,10 +251,10 @@ def _default_agent_role_models() -> dict[str, str]:
     if nim_enabled:
         return {
             "default": os.environ.get("NVIDIA_DEFAULT_MODEL") or "nvidia/nemotron-3-super-120b-a12b",
-            "planner": os.environ.get("AGENT_PLANNER_MODEL") or "nvidia/GLM-5.1",
-            "executor": os.environ.get("AGENT_EXECUTOR_MODEL") or "nvidia/StarCoder2-15B",
-            "verifier": os.environ.get("AGENT_VERIFIER_MODEL") or "nvidia/DeepSeek-V4-Pro",
-            "judge": os.environ.get("AGENT_JUDGE_MODEL") or "nvidia/nemotron-3-super-120b-a12b",
+            "planner": os.environ.get("AGENT_PLANNER_MODEL") or "qwen/qwen3-coder-480b-a35b-instruct",
+            "executor": os.environ.get("AGENT_EXECUTOR_MODEL") or "nvidia/nemotron-3-super-120b-a12b",
+            "verifier": os.environ.get("AGENT_VERIFIER_MODEL") or "nvidia/nemotron-3-super-120b-a12b",
+            "judge": os.environ.get("AGENT_JUDGE_MODEL") or "deepseek-ai/deepseek-v4-pro",
         }
     return {
         "default": os.environ.get("OLLAMA_MODEL") or "qwen3-coder:30b",

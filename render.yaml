@@ -33,13 +33,13 @@ services:
 
       # Agent model defaults (Nvidia NIM free models — confirmed live on NIM API)
       - key: AGENT_PLANNER_MODEL
-        value: "nvidia/GLM-5.1"
+        value: "qwen/qwen3-coder-480b-a35b-instruct"
       - key: AGENT_EXECUTOR_MODEL
-        value: "nvidia/StarCoder2-15B"
-      - key: AGENT_VERIFIER_MODEL
-        value: "nvidia/DeepSeek-V4-Pro"
-      - key: AGENT_JUDGE_MODEL
         value: "nvidia/nemotron-3-super-120b-a12b"
+      - key: AGENT_VERIFIER_MODEL
+        value: "nvidia/nemotron-3-super-120b-a12b"
+      - key: AGENT_JUDGE_MODEL
+        value: "deepseek-ai/deepseek-v4-pro"
 
       # LLM Provider
       - key: LLM_PROVIDER

@@ -18,10 +18,9 @@ import ssl
 BASE_URL = "https://integrate.api.nvidia.com/v1/chat/completions"
 
 MODELS_TO_TEST = {
-    "executor (coder)":  "nvidia/StarCoder2-15B",
-    "planner":           "nvidia/GLM-5.1",
-    "verifier":          "nvidia/DeepSeek-V4-Pro",
-    "judge / default":   "nvidia/nemotron-3-super-120b-a12b",
+    "planner":           "qwen/qwen3-coder-480b-a35b-instruct",
+    "executor/verifier": "nvidia/nemotron-3-super-120b-a12b",
+    "judge":             "deepseek-ai/deepseek-v4-pro",
 }
 
 
