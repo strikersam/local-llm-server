@@ -53,16 +53,41 @@ _MINIMAX_KEY = os.environ.get("MINIMAX_API_KEY", "").strip()
 _MINIMAX_BASE = "https://api.minimax.chat/v1"
 _MINIMAX_MODEL = os.environ.get("MINIMAX_MODEL", "MiniMax-Text-01")
 
+_SAMBANOVA_KEY = os.environ.get("SAMBANOVA_API_KEY", "").strip()
+_SAMBANOVA_BASE = "https://api.sambanova.ai/v1"
+_SAMBANOVA_MODEL = os.environ.get("SAMBANOVA_MODEL", "Meta-Llama-3.3-70B-Instruct")
+
+_CEREBRAS_KEY = os.environ.get("CEREBRAS_API_KEY", "").strip()
+_CEREBRAS_BASE = "https://api.cerebras.ai/v1"
+_CEREBRAS_MODEL = os.environ.get("CEREBRAS_MODEL", "llama-3.3-70b")
+
+_MISTRAL_KEY = os.environ.get("MISTRAL_API_KEY", "").strip()
+_MISTRAL_BASE = "https://api.mistral.ai/v1"
+_MISTRAL_MODEL = os.environ.get("MISTRAL_MODEL", "mistral-small-latest")
+
+_GEMINI_KEY = (os.environ.get("GOOGLE_API_KEY") or os.environ.get("GEMINI_API_KEY") or "").strip()
+_GEMINI_BASE = "https://generativelanguage.googleapis.com/v1beta/openai"
+_GEMINI_MODEL = os.environ.get("GEMINI_MODEL", "gemini-2.0-flash")
+
+_ANTHROPIC_KEY = os.environ.get("ANTHROPIC_API_KEY", "").strip()
+_ANTHROPIC_BASE = os.environ.get("ANTHROPIC_BASE_URL", "https://api.anthropic.com").rstrip("/")
+_ANTHROPIC_MODEL = os.environ.get("ANTHROPIC_MODEL", "claude-haiku-4-5-20251001")
+
 # Resolve the effective default model: prefer first available cloud key
 def _default_model() -> str:
     for key, model in [
-        (_NVIDIA_KEY, _NVIDIA_DEFAULT_MODEL),
-        (_DEEPSEEK_KEY, _DEEPSEEK_MODEL),
-        (_GROQ_KEY, _GROQ_MODEL),
-        (_QWEN_KEY, _QWEN_MODEL),
-        (_HF_KEY, _HF_MODEL),
-        (_ZHIPU_KEY, _ZHIPU_MODEL),
-        (_MINIMAX_KEY, _MINIMAX_MODEL),
+        (_NVIDIA_KEY,    _NVIDIA_DEFAULT_MODEL),
+        (_DEEPSEEK_KEY,  _DEEPSEEK_MODEL),
+        (_SAMBANOVA_KEY, _SAMBANOVA_MODEL),
+        (_CEREBRAS_KEY,  _CEREBRAS_MODEL),
+        (_GROQ_KEY,      _GROQ_MODEL),
+        (_QWEN_KEY,      _QWEN_MODEL),
+        (_MISTRAL_KEY,   _MISTRAL_MODEL),
+        (_GEMINI_KEY,    _GEMINI_MODEL),
+        (_HF_KEY,        _HF_MODEL),
+        (_ZHIPU_KEY,     _ZHIPU_MODEL),
+        (_MINIMAX_KEY,   _MINIMAX_MODEL),
+        (_ANTHROPIC_KEY, _ANTHROPIC_MODEL),
     ]:
         if key:
             return model
@@ -126,12 +151,22 @@ def _active_cloud_provider() -> str | None:
         return "groq"
     if _QWEN_KEY:
         return "qwen-dashscope"
+    if _SAMBANOVA_KEY:
+        return "sambanova"
+    if _CEREBRAS_KEY:
+        return "cerebras"
+    if _MISTRAL_KEY:
+        return "mistral"
+    if _GEMINI_KEY:
+        return "google-gemini"
     if _HF_KEY:
         return "huggingface"
     if _ZHIPU_KEY:
         return "zhipu"
     if _MINIMAX_KEY:
         return "minimax"
+    if _ANTHROPIC_KEY:
+        return "anthropic"
     return None
 
 
@@ -272,13 +307,18 @@ async def _chat(
     messages = [{"role": "user", "content": instruction}]
 
     cloud_providers = [
-        (_NVIDIA_KEY,   _NVIDIA_BASE,   _NVIDIA_DEFAULT_MODEL),
-        (_DEEPSEEK_KEY, _DEEPSEEK_BASE, _DEEPSEEK_MODEL),
-        (_GROQ_KEY,     _GROQ_BASE,     _GROQ_MODEL),
-        (_QWEN_KEY,     _QWEN_BASE,     _QWEN_MODEL),
-        (_HF_KEY,       _HF_BASE,       _HF_MODEL),
-        (_ZHIPU_KEY,    _ZHIPU_BASE,    _ZHIPU_MODEL),
-        (_MINIMAX_KEY,  _MINIMAX_BASE,  _MINIMAX_MODEL),
+        (_NVIDIA_KEY,    _NVIDIA_BASE,    _NVIDIA_DEFAULT_MODEL),
+        (_DEEPSEEK_KEY,  _DEEPSEEK_BASE,  _DEEPSEEK_MODEL),
+        (_SAMBANOVA_KEY, _SAMBANOVA_BASE, _SAMBANOVA_MODEL),
+        (_CEREBRAS_KEY,  _CEREBRAS_BASE,  _CEREBRAS_MODEL),
+        (_GROQ_KEY,      _GROQ_BASE,      _GROQ_MODEL),
+        (_QWEN_KEY,      _QWEN_BASE,      _QWEN_MODEL),
+        (_MISTRAL_KEY,   _MISTRAL_BASE,   _MISTRAL_MODEL),
+        (_GEMINI_KEY,    _GEMINI_BASE,    _GEMINI_MODEL),
+        (_HF_KEY,        _HF_BASE,        _HF_MODEL),
+        (_ZHIPU_KEY,     _ZHIPU_BASE,     _ZHIPU_MODEL),
+        (_MINIMAX_KEY,   _MINIMAX_BASE,   _MINIMAX_MODEL),
+        (_ANTHROPIC_KEY, _ANTHROPIC_BASE, _ANTHROPIC_MODEL),
     ]
     for key, base, default_mdl in cloud_providers:
         if not key:

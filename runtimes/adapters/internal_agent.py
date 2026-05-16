@@ -87,6 +87,17 @@ def _best_cloud_primary_base(local_ollama_base: str) -> str:
     if os.environ.get("TOGETHER_API_KEY"):
         return (os.environ.get("TOGETHER_BASE_URL") or "https://api.together.xyz/v1").rstrip("/")
 
+    if os.environ.get("MISTRAL_API_KEY"):
+        return "https://api.mistral.ai/v1"
+
+    if os.environ.get("GOOGLE_API_KEY") or os.environ.get("GEMINI_API_KEY"):
+        return "https://generativelanguage.googleapis.com/v1beta/openai"
+
+    _cf_token = os.environ.get("CLOUDFLARE_API_TOKEN")
+    _cf_account = os.environ.get("CLOUDFLARE_ACCOUNT_ID")
+    if _cf_token and _cf_account:
+        return f"https://api.cloudflare.com/client/v4/accounts/{_cf_account}/ai/v1"
+
     if os.environ.get("HF_TOKEN") or os.environ.get("HUGGINGFACE_API_TOKEN"):
         return (os.environ.get("HF_BASE_URL") or "https://api-inference.huggingface.co/v1").rstrip("/")
 

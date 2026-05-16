@@ -2,6 +2,9 @@
 
 ## [Unreleased]
 ### Fixed
+- `provider_router.py` — Added Cerebras (`CEREBRAS_API_KEY`), SambaNova (`SAMBANOVA_API_KEY`), Mistral (`MISTRAL_API_KEY`), Google Gemini (`GOOGLE_API_KEY` / `GEMINI_API_KEY`), and Cloudflare Workers AI (`CLOUDFLARE_API_TOKEN` + `CLOUDFLARE_ACCOUNT_ID`) to `ProviderRouter.from_env()`. Fixed Anthropic to not require `ANTHROPIC_BASE_URL` (defaults to `https://api.anthropic.com`). All new providers classified as `free_cloud` tier. Full priority chain: Nvidia(-10) → DeepSeek(20) → SambaNova(27) → Cerebras(28) → Groq(25) → Qwen(30) → Together(35) → Mistral(38) → Gemini(39) → OpenRouter(40) → Cloudflare(43) → HuggingFace(45) → ZhipuAI(46) → MiniMax(47) → Anthropic(50).
+- `docker/agent_runtime.py` — Extended `_chat()` and `_default_model()` to include SambaNova, Cerebras, Mistral, Gemini, and Anthropic in the cloud provider chain.
+- `runtimes/adapters/internal_agent.py` — `_best_cloud_primary_base()` extended with Mistral, Gemini, and Cloudflare entries.
 - `provider_router.py` — `HF_TOKEN` / `HUGGINGFACE_API_TOKEN` no longer requires `HF_BASE_URL`; defaults to `https://api-inference.huggingface.co/v1`. Added ZhipuAI (`ZHIPU_API_KEY` → GLM-4-Flash free, `https://open.bigmodel.cn/api/paas/v4`) and MiniMax (`MINIMAX_API_KEY` → MiniMax-Text-01, `https://api.minimax.chat/v1`) to `ProviderRouter.from_env()` provider discovery. Provider priority order is now: Nvidia NIM (-10) → DeepSeek (20) → Groq (25) → Qwen (30) → Together (35) → OpenRouter (40) → HuggingFace (45) → ZhipuAI (46) → MiniMax (47) → commercial.
 - `runtimes/adapters/internal_agent.py` — `_best_cloud_primary_base()` extended with HuggingFace, ZhipuAI, and MiniMax fallback entries so local Ollama is skipped whenever any of these keys is configured.
 - `docker/agent_runtime.py` — `_chat()` dispatcher and `_default_model()` extended to include HuggingFace, ZhipuAI, and MiniMax in the cloud provider chain.

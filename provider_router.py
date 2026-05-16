@@ -178,6 +178,11 @@ _FREE_CLOUD_PROVIDER_IDS = {
     "groq-cloud",
     "qwen-dashscope",
     "together-free",
+    "cerebras",
+    "sambanova",
+    "mistral",
+    "google-gemini-free",
+    "cloudflare-ai",
 }
 # Nvidia NIM is free-tier — treated as highest-priority free cloud provider
 _NVIDIA_PROVIDER_IDS = {"nvidia-nim", "nvidia"}
@@ -198,6 +203,11 @@ _KNOWN_FREE_HOSTS = (
     "deepseek.com",
     "api.groq.com",
     "dashscope.aliyuncs.com",
+    "api.cerebras.ai",
+    "api.sambanova.ai",
+    "api.mistral.ai",
+    "generativelanguage.googleapis.com",
+    "api.cloudflare.com",
 )
 _KNOWN_NVIDIA_HOSTS = ("integrate.api.nvidia.com",)
 
@@ -471,6 +481,32 @@ class ProviderRouter:
                 )
             )
 
+        cerebras_key = os.environ.get("CEREBRAS_API_KEY")
+        if cerebras_key:
+            providers.append(
+                ProviderConfig(
+                    provider_id="cerebras",
+                    type="openai-compatible",
+                    base_url="https://api.cerebras.ai/v1",
+                    api_key=cerebras_key,
+                    default_model=os.environ.get("CEREBRAS_MODEL") or "llama-3.3-70b",
+                    priority=28,
+                )
+            )
+
+        sambanova_key = os.environ.get("SAMBANOVA_API_KEY")
+        if sambanova_key:
+            providers.append(
+                ProviderConfig(
+                    provider_id="sambanova",
+                    type="openai-compatible",
+                    base_url="https://api.sambanova.ai/v1",
+                    api_key=sambanova_key,
+                    default_model=os.environ.get("SAMBANOVA_MODEL") or "Meta-Llama-3.3-70B-Instruct",
+                    priority=27,
+                )
+            )
+
         together_key = os.environ.get("TOGETHER_API_KEY")
         if together_key:
             together_base = (
@@ -487,9 +523,51 @@ class ProviderRouter:
                 )
             )
 
+        mistral_key = os.environ.get("MISTRAL_API_KEY")
+        if mistral_key:
+            providers.append(
+                ProviderConfig(
+                    provider_id="mistral",
+                    type="openai-compatible",
+                    base_url="https://api.mistral.ai/v1",
+                    api_key=mistral_key,
+                    default_model=os.environ.get("MISTRAL_MODEL") or "mistral-small-latest",
+                    priority=38,
+                )
+            )
+
+        gemini_key = os.environ.get("GOOGLE_API_KEY") or os.environ.get("GEMINI_API_KEY")
+        if gemini_key:
+            providers.append(
+                ProviderConfig(
+                    provider_id="google-gemini-free",
+                    type="openai-compatible",
+                    base_url="https://generativelanguage.googleapis.com/v1beta/openai",
+                    api_key=gemini_key,
+                    default_model=os.environ.get("GEMINI_MODEL") or "gemini-2.0-flash",
+                    priority=39,
+                )
+            )
+
+        cloudflare_token = os.environ.get("CLOUDFLARE_API_TOKEN")
+        cloudflare_account = os.environ.get("CLOUDFLARE_ACCOUNT_ID")
+        if cloudflare_token and cloudflare_account:
+            providers.append(
+                ProviderConfig(
+                    provider_id="cloudflare-ai",
+                    type="openai-compatible",
+                    base_url=f"https://api.cloudflare.com/client/v4/accounts/{cloudflare_account}/ai/v1",
+                    api_key=cloudflare_token,
+                    default_model=os.environ.get("CLOUDFLARE_MODEL") or "@cf/meta/llama-3.3-70b-instruct-fp8-fast",
+                    priority=43,
+                )
+            )
+
         anthropic_key = os.environ.get("ANTHROPIC_API_KEY")
-        anthropic_base = os.environ.get("ANTHROPIC_BASE_URL")
-        if anthropic_key and anthropic_base:
+        if anthropic_key:
+            anthropic_base = (
+                os.environ.get("ANTHROPIC_BASE_URL") or "https://api.anthropic.com"
+            ).rstrip("/")
             providers.append(
                 ProviderConfig(
                     provider_id="anthropic",
@@ -497,7 +575,7 @@ class ProviderRouter:
                     base_url=anthropic_base,
                     api_key=anthropic_key,
                     default_model=os.environ.get("ANTHROPIC_MODEL")
-                    or "claude-sonnet-4-5",
+                    or "claude-sonnet-4-6",
                     priority=50,
                 )
             )
