@@ -2,16 +2,16 @@
 
 # LLM Relay
 
-### Your own AI control room.
+### Self-hosted OpenAI-compatible proxy with multi-provider routing, agent orchestration, and a team control plane.
 
-**One place to run local AI, connect your tools, manage agents, and keep your data close to home.**
+**Run local models. Route to 15+ free and commercial providers. Connect any AI coding tool. Keep your data yours.**
 
 [![Version](https://img.shields.io/badge/version-4.0.0-4D8CFF?style=for-the-badge)](docs/changelog.md)
 [![Stars](https://img.shields.io/github/stars/strikersam/local-llm-server?style=for-the-badge&color=FFD43B&logo=github)](https://github.com/strikersam/local-llm-server/stargazers)
 [![Forks](https://img.shields.io/github/forks/strikersam/local-llm-server?style=for-the-badge&color=4D8CFF&logo=git)](https://github.com/strikersam/local-llm-server/network)
 [![License](https://img.shields.io/badge/license-Open%20Source-22C55E?style=for-the-badge)](LICENSE)
 
-[**Quick start**](#quick-start) · [**What's new**](#whats-new-2026-05-15) · [**See the product**](#see-the-product) · [**What it can do**](#what-it-can-do) · [**Technical docs**](#technical-docs)
+[**Quick start**](#quick-start) · [**Supported models**](#supported-models) · [**Providers**](#providers) · [**What's new**](#whats-new-2026-05-15) · [**Screenshots**](#see-the-product) · [**Docs**](#technical-docs)
 
 </div>
 
@@ -19,35 +19,153 @@
 
 ## What is LLM Relay?
 
-If someone brand new to AI asked, I would say:
+A **FastAPI proxy** that sits between your AI tools and your models. Point Cursor, Claude Code, Aider, Continue, or any OpenAI SDK client at `http://localhost:8000` and get:
 
-> **LLM Relay is a smart front desk for your AI helpers.**
-> It knows who is allowed in, which helper should do the job, what it costs, and where everything should go.
+- **Smart routing** — free-first, local-first, cost-aware, or quality-first strategies
+- **15+ providers** — Ollama, NVIDIA NIM, Groq, Gemini, DeepSeek, Mistral, Together, Cerebras, SambaNova, Bedrock, Anthropic, OpenRouter, and more
+- **Anthropic + OpenAI API compatibility** — both `/v1/messages` and `/v1/chat/completions` on the same server
+- **Async agent engine** — plan → execute → verify pipeline with per-role model assignment
+- **Team control plane** — React dashboard with chat, task boards, schedules, knowledge wiki, and observability
 
-In normal people words:
-
-- you can run **AI on your own computer or server**
-- you can connect **Cursor, Claude Code, Aider, Continue, scripts, and dashboards** to one place
-- you can give your team a **simple web app** to chat, create tasks, manage agents, and watch what is happening
-- you can keep control of **costs, access, secrets, and data**
-
-### Why this feels different
-
-Many AI tools solve only one piece of the puzzle.
-LLM Relay tries to bring the important pieces together in one product:
-
-- **one place to connect tools** instead of many separate configs
-- **one dashboard for people** instead of making everyone live in terminals
-- **one set of rules** for cost, access, routing, and safety
-- **one shared memory** for chats, tasks, sources, and team knowledge
-
-That means less setup pain, less tool sprawl, and fewer "wait, where did that answer come from?" moments.
+No GPU required to start: set `NVIDIA_API_KEY` and free NIM inference handles everything.
 
 <p align="center">
   <img src="docs/screenshots/readme/v4-control-plane.png" alt="LLM Relay control plane" width="100%"/>
   <br/>
-  <sub><em>The main control plane: one screen for chat, tasks, agents, models, knowledge, and system health.</em></sub>
+  <sub><em>The main control plane: chat, tasks, agents, models, knowledge, and system health in one screen.</em></sub>
 </p>
+
+---
+
+## Supported Models
+
+### Local (via Ollama)
+
+Pull any model with `ollama pull <name>`. The router auto-selects the best available model for each request category.
+
+| Model | Type | Context | Vision | Notes |
+|---|---|---|---|---|
+| `qwen3-coder:7b` | Coder | 32k | — | Lightweight · fast |
+| `qwen3-coder:30b` | Coder | 32k | — | Balanced default |
+| `qwen3-coder:235b` | Coder | 131k | — | Flagship · MoE |
+| `qwen3.6:35b` | General | 128k | ✓ | Multimodal · MoE |
+| `deepseek-r1:32b` | Reasoning | 32k | — | Chain-of-thought |
+| `deepseek-r1:32b-16k` | Reasoning | 16k | — | Memory-efficient |
+| `deepseek-r1:671b` | Reasoning | 131k | — | Flagship |
+| `deepseek-v3:685b` | Coder | 131k | — | MoE · flagship |
+| `gemma4:2b` | General | 32k | — | Ultra-fast |
+| `gemma4:9b` | General | 128k | ✓ | Google · lightweight |
+| `gemma4:27b` | General | 128k | ✓ | Google · multimodal |
+| `llama4-scout:17b` | General | **10M** | ✓ | Meta · MoE · ultra-long ctx |
+| `llama4-maverick:17b` | General | 1M | ✓ | Meta · MoE |
+| `tinyllama:latest` | General | 2k | — | Minimal footprint |
+
+> Add any Ollama model at runtime via `ROUTER_EXTRA_MODELS` without touching code.
+
+### NVIDIA NIM (free tier)
+
+Set `NVIDIA_API_KEY` and the proxy routes to NIM at highest priority (priority −10).
+
+| Model slug | Notes |
+|---|---|
+| `nvidia/nemotron-3-super-120b-a12b` | Default · general purpose |
+| Any NIM model | Override with `NVIDIA_DEFAULT_MODEL` |
+
+### Free Cloud APIs
+
+All of these are **zero-cost** tiers treated as higher priority than paid commercial providers.
+
+| Provider | Env var | Default model |
+|---|---|---|
+| Groq | `GROQ_API_KEY` | `llama-3.3-70b-versatile` |
+| DeepSeek API | `DEEPSEEK_API_KEY` | `deepseek-chat` |
+| Google Gemini | `GOOGLE_API_KEY` or `GEMINI_API_KEY` | `gemini-2.0-flash` |
+| Cerebras | `CEREBRAS_API_KEY` | `llama-3.3-70b` |
+| SambaNova | `SAMBANOVA_API_KEY` | `Meta-Llama-3.3-70B-Instruct` |
+| Together AI | `TOGETHER_API_KEY` | `Llama-3.3-70B-Instruct-Turbo-Free` |
+| Mistral | `MISTRAL_API_KEY` | `mistral-small-latest` |
+| Hugging Face | `HF_TOKEN` | serverless inference |
+| Cloudflare AI | `CLOUDFLARE_API_TOKEN` + `CLOUDFLARE_ACCOUNT_ID` | `@cf/meta/llama-3.3-70b-instruct-fp8-fast` |
+| Qwen DashScope | `DASHSCOPE_API_KEY` or `QWEN_API_KEY` | `qwen-plus` |
+| ZhipuAI | `ZHIPU_API_KEY` | `glm-4-flash` |
+| MiniMax | `MINIMAX_API_KEY` | `MiniMax-Text-01` |
+| OpenCode Zen | `OPENCODE_ZEN_API_KEY` | `zen` |
+
+### Commercial Cloud APIs
+
+Tried last, only when all free and local providers are exhausted or down.
+
+| Provider | Env var | Default model |
+|---|---|---|
+| AWS Bedrock | `AWS_ACCESS_KEY_ID` + `AWS_SECRET_ACCESS_KEY` | `us.anthropic.claude-opus-4-7` (200k ctx) |
+| Anthropic | `ANTHROPIC_API_KEY` | configurable |
+| OpenRouter | `OPENROUTER_API_KEY` | configurable |
+
+### Claude Aliases
+
+When `ANTHROPIC_BASE_URL` points at LLM Relay, Claude Code's model picker lists these aliases which the proxy routes to the best matching local or NIM model:
+
+`claude-sonnet-4-6` · `claude-opus-4-7` · `claude-3-5-sonnet-20241022` · `claude-3-opus-20240229`
+
+---
+
+## Providers
+
+The provider chain is sorted automatically: **NVIDIA NIM → free cloud → local Ollama → commercial**. Set env vars to activate providers; unset vars disable them silently.
+
+```
+Provider priority order (lower number = tried first)
+─────────────────────────────────────────────────────
+ -10  NVIDIA NIM          (free, no local GPU needed)
+   0  Free cloud APIs     (Groq, Gemini, DeepSeek, Cerebras, …)
+  10  Local Ollama        (private, GPU-optional)
+  15  Commercial APIs     (Bedrock, Anthropic, OpenRouter, …)
+```
+
+Override strategy with `ROUTING_STRATEGY`:
+- `free_first` — NVIDIA NIM → free cloud → local → commercial (default)
+- `local_first` — Ollama → free cloud → commercial
+- `cost_aware` — balance speed/quality/cost
+- `quality` — always use the highest-ranked available model
+
+Each provider gets a bounded per-request timeout and failure-type-aware cooldown:
+- `401/403` → 5-minute cooldown
+- connection error → 15-second cooldown
+- other errors → 30-second cooldown
+
+---
+
+## API Compatibility
+
+LLM Relay is a **drop-in replacement** for both the OpenAI and Anthropic APIs.
+
+### OpenAI-compatible endpoints
+
+```
+POST /v1/chat/completions     # Streaming + non-streaming chat
+GET  /v1/models               # Lists all models including Claude aliases
+POST /v1/completions          # Legacy text completion
+POST /v1/embeddings           # Embeddings passthrough
+```
+
+### Anthropic-compatible endpoints
+
+```
+POST /v1/messages             # Full Anthropic Messages API
+POST /v1/messages/count_tokens  # Token counting (Claude Code CLI uses this)
+```
+
+Structured outputs, extended thinking (routes to reasoning models), and `output_format` are all translated automatically.
+
+### Ollama-native passthrough
+
+```
+POST /api/chat    # Ollama NDJSON streaming
+POST /api/generate
+GET  /api/tags
+POST /api/pull
+GET  /api/ps
+```
 
 ---
 
@@ -55,27 +173,25 @@ That means less setup pain, less tool sprawl, and fewer "wait, where did that an
 
 **Token counting API, thinking-aware routing, and native structured outputs for the Anthropic compat layer.**
 
-- **`POST /v1/messages/count_tokens`** — Claude Code CLI calls this endpoint before sending long prompts to check whether they fit in the model's context window. The proxy now implements it: pass the same body as `/v1/messages` and receive `{"input_tokens": N}` back. No more 404s when `ANTHROPIC_BASE_URL` points at LLM Relay instead of Anthropic directly.
-- **Extended thinking → reasoning model routing** — When a request arrives with `thinking: {type: "enabled", budget_tokens: N}`, the proxy now routes to the best available reasoning model (DeepSeek-R1, QwQ) instead of routing as a plain chat request. Local models already think via `<think>` tokens — this change ensures the right model is selected for deep chain-of-thought work. The response includes an `X-Thinking-Budget` header echoing the requested budget.
-- **Anthropic `output_format` structured outputs** — The Anthropic API's native `output_format: {type: "json_schema", json_schema: {schema: {...}}}` is now translated to Ollama's `format` field for local structured generation. `json_object` mode maps to `format: "json"`. When active, responses carry `anthropic-beta: structured-outputs-2025-11-13`, matching the real API and enabling tools that check for that header to work correctly.
+- **`POST /v1/messages/count_tokens`** — Claude Code CLI calls this before sending long prompts to check whether they fit in the model's context window. The proxy now implements it: pass the same body as `/v1/messages` and receive `{"input_tokens": N}` back. No more 404s when `ANTHROPIC_BASE_URL` points at LLM Relay instead of Anthropic directly.
+- **Extended thinking → reasoning model routing** — When a request arrives with `thinking: {type: "enabled", budget_tokens: N}`, the proxy routes to the best available reasoning model (DeepSeek-R1, QwQ) instead of routing as a plain chat request. The response includes an `X-Thinking-Budget` header echoing the requested budget.
+- **Anthropic `output_format` structured outputs** — The Anthropic API's native `output_format: {type: "json_schema", json_schema: {schema: {...}}}` is now translated to Ollama's `format` field for local structured generation. `json_object` mode maps to `format: "json"`. When active, responses carry `anthropic-beta: structured-outputs-2025-11-13`, matching the real API.
 
 ## What's new (2026-05-14)
 
-**Structured output compatibility, Claude Code model picker support, and token budget headers.**
+**Structured output normalization, Claude Code model picker support, and token budget headers.**
 
-- **Structured output normalization** — Pass `response_format: {"type": "json_schema", "json_schema": {"schema": {...}}}` from any OpenAI-compatible client and the proxy automatically converts it to Ollama's native `format` field. `json_object` mode maps to `format: "json"`. Cloud/Nvidia models receive `response_format` unchanged. This removes a common compatibility gap when using Claude Code, Cursor, or Aider with local Ollama models.
-- **Claude model aliases in `/v1/models`** — The `/v1/models` endpoint now lists all Claude model alias names (`claude-sonnet-4-6`, `claude-opus-4-7`, etc.) so Claude Code's built-in gateway model picker displays them when you set `ANTHROPIC_BASE_URL` to this proxy.
-- **`X-Token-Budget-*` response headers** — When a session has a token budget cap set, chat completion responses now include `X-Token-Budget-Remaining`, `X-Token-Budget-Cap`, and `X-Token-Budget-Used` headers. Monitor spend inline without a separate `/agent/budget` API call.
-
----
+- **Structured output normalization** — Pass `response_format: {"type": "json_schema", ...}` from any OpenAI-compatible client and the proxy converts it to Ollama's native `format` field automatically.
+- **Claude model aliases in `/v1/models`** — All Claude alias names appear in the model list so Claude Code's built-in gateway model picker works when `ANTHROPIC_BASE_URL` is set to this proxy.
+- **`X-Token-Budget-*` response headers** — Chat completion responses include `X-Token-Budget-Remaining`, `X-Token-Budget-Cap`, and `X-Token-Budget-Used` headers when a session budget cap is set.
 
 ## What's new (2026-05-09)
 
 **Vision routing, session-aware Langfuse traces, and feature flag bulk controls.**
 
-- **Vision routing** — the proxy automatically detects `image_url` content parts in requests and routes them to the best registered vision-capable model (Gemma4, Llama4, Qwen3.6). Set `VISION_MODEL=<name>` to pin. `X-Model-Override` still takes priority.
-- **`X-Session-Id` → Langfuse** — pass `X-Session-Id` or `X-Claude-Code-Session-Id` in any request and all turns from that session will cluster under one Langfuse trace with a `session:<id>` tag. Claude Code CLI sends this automatically.
-- **`FEATURE_DISABLE` / `FEATURE_ENABLE` bulk env vars** — disable or enable multiple features at once: `FEATURE_DISABLE=jcode_runtime,social_auth`. Previously only single-feature `FEATURE_<ID>=<tier>` overrides were supported.
+- **Vision routing** — the proxy auto-detects `image_url` content parts and routes to the best registered vision-capable model (Gemma4, Llama4, Qwen3.6). Set `VISION_MODEL=<name>` to pin.
+- **`X-Session-Id` → Langfuse** — pass `X-Session-Id` or `X-Claude-Code-Session-Id` and all turns from that session cluster under one Langfuse trace. Claude Code CLI sends this automatically.
+- **`FEATURE_DISABLE` / `FEATURE_ENABLE` bulk env vars** — disable or enable multiple features at once: `FEATURE_DISABLE=jcode_runtime,social_auth`.
 
 See `docs/changelog.md` for the full diff.
 
@@ -83,42 +199,29 @@ See `docs/changelog.md` for the full diff.
 
 ## What's new in v4.0
 
-v4.0 is the biggest release yet — it ships a native-grade mobile experience, a non-blocking async agent engine, NVIDIA NIM as a first-class free provider, and a stack of reliability and observability improvements.
+v4.0 ships a native-grade mobile experience, a non-blocking async agent engine, NVIDIA NIM as a first-class free provider, and a stack of reliability and observability improvements.
+
+### ⚡ Async agent jobs — no more blocking
+
+`agent_mode=true` returns **202 Accepted** immediately with a poll-able job ID. The agent runs in the background; the chat surface shows a live job-status card with progress events and a cancel button. Long-running coding tasks no longer time out.
+
+### 🆓 NVIDIA NIM — free-tier AI, zero config
+
+Set `NVIDIA_API_KEY` and the system auto-detects it during setup, marks the card "already configured", and routes planner/coder/verifier/judge phases to separate NIM models. Free-tier NIM covers most workloads at zero cost.
+
+### 🧠 Per-role model configuration
+
+Each phase of the agent pipeline — planner, executor/coder, verifier, judge — can use a different model. Pair a fast model for planning with a more powerful one for code generation, all without touching routing config.
 
 ### 📱 Native mobile-first UI
 
-The entire front end was rebuilt around a unified dark app shell: safe-area-aware chrome, thumb-friendly bottom navigation, elevated message bubbles, and a pill-style composer that stays out of the way on small screens.
+Rebuilt around a unified dark app shell: safe-area-aware chrome, thumb-friendly bottom navigation, elevated message bubbles, and a pill-style composer.
 
 <p align="center">
   <img src="docs/screenshots/readme/v4-login-mobile.png" width="42%" alt="v4 mobile login"/>
   &nbsp;&nbsp;
   <img src="docs/screenshots/readme/v4-setup-mobile.png" width="42%" alt="v4 mobile setup wizard"/>
-  <br/>
-  <sub><em>Left: new dark login shell on mobile. Right: setup wizard on mobile — step navigation, provider cards, and responsive controls.</em></sub>
 </p>
-
-### ⚡ Async agent jobs — no more blocking
-
-In v3, sending a complex task to the agent would hold the HTTP connection open until it finished (or timed out).
-In v4, `agent_mode=true` returns **202 Accepted** immediately with a poll-able job ID.
-The agent runs in the background; the mobile chat surface shows a live job-status card with progress events and a cancel button.
-Long-running coding tasks no longer time out or leave the UI hanging.
-
-### 🆓 NVIDIA NIM — free-tier AI, zero config
-
-NVIDIA NIM is now the **first recommended provider** in the setup wizard.
-Set `NVIDIA_API_KEY` and the system:
-- auto-detects it during setup and marks the card "already configured"
-- adds NIM at priority −10 so it is always tried first
-- routes planner, coder, verifier, and judge phases to separate NIM models
-- falls back to local Ollama only when needed
-
-Free-tier NIM models cover most workloads at zero cost, making LLM Relay useful without any local GPU.
-
-### 🧠 Per-role model configuration
-
-Each phase of the agent pipeline — planner, executor/coder, verifier, judge — can now use a different model.
-That means you can pair a fast model for planning with a more powerful one for code generation, all without touching routing config.
 
 ### 🩺 Runtime preflight validation
 
@@ -126,8 +229,7 @@ v4 validates every runtime before a task starts and surfaces **actionable struct
 
 ### 🔄 Concurrent task fanout
 
-The task engine now fans out work concurrently across agents.
-Auto-assignment prefers less-busy agents that match the task type, so idle agents pick up queued work automatically instead of waiting for a manual trigger.
+The task engine fans out work concurrently across agents. Auto-assignment prefers less-busy agents that match the task type.
 
 ### 🔭 Langfuse observability from direct chat
 
@@ -135,280 +237,15 @@ Direct-chat messages now emit Langfuse traces with token counts, latency metadat
 
 ### 🛡 Provider reliability: bounded timeouts + smart cooldowns
 
-Each provider now gets a bounded per-request timeout. On failure the system applies failure-type-aware cooldowns (401/403 → 5 min; connection error → 15 s; other → 30 s) and retries healthy fallbacks without keeping a broken provider pinned.
+Each provider gets a bounded per-request timeout. On failure the system applies failure-type-aware cooldowns and retries healthy fallbacks without keeping a broken provider pinned.
 
 ### Other v4 highlights
 
 - JWT access/refresh tokens include unique `iat`/`jti` claims — replay and same-second refresh attacks are closed
-- Setup wizard state now persists to MongoDB so hosted setups survive Render restarts
-- Dashboard replaced with a cleaner mobile-first workspace overview (usage, routing, agents, schedules in operational cards)
+- Setup wizard state persists to MongoDB so hosted setups survive restarts
+- Dashboard replaced with a cleaner mobile-first workspace overview
 - Social login OAuth callbacks now land correctly without a `/login` redirect bounce
 - CodeQL path-traversal finding on agent workspace directories closed
-
-See the full [changelog](docs/changelog.md) for every fix.
-
----
-
-## Why people use it
-
-Most teams hit the same problems:
-
-- AI tools are scattered across too many tabs and services
-- cloud AI bills grow fast
-- local models are powerful, but harder for normal people to use
-- one person knows the setup, everyone else is confused
-- nobody knows which model, agent, or tool did what
-
-LLM Relay turns that mess into **one home for your AI work**.
-
-### In one glance
-
-| If you want... | LLM Relay gives you... |
-|---|---|
-| one simple way to use local AI | one URL your tools can all talk to |
-| lower cloud spend | local-first and cost-aware routing |
-| a team-friendly AI product | chat, tasks, agents, schedules, and knowledge in one place |
-| more trust and control | logins, roles, audit trails, secrets, and activity history |
-| free cloud AI to start | NVIDIA NIM free-tier, auto-configured |
-| something that can start small | a setup that works for solo use and grows into a team control plane |
-
----
-
-## What it can do
-
-### 🧠 1. Run AI from one simple address
-
-Instead of teaching every app a different setup, you point them all at one URL.
-Cursor, Claude Code, Aider, Continue, scripts, and internal tools can all use the same front door.
-
-### 💸 2. Help you spend less
-
-LLM Relay prefers **free NVIDIA NIM models first**, then local models, and only uses paid services when needed.
-That makes it easier to keep costs under control without asking every user to think about pricing all day.
-
-### 🤖 3. Give you agents, not just chat
-
-You can create agents with different roles:
-
-- a coding helper (executor/coder phase)
-- a planner (maps out steps before touching code)
-- a verifier (checks the output)
-- a judge (approves or blocks the result)
-- a scheduled worker that runs later
-
-Each role can use a different model optimised for that job.
-
-### ⚡ 4. Non-blocking async task execution
-
-Agent tasks return immediately with a job ID.
-You can poll for status, stream progress events, or cancel the job from the UI.
-Complex long-running tasks no longer time out or block the dashboard.
-
-### 🗂 5. Turn AI work into visible tasks
-
-Instead of losing everything inside chat messages, you can create tasks, move them across a board, add comments, approve work, retry runs, and see what is blocked.
-
-### 📚 6. Keep team knowledge in one place
-
-LLM Relay includes a wiki and source library so your team can save useful information, project notes, links, and imported material.
-
-### 🛡 7. Control who can do what
-
-It supports API keys, admin login, dashboard login, roles, social login, audit trails, encrypted secrets, and safer shared access for teams.
-
-### 🔭 8. Show you what is happening
-
-You can see activity, routing decisions, usage, savings, logs, health, and observability data instead of guessing whether the system is working.
-Direct chat now emits Langfuse traces so every conversation has token and latency attribution.
-
-### 🧰 9. Grow with you
-
-You can start small and still have room for bigger workflows later:
-
-- free cloud AI via NVIDIA NIM (no GPU needed to start)
-- local models with Ollama when you want privacy or cost control
-- remote providers like Hugging Face, OpenRouter, DeepSeek, Anthropic
-- GitHub integration
-- schedules and automations
-- browser automation
-- voice transcription
-- Telegram control
-- peer sync between machines
-
-### ❤️ Why this can create traction inside a team
-
-Good internal AI tools spread when they are easy to explain.
-This one is easy to explain:
-
-- **for leaders:** better visibility and cost control
-- **for operators:** better permissions, logs, and safer access
-- **for builders:** better model flexibility and automation
-- **for everyone else:** a simpler place to just use AI without learning five different systems
-
----
-
-## See the product
-
-Run `python scripts/gen_v4_screenshots.py` to regenerate all v4 mockup screenshots. Run `make ui-docs` to refresh the built-in `/app` and `/admin/app` captures.
-
-<!-- README_UI_GALLERY:START -->
-### 🛬 Login
-
-The v4 login screen splits into a feature panel on the left and a sign-in form on the right, both in the native dark shell. Mobile users see a full-screen dark auth flow.
-
-<p align="center">
-  <img src="docs/screenshots/readme/v4-login.png" width="58%" alt="LLM Relay v4 login (desktop)"/>
-  &nbsp;
-  <img src="docs/screenshots/readme/v4-login-mobile.png" width="28%" alt="LLM Relay v4 login (mobile)"/>
-</p>
-
-### 🧙 Setup Wizard
-
-The wizard walks you through providers → models → runtime → agent → cost policy. NVIDIA NIM appears first with "★ Recommended" and "Free" badges, and is auto-marked "already configured" when `NVIDIA_API_KEY` is set on the server.
-
-<p align="center">
-  <img src="docs/screenshots/readme/v4-setup-wizard.png" width="58%" alt="Setup Wizard v4"/>
-  &nbsp;
-  <img src="docs/screenshots/readme/v4-setup-mobile.png" width="28%" alt="Setup Wizard v4 mobile"/>
-</p>
-
-### 🏠 Dashboard
-
-The v4 control plane opens with usage stats, live provider health, running task progress bars, and quick-action cards — all in a single mobile-first workspace overview.
-
-<p align="center"><img src="docs/screenshots/readme/v4-control-plane.png" width="92%" alt="LLM Relay v4 Dashboard"/></p>
-
-### 💬 Chat
-
-Direct chat with a real Agent Mode toggle (off by default for fast LLM responses). Enable it for complex multi-step tasks — async job status cards replace the old blocking request so the UI never hangs.
-
-Agent Mode async contract: when Agent Mode is enabled the server will accept the task and return a 202 Accepted job envelope (session_id, job_id, status, phase, message). The client should render a pending job card and poll /api/chat/agent-jobs/{job_id} for status. When the job completes, the job response includes a canonical final_message and structured result; clients MUST render final_message as the assistant reply instead of raw job metadata. Runtime preflight and GitHub preflight errors return structured actionable errors (HTTP 412) to surface missing tokens, missing git binary, Docker unavailability, or workspace issues.
-
-Git / GitHub repo preflight: If a prompt involves repository operations and request.metadata contains a 'repo_url' or 'repository' field, the server performs a non-destructive preflight using 'git ls-remote --heads' to validate access. This is a best-effort, non-destructive check that will fail early with a structured error (code: git_repo_access) if the repo is unreachable or the token lacks access.
-
-Docker/runtime gating: Runtimes that require Docker are deliberately conservative. If Docker is unavailable ("docker version" fails), Docker-backed runtimes are marked unavailable and will not be auto-selected. This prevents silent routing into broken container runtimes; enable AGENT_MODE_DOCKER or fix Docker on the host to allow docker-based runtimes.
-
-<p align="center"><img src="docs/screenshots/readme/v4-chat.png" width="92%" alt="Direct Chat v4"/></p>
-
-### 🗂 Task Board
-
-AI work made visible. v4 fans tasks out concurrently — multiple agents pick up work from the queue simultaneously, and the board shows live step progress for each running job.
-
-<p align="center"><img src="docs/screenshots/readme/v4-tasks-kanban.png" width="92%" alt="Kanban Task Board v4"/></p>
-
-### 🤖 Agent Roster
-
-Each agent now has per-role model configuration: planner, coder/executor, verifier, and judge can all use different models optimised for their phase of the pipeline.
-
-<p align="center"><img src="docs/screenshots/readme/v4-agents.png" width="92%" alt="Agent Roster v4"/></p>
-
-### ⚙️ Runtimes
-
-v4 adds runtime preflight validation. The panel shows structured diagnostics — green for healthy, yellow with an actionable message for unavailable runtimes (e.g. Docker socket missing) — instead of cryptic late failures.
-
-<p align="center"><img src="docs/screenshots/readme/v4-runtimes.png" width="92%" alt="Agent Runtimes v4"/></p>
-
-### 🛣 Routing Policy
-
-Choose your strategy (free-first, local-first, cost-aware, quality) and see the live provider priority order. v4 adds bounded per-provider timeouts and failure-type-aware cooldowns shown in the stats panel.
-
-<p align="center"><img src="docs/screenshots/readme/v4-routing.png" width="92%" alt="Routing Policy v4"/></p>
-
-### 🔌 Providers and Models
-
-NVIDIA NIM sits at priority −10 with "★ Recommended" and "Free Tier" badges, auto-configured from `NVIDIA_API_KEY`. The models table lists NIM, Ollama, and cloud models with context window, type, and cost at a glance.
-
-<p align="center">
-  <img src="docs/screenshots/readme/v4-providers.png" width="48%" alt="Providers v4"/>
-  &nbsp;
-  <img src="docs/screenshots/readme/v4-models.png" width="48%" alt="Models v4"/>
-</p>
-
-### 📚 Knowledge
-
-Your team's memory: wiki pages with tags, plus a source library for GitHub repos, URLs, and uploaded files. Agents can pull from these sources during task execution.
-
-<p align="center"><img src="docs/screenshots/readme/v4-knowledge.png" width="92%" alt="Knowledge and Wiki v4"/></p>
-
-### 🔭 Logs and Activity
-
-Real-time event feed with INFO/WARN/ERROR badges and inline Langfuse trace links. v4 emits traces from direct chat too, so every conversation has token counts and latency attribution.
-
-<p align="center"><img src="docs/screenshots/readme/v4-logs.png" width="92%" alt="Logs v4"/></p>
-
-### 🗓 Schedules
-
-Automated agent jobs on cron schedules. v4 adds a **Run now** button per schedule and fixes cron expression submission from the UI so `daily` / `weekly` presets map correctly to 5-field cron strings.
-
-<p align="center"><img src="docs/screenshots/readme/v4-schedules.png" width="92%" alt="Schedules v4"/></p>
-
-### 🧭 Settings
-
-Central configuration for server name, default cost policy, Langfuse tracing, agent defaults (max steps, timeout, per-role models), and integrations.
-
-<p align="center"><img src="docs/screenshots/readme/v4-settings.png" width="92%" alt="Settings v4"/></p>
-
-### 🛡 Admin portal
-
-API key management with create / revoke, system health at a glance, and server version info.
-
-<p align="center"><img src="docs/screenshots/readme/v4-admin.png" width="92%" alt="Admin Portal v4"/></p>
-
-### 🖥 Built-in web UI
-
-The proxy ships a lightweight built-in app at `/app`, usable without the separate hosted dashboard.
-
-<p align="center"><img src="docs/screenshots/webui/webui-app.png" width="92%" alt="Built-in Web UI"/></p>
-
-### 🔐 Built-in admin login
-
-Dedicated login gate before exposing sensitive controls in the in-proxy admin surface.
-
-<p align="center"><img src="docs/screenshots/webui/webui-admin-login.png" width="92%" alt="Built-in admin login"/></p>
-
-### 🧰 Built-in admin workspace
-
-Manage providers, workspaces, and runtime metadata directly from the in-proxy UI.
-
-<p align="center"><img src="docs/screenshots/webui/webui-admin.png" width="92%" alt="Built-in admin workspace"/></p>
-<!-- README_UI_GALLERY:END -->
-
----
-
-## What kinds of people is this for?
-
-LLM Relay works for:
-
-- **solo builders** who want one clean way to use local AI (or free NVIDIA NIM)
-- **non-technical teams** who need a dashboard instead of command lines
-- **engineering teams** who want routing, agent runs, GitHub workflows, and observability
-- **ops/admin owners** who need control, auditability, and safer access
-- **cost-conscious companies** who want more local AI and fewer surprise bills
-
----
-
-## Common use cases
-
-### "I just want local AI to work with my tools."
-Use the proxy and point your tools to it.
-
-### "I want free cloud AI with no GPU."
-Set `NVIDIA_API_KEY` — the setup wizard auto-detects it and configures free-tier NIM models for every phase.
-
-### "I want a team dashboard."
-Use the control plane so people can chat, create tasks, manage agents, and see results.
-
-### "I want AI jobs to happen on their own."
-Use schedules, tasks, playbooks, and workflows.
-
-### "I want to mix local and cloud models safely."
-Use routing policies, provider priority, and approval-aware escalation.
-
-### "I want our AI to remember project context."
-Use the wiki, sources, and GitHub integration.
-
-### "I want something I can demo in five minutes."
-Open the control plane, show chat, tasks, agents, routing, and logs, and people quickly understand the value.
 
 ---
 
@@ -433,58 +270,43 @@ docker compose up -d
 docker compose --profile dashboard up -d
 ```
 
-The setup wizard will detect `NVIDIA_API_KEY` automatically and configure free NIM models as defaults.
+The setup wizard detects `NVIDIA_API_KEY` automatically and configures free NIM models as defaults.
 
-Then open:
+| URL | What's there |
+|---|---|
+| `http://localhost:3000` | Full control plane (chat, tasks, agents, knowledge) |
+| `http://localhost:8000/admin/ui/login` | Built-in admin portal (API keys, health) |
+| `http://localhost:8000/app` | Built-in web UI |
+| `http://localhost:8000/health` | Health check |
 
-- **http://localhost:3000** → full control plane
-- **http://localhost:8000/admin/ui/login** → built-in admin portal
-- **http://localhost:8000/app** → built-in web UI
-- **http://localhost:8000/health** → health check
-
-### If you also want local models (Ollama)
+### Add local models (Ollama)
 
 ```bash
 docker exec llm-server-ollama ollama pull qwen3-coder:30b
 docker exec llm-server-ollama ollama pull deepseek-r1:32b
 ```
 
-Set `INCLUDE_LOCAL_FALLBACK=true` in `.env` to include Ollama in the provider chain when NIM is configured.
+Set `INCLUDE_LOCAL_FALLBACK=true` in `.env` to include Ollama in the provider chain when NIM is also configured.
 
-### If you only want the core proxy
+### Core proxy only (no Docker)
 
 ```bash
+source .venv/bin/activate
 uvicorn proxy:app --reload --port 8000
 ```
-
-> Right now, this repo does **not** include a committed `.env.example`, so create `.env` yourself.
 
 ---
 
 ## Sign in
 
-### Full control plane (`http://localhost:3000`)
-
-- **Email:** `ADMIN_EMAIL`
-- **Password:** `ADMIN_PASSWORD`
-
-### Built-in admin portal (`http://localhost:8000/admin/ui/login`)
-
-- **Username:** anything
-- **Password:** `ADMIN_SECRET`
-
-> Pick strong secrets before exposing this outside your machine.
+| Surface | Credentials |
+|---|---|
+| Control plane (`localhost:3000`) | `ADMIN_EMAIL` / `ADMIN_PASSWORD` |
+| Built-in admin portal (`localhost:8000/admin/ui/login`) | any username / `ADMIN_SECRET` |
 
 ---
 
 ## Connect your tools
-
-### Cursor
-
-```text
-API Key:                  sk-relay-...
-Override OpenAI Base URL: http://localhost:8000/v1
-```
 
 ### Claude Code
 
@@ -494,7 +316,25 @@ export ANTHROPIC_API_KEY=sk-relay-...
 claude
 ```
 
-### Simple API call
+### Cursor
+
+```
+API Key:                  sk-relay-...
+Override OpenAI Base URL: http://localhost:8000/v1
+```
+
+### Python / OpenAI SDK
+
+```python
+from openai import OpenAI
+client = OpenAI(base_url="http://localhost:8000/v1", api_key="sk-relay-...")
+response = client.chat.completions.create(
+    model="qwen3-coder:30b",
+    messages=[{"role": "user", "content": "hello"}]
+)
+```
+
+### curl
 
 ```bash
 curl http://localhost:8000/v1/chat/completions \
@@ -503,40 +343,142 @@ curl http://localhost:8000/v1/chat/completions \
   -d '{"model":"qwen/qwen2.5-coder-32b-instruct","messages":[{"role":"user","content":"hello"}]}'
 ```
 
-If you use Aider, Continue, Zed, VS Code, or Python scripts, examples live in [`client-configs/`](client-configs/).
+Aider, Continue, Zed, VS Code, and script examples live in [`client-configs/`](client-configs/).
 
 ---
 
-## What is included under the hood?
+## See the product
 
-You do **not** need to learn all of this to get started, but the platform includes:
+### 🛬 Login
 
-- OpenAI-style and Anthropic-style API compatibility
-- Ollama support + NVIDIA NIM free-tier support
-- local + remote model routing with bounded timeouts and smart cooldowns
-- async agent jobs with poll-able job IDs and live progress events
-- per-role model config (planner / coder / verifier / judge)
-- task boards and schedules with concurrent fanout
-- agent sessions and runtimes with preflight validation
-- workflows and approvals
-- knowledge wiki and source ingestion
-- GitHub repo and pull request flows
-- secrets storage
-- sync between machines
-- Langfuse observability (traces from chat + agent runs)
-- hardware detection
-- browser and voice tools
-- Telegram bot controls
+<p align="center">
+  <img src="docs/screenshots/readme/v4-login.png" width="58%" alt="LLM Relay v4 login (desktop)"/>
+  &nbsp;
+  <img src="docs/screenshots/readme/v4-login-mobile.png" width="28%" alt="LLM Relay v4 login (mobile)"/>
+</p>
 
-Most people start with **chat + models + one dashboard**, then add the rest when the team is ready.
+### 🧙 Setup Wizard
 
-If you want the deep technical breakdown, jump to the docs below.
+NVIDIA NIM appears first with "★ Recommended" and "Free" badges, auto-marked "already configured" when `NVIDIA_API_KEY` is set.
+
+<p align="center">
+  <img src="docs/screenshots/readme/v4-setup-wizard.png" width="58%" alt="Setup Wizard v4"/>
+  &nbsp;
+  <img src="docs/screenshots/readme/v4-setup-mobile.png" width="28%" alt="Setup Wizard v4 mobile"/>
+</p>
+
+### 🏠 Dashboard
+
+Usage stats, live provider health, running task progress bars, and quick-action cards.
+
+<p align="center"><img src="docs/screenshots/readme/v4-control-plane.png" width="92%" alt="LLM Relay v4 Dashboard"/></p>
+
+### 💬 Chat
+
+Direct chat with Agent Mode toggle. Enable it for complex multi-step tasks — async job status cards replace the old blocking request.
+
+> **Agent Mode async contract:** `agent_mode=true` returns `202 Accepted` with `(session_id, job_id, status, phase, message)`. Poll `/api/chat/agent-jobs/{job_id}` for status. On completion, render `final_message` as the assistant reply. Runtime/GitHub preflight errors return `HTTP 412` with structured actionable errors.
+
+<p align="center"><img src="docs/screenshots/readme/v4-chat.png" width="92%" alt="Direct Chat v4"/></p>
+
+### 🗂 Task Board
+
+AI work made visible. v4 fans tasks out concurrently — multiple agents pick up work from the queue simultaneously.
+
+<p align="center"><img src="docs/screenshots/readme/v4-tasks-kanban.png" width="92%" alt="Kanban Task Board v4"/></p>
+
+### 🤖 Agent Roster
+
+Each agent has per-role model configuration: planner, coder/executor, verifier, and judge can all use different models.
+
+<p align="center"><img src="docs/screenshots/readme/v4-agents.png" width="92%" alt="Agent Roster v4"/></p>
+
+### ⚙️ Runtimes
+
+Runtime preflight validation with structured diagnostics — green for healthy, yellow with actionable messages for unavailable runtimes.
+
+<p align="center"><img src="docs/screenshots/readme/v4-runtimes.png" width="92%" alt="Agent Runtimes v4"/></p>
+
+### 🛣 Routing Policy
+
+Choose your strategy (free-first, local-first, cost-aware, quality) and see the live provider priority order with bounded per-provider timeouts and failure-aware cooldowns.
+
+<p align="center"><img src="docs/screenshots/readme/v4-routing.png" width="92%" alt="Routing Policy v4"/></p>
+
+### 🔌 Providers and Models
+
+NVIDIA NIM at priority −10 with "★ Recommended" and "Free Tier" badges. Models table lists NIM, Ollama, and cloud models with context window, type, and cost at a glance.
+
+<p align="center">
+  <img src="docs/screenshots/readme/v4-providers.png" width="48%" alt="Providers v4"/>
+  &nbsp;
+  <img src="docs/screenshots/readme/v4-models.png" width="48%" alt="Models v4"/>
+</p>
+
+### 📚 Knowledge
+
+Wiki pages with tags, plus a source library for GitHub repos, URLs, and uploaded files. Agents pull from these sources during task execution.
+
+<p align="center"><img src="docs/screenshots/readme/v4-knowledge.png" width="92%" alt="Knowledge and Wiki v4"/></p>
+
+### 🔭 Logs and Activity
+
+Real-time event feed with INFO/WARN/ERROR badges and inline Langfuse trace links. Traces from direct chat include token counts and latency attribution.
+
+<p align="center"><img src="docs/screenshots/readme/v4-logs.png" width="92%" alt="Logs v4"/></p>
+
+### 🗓 Schedules
+
+Automated agent jobs on cron schedules with a **Run now** button per schedule.
+
+<p align="center"><img src="docs/screenshots/readme/v4-schedules.png" width="92%" alt="Schedules v4"/></p>
+
+### 🧭 Settings
+
+Central configuration for server name, cost policy, Langfuse tracing, agent defaults (max steps, timeout, per-role models), and integrations.
+
+<p align="center"><img src="docs/screenshots/readme/v4-settings.png" width="92%" alt="Settings v4"/></p>
+
+### 🛡 Admin portal
+
+API key management with create / revoke, system health, and server version.
+
+<p align="center"><img src="docs/screenshots/readme/v4-admin.png" width="92%" alt="Admin Portal v4"/></p>
+
+### 🖥 Built-in web UI
+
+The proxy ships a lightweight built-in app at `/app`, usable without the separate hosted dashboard.
+
+<p align="center"><img src="docs/screenshots/webui/webui-app.png" width="92%" alt="Built-in Web UI"/></p>
+
+---
+
+## Feature overview
+
+| Category | What's included |
+|---|---|
+| **API compatibility** | OpenAI `/v1/chat/completions`, Anthropic `/v1/messages` + `/count_tokens`, Ollama `/api/chat` |
+| **Model routing** | Free-first · local-first · cost-aware · quality strategies |
+| **Vision routing** | Auto-detects `image_url` content, routes to vision-capable model |
+| **Thinking routing** | `thinking: {type: "enabled"}` → reasoning model (DeepSeek-R1, QwQ) |
+| **Structured outputs** | `json_schema` / `json_object` translated to Ollama `format` automatically |
+| **Auth** | Bearer tokens · per-user API keys · JWT (iat/jti) · social login · RBAC |
+| **Agent engine** | Async 202 jobs · plan/execute/verify pipeline · per-role models |
+| **Task management** | Kanban board · concurrent fanout · approvals · retry |
+| **Schedules** | Cron jobs · run-now · webhook triggers |
+| **Observability** | Langfuse traces (chat + agent) · session clustering · token/latency attribution |
+| **Knowledge** | Wiki pages · source ingestion (GitHub, URL, file) · agent retrieval |
+| **GitHub integration** | Repo · branch · file · PR flows |
+| **Secrets** | Encrypted secrets store |
+| **Peer sync** | Machine-to-machine sync |
+| **Telegram bot** | Remote control via Telegram |
+| **Browser / voice** | Browser automation · voice transcription tools |
+| **Hardware detection** | GPU / CPU / memory profiling |
+| **Extensibility** | `ROUTER_EXTRA_MODELS` · `MODEL_MAP` · `FEATURE_DISABLE/ENABLE` |
 
 ---
 
 ## Technical docs
-
-For engineers and advanced admins:
 
 - [Documentation index](docs/README.md)
 - [Feature guide](docs/features.md)
@@ -555,22 +497,6 @@ For engineers and advanced admins:
 
 ---
 
-## A simple way to think about it
-
-LLM Relay is:
-
-- **a front door** for AI requests
-- **a switchboard** that picks the right model
-- **a control room** for teams
-- **a memory box** for saved knowledge
-- **a manager** for agents, tasks, and schedules
-
-It is built for people who want AI to feel like **one understandable product**, not a pile of disconnected tools.
-
-If you want AI to feel less like scattered tools and more like one product, that is what this repo is trying to do.
-
----
-
 ## License
 
 Open source. Use it, change it, and make it better.
@@ -579,7 +505,7 @@ Open source. Use it, change it, and make it better.
 
 <div align="center">
 
-If LLM Relay helps you, a star helps other people find it.
+If LLM Relay saves you time or money, a star helps other people find it.
 
 [![Star this repo](https://img.shields.io/github/stars/strikersam/local-llm-server?style=for-the-badge&logo=github&color=FFD43B)](https://github.com/strikersam/local-llm-server/stargazers)
 
