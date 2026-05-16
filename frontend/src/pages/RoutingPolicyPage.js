@@ -37,9 +37,8 @@ const DEFAULT_POOLS = {
   selfHosted:      ['server/llama3.2:8b', 'server/codellama:13b', 'server/qwen2.5:14b'],
   freeCloud:       [
     'nvidia/nemotron-3-super-120b-a12b',
-    'nvidia/GLM-5.1',
-    'nvidia/StarCoder2-15B',
-    'nvidia/DeepSeek-V4-Pro',
+    'qwen/qwen3-coder-480b-a35b-instruct',
+    'deepseek-ai/deepseek-v4-pro',
     'groq/llama-3.1-70b-versatile',
     'gemini/gemini-1.5-flash',
   ],

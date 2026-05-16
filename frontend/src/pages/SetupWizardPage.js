@@ -57,10 +57,10 @@ const STEPS = [
 
 // Nvidia NIM free models — each role is matched to the best free NIM model for that task.
 const NVIDIA_MODELS = {
-  executor: 'nvidia/StarCoder2-15B',
-  planner:  'nvidia/GLM-5.1',
-  verifier: 'nvidia/DeepSeek-V4-Pro',
-  judge:    'nvidia/nemotron-3-super-120b-a12b',
+  executor: 'nvidia/nemotron-3-super-120b-a12b',
+  planner:  'qwen/qwen3-coder-480b-a35b-instruct',
+  verifier: 'nvidia/nemotron-3-super-120b-a12b',
+  judge:    'deepseek-ai/deepseek-v4-pro',
   default:  'nvidia/nemotron-3-super-120b-a12b',
 };
 const LOCAL_MODELS = {
