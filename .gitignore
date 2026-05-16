@@ -65,3 +65,4 @@ Thumbs.db
 .claude/settings.local.json
 .claude/sessions/
 .claude/todos
+render-env-vars.txt
