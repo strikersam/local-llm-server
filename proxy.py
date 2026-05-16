@@ -66,6 +66,7 @@ from agent.log_monitor import LogMonitor, set_log_monitor
 from agent.error_interceptor import ErrorInterceptorMiddleware
 from agent.agency import Agency, set_agency
 from agent.trend_watcher import TrendWatcher, set_trend_watcher
+from agent.knowledge_sync import KnowledgeSync, set_knowledge_sync
 from agent.v4_router import v4_router
 from agent.scaffolding import ProjectScaffolder
 from agent.scheduler import AgentScheduler
@@ -869,6 +870,10 @@ AGENCY.start()
 TREND_WATCHER = TrendWatcher()
 set_trend_watcher(TREND_WATCHER)
 
+# Knowledge Sync: bridges trend intelligence into Wiki + Sources RAG.
+KNOWLEDGE_SYNC = KnowledgeSync()
+set_knowledge_sync(KNOWLEDGE_SYNC)
+
 WEBUI_STORE = JsonConfigStore()
 WEBUI_PROVIDERS = ProviderManager(WEBUI_STORE)
 WEBUI_WORKSPACES = WorkspaceManager(
@@ -1100,6 +1105,17 @@ _default_schedules = [
             "Commit with prefix `test:` and update changelog."
         ),
         "tags": ["auto-improvement", "coverage", "aider", "weekly"],
+    },
+    {
+        "name": "weekly-knowledge-sync",
+        "cron": "0 8 * * 1",
+        "instruction": (
+            "Run the KnowledgeSync pipeline: fetch fresh AI trends, ingest all "
+            "high-relevance URLs into the Sources RAG database, and create a weekly "
+            "Wiki digest page summarising what was found. "
+            "Report count of ingested sources in the changelog under `### Added`."
+        ),
+        "tags": ["auto-improvement", "knowledge", "wiki", "sources", "weekly"],
     },
 ]
 for _sched in _default_schedules:

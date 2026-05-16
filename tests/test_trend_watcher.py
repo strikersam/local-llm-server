@@ -310,3 +310,192 @@ def test_new_issue_categories_exist():
     from agent.improvement_loop import IssueCategory
     assert IssueCategory.FEATURE_REQUEST == "feature_request"
     assert IssueCategory.TREND == "trend"
+
+
+def test_get_stats_has_all_sources(tmp_watcher):
+    stats = tmp_watcher.get_stats()
+    expected_sources = {"arxiv", "huggingface", "ollama", "github", "reddit",
+                        "google_news", "hackernews", "nvidia", "paperswithcode", "newsletter"}
+    assert expected_sources.issubset(set(stats["by_source"].keys()))
+
+
+def test_ts_from_epoch(tmp_watcher):
+    ts = tmp_watcher._ts_from_epoch(1715000000)
+    assert ts.startswith("2024-")  # Unix epoch 1715000000 ≈ May 2024
+
+
+def test_ts_from_epoch_none(tmp_watcher):
+    assert tmp_watcher._ts_from_epoch(None) == ""
+
+
+# ── New source: Reddit ────────────────────────────────────────────────────────
+
+_REDDIT_PAYLOAD = {
+    "data": {
+        "children": [
+            {
+                "data": {
+                    "title": "Running local llm server with ollama and openai-compatible proxy",
+                    "selftext": "I set up a local LLM with Qwen3-Coder and it works great.",
+                    "url": "https://www.reddit.com/r/LocalLLaMA/comments/abc123",
+                    "permalink": "/r/LocalLLaMA/comments/abc123",
+                    "created_utc": 1715000000,
+                }
+            }
+        ]
+    }
+}
+
+
+@pytest.mark.asyncio
+async def test_fetch_reddit(tmp_watcher):
+    client = _FakeClient({"reddit.com/r/LocalLLaMA": _REDDIT_PAYLOAD})
+    async with client as c:
+        alerts = await tmp_watcher._fetch_reddit(c)
+    assert len(alerts) >= 1
+    assert alerts[0].source == "reddit"
+
+
+@pytest.mark.asyncio
+async def test_fetch_reddit_low_relevance_excluded(tmp_watcher):
+    payload = {
+        "data": {
+            "children": [
+                {"data": {"title": "Best banana bread recipe", "selftext": "", "url": "https://reddit.com/x", "permalink": "/x", "created_utc": 0}}
+            ]
+        }
+    }
+    client = _FakeClient({"reddit.com/r/LocalLLaMA": payload})
+    async with client as c:
+        alerts = await tmp_watcher._fetch_reddit(c)
+    assert all(a.relevance_score >= tmp_watcher._min_relevance for a in alerts)
+
+
+# ── New source: Google News ───────────────────────────────────────────────────
+
+_GNEWS_RSS = """<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0"><channel>
+  <item>
+    <title>Local LLM inference server ollama 2025 benchmark results</title>
+    <description>Comparing local LLM servers for inference speed with quantization.</description>
+    <link>https://example.com/llm-benchmark</link>
+    <pubDate>Sat, 10 May 2025 10:00:00 GMT</pubDate>
+  </item>
+</channel></rss>"""
+
+
+@pytest.mark.asyncio
+async def test_fetch_google_news(tmp_watcher):
+    client = _FakeClient({"news.google.com": _GNEWS_RSS})
+    async with client as c:
+        alerts = await tmp_watcher._fetch_google_news(c)
+    assert all(a.source == "google_news" for a in alerts)
+
+
+# ── New source: Hacker News ───────────────────────────────────────────────────
+
+_HN_PAYLOAD = {
+    "hits": [
+        {
+            "title": "Show HN: Local LLM proxy with ollama and openai-compatible API",
+            "url": "https://github.com/example/llm-proxy",
+            "objectID": "12345678",
+            "points": 200,
+            "created_at_i": 1715000000,
+            "story_text": "Built a local LLM server with streaming and quantization support.",
+        }
+    ]
+}
+
+
+@pytest.mark.asyncio
+async def test_fetch_hackernews(tmp_watcher):
+    client = _FakeClient({"hn.algolia.com": _HN_PAYLOAD})
+    async with client as c:
+        alerts = await tmp_watcher._fetch_hackernews(c)
+    # Either found by relevance or high point count
+    assert all(a.source == "hackernews" for a in alerts)
+
+
+# ── New source: Nvidia ────────────────────────────────────────────────────────
+
+_NVIDIA_RSS = """<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0"><channel>
+  <item>
+    <title>TensorRT-LLM Speedup for Local Inference on RTX GPUs</title>
+    <description>NVIDIA releases TensorRT-LLM update for faster inference on consumer GPUs.</description>
+    <link>https://developer.nvidia.com/blog/tensorrt-llm-rtx</link>
+    <pubDate>Sat, 10 May 2025 10:00:00 GMT</pubDate>
+  </item>
+</channel></rss>"""
+
+
+@pytest.mark.asyncio
+async def test_fetch_nvidia(tmp_watcher):
+    client = _FakeClient({"developer.nvidia.com": _NVIDIA_RSS})
+    async with client as c:
+        alerts = await tmp_watcher._fetch_nvidia(c)
+    assert all(a.source == "nvidia" for a in alerts)
+    if alerts:
+        assert "nvidia" in alerts[0].tags
+
+
+# ── New source: Papers With Code ──────────────────────────────────────────────
+
+_PWC_PAYLOAD = {
+    "results": [
+        {
+            "title": "Efficient LLM Serving with Speculative Decoding for Local Inference",
+            "abstract": "We propose efficient speculative decoding for local LLM inference servers.",
+            "url_abs": "2505.00001",
+            "published": "2025-05-10",
+        }
+    ]
+}
+
+
+@pytest.mark.asyncio
+async def test_fetch_papers_with_code(tmp_watcher):
+    client = _FakeClient({"paperswithcode.com": _PWC_PAYLOAD})
+    async with client as c:
+        alerts = await tmp_watcher._fetch_papers_with_code(c)
+    assert all(a.source == "paperswithcode" for a in alerts)
+
+
+# ── New source: Newsletters ───────────────────────────────────────────────────
+
+_NEWSLETTER_ATOM = """<?xml version="1.0" encoding="UTF-8"?>
+<feed xmlns="http://www.w3.org/2005/Atom">
+  <entry>
+    <title>Open-source LLM inference: ollama and quantization roundup</title>
+    <link href="https://newsletter.example.com/issue/42"/>
+    <summary>Weekly roundup on local LLM inference, ollama releases, and gguf quantization.</summary>
+    <published>2025-05-10</published>
+  </entry>
+</feed>"""
+
+
+@pytest.mark.asyncio
+async def test_fetch_newsletters(tmp_watcher, monkeypatch):
+    # Patch _NEWSLETTER_FEEDS to use a single fake URL
+    import agent.trend_watcher as tw_mod
+    orig = tw_mod._NEWSLETTER_FEEDS
+    tw_mod._NEWSLETTER_FEEDS = {"Test Newsletter": "https://newsletter.example.com/feed"}
+    try:
+        client = _FakeClient({"newsletter.example.com": _NEWSLETTER_ATOM})
+        async with client as c:
+            alerts = await tmp_watcher._fetch_newsletters(c)
+        assert all(a.source == "newsletter" for a in alerts)
+    finally:
+        tw_mod._NEWSLETTER_FEEDS = orig
+
+
+# ── Keyword expansion ─────────────────────────────────────────────────────────
+
+def test_keywords_include_new_terms():
+    """Ensure expanded keyword set covers key new categories."""
+    assert "nvidia" in _KEYWORDS
+    assert "cuda" in _KEYWORDS
+    assert "agentic" in _KEYWORDS or "ai agent" in _KEYWORDS
+    assert "rag" in _KEYWORDS or "retrieval augmented" in _KEYWORDS
+    assert "lora" in _KEYWORDS

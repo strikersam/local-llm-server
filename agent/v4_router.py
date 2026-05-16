@@ -395,5 +395,44 @@ async def list_runtimes(
         return {"runtimes": [], "total": 0, "error": str(exc)}
 
 
+@v4_router.post("/knowledge/ingest")
+async def knowledge_ingest_url(
+    _: Annotated[None, Depends(_require_admin)],
+    url: str,
+    title: str,
+    tags: str = "",
+) -> dict:
+    """Ingest a URL into Sources + make it RAG-searchable (admin only)."""
+    from agent.knowledge_sync import fetch_and_store
+    tag_list = [t.strip() for t in tags.split(",") if t.strip()] if tags else None
+    result = await fetch_and_store(url=url, title=title, tags=tag_list)
+    return {"url": url, "title": title, "result": result}
+
+
+@v4_router.post("/knowledge/sync")
+async def knowledge_sync_now(
+    _: Annotated[None, Depends(_require_admin)],
+) -> dict:
+    """Trigger an immediate knowledge sync (fetch trends → Sources + Wiki digest)."""
+    from agent.knowledge_sync import run_weekly_sync
+    result = await run_weekly_sync()
+    return {
+        "ingested": result.ingested,
+        "skipped": result.skipped,
+        "errors": result.errors,
+        "wiki_created": result.wiki_created,
+        "wiki_title": result.wiki_title,
+        "synced_at": _now(),
+    }
+
+
+@v4_router.get("/knowledge/status")
+async def knowledge_status() -> dict:
+    """Return knowledge sync status (no auth required)."""
+    from agent.knowledge_sync import get_knowledge_sync
+    ks = get_knowledge_sync()
+    return {"active": ks is not None, "proxy_base": __import__("os").environ.get("AGENCY_PROXY_URL", "http://localhost:8000")}
+
+
 def _now() -> str:
     return time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
