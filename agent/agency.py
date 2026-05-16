@@ -1,33 +1,32 @@
-"""agent/agency.py — Autonomous Agent Agency
+"""agent/agency.py — Autonomous Agent Agency (CEO-driven, LLM-powered)
 
-Runs the repo as a self-managing agency where a CEO agent coordinates a
-swarm of specialist agents.  Each agent has a defined role and toolset;
-the CEO issues directives based on the improvement loop state.
+Runs the repo as a self-managing agency where a CEO agent — backed by the
+local LLM proxy itself — coordinates a swarm of specialist runtimes.
 
-Agency roles:
-  CEO        — reads the improvement loop state, decides what needs doing,
-                issues directives to the other agents and tracks completion.
-  Dev        — implements code fixes (test failures, TODO markers, tech debt).
-  Security   — remediates security findings from the scanner.
-  Reviewer   — runs council-review skill on recent changes.
-  Release    — checks release readiness and updates changelog/version.
+Agency architecture:
+  CEO (LLM-powered) — calls the proxy's /v1/chat/completions with full state
+                       context; issues structured directives to worker runtimes.
+  Dev        → ClaudeCode / InternalAgent — code fixes, new features, tests
+  Security   → ClaudeCode / InternalAgent — CVE remediation, secret cleanup
+  Reviewer   → InternalAgent — council-review skill on recent commits
+  Release    → InternalAgent — release-readiness, changelog, version bump
+  Scout      → InternalAgent — trend evaluation, doc sync, repowise analysis
+  Optimizer  → Goose / Aider — performance profiling, refactoring
 
-The agency runs on a configurable tick interval (default 15 minutes).
-Each tick the CEO evaluates the issue backlog and dispatches one task per
-available agent role.
-
-Usage (called from proxy.py once at startup)::
-
-    agency = Agency()
-    agency.start()
-
-    # Or trigger a single cycle immediately (e.g. from the v4 dashboard):
-    result = await agency.run_cycle()
+Runtime routing:
+  • ClaudeCode  → complex multi-file coding, security-sensitive, long tasks
+  • Hermes      → autonomous long-running research / refactoring loops
+  • Goose       → CLI automation, shell-heavy tasks
+  • Aider       → focused file-level edits with context
+  • OpenCode    → repo-aware editing, git operations
+  • InternalAgent → quick analysis, simple fixes, fallback
 """
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
+import os
 import secrets
 import threading
 import time
@@ -36,24 +35,44 @@ from enum import Enum
 from pathlib import Path
 from typing import Any
 
+import httpx
+
 log = logging.getLogger("qwen-proxy")
 
 _REPO_ROOT = Path(__file__).parent.parent
-
-TICK_INTERVAL_MINUTES = int(__import__("os").environ.get("AGENCY_TICK_MINUTES", "15"))
+TICK_INTERVAL_MINUTES = int(os.environ.get("AGENCY_TICK_MINUTES", "15"))
+PROXY_BASE_URL = os.environ.get("AGENCY_PROXY_URL", "http://localhost:8000")
+CEO_MODEL = os.environ.get("AGENCY_CEO_MODEL", "qwen3-coder:14b")
 
 
 def _now_str() -> str:
     return time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
 
 
-class AgentRole(str, Enum):
-    CEO = "ceo"
-    DEV = "dev"
-    SECURITY = "security"
-    REVIEWER = "reviewer"
-    RELEASE = "release"
+# ── Role / Runtime mapping ─────────────────────────────────────────────────────
 
+class AgentRole(str, Enum):
+    CEO       = "ceo"
+    DEV       = "dev"
+    SECURITY  = "security"
+    REVIEWER  = "reviewer"
+    RELEASE   = "release"
+    SCOUT     = "scout"
+    OPTIMIZER = "optimizer"
+
+
+# Preferred runtime per role (ordered: first available wins)
+_ROLE_RUNTIME_PREFERENCE: dict[AgentRole, list[str]] = {
+    AgentRole.DEV:       ["claude_code", "internal_agent"],
+    AgentRole.SECURITY:  ["claude_code", "internal_agent"],
+    AgentRole.REVIEWER:  ["internal_agent", "claude_code"],
+    AgentRole.RELEASE:   ["internal_agent", "claude_code"],
+    AgentRole.SCOUT:     ["internal_agent"],
+    AgentRole.OPTIMIZER: ["goose", "aider", "internal_agent"],
+}
+
+
+# ── Data classes ──────────────────────────────────────────────────────────────
 
 @dataclass
 class AgentDirective:
@@ -61,9 +80,10 @@ class AgentDirective:
     role: AgentRole
     title: str
     instruction: str
-    priority: int = 5          # 1=highest, 10=lowest
+    priority: int = 5
+    preferred_runtime: str = "internal_agent"
     issued_at: str = field(default_factory=_now_str)
-    status: str = "pending"   # pending | running | done | failed
+    status: str = "pending"
     result: str | None = None
 
     def as_dict(self) -> dict[str, Any]:
@@ -72,6 +92,7 @@ class AgentDirective:
             "role": self.role.value,
             "title": self.title,
             "priority": self.priority,
+            "preferred_runtime": self.preferred_runtime,
             "issued_at": self.issued_at,
             "status": self.status,
             "result": self.result,
@@ -98,19 +119,13 @@ class AgencyCycleResult:
         }
 
 
+# ── Agency ────────────────────────────────────────────────────────────────────
+
 class Agency:
-    """Autonomous multi-agent agency for continuous codebase management.
+    """CEO-coordinated multi-agent agency for continuous codebase management.
 
-    The CEO role is implemented locally (reads state, issues directives).
-    Worker roles (Dev, Security, Reviewer, Release) are dispatched as
-    scheduled jobs through AgentScheduler so they run via the existing
-    TaskDispatcher → AgentRunner pipeline.
-
-    Usage::
-
-        agency = Agency()
-        agency.start()               # background tick every TICK_INTERVAL_MINUTES
-        result = await agency.run_cycle()   # immediate cycle
+    The CEO calls the local proxy LLM for strategic assessment.
+    Worker agents are dispatched via AgentScheduler → runtime routing.
     """
 
     def __init__(self, tick_minutes: int = TICK_INTERVAL_MINUTES) -> None:
@@ -121,7 +136,7 @@ class Agency:
         self._directives: list[AgentDirective] = []
         self._cycle_count = 0
 
-    # ── Public API ────────────────────────────────────────────────────────────
+    # ── Lifecycle ─────────────────────────────────────────────────────────────
 
     def start(self) -> None:
         if self._running:
@@ -129,8 +144,10 @@ class Agency:
         self._running = True
         self._thread = threading.Thread(target=self._loop, name="agency-tick", daemon=True)
         self._thread.start()
-        log.info("Agency started (tick=%dm, roles=%s)", self._tick // 60,
-                 [r.value for r in AgentRole])
+        log.info(
+            "Agency started (tick=%dm, CEO model=%s, roles=%s)",
+            self._tick // 60, CEO_MODEL, [r.value for r in AgentRole],
+        )
 
     def stop(self) -> None:
         self._running = False
@@ -140,25 +157,32 @@ class Agency:
             "running": self._running,
             "tick_minutes": self._tick // 60,
             "cycle_count": self._cycle_count,
+            "ceo_model": CEO_MODEL,
             "pending_directives": sum(1 for d in self._directives if d.status == "pending"),
-            "recent_cycles": [c.as_dict() for c in self._history[-3:]],
+            "recent_cycles": [c.as_dict() for c in self._history[-5:]],
             "roles": [r.value for r in AgentRole],
+            "runtime_routing": {k.value: v for k, v in _ROLE_RUNTIME_PREFERENCE.items()},
         }
 
+    # ── Main cycle ────────────────────────────────────────────────────────────
+
     async def run_cycle(self) -> AgencyCycleResult:
-        """Run one full agency cycle (CEO assessment → directives → dispatch)."""
         cycle_id = "cycle_" + secrets.token_hex(4)
         started_at = _now_str()
         self._cycle_count += 1
-        log.info("Agency cycle %s starting", cycle_id)
+        log.info("Agency cycle %s starting (count=%d)", cycle_id, self._cycle_count)
 
-        # 1. CEO: assess the current state
-        assessment, directives = self._ceo_assess()
+        state_context = self._build_state_context()
 
-        # 2. Dispatch directives to worker agents via scheduler
+        # CEO assessment — try LLM first, fall back to rule-based
+        assessment, directives = await self._ceo_assess_llm(state_context)
+
         for directive in directives:
             self._directives.append(directive)
             self._dispatch_directive(directive)
+
+        if len(self._directives) > 200:
+            self._directives = self._directives[-200:]
 
         result = AgencyCycleResult(
             cycle_id=cycle_id,
@@ -172,155 +196,219 @@ class Agency:
         if len(self._history) > 50:
             self._history = self._history[-50:]
 
-        log.info(
-            "Agency cycle %s complete — %d directive(s) issued",
-            cycle_id, len(directives),
-        )
+        log.info("Agency cycle %s done — %d directive(s)", cycle_id, len(directives))
         return result
 
-    # ── CEO Logic ─────────────────────────────────────────────────────────────
+    # ── State snapshot ────────────────────────────────────────────────────────
 
-    def _ceo_assess(self) -> tuple[str, list[AgentDirective]]:
-        """CEO reads the improvement state and issues directives."""
-        from agent.improvement_loop import get_improvement_loop
-        from agent.log_monitor import get_log_monitor
+    def _build_state_context(self) -> dict[str, Any]:
+        ctx: dict[str, Any] = {
+            "cycle_count": self._cycle_count,
+            "timestamp": _now_str(),
+        }
+        try:
+            from agent.improvement_loop import get_improvement_loop
+            loop = get_improvement_loop()
+            if loop:
+                status = loop.get_status()
+                ctx["improvement_loop"] = {
+                    "active_issues": status.get("active_issues", [])[:10],
+                    "failing_tests": status.get("failing_tests", [])[:10],
+                    "scan_count": status.get("scan_count", 0),
+                    "issues_detected": status.get("issues_detected", 0),
+                    "issues_resolved": status.get("issues_resolved", 0),
+                }
+        except Exception:
+            pass
+        try:
+            from agent.log_monitor import get_log_monitor
+            monitor = get_log_monitor()
+            if monitor:
+                ctx["log_monitor"] = monitor.get_stats()
+        except Exception:
+            pass
+        try:
+            from agent.trend_watcher import get_trend_watcher
+            watcher = get_trend_watcher()
+            if watcher:
+                ctx["trends"] = watcher.get_stats()
+                ctx["top_trends"] = watcher.get_alerts(limit=3)
+        except Exception:
+            pass
+        try:
+            from agent.self_healing import get_self_healing_agent
+            healer = get_self_healing_agent()
+            if healer:
+                ctx["self_healing"] = {"recent_events": healer.get_events()[-5:]}
+        except Exception:
+            pass
+        return ctx
 
-        loop = get_improvement_loop()
+    # ── CEO: LLM-powered assessment ───────────────────────────────────────────
+
+    async def _ceo_assess_llm(
+        self, state: dict[str, Any]
+    ) -> tuple[str, list[AgentDirective]]:
+        """Call the local proxy LLM to perform CEO strategic assessment."""
+        try:
+            prompt = _build_ceo_prompt(state, self._cycle_count)
+            async with httpx.AsyncClient(timeout=60) as client:
+                resp = await client.post(
+                    f"{PROXY_BASE_URL}/v1/chat/completions",
+                    json={
+                        "model": CEO_MODEL,
+                        "messages": [
+                            {"role": "system", "content": _CEO_SYSTEM_PROMPT},
+                            {"role": "user", "content": prompt},
+                        ],
+                        "temperature": 0.3,
+                        "max_tokens": 1024,
+                    },
+                    headers={"Authorization": f"Bearer {_get_api_key()}"},
+                )
+            if resp.status_code == 200:
+                text = resp.json()["choices"][0]["message"]["content"]
+                directives = _parse_ceo_directives(text, self._cycle_count)
+                return text[:500], directives
+        except Exception as exc:
+            log.debug("Agency CEO LLM call failed, using rule-based: %s", exc)
+        return self._ceo_assess_rules(state)
+
+    # ── CEO: Rule-based fallback ──────────────────────────────────────────────
+
+    def _ceo_assess_rules(
+        self, state: dict[str, Any]
+    ) -> tuple[str, list[AgentDirective]]:
         directives: list[AgentDirective] = []
-        summary_parts: list[str] = []
+        parts: list[str] = []
+        loop_state = state.get("improvement_loop", {})
+        failing = loop_state.get("failing_tests", [])
+        active  = loop_state.get("active_issues", [])
 
-        if not loop:
-            return "ImprovementLoop not available — no directives issued.", directives
-
-        state = loop.get_status()
-        active_issues = state.get("active_issues", [])
-        failing_tests = state.get("failing_tests", [])
-        last_test_result = state.get("last_test_result")
-        monitor = get_log_monitor()
-        monitor_stats = monitor.get_stats() if monitor else {}
-
-        # ── Priority 1: Fix failing tests ────────────────────────────────────
-        if failing_tests:
+        if failing:
             directives.append(self._make_directive(
-                role=AgentRole.DEV,
-                title=f"Fix {len(failing_tests)} failing test(s)",
+                role=AgentRole.DEV, priority=1,
+                title=f"Fix {len(failing)} failing test(s)",
                 instruction=(
-                    f"The following tests are currently failing:\n"
-                    + "\n".join(f"- `{t}`" for t in failing_tests[:10])
-                    + "\n\nRun `pytest -x` to see the failures. Fix each one with the minimum "
-                    "correct change. Update docs/changelog.md under `### Fixed`. "
-                    "Do NOT skip or mock tests to make them pass — fix the actual code."
+                    f"Tests failing:\n" + "\n".join(f"- `{t}`" for t in failing[:10])
+                    + "\n\nRun `pytest -x`, fix each failure with minimum correct change. "
+                    "Update docs/changelog.md under `### Fixed`. Never mock to hide failures."
                 ),
-                priority=1,
             ))
-            summary_parts.append(f"{len(failing_tests)} failing test(s) → Dev agent dispatched")
+            parts.append(f"{len(failing)} failing test(s) → Dev dispatched")
 
-        # ── Priority 2: Security findings ────────────────────────────────────
-        security_issues = [i for i in active_issues if i.get("category") == "security"]
+        security_issues = [i for i in active if i.get("category") == "security"]
         if security_issues:
             top = security_issues[0]
             directives.append(self._make_directive(
-                role=AgentRole.SECURITY,
-                title=f"Remediate security finding: {top.get('title', '')[:60]}",
-                instruction=top.get("description", "Fix the security finding."),
-                priority=2,
+                role=AgentRole.SECURITY, priority=2,
+                title=f"Security: {top.get('title', '')[:60]}",
+                instruction=top.get("description", "Remediate the security finding."),
             ))
-            summary_parts.append(f"{len(security_issues)} security finding(s) → Security agent dispatched")
+            parts.append(f"{len(security_issues)} security issue(s) → Security dispatched")
 
-        # ── Priority 3: Backend error burst ──────────────────────────────────
-        tasks_from_logs = monitor_stats.get("tasks_created", 0)
-        if tasks_from_logs > 0 and last_test_result != "fail":
-            todo_issues = [i for i in active_issues if i.get("category") == "todo_fixme"]
-            if todo_issues:
-                top_todo = todo_issues[0]
-                directives.append(self._make_directive(
-                    role=AgentRole.DEV,
-                    title=f"Resolve code marker: {top_todo.get('title', '')[:60]}",
-                    instruction=top_todo.get("description", "Resolve the code marker."),
-                    priority=4,
-                ))
-                summary_parts.append("Code marker → Dev agent dispatched")
+        trend_issues = [i for i in active if "[Trend]" in i.get("title", "")]
+        if trend_issues and self._cycle_count % 3 == 0:
+            top = trend_issues[0]
+            directives.append(self._make_directive(
+                role=AgentRole.SCOUT, priority=5,
+                title=f"Evaluate trend: {top.get('title', '')[:60]}",
+                instruction=(
+                    top.get("description", "Evaluate if this AI trend is applicable.") +
+                    "\n\nIf actionable (e.g. new Ollama model), update router/registry.py "
+                    "and docs/changelog.md. Otherwise create a GitHub issue for tracking."
+                ),
+            ))
+            parts.append("Trend evaluation → Scout dispatched")
 
-        # ── Priority 4: Periodic review ───────────────────────────────────────
         if self._cycle_count % 4 == 0:
             directives.append(self._make_directive(
-                role=AgentRole.REVIEWER,
-                title="Council review of recent changes",
+                role=AgentRole.REVIEWER, priority=6,
+                title="Periodic council review",
                 instruction=(
-                    "Run the council-review skill on all changes since the last tag:\n"
-                    "  `git log $(git describe --tags --abbrev=0)..HEAD --oneline`\n"
-                    "Review the diff for correctness, security, and maintainability. "
-                    "Open a GitHub issue for each significant finding. "
-                    "Update docs/changelog.md if needed."
+                    "Run the council-review skill on changes since the last git tag. "
+                    "Flag correctness, security, or maintainability issues. "
+                    "Create GitHub issues for significant findings."
                 ),
-                priority=6,
             ))
-            summary_parts.append("Periodic review → Reviewer agent dispatched")
+            parts.append("Council review → Reviewer dispatched")
 
-        # ── Priority 5: Release readiness (weekly) ────────────────────────────
-        if self._cycle_count % 48 == 0:  # ~every 12h at 15m tick
+        if self._cycle_count % 8 == 0:
             directives.append(self._make_directive(
-                role=AgentRole.RELEASE,
+                role=AgentRole.OPTIMIZER, priority=7,
+                title="Performance & code quality pass",
+                instruction=(
+                    "Profile the proxy for hot paths (model routing, chat streaming). "
+                    "Identify any O(n²) loops, unnecessary DB queries, or blocking I/O. "
+                    "Apply targeted optimizations. Update changelog under `### Changed`."
+                ),
+            ))
+            parts.append("Performance pass → Optimizer dispatched")
+
+        if self._cycle_count % 48 == 0:
+            directives.append(self._make_directive(
+                role=AgentRole.RELEASE, priority=8,
                 title="Release readiness check",
                 instruction=(
-                    "Run the release-readiness skill. If all checks pass:\n"
-                    "1. Bump the version in docs/changelog.md (move [Unreleased] to a dated version).\n"
-                    "2. Run `pytest` — must be green.\n"
-                    "3. Commit with message `release: vX.Y.Z`.\n"
-                    "If checks fail, create a GitHub issue listing what needs fixing."
+                    "Run the release-readiness skill. If checks pass: bump version in "
+                    "docs/changelog.md (move [Unreleased] to a dated version), run pytest, "
+                    "commit `release: vX.Y.Z`. If checks fail, create a GitHub issue."
                 ),
-                priority=8,
             ))
-            summary_parts.append("Release readiness check → Release agent dispatched")
+            parts.append("Release check → Release dispatched")
 
-        if not summary_parts:
-            summary_parts.append("All systems nominal — no critical issues detected")
+        if not parts:
+            parts.append("All systems nominal")
 
-        return " | ".join(summary_parts), directives
+        return " | ".join(parts), directives
 
     # ── Dispatch ──────────────────────────────────────────────────────────────
 
     def _dispatch_directive(self, directive: AgentDirective) -> None:
-        """Send a directive to the scheduler as an immediately-firing job."""
         from agent.scheduler import get_scheduler
-
         try:
             scheduler = get_scheduler()
             job = scheduler.create(
                 name=f"agency:{directive.directive_id}",
-                cron="* * * * *",  # fires on next minute boundary
+                cron="* * * * *",
                 instruction=directive.instruction,
-                tags=["agency", directive.role.value, f"priority-{directive.priority}"],
+                tags=["agency", directive.role.value,
+                      f"priority-{directive.priority}",
+                      f"runtime-{directive.preferred_runtime}"],
             )
             directive.status = "running"
             log.info(
-                "Agency dispatched directive %s to role=%s via job %s",
-                directive.directive_id, directive.role.value, job.job_id,
+                "Agency dispatched %s → role=%s runtime=%s job=%s",
+                directive.directive_id, directive.role.value,
+                directive.preferred_runtime, job.job_id,
             )
         except Exception as exc:
             directive.status = "failed"
             directive.result = str(exc)
-            log.warning("Agency: failed to dispatch directive %s: %s", directive.directive_id, exc)
+            log.warning("Agency: dispatch failed for %s: %s", directive.directive_id, exc)
 
     # ── Helpers ───────────────────────────────────────────────────────────────
 
     def _make_directive(
-        self, *, role: AgentRole, title: str, instruction: str, priority: int
+        self, *, role: AgentRole, title: str, instruction: str, priority: int,
     ) -> AgentDirective:
+        prefs = _ROLE_RUNTIME_PREFERENCE.get(role, ["internal_agent"])
         return AgentDirective(
             directive_id="dir_" + secrets.token_hex(4),
             role=role,
             title=title,
             instruction=instruction,
             priority=priority,
+            preferred_runtime=prefs[0],
         )
 
     def _issue_count(self) -> int:
-        from agent.improvement_loop import get_improvement_loop
-        loop = get_improvement_loop()
-        if not loop:
+        try:
+            from agent.improvement_loop import get_improvement_loop
+            loop = get_improvement_loop()
+            return len(loop.get_status().get("active_issues", [])) if loop else 0
+        except Exception:
             return 0
-        return len(loop.get_status().get("active_issues", []))
 
     def _loop(self) -> None:
         while self._running:
@@ -331,7 +419,92 @@ class Agency:
             time.sleep(self._tick)
 
 
-# ── Singleton ─────────────────────────────────────────────────────────────────
+# ── CEO LLM prompt helpers ─────────────────────────────────────────────────────
+
+_CEO_SYSTEM_PROMPT = """You are the CEO agent of an autonomous AI engineering agency.
+Your repo is a self-hosted OpenAI-compatible LLM proxy (local-llm-server).
+
+Your job: review the current system state and issue up to 3 prioritized directives.
+
+Respond ONLY with valid JSON array of directives. Each directive:
+{
+  "role": "dev|security|reviewer|release|scout|optimizer",
+  "priority": 1-10,
+  "title": "short title under 60 chars",
+  "instruction": "detailed instruction for the agent (multi-line ok)"
+}
+
+Priority guide: 1=critical test failures, 2=security CVEs, 3=backend errors,
+4=code quality, 5=trend evaluation, 6=review, 7=optimization, 8=release check.
+
+Only issue directives where there is real work to do. If all nominal, return [].
+"""
+
+
+def _build_ceo_prompt(state: dict[str, Any], cycle: int) -> str:
+    lines = [f"# Agency state — cycle {cycle} at {_now_str()}\n"]
+    loop = state.get("improvement_loop", {})
+    if loop.get("failing_tests"):
+        lines.append(f"**FAILING TESTS ({len(loop['failing_tests'])}):**")
+        for t in loop["failing_tests"][:5]:
+            lines.append(f"  - {t}")
+    if loop.get("active_issues"):
+        lines.append(f"\n**ACTIVE ISSUES ({len(loop['active_issues'])}):**")
+        for i in loop["active_issues"][:5]:
+            lines.append(f"  [{i.get('category')}] {i.get('title')}")
+    monitor = state.get("log_monitor", {})
+    if monitor.get("tasks_created", 0) > 0:
+        lines.append(f"\n**LOG ERRORS captured:** {monitor['tasks_created']} tasks created")
+    trends = state.get("top_trends", [])
+    if trends:
+        lines.append(f"\n**LATEST TRENDS:**")
+        for t in trends:
+            lines.append(f"  [{t['source']}] {t['title']} (relevance={t['relevance_score']:.2f})")
+    lines.append(f"\nIssue totals — detected: {loop.get('issues_detected',0)}, "
+                 f"resolved: {loop.get('issues_resolved',0)}, "
+                 f"scans: {loop.get('scan_count',0)}")
+    return "\n".join(lines)
+
+
+def _parse_ceo_directives(
+    text: str, cycle: int
+) -> list[AgentDirective]:
+    directives: list[AgentDirective] = []
+    try:
+        start = text.find("[")
+        end   = text.rfind("]") + 1
+        if start < 0 or end <= start:
+            return directives
+        items = json.loads(text[start:end])
+        for item in items[:4]:
+            role_str = item.get("role", "dev")
+            try:
+                role = AgentRole(role_str)
+            except ValueError:
+                role = AgentRole.DEV
+            prefs = _ROLE_RUNTIME_PREFERENCE.get(role, ["internal_agent"])
+            directives.append(AgentDirective(
+                directive_id="dir_" + secrets.token_hex(4),
+                role=role,
+                title=str(item.get("title", "CEO directive"))[:80],
+                instruction=str(item.get("instruction", "")),
+                priority=int(item.get("priority", 5)),
+                preferred_runtime=prefs[0],
+            ))
+    except Exception as exc:
+        log.debug("Agency: failed to parse CEO JSON response: %s", exc)
+    return directives
+
+
+def _get_api_key() -> str:
+    return (
+        os.environ.get("PROXY_API_KEY")
+        or os.environ.get("ADMIN_TOKEN")
+        or "agency-internal"
+    )
+
+
+# ── Singleton ──────────────────────────────────────────────────────────────────
 
 _agency_instance: Agency | None = None
 

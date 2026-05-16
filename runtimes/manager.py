@@ -88,6 +88,7 @@ def get_runtime_manager() -> RuntimeManager:
 
 def _build_default_manager() -> RuntimeManager:
     from runtimes.adapters.aider import AiderAdapter
+    from runtimes.adapters.claude_code import ClaudeCodeAdapter
     from runtimes.adapters.goose import GooseAdapter
     from runtimes.adapters.hermes import HermesAdapter
     from runtimes.adapters.internal_agent import InternalAgentAdapter
@@ -110,6 +111,7 @@ def _build_default_manager() -> RuntimeManager:
     mgr.register(HermesAdapter())
     mgr.register(OpenCodeAdapter())
     mgr.register(GooseAdapter())
+    mgr.register(ClaudeCodeAdapter())
     if os.environ.get("TASK_HARNESS_ENABLED", "false").lower() == "true": mgr.register(TaskHarnessAdapter())
     if os.environ.get("OPENHANDS_ENABLED", "false").lower() == "true": mgr.register(OpenHandsAdapter())
     mgr.register(AiderAdapter())

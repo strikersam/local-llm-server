@@ -65,6 +65,7 @@ from agent.self_healing import SelfHealingAgent, set_self_healing_agent
 from agent.log_monitor import LogMonitor, set_log_monitor
 from agent.error_interceptor import ErrorInterceptorMiddleware
 from agent.agency import Agency, set_agency
+from agent.trend_watcher import TrendWatcher, set_trend_watcher
 from agent.v4_router import v4_router
 from agent.scaffolding import ProjectScaffolder
 from agent.scheduler import AgentScheduler
@@ -859,10 +860,14 @@ LOG_MONITOR = LogMonitor()
 set_log_monitor(LOG_MONITOR)
 LOG_MONITOR.attach()
 
-# Agency: CEO + specialist agents (Dev, Security, Reviewer, Release).
+# Agency: CEO (LLM-powered) + specialist agents (Dev, Security, Reviewer, Release, Scout, Optimizer).
 AGENCY = Agency()
 set_agency(AGENCY)
 AGENCY.start()
+
+# Trend Watcher: internet-connected AI trend intelligence.
+TREND_WATCHER = TrendWatcher()
+set_trend_watcher(TREND_WATCHER)
 
 WEBUI_STORE = JsonConfigStore()
 WEBUI_PROVIDERS = ProviderManager(WEBUI_STORE)
@@ -982,6 +987,119 @@ _default_schedules = [
             "Commit resolved markers."
         ),
         "tags": ["auto-improvement", "cleanup", "weekly"],
+    },
+    # ── New autonomous agency schedules ────────────────────────────────────────
+    {
+        "name": "bi-daily-security-scan",
+        "cron": "0 2 */2 * *",
+        "instruction": (
+            "Run the security scanner: bandit SAST on all Python files, safety CVE check "
+            "on requirements.txt, and secret grep on the codebase. "
+            "For each high-severity finding, apply the minimum safe fix or open a GitHub "
+            "issue tagged 'security'. Update docs/changelog.md under `### Security`."
+        ),
+        "tags": ["auto-improvement", "security", "bi-daily"],
+    },
+    {
+        "name": "weekly-trend-fetch",
+        "cron": "0 7 * * 1",
+        "instruction": (
+            "Fetch the latest AI trends: new Ollama model releases, trending GGUF models "
+            "on HuggingFace, relevant arXiv papers, and trending LLM-serving GitHub repos. "
+            "Review high-relevance results. If a new Ollama model warrants adding to our "
+            "router registry, update router/registry.py. Create feature-request GitHub "
+            "issues for applicable techniques. Update changelog."
+        ),
+        "tags": ["auto-improvement", "trends", "weekly"],
+    },
+    {
+        "name": "weekly-performance-profiling",
+        "cron": "0 10 * * 2",
+        "instruction": (
+            "Profile key proxy paths: model routing latency, chat streaming throughput, "
+            "health check cache hit rate. Identify bottlenecks (blocking I/O, redundant "
+            "DB calls, uncached computations). Apply targeted micro-optimizations and "
+            "update docs/changelog.md under `### Changed`."
+        ),
+        "tags": ["auto-improvement", "performance", "weekly"],
+    },
+    {
+        "name": "daily-missing-test-scan",
+        "cron": "0 4 * * *",
+        "instruction": (
+            "Find Python modules in agent/, router/, handlers/ that have no corresponding "
+            "test file in tests/. For each untested module, write a test file covering "
+            "the public API (happy path + one edge case per method). "
+            "Run pytest to confirm new tests pass. Commit with prefix `test:`."
+        ),
+        "tags": ["auto-improvement", "tests", "daily"],
+    },
+    {
+        "name": "weekly-docs-sync",
+        "cron": "0 9 * * 4",
+        "instruction": (
+            "Run the docs-sync skill: compare module interfaces against docs/architecture/ "
+            "and docs/adrs/. Update any stale architecture docs or ADRs. "
+            "Ensure CLAUDE.md files in agent/ and router/ reflect current reality. "
+            "Commit docs updates with prefix `docs:`."
+        ),
+        "tags": ["auto-improvement", "docs", "weekly"],
+    },
+    {
+        "name": "weekly-council-review",
+        "cron": "0 11 * * 5",
+        "instruction": (
+            "Run the council-review skill on all commits since last Friday. "
+            "Simulate security, correctness, performance, and maintainability reviewers. "
+            "Open a GitHub issue for each significant finding with label 'council-review'. "
+            "If any finding is critical (security or data loss), also open a P1 issue."
+        ),
+        "tags": ["auto-improvement", "review", "weekly"],
+    },
+    {
+        "name": "monthly-release-check",
+        "cron": "0 8 1 * *",
+        "instruction": (
+            "Run the release-readiness skill on the first of each month. "
+            "If all checks pass (tests green, changelog updated, no open P1 issues), "
+            "bump the version in docs/changelog.md, tag the release, and push. "
+            "If checks fail, create a GitHub issue listing blockers."
+        ),
+        "tags": ["auto-improvement", "release", "monthly"],
+    },
+    {
+        "name": "weekly-hermes-deep-refactor",
+        "cron": "0 14 * * 6",
+        "instruction": (
+            "Deep refactoring pass via Hermes agent: identify the most complex module "
+            "(by cyclomatic complexity or LOC) in agent/ or router/. Propose and apply "
+            "a modular decomposition that reduces complexity without changing behaviour. "
+            "Ensure all existing tests still pass after refactoring. "
+            "Update docs/changelog.md under `### Changed`."
+        ),
+        "tags": ["auto-improvement", "refactoring", "hermes", "weekly"],
+    },
+    {
+        "name": "daily-goose-lint",
+        "cron": "0 6 * * *",
+        "instruction": (
+            "Run code quality checks via Goose: flake8 (PEP8), mypy (type coverage), "
+            "and radon (complexity). For each violation, apply the minimum correct fix. "
+            "Commit fixes with prefix `style:` (exempt from changelog requirement). "
+            "Report summary of remaining issues as a GitHub comment on the latest PR."
+        ),
+        "tags": ["auto-improvement", "lint", "goose", "daily"],
+    },
+    {
+        "name": "weekly-aider-coverage-boost",
+        "cron": "0 16 * * 0",
+        "instruction": (
+            "Use aider to improve test coverage: run pytest --cov and find the 5 modules "
+            "with lowest coverage. For each, add targeted tests using aider's context-aware "
+            "editing. Aim to reach ≥80% coverage per module. "
+            "Commit with prefix `test:` and update changelog."
+        ),
+        "tags": ["auto-improvement", "coverage", "aider", "weekly"],
     },
 ]
 for _sched in _default_schedules:

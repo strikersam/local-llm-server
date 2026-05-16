@@ -42,12 +42,14 @@ class IssueSeverity(str, Enum):
 
 
 class IssueCategory(str, Enum):
-    TEST_FAILURE = "test_failure"
-    TODO_FIXME = "todo_fixme"
-    MISSING_TEST = "missing_test"
-    SECURITY = "security"
-    PERFORMANCE = "performance"
-    DOCUMENTATION = "documentation"
+    TEST_FAILURE    = "test_failure"
+    TODO_FIXME      = "todo_fixme"
+    MISSING_TEST    = "missing_test"
+    SECURITY        = "security"
+    PERFORMANCE     = "performance"
+    DOCUMENTATION   = "documentation"
+    FEATURE_REQUEST = "feature_request"
+    TREND           = "trend"
 
 
 @dataclass

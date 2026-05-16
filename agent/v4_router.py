@@ -332,5 +332,68 @@ async def agency_run_cycle(
     return result.as_dict()
 
 
+# ── Trends endpoints ──────────────────────────────────────────────────────────
+
+@v4_router.get("/trends")
+async def list_trends(
+    _: Annotated[None, Depends(_require_admin)],
+    limit: int = 30,
+    source: str | None = None,
+) -> dict:
+    """Return cached trend alerts from all internet sources."""
+    from agent.trend_watcher import get_trend_watcher
+    watcher = get_trend_watcher()
+    if not watcher:
+        return {"alerts": [], "total": 0, "stats": {}, "active": False}
+    return {
+        "active": True,
+        "alerts": watcher.get_alerts(limit=limit, source=source or None),
+        "stats": watcher.get_stats(),
+    }
+
+
+@v4_router.post("/trends/fetch")
+async def trigger_trend_fetch(
+    _: Annotated[None, Depends(_require_admin)],
+) -> dict:
+    """Trigger an immediate fetch from all trend sources (admin only)."""
+    import asyncio as _asyncio
+    from agent.trend_watcher import get_trend_watcher
+    watcher = get_trend_watcher()
+    if not watcher:
+        raise HTTPException(status_code=503, detail="TrendWatcher not running")
+    alerts = await _asyncio.get_event_loop().run_in_executor(
+        None, lambda: _asyncio.run(watcher.fetch())
+    )
+    return {
+        "new_alerts": len(alerts),
+        "alerts": [a.as_dict() for a in alerts],
+        "fetched_at": _now(),
+    }
+
+
+@v4_router.get("/trends/stats")
+async def trend_stats() -> dict:
+    """Return trend watcher statistics (no auth required)."""
+    from agent.trend_watcher import get_trend_watcher
+    watcher = get_trend_watcher()
+    if not watcher:
+        return {"active": False}
+    return {"active": True, **watcher.get_stats()}
+
+
+@v4_router.get("/runtimes")
+async def list_runtimes(
+    _: Annotated[None, Depends(_require_admin)],
+) -> dict:
+    """List all registered agent runtimes and their health status."""
+    try:
+        from runtimes.manager import get_runtime_manager
+        mgr = get_runtime_manager()
+        return {"runtimes": mgr.list_runtimes(), "total": len(mgr.list_runtimes())}
+    except Exception as exc:
+        return {"runtimes": [], "total": 0, "error": str(exc)}
+
+
 def _now() -> str:
     return time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
