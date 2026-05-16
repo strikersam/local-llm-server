@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 ### Added
+- `scripts/skill_evaluator.py` — New script to evaluate .claude/skills/ by running test scripts, checking last updated dates, and detecting potential conflicts with risky files. Inspired by the rigorous skill evaluation process from https://x.com/mnilax/status/2051701429987897712?s=12
+### Added
 - `provider_router.py` — AWS Bedrock (Converse API) support via `boto3`. When `AWS_ACCESS_KEY_ID` (or `BEDROCK_ACCESS_KEY`) and `AWS_SECRET_ACCESS_KEY` (or `BEDROCK_SECRET_KEY`) are set, a `bedrock` provider is registered at priority 15 (commercial tier). Default model is `us.anthropic.claude-opus-4-7` (Claude Opus 4.7 cross-region inference profile); override with `BEDROCK_MODEL_ID`. Added `_openai_to_bedrock_converse()` and `_bedrock_response_to_openai()` translation helpers plus `_post_bedrock_converse()` using `asyncio.to_thread` for non-blocking boto3 calls. Bedrock is classified as `commercial` tier so it is only attempted after all free-cloud providers. Health check for `type="bedrock"` is satisfied by credential presence alone (no network probe).
 - `router/registry.py` — Added `us.anthropic.claude-opus-4-7` (200k context, reasoning/flagship) and `us.anthropic.claude-sonnet-4-6` (200k context, coder) model capability entries for Bedrock Claude 4 models.
 - `requirements.txt` — Added `boto3>=1.34.0` dependency for AWS Bedrock support.
