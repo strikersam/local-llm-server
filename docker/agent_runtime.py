@@ -41,16 +41,31 @@ _QWEN_KEY = (os.environ.get("DASHSCOPE_API_KEY") or os.environ.get("QWEN_API_KEY
 _QWEN_BASE = os.environ.get("DASHSCOPE_BASE_URL", "https://dashscope.aliyuncs.com/compatible-mode/v1").rstrip("/")
 _QWEN_MODEL = os.environ.get("QWEN_MODEL", "qwen-plus")
 
+_HF_KEY = (os.environ.get("HF_TOKEN") or os.environ.get("HUGGINGFACE_API_TOKEN") or "").strip()
+_HF_BASE = os.environ.get("HF_BASE_URL", "https://api-inference.huggingface.co/v1").rstrip("/")
+_HF_MODEL = os.environ.get("HF_MODEL_ID", "Qwen/Qwen2.5-Coder-7B-Instruct")
+
+_ZHIPU_KEY = os.environ.get("ZHIPU_API_KEY", "").strip()
+_ZHIPU_BASE = "https://open.bigmodel.cn/api/paas/v4"
+_ZHIPU_MODEL = os.environ.get("ZHIPU_MODEL", "glm-4-flash")
+
+_MINIMAX_KEY = os.environ.get("MINIMAX_API_KEY", "").strip()
+_MINIMAX_BASE = "https://api.minimax.chat/v1"
+_MINIMAX_MODEL = os.environ.get("MINIMAX_MODEL", "MiniMax-Text-01")
+
 # Resolve the effective default model: prefer first available cloud key
 def _default_model() -> str:
-    if _NVIDIA_KEY:
-        return _NVIDIA_DEFAULT_MODEL
-    if _DEEPSEEK_KEY:
-        return _DEEPSEEK_MODEL
-    if _GROQ_KEY:
-        return _GROQ_MODEL
-    if _QWEN_KEY:
-        return _QWEN_MODEL
+    for key, model in [
+        (_NVIDIA_KEY, _NVIDIA_DEFAULT_MODEL),
+        (_DEEPSEEK_KEY, _DEEPSEEK_MODEL),
+        (_GROQ_KEY, _GROQ_MODEL),
+        (_QWEN_KEY, _QWEN_MODEL),
+        (_HF_KEY, _HF_MODEL),
+        (_ZHIPU_KEY, _ZHIPU_MODEL),
+        (_MINIMAX_KEY, _MINIMAX_MODEL),
+    ]:
+        if key:
+            return model
     return "qwen3-coder:30b"
 
 DEFAULT_MODEL = os.environ.get("DEFAULT_MODEL") or _default_model()
@@ -111,6 +126,12 @@ def _active_cloud_provider() -> str | None:
         return "groq"
     if _QWEN_KEY:
         return "qwen-dashscope"
+    if _HF_KEY:
+        return "huggingface"
+    if _ZHIPU_KEY:
+        return "zhipu"
+    if _MINIMAX_KEY:
+        return "minimax"
     return None
 
 
@@ -255,6 +276,9 @@ async def _chat(
         (_DEEPSEEK_KEY, _DEEPSEEK_BASE, _DEEPSEEK_MODEL),
         (_GROQ_KEY,     _GROQ_BASE,     _GROQ_MODEL),
         (_QWEN_KEY,     _QWEN_BASE,     _QWEN_MODEL),
+        (_HF_KEY,       _HF_BASE,       _HF_MODEL),
+        (_ZHIPU_KEY,    _ZHIPU_BASE,    _ZHIPU_MODEL),
+        (_MINIMAX_KEY,  _MINIMAX_BASE,  _MINIMAX_MODEL),
     ]
     for key, base, default_mdl in cloud_providers:
         if not key:

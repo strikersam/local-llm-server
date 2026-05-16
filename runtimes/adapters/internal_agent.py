@@ -87,6 +87,15 @@ def _best_cloud_primary_base(local_ollama_base: str) -> str:
     if os.environ.get("TOGETHER_API_KEY"):
         return (os.environ.get("TOGETHER_BASE_URL") or "https://api.together.xyz/v1").rstrip("/")
 
+    if os.environ.get("HF_TOKEN") or os.environ.get("HUGGINGFACE_API_TOKEN"):
+        return (os.environ.get("HF_BASE_URL") or "https://api-inference.huggingface.co/v1").rstrip("/")
+
+    if os.environ.get("ZHIPU_API_KEY"):
+        return "https://open.bigmodel.cn/api/paas/v4"
+
+    if os.environ.get("MINIMAX_API_KEY"):
+        return "https://api.minimax.chat/v1"
+
     return local_ollama_base
 
 

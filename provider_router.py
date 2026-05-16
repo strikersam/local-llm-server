@@ -364,8 +364,10 @@ class ProviderRouter:
             )
 
         hf_key = os.environ.get("HF_TOKEN") or os.environ.get("HUGGINGFACE_API_TOKEN")
-        hf_base = os.environ.get("HF_BASE_URL")
-        if hf_key and hf_base:
+        if hf_key:
+            hf_base = (
+                os.environ.get("HF_BASE_URL") or "https://api-inference.huggingface.co/v1"
+            ).rstrip("/")
             providers.append(
                 ProviderConfig(
                     provider_id="huggingface",
@@ -374,7 +376,35 @@ class ProviderRouter:
                     api_key=hf_key,
                     default_model=os.environ.get("HF_MODEL_ID")
                     or "Qwen/Qwen2.5-Coder-7B-Instruct",
-                    priority=20,
+                    priority=45,
+                )
+            )
+
+        zhipu_key = os.environ.get("ZHIPU_API_KEY")
+        if zhipu_key:
+            providers.append(
+                ProviderConfig(
+                    provider_id="zhipu",
+                    type="openai-compatible",
+                    base_url="https://open.bigmodel.cn/api/paas/v4",
+                    api_key=zhipu_key,
+                    default_model=os.environ.get("ZHIPU_MODEL") or "glm-4-flash",
+                    priority=46,
+                )
+            )
+
+        minimax_key = os.environ.get("MINIMAX_API_KEY")
+        if minimax_key:
+            minimax_group = os.environ.get("MINIMAX_GROUP_ID", "")
+            providers.append(
+                ProviderConfig(
+                    provider_id="minimax",
+                    type="openai-compatible",
+                    base_url="https://api.minimax.chat/v1",
+                    api_key=minimax_key,
+                    default_model=os.environ.get("MINIMAX_MODEL") or "MiniMax-Text-01",
+                    priority=47,
+                    headers={"GroupId": minimax_group} if minimax_group else {},
                 )
             )
 
