@@ -218,3 +218,22 @@ def start_processor(
 
 def _now() -> str:
     return time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+
+
+# ── Singleton accessor ────────────────────────────────────────────────────────
+# proxy.py creates the authoritative QuickNoteQueue instance and calls
+# set_quick_note_queue() so that other modules (v4_router, self_healing) can
+# retrieve it without a circular import.
+
+_queue_instance: "QuickNoteQueue | None" = None
+
+
+def set_quick_note_queue(instance: "QuickNoteQueue") -> None:
+    global _queue_instance
+    _queue_instance = instance
+
+
+def get_quick_note_queue() -> "QuickNoteQueue":
+    if _queue_instance is None:
+        raise RuntimeError("QuickNoteQueue not initialised — call set_quick_note_queue() at startup")
+    return _queue_instance

@@ -1,0 +1,170 @@
+name: Continuous Improvement
+
+on:
+  schedule:
+    - cron: '0 9 * * *'   # daily at 09:00 UTC
+  workflow_dispatch:
+    inputs:
+      scan_type:
+        description: 'What to scan'
+        required: false
+        default: 'full'
+        type: choice
+        options:
+          - full
+          - tests-only
+          - todos-only
+
+jobs:
+  scan-and-report:
+    name: Scan · Test · Report
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      issues: write
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+          cache: pip
+
+      - name: Install dependencies
+        run: |
+          pip install -r requirements.txt 2>&1 | tail -5
+
+      - name: Run pytest
+        id: tests
+        run: |
+          python -m pytest --tb=short -q --no-header 2>&1 | tee /tmp/test_output.txt || true
+          EXIT=${PIPESTATUS[0]}
+          echo "exit_code=${EXIT}" >> "$GITHUB_OUTPUT"
+          # Parse failing test IDs
+          FAILING=$(grep '^FAILED ' /tmp/test_output.txt | awk '{print $2}' | head -10 | tr '\n' ',' | sed 's/,$//')
+          echo "failing_tests=${FAILING}" >> "$GITHUB_OUTPUT"
+          SUMMARY=$(grep -E 'passed|failed|error' /tmp/test_output.txt | tail -1)
+          echo "summary=${SUMMARY}" >> "$GITHUB_OUTPUT"
+
+      - name: Scan for FIXME / TODO:FIX markers
+        if: ${{ inputs.scan_type != 'tests-only' }}
+        id: todo_scan
+        run: |
+          COUNT=$(grep -rn --include='*.py' -E 'FIXME|TODO.?FIX|HACK.?URGENT' . \
+                  | grep -v '.git' | wc -l || echo 0)
+          echo "todo_count=${COUNT}" >> "$GITHUB_OUTPUT"
+
+      - name: Publish step summary
+        run: |
+          {
+            echo "### Continuous Improvement Report — $(date -u '+%Y-%m-%d')"
+            echo ""
+            echo "| Check | Result |"
+            echo "|-------|--------|"
+            TEST_ICON=$([[ "${{ steps.tests.outputs.exit_code }}" == "0" ]] && echo "✅" || echo "❌")
+            echo "| Tests | ${TEST_ICON} ${{ steps.tests.outputs.summary }} |"
+            echo "| TODO/FIXME markers | ${{ steps.todo_scan.outputs.todo_count || 'skipped' }} |"
+            echo ""
+            if [[ "${{ steps.tests.outputs.exit_code }}" != "0" ]]; then
+              echo "> [!WARNING]"
+              echo "> One or more tests are failing. A GitHub issue will be created."
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Create or update issue for test failures
+        if: steps.tests.outputs.exit_code != '0'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const output = fs.readFileSync('/tmp/test_output.txt', 'utf8');
+            const failing = '${{ steps.tests.outputs.failing_tests }}';
+            const summary = '${{ steps.tests.outputs.summary }}';
+            const date = new Date().toISOString().split('T')[0];
+
+            // Check for an existing open auto-detected test-failure issue
+            const { data: issues } = await github.rest.issues.listForRepo({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              labels: 'auto-detected,bug',
+              state: 'open',
+              per_page: 10,
+            });
+            const existing = issues.find(i =>
+              i.title.startsWith('CI: Failing Tests') && !i.pull_request
+            );
+
+            const body = [
+              '## Automated Issue: Failing Tests',
+              '',
+              `**Date:** ${date}`,
+              `**Summary:** ${summary}`,
+              '',
+              '**Failing tests:**',
+              failing.split(',').filter(Boolean).map(t => `- \`${t}\``).join('\n') || '_(see output below)_',
+              '',
+              '<details><summary>Full pytest output</summary>',
+              '',
+              '```',
+              output.slice(0, 4000),
+              '```',
+              '</details>',
+              '',
+              '---',
+              '_Auto-created by the [continuous-improvement](.github/workflows/continuous-improvement.yml) workflow._',
+              '_The self-healing agent will attempt to fix these failures automatically._',
+            ].join('\n');
+
+            if (existing) {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: existing.number,
+                body: `## Update — ${date}\n\n${body}`,
+              });
+              core.info(`Updated existing issue #${existing.number}`);
+            } else {
+              const { data: issue } = await github.rest.issues.create({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                title: `CI: Failing Tests — ${date}`,
+                body,
+                labels: ['bug', 'auto-detected', 'tests'],
+              });
+              core.info(`Created issue #${issue.number}`);
+            }
+
+      - name: Close stale test-failure issue when tests pass
+        if: steps.tests.outputs.exit_code == '0'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const { data: issues } = await github.rest.issues.listForRepo({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              labels: 'auto-detected,bug',
+              state: 'open',
+              per_page: 10,
+            });
+            for (const issue of issues) {
+              if (issue.title.startsWith('CI: Failing Tests') && !issue.pull_request) {
+                await github.rest.issues.update({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  issue_number: issue.number,
+                  state: 'closed',
+                  state_reason: 'completed',
+                });
+                await github.rest.issues.createComment({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  issue_number: issue.number,
+                  body: `All tests are passing as of ${new Date().toISOString().split('T')[0]}. Closing automatically.`,
+                });
+                core.info(`Closed issue #${issue.number}`);
+              }
+            }

@@ -1,0 +1,404 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>LLM Relay v4 — Continuous Improvement Dashboard</title>
+  <link rel="stylesheet" href="./styles.css" />
+  <style>
+    :root {
+      --green:  #22c55e;
+      --amber:  #f59e0b;
+      --red:    #ef4444;
+      --blue:   #3b82f6;
+      --purple: #8b5cf6;
+      --card-bg: #1a1a2e;
+      --badge-r: 4px;
+    }
+    body { font-family: system-ui, sans-serif; background: #0f0f1a; color: #e2e8f0; margin: 0; }
+    .shell { max-width: 1100px; margin: 0 auto; padding: 1.5rem; }
+    h1 { font-size: 1.6rem; margin: 0; }
+    h2 { font-size: 1.1rem; margin: 0 0 1rem; border-bottom: 1px solid #2d2d4e; padding-bottom: 0.5rem; }
+    .eyebrow { font-size: .75rem; letter-spacing: .1em; text-transform: uppercase; color: #7c7ca0; margin: 0; }
+    .hero { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 1rem; margin-bottom: 1.5rem; }
+    .hero-links a { color: #93c5fd; text-decoration: none; margin-left: 1.2rem; font-size: .85rem; }
+    .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 1rem; }
+    .panel { background: var(--card-bg); border: 1px solid #2d2d4e; border-radius: 8px; padding: 1.2rem; }
+    .stat-row { display: flex; gap: 1rem; flex-wrap: wrap; margin-bottom: 1rem; }
+    .stat { background: #0f0f1a; border: 1px solid #2d2d4e; border-radius: 6px; padding: .75rem 1rem; flex: 1; min-width: 120px; }
+    .stat .val { font-size: 1.7rem; font-weight: 700; }
+    .stat .lbl { font-size: .7rem; color: #7c7ca0; margin-top: .15rem; }
+    .badge { display: inline-block; padding: .2em .55em; border-radius: var(--badge-r); font-size: .7rem; font-weight: 600; text-transform: uppercase; }
+    .badge-pass    { background: #14532d; color: var(--green); }
+    .badge-fail    { background: #450a0a; color: var(--red); }
+    .badge-pending { background: #2a1f00; color: var(--amber); }
+    .badge-done    { background: #1a2e1a; color: var(--green); }
+    .badge-ci      { background: #1e1b4b; color: var(--purple); }
+    .badge-manual  { background: #1e3a5f; color: var(--blue); }
+    .badge-high    { background: #450a0a; color: var(--red); }
+    .badge-medium  { background: #2a1f00; color: var(--amber); }
+    .badge-low     { background: #1a2e1a; color: var(--green); }
+    table { width: 100%; border-collapse: collapse; font-size: .82rem; }
+    th { text-align: left; color: #7c7ca0; font-weight: 500; padding: .4rem .5rem; border-bottom: 1px solid #2d2d4e; }
+    td { padding: .5rem; border-bottom: 1px solid #1a1a2e; vertical-align: top; }
+    tr:last-child td { border-bottom: none; }
+    tr:hover td { background: #1f1f35; }
+    .truncate { max-width: 280px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    input, textarea, select { background: #0f0f1a; border: 1px solid #2d2d4e; color: #e2e8f0; border-radius: 6px; padding: .55rem .75rem; font-size: .85rem; width: 100%; box-sizing: border-box; margin-bottom: .6rem; }
+    button { cursor: pointer; border: none; border-radius: 6px; padding: .55rem 1.1rem; font-size: .85rem; font-weight: 600; }
+    .btn-primary   { background: var(--blue); color: #fff; }
+    .btn-amber     { background: #92400e; color: var(--amber); }
+    .btn-green     { background: #14532d; color: var(--green); }
+    .btn-red       { background: #450a0a; color: var(--red); }
+    .btn-ghost     { background: transparent; border: 1px solid #2d2d4e; color: #94a3b8; }
+    button:disabled { opacity: .45; cursor: default; }
+    .row { display: flex; gap: .5rem; flex-wrap: wrap; align-items: flex-end; }
+    .form-group { margin-bottom: .8rem; }
+    .form-group label { display: block; font-size: .75rem; color: #94a3b8; margin-bottom: .2rem; }
+    #toast { position: fixed; bottom: 1.5rem; right: 1.5rem; background: #1a2e1a; color: var(--green); border: 1px solid var(--green); border-radius: 8px; padding: .7rem 1.2rem; font-size: .85rem; display: none; z-index: 999; }
+    #toast.error { background: #450a0a; color: var(--red); border-color: var(--red); }
+    .spinner { display: inline-block; width: 14px; height: 14px; border: 2px solid #2d2d4e; border-top-color: var(--blue); border-radius: 50%; animation: spin .6s linear infinite; vertical-align: middle; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .section-gap { margin-top: 1.5rem; }
+    .empty { color: #5a5a7a; font-size: .82rem; text-align: center; padding: 1.5rem; }
+    .connect-bar { display: flex; gap: .5rem; align-items: center; background: #0f0f1a; border: 1px solid #2d2d4e; border-radius: 8px; padding: .6rem 1rem; margin-bottom: 1.5rem; }
+    .connect-bar input { margin: 0; flex: 1; }
+    .connect-bar .badge { white-space: nowrap; }
+  </style>
+</head>
+<body>
+<div class="shell">
+
+  <!-- Hero -->
+  <div class="hero">
+    <div>
+      <p class="eyebrow">LLM Relay v4</p>
+      <h1>Continuous Improvement Dashboard</h1>
+    </div>
+    <div class="hero-links">
+      <a href="./index.html">← Admin</a>
+      <a href="#" id="refresh-btn" onclick="loadAll(); return false;">Refresh</a>
+    </div>
+  </div>
+
+  <!-- Connection bar -->
+  <div class="connect-bar">
+    <input id="base-url" type="text" placeholder="https://your-tunnel.trycloudflare.com" style="max-width:420px" />
+    <input id="admin-token" type="password" placeholder="Admin token (optional)" style="max-width:220px" />
+    <button class="btn-primary" onclick="loadAll()">Connect</button>
+    <span id="conn-badge" class="badge badge-pending">—</span>
+  </div>
+
+  <!-- KPI strip -->
+  <div class="stat-row" id="kpi-strip">
+    <div class="stat"><div class="val" id="kpi-active">—</div><div class="lbl">Active Issues</div></div>
+    <div class="stat"><div class="val" id="kpi-resolved">—</div><div class="lbl">Resolved</div></div>
+    <div class="stat"><div class="val" id="kpi-scans">—</div><div class="lbl">Scan Cycles</div></div>
+    <div class="stat"><div class="val" id="kpi-test">—</div><div class="lbl">Last Test Run</div></div>
+    <div class="stat"><div class="val" id="kpi-notes">—</div><div class="lbl">Pending Notes</div></div>
+  </div>
+
+  <!-- Main grid -->
+  <div class="grid">
+
+    <!-- Scan & improvements -->
+    <div class="panel" style="grid-column: span 2;">
+      <h2>Active Improvement Issues</h2>
+      <div class="row" style="margin-bottom:1rem;">
+        <button class="btn-amber" id="scan-btn" onclick="triggerScan()">⚡ Trigger Scan Now</button>
+        <span id="scan-spinner" style="display:none"><span class="spinner"></span> scanning…</span>
+      </div>
+      <table id="issues-table">
+        <thead><tr><th>ID</th><th>Severity</th><th>Category</th><th>Title</th><th>Detected</th><th></th></tr></thead>
+        <tbody id="issues-body"><tr><td colspan="6" class="empty">Loading…</td></tr></tbody>
+      </table>
+    </div>
+
+    <!-- Report a bug -->
+    <div class="panel">
+      <h2>Report a Bug</h2>
+      <div class="form-group"><label>Title</label><input id="bug-title" placeholder="Short description of the bug" /></div>
+      <div class="form-group"><label>Description</label><textarea id="bug-desc" rows="4" placeholder="Steps to reproduce, error messages, expected vs actual…"></textarea></div>
+      <div class="form-group">
+        <label>Severity</label>
+        <select id="bug-sev">
+          <option value="medium">Medium</option>
+          <option value="high">High</option>
+          <option value="critical">Critical</option>
+          <option value="low">Low</option>
+        </select>
+      </div>
+      <button class="btn-red" onclick="reportBug()">Report Bug → Self-Healing Agent</button>
+    </div>
+
+    <!-- Quick notes -->
+    <div class="panel">
+      <h2>Quick Notes</h2>
+      <div class="form-group"><label>URL or plain-text instruction</label><textarea id="note-content" rows="3" placeholder="https://github.com/… or describe what to implement…"></textarea></div>
+      <div class="row" style="margin-bottom:.8rem;">
+        <select id="note-cat" style="flex:1;margin:0;">
+          <option value="improvement">Improvement</option>
+          <option value="bug">Bug</option>
+          <option value="feature">Feature</option>
+          <option value="research">Research</option>
+        </select>
+        <button class="btn-green" onclick="addQuickNote()">Queue Note</button>
+      </div>
+      <table id="notes-table">
+        <thead><tr><th>ID</th><th>Status</th><th>Added</th></tr></thead>
+        <tbody id="notes-body"><tr><td colspan="3" class="empty">Loading…</td></tr></tbody>
+      </table>
+    </div>
+
+    <!-- Scheduled jobs -->
+    <div class="panel">
+      <h2>Scheduled Improvement Jobs</h2>
+      <table id="jobs-table">
+        <thead><tr><th>Name</th><th>Cron</th><th>Runs</th><th></th></tr></thead>
+        <tbody id="jobs-body"><tr><td colspan="4" class="empty">Loading…</td></tr></tbody>
+      </table>
+    </div>
+
+    <!-- Self-healing events -->
+    <div class="panel">
+      <h2>Self-Healing Events</h2>
+      <table id="events-table">
+        <thead><tr><th>Event</th><th>Source</th><th>Sev</th><th>Time</th></tr></thead>
+        <tbody id="events-body"><tr><td colspan="4" class="empty">Loading…</td></tr></tbody>
+      </table>
+    </div>
+
+  </div>
+</div>
+
+<div id="toast"></div>
+
+<script>
+  // ── Helpers ──────────────────────────────────────────────────────────────────
+  function base() {
+    return (document.getElementById('base-url').value || '').replace(/\/$/, '');
+  }
+  function authHeader() {
+    const tok = document.getElementById('admin-token').value;
+    return tok ? { Authorization: `Bearer ${tok}` } : {};
+  }
+  async function api(path, opts = {}) {
+    const res = await fetch(base() + path, {
+      headers: { 'Content-Type': 'application/json', ...authHeader() },
+      ...opts,
+    });
+    if (!res.ok) throw new Error(`${res.status} ${await res.text()}`);
+    return res.json();
+  }
+  function toast(msg, isErr = false) {
+    const t = document.getElementById('toast');
+    t.textContent = msg;
+    t.className = isErr ? 'error' : '';
+    t.style.display = 'block';
+    setTimeout(() => { t.style.display = 'none'; }, 3500);
+  }
+  function badge(cls, text) {
+    return `<span class="badge badge-${cls}">${text}</span>`;
+  }
+  function relTime(iso) {
+    if (!iso) return '—';
+    const d = Math.floor((Date.now() - new Date(iso)) / 60000);
+    if (d < 1) return 'just now';
+    if (d < 60) return `${d}m ago`;
+    const h = Math.floor(d / 60);
+    if (h < 24) return `${h}h ago`;
+    return `${Math.floor(h / 24)}d ago`;
+  }
+
+  // ── Load all panels ───────────────────────────────────────────────────────────
+  async function loadAll() {
+    try {
+      await loadStatus();
+      await Promise.allSettled([
+        loadImprovements(),
+        loadNotes(),
+        loadJobs(),
+      ]);
+    } catch (e) {
+      document.getElementById('conn-badge').textContent = 'error';
+      document.getElementById('conn-badge').className = 'badge badge-fail';
+      toast(`Connection error: ${e.message}`, true);
+    }
+  }
+
+  async function loadStatus() {
+    const data = await api('/v4/status');
+    const badge_el = document.getElementById('conn-badge');
+    badge_el.textContent = 'connected';
+    badge_el.className = 'badge badge-pass';
+
+    const loop = data.improvement_loop || {};
+    document.getElementById('kpi-active').textContent = (loop.active_issues || []).length;
+    document.getElementById('kpi-resolved').textContent = loop.issues_resolved ?? '—';
+    document.getElementById('kpi-scans').textContent = loop.scan_count ?? '—';
+
+    const testResult = loop.last_test_result;
+    const testEl = document.getElementById('kpi-test');
+    testEl.innerHTML = testResult
+      ? badge(testResult === 'pass' ? 'pass' : 'fail', testResult)
+      : '—';
+
+    // events
+    const events = (data.self_healing || {}).recent_events || [];
+    const tbody = document.getElementById('events-body');
+    if (!events.length) {
+      tbody.innerHTML = '<tr><td colspan="4" class="empty">No events yet</td></tr>';
+    } else {
+      tbody.innerHTML = events.slice().reverse().map(e => `
+        <tr>
+          <td class="truncate" title="${e.title}">${e.title}</td>
+          <td>${badge(e.source === 'ci' ? 'ci' : 'manual', e.source)}</td>
+          <td>${badge(e.severity, e.severity)}</td>
+          <td>${relTime(e.created_at)}</td>
+        </tr>
+      `).join('');
+    }
+  }
+
+  async function loadImprovements() {
+    const data = await api('/v4/improvements');
+    const active = data.active || [];
+    const tbody = document.getElementById('issues-body');
+    if (!active.length) {
+      tbody.innerHTML = '<tr><td colspan="6" class="empty">No active issues — codebase looks healthy ✅</td></tr>';
+    } else {
+      tbody.innerHTML = active.map(i => `
+        <tr>
+          <td><code style="font-size:.7rem">${i.issue_id}</code></td>
+          <td>${badge(i.severity, i.severity)}</td>
+          <td><code style="font-size:.7rem">${(i.category||'').replace('_',' ')}</code></td>
+          <td class="truncate" title="${i.title}">${i.title}</td>
+          <td>${relTime(i.detected_at)}</td>
+          <td><button class="btn-ghost" style="font-size:.7rem;padding:.3rem .6rem" onclick="resolveIssue('${i.issue_id}')">Resolve</button></td>
+        </tr>
+      `).join('');
+    }
+    document.getElementById('kpi-active').textContent = active.length;
+    document.getElementById('kpi-resolved').textContent = (data.resolved || []).length;
+  }
+
+  async function loadNotes() {
+    let data;
+    try { data = await api('/v4/quick-notes'); } catch { return; }
+    const notes = data.notes || [];
+    document.getElementById('kpi-notes').textContent = data.pending ?? 0;
+    const tbody = document.getElementById('notes-body');
+    if (!notes.length) {
+      tbody.innerHTML = '<tr><td colspan="3" class="empty">No notes yet</td></tr>';
+    } else {
+      tbody.innerHTML = notes.slice(-8).reverse().map(n => `
+        <tr>
+          <td><code style="font-size:.7rem">${n.note_id}</code></td>
+          <td>${badge(n.status === 'done' ? 'done' : n.status === 'failed' ? 'fail' : 'pending', n.status)}</td>
+          <td>${relTime(n.added_at)}</td>
+        </tr>
+      `).join('');
+    }
+  }
+
+  async function loadJobs() {
+    let data;
+    try { data = await api('/v4/scheduler/jobs'); } catch { return; }
+    const jobs = data.jobs || [];
+    const tbody = document.getElementById('jobs-body');
+    if (!jobs.length) {
+      tbody.innerHTML = '<tr><td colspan="4" class="empty">No jobs registered</td></tr>';
+    } else {
+      tbody.innerHTML = jobs.map(j => `
+        <tr>
+          <td>${j.name}</td>
+          <td><code style="font-size:.7rem">${j.cron}</code></td>
+          <td>${j.run_count ?? 0}</td>
+          <td><button class="btn-amber" style="font-size:.7rem;padding:.3rem .6rem" onclick="triggerJob('${j.job_id}')">▶ Run</button></td>
+        </tr>
+      `).join('');
+    }
+  }
+
+  // ── Actions ───────────────────────────────────────────────────────────────────
+  async function triggerScan() {
+    const btn = document.getElementById('scan-btn');
+    const spin = document.getElementById('scan-spinner');
+    btn.disabled = true; spin.style.display = '';
+    try {
+      const data = await api('/v4/improvements/scan', { method: 'POST', body: '{}' });
+      toast(`Scan complete — ${data.issues_found} new issue(s)`);
+      await loadImprovements();
+    } catch (e) {
+      toast(`Scan failed: ${e.message}`, true);
+    } finally {
+      btn.disabled = false; spin.style.display = 'none';
+    }
+  }
+
+  async function resolveIssue(id) {
+    try {
+      await api(`/v4/improvements/${id}/resolve`, { method: 'POST', body: '{}' });
+      toast('Issue marked resolved');
+      await loadImprovements();
+    } catch (e) {
+      toast(`Error: ${e.message}`, true);
+    }
+  }
+
+  async function reportBug() {
+    const title = document.getElementById('bug-title').value.trim();
+    const desc  = document.getElementById('bug-desc').value.trim();
+    const sev   = document.getElementById('bug-sev').value;
+    if (!title) { toast('Title is required', true); return; }
+    try {
+      const data = await api('/v4/report-bug', {
+        method: 'POST',
+        body: JSON.stringify({ title, description: desc, severity: sev }),
+      });
+      toast(`Bug report sent (${data.event_id})`);
+      document.getElementById('bug-title').value = '';
+      document.getElementById('bug-desc').value = '';
+    } catch (e) {
+      toast(`Error: ${e.message}`, true);
+    }
+  }
+
+  async function addQuickNote() {
+    const content = document.getElementById('note-content').value.trim();
+    const cat     = document.getElementById('note-cat').value;
+    if (!content) { toast('Note content is required', true); return; }
+    try {
+      const data = await api('/v4/quick-notes', {
+        method: 'POST',
+        body: JSON.stringify({ content, category: cat }),
+      });
+      toast(`Note queued (${data.note_id})`);
+      document.getElementById('note-content').value = '';
+      await loadNotes();
+    } catch (e) {
+      toast(`Error: ${e.message}`, true);
+    }
+  }
+
+  async function triggerJob(jobId) {
+    try {
+      await api(`/v4/scheduler/trigger/${jobId}`, { method: 'POST', body: '{}' });
+      toast('Job triggered');
+      await loadJobs();
+    } catch (e) {
+      toast(`Error: ${e.message}`, true);
+    }
+  }
+
+  // ── Auto-load ─────────────────────────────────────────────────────────────────
+  document.addEventListener('DOMContentLoaded', () => {
+    const saved = localStorage.getItem('v4_base_url') || '';
+    if (saved) { document.getElementById('base-url').value = saved; loadAll(); }
+    document.getElementById('base-url').addEventListener('change', e => {
+      localStorage.setItem('v4_base_url', e.target.value);
+    });
+  });
+</script>
+</body>
+</html>

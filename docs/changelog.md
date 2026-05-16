@@ -2,6 +2,19 @@
 
 ## [Unreleased]
 ### Added
+- `agent/improvement_loop.py` — Continuous Improvement Engine: background scanner that detects failing tests, FIXME/TODO markers, and missing test coverage every 6 hours, then dispatches repair tasks via AgentScheduler. Persists state to `.claude/state/improvement-state.json`. Exposes `ImprovementLoop`, `DetectedIssue`, `IssueSeverity`, `IssueCategory` and a module-level singleton (get/set pattern).
+- `agent/self_healing.py` — Self-Healing Agent: translates CI failure webhooks, GitHub bug-issue events, and dashboard manual reports into improvement tasks dispatched through `ImprovementLoop`. Singleton `SelfHealingAgent` with `on_ci_failure()`, `on_github_issue()`, and `on_manual_report()` async handlers.
+- `agent/v4_router.py` — LLM Relay v4 Dashboard API (`/v4/*`): REST surface exposing improvement loop status, active/resolved issues, scan trigger, bug reporting, quick-note management, and scheduler job control. Mounted in `proxy.py` at startup.
+- `remote-admin/v4-dashboard.html` — v4 Continuous Improvement Dashboard SPA: live KPIs (active issues, resolved, scan count, test result, pending notes), active issue table with resolve buttons, bug report form, quick-note queue form, scheduled job panel, and self-healing event feed.
+- `.github/workflows/continuous-improvement.yml` — Scheduled GitHub Actions workflow (daily 09:00 UTC): runs pytest, parses failures, creates/updates/auto-closes GitHub issues with `auto-detected` label, scans for FIXME markers, and publishes a step summary.
+- Four standing improvement cron jobs registered at startup: `daily-test-scan` (03:00 UTC), `weekly-dep-audit` (Monday 04:00), `daily-changelog-check` (05:00 UTC), `weekly-todo-cleanup` (Wednesday 06:00).
+- `agent/quick_note.py` — Added `set_quick_note_queue()` / `get_quick_note_queue()` singleton accessors so other modules can safely retrieve the queue without circular imports.
+- `tests/test_improvement_loop.py` — 12 unit tests for `ImprovementLoop` covering state persistence, deduplication, resolve flow, `_on_task` scheduling, and FIXME scanning.
+- `tests/test_self_healing.py` — 9 unit tests for `SelfHealingAgent` covering CI failure, GitHub issue, manual report, severity classification, and improvement-loop integration.
+
+### Changed
+- `proxy.py` — Initialises `SelfHealingAgent` and `ImprovementLoop` at startup and registers the `v4_router`. Sets the `QuickNoteQueue` singleton via `set_quick_note_queue()`.
+
 - `.github/scripts/apply_review.py` — New NVIDIA NIM agentic loop that reads all PR review comments (CodeRabbit, GitHub Copilot, inline code comments, council reviews) and applies the suggested changes to the codebase before merge. Handles `\`\`\`suggestion` blocks literally. Tries Nemotron-120B → Nemotron-49B → Llama-70B → Qwen-32B in sequence.
 - `process-quick-note.yml` — After PR creation, waits 120 s for review bots (CodeRabbit/Copilot) to post, then runs `apply_review.py` via NVIDIA NIM, pushes any fixes (force-with-lease), runs council review, and finally squash-merges with `--delete-branch`. PRs are no longer merged before review feedback is applied.
 

@@ -1,0 +1,61 @@
+{
+  "last_scan": null,
+  "scan_count": 0,
+  "issues_detected": 0,
+  "issues_resolved": 1,
+  "active_issues": [
+    {
+      "issue_id": "td_1234",
+      "category": "todo_fixme",
+      "severity": "medium",
+      "title": "FIXME in foo.py:12",
+      "description": "Found FIXME",
+      "file_path": null,
+      "line_number": null,
+      "detected_at": "2026-05-16T14:42:33Z",
+      "task_id": null,
+      "resolved": false
+    },
+    {
+      "issue_id": "mt_dup",
+      "category": "missing_test",
+      "severity": "low",
+      "title": "No coverage: bar.py",
+      "description": "bar.py has no test",
+      "file_path": null,
+      "line_number": null,
+      "detected_at": "2026-05-16T14:42:33Z",
+      "task_id": null,
+      "resolved": false
+    },
+    {
+      "issue_id": "he_24f177fa1138",
+      "category": "test_failure",
+      "severity": "high",
+      "title": "CI failure: test_x in ci",
+      "description": "Test `test_x` failed in workflow `ci`.\n\nError:\n```\nboom\n```",
+      "file_path": null,
+      "line_number": null,
+      "detected_at": "2026-05-16T14:42:33Z",
+      "task_id": null,
+      "resolved": false
+    }
+  ],
+  "resolved_issues": [
+    {
+      "issue_id": "tf_resolve_me",
+      "category": "test_failure",
+      "severity": "high",
+      "title": "Failing test: test_x",
+      "description": "test_x fails",
+      "file_path": null,
+      "line_number": null,
+      "detected_at": "2026-05-16T14:42:33Z",
+      "task_id": null,
+      "resolved": true
+    }
+  ],
+  "last_test_run": null,
+  "last_test_result": null,
+  "failing_tests": []
+}

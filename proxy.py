@@ -59,7 +59,10 @@ from agent.memory import SessionMemory
 from agent.models import AgentRunRequest, AgentSessionCreateRequest
 from agent.permissions import AdaptivePermissions
 from agent.playbook import PlaybookLibrary
-from agent.quick_note import QuickNoteQueue, start_processor
+from agent.quick_note import QuickNoteQueue, start_processor, set_quick_note_queue
+from agent.improvement_loop import ImprovementLoop, set_improvement_loop
+from agent.self_healing import SelfHealingAgent, set_self_healing_agent
+from agent.v4_router import v4_router
 from agent.scaffolding import ProjectScaffolder
 from agent.scheduler import AgentScheduler
 from agent.skills import SkillLibrary
@@ -830,8 +833,20 @@ COORDINATOR = AgentCoordinator(
 PROVIDER_ROUTER = ProviderRouter.from_env()
 BROWSER_SESSION = BrowserSession()
 QUICK_NOTE_QUEUE = QuickNoteQueue()
+set_quick_note_queue(QUICK_NOTE_QUEUE)
 TASK_AUTOMATION: TaskAutomationService = TaskAutomationService(store=get_task_store())
 start_processor(QUICK_NOTE_QUEUE, repo_root=Path(__file__).resolve().parent)
+
+# ─── Continuous Improvement & Self-Healing ─────────────────────────────────────
+SELF_HEALING_AGENT = SelfHealingAgent()
+set_self_healing_agent(SELF_HEALING_AGENT)
+
+IMPROVEMENT_LOOP = ImprovementLoop(
+    repo_root=Path(__file__).resolve().parent,
+    on_task=SCHEDULER.create,
+)
+set_improvement_loop(IMPROVEMENT_LOOP)
+IMPROVEMENT_LOOP.start()
 
 WEBUI_STORE = JsonConfigStore()
 WEBUI_PROVIDERS = ProviderManager(WEBUI_STORE)
@@ -903,6 +918,63 @@ log.info("Setup wizard mounted at /api/setup/* (public — no API key required)"
 # ─── v3.1: Direct Chat (requires JWT token) ────────────────────────────────────
 app.include_router(direct_chat_router)
 log.info("Direct Chat mounted at /api/chat/* (requires JWT token)")
+
+# ─── v4: Continuous Improvement Dashboard ──────────────────────────────────────
+app.include_router(v4_router)
+log.info("v4 Improvement Dashboard mounted at /v4/*")
+
+# Register standing improvement schedules (run after app boots).
+# Uses cron expressions: daily test scan at 03:00 UTC, weekly dep audit on Monday.
+_default_schedules = [
+    {
+        "name": "daily-test-scan",
+        "cron": "0 3 * * *",
+        "instruction": (
+            "Run the full pytest suite (`pytest -x`). "
+            "If any tests fail, diagnose the root cause and apply the minimum fix. "
+            "Update docs/changelog.md and commit the fix to master."
+        ),
+        "tags": ["auto-improvement", "tests", "daily"],
+    },
+    {
+        "name": "weekly-dep-audit",
+        "cron": "0 4 * * 1",
+        "instruction": (
+            "Run the dependency-audit skill: check requirements.txt for outdated or "
+            "vulnerable packages using `pip list --outdated`. Pin safe upgrades, "
+            "update changelog, and commit."
+        ),
+        "tags": ["auto-improvement", "dependencies", "weekly"],
+    },
+    {
+        "name": "daily-changelog-check",
+        "cron": "0 5 * * *",
+        "instruction": (
+            "Review docs/changelog.md. Ensure [Unreleased] contains entries for all "
+            "recent commits that changed behaviour. Add any missing entries. "
+            "Commit changelog updates with prefix `docs:`."
+        ),
+        "tags": ["auto-improvement", "docs", "daily"],
+    },
+    {
+        "name": "weekly-todo-cleanup",
+        "cron": "0 6 * * 3",
+        "instruction": (
+            "Search the codebase for FIXME and TODO:FIX markers. "
+            "For each one, either resolve it (make the smallest correct fix) or "
+            "convert it to a GitHub issue comment if it requires larger work. "
+            "Commit resolved markers."
+        ),
+        "tags": ["auto-improvement", "cleanup", "weekly"],
+    },
+]
+for _sched in _default_schedules:
+    try:
+        if not any(j.name == _sched["name"] for j in SCHEDULER.list()):
+            SCHEDULER.create(**_sched)
+            log.info("Registered improvement schedule: %s", _sched["name"])
+    except Exception as _sched_exc:
+        log.warning("Could not register schedule %s: %s", _sched["name"], _sched_exc)
 
 
 @app.get("/api/agent/stream", response_model=None)
