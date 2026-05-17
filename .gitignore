@@ -17,6 +17,7 @@ __pycache__/
 .venv/
 venv/
 .pytest_cache/
+.cache/
 
 # Runtime data
 .data/
