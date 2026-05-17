@@ -21,12 +21,12 @@ from __future__ import annotations
 
 import json
 import time
+import urllib.parse
 import uuid
 from pathlib import Path
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock
 
 import httpx
-import pytest
 from fastapi.testclient import TestClient
 
 # ---------------------------------------------------------------------------
@@ -156,7 +156,7 @@ def _build_agent_http_mock(
                 "jsonrpc": "2.0", "id": req_id,
                 "result": {"content": [{"type": "text", "text": "{}"}], "isError": False},
             })
-        if "api.github.com" in url_str and github_post_results:
+        if urllib.parse.urlparse(url_str).netloc == "api.github.com" and github_post_results:
             for frag, resp in github_post_results.items():
                 if frag in url_str:
                     return httpx.Response(201, json=resp)
@@ -164,7 +164,7 @@ def _build_agent_http_mock(
 
     async def mock_get(self, url, *args, **kwargs):
         url_str = str(url)
-        if "api.github.com" in url_str and github_get_results:
+        if urllib.parse.urlparse(url_str).netloc == "api.github.com" and github_get_results:
             for frag, resp in github_get_results.items():
                 if frag in url_str:
                     return httpx.Response(200, json=resp)
@@ -172,7 +172,7 @@ def _build_agent_http_mock(
 
     async def mock_put(self, url, *args, **kwargs):
         url_str = str(url)
-        if "api.github.com" in url_str and github_put_results:
+        if urllib.parse.urlparse(url_str).netloc == "api.github.com" and github_put_results:
             for frag, resp in github_put_results.items():
                 if frag in url_str:
                     return httpx.Response(200, json=resp)
@@ -362,8 +362,6 @@ class TestAgentChatE2E:
         We verify the agent job completes (succeeded or failed) — never 'cancelled'
         or 500, which would indicate the background task panicked.
         """
-        import backend.server as srv
-
         responses = [PLAN_JSON, EXECUTOR_JSON, VERIFIER_JSON, JUDGE_JSON]
         monkeypatch.setattr("httpx.AsyncClient.post", _nim_post_factory(responses))
 
