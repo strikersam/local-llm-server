@@ -3,6 +3,9 @@
 ## [Unreleased]
 
 ### Fixed
+- CI: use `python -m pytest` instead of bare `pytest` in the test job — avoids PATH ambiguity when multiple Python versions are present on the runner.
+- CI: add `python -m pip install --upgrade pip` to the lint job before installing requirements — aligns it with the test job and prevents failures from a stale pip version.
+
 - CI: add global git identity (`user.email`, `user.name`, `commit.gpgsign false`, `init.defaultBranch main`) before running pytest — ensures `test_commit_tracker.py` git subprocess calls work correctly across all CI runner configurations.
 - CI: add `pytest-timeout>=2.3.1` to requirements and `--timeout=120` to pytest command — prevents hanging tests from occupying the full 6-hour GitHub Actions job limit and makes timeout failures identifiable; 120 s gives slow runners 2-3× headroom over the local 104 s full-suite runtime.
 - CI: add `persist-credentials: false` to all `actions/checkout` steps — prevents Post Checkout git credential cleanup from failing with exit code 128 on certain GitHub Actions runners, which was causing all three CI jobs (test, lint, frontend) to report spurious git failures.
