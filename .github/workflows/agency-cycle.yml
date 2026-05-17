@@ -32,11 +32,28 @@ jobs:
       issues: write
       pull-requests: write
 
+    # Shared test environment — avoids repeating these in every step
+    env:
+      API_KEYS: "ci-test-key"
+      ADMIN_EMAIL: "admin@llmrelay.local"
+      ADMIN_PASSWORD: "WikiAdmin2026!"
+      SECRET_KEY: "ci-test-secret-do-not-use"
+      OLLAMA_BASE: "http://localhost:11434"
+      LANGFUSE_SECRET_KEY: ""
+      LANGFUSE_PUBLIC_KEY: ""
+      LANGFUSE_HOST: ""
+      ROUTER_HEALTH_CHECK_ENABLED: "false"
+      MONGO_URL: "mongodb://localhost:27017"
+      DB_NAME: "llm_wiki_dashboard_ci"
+
     steps:
       - uses: actions/checkout@v6
         with:
           fetch-depth: 0
           token: ${{ secrets.GITHUB_TOKEN }}
+          # For workflow_run triggers, check out the commit that actually failed
+          # rather than the default branch (which is what GITHUB_REF resolves to).
+          ref: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || github.sha }}
 
       - name: Set up Python
         uses: actions/setup-python@v6
@@ -57,18 +74,6 @@ jobs:
 
       - name: Run pytest baseline
         id: baseline
-        env:
-          API_KEYS: "ci-test-key"
-          ADMIN_EMAIL: "admin@llmrelay.local"
-          ADMIN_PASSWORD: "WikiAdmin2026!"
-          SECRET_KEY: "ci-test-secret-do-not-use"
-          OLLAMA_BASE: "http://localhost:11434"
-          LANGFUSE_SECRET_KEY: ""
-          LANGFUSE_PUBLIC_KEY: ""
-          LANGFUSE_HOST: ""
-          ROUTER_HEALTH_CHECK_ENABLED: "false"
-          MONGO_URL: "mongodb://localhost:27017"
-          DB_NAME: "llm_wiki_dashboard_ci"
         run: |
           python -m pytest --tb=short -q --no-header --timeout=120 2>&1 | tee /tmp/test_baseline.txt || true
           EXIT=${PIPESTATUS[0]}
@@ -129,37 +134,20 @@ jobs:
 
       - name: Dispatch Dev Agent — Fix tests via NVIDIA NIM
         if: steps.baseline.outputs.exit_code != '0'
+        id: agent_fix
         env:
           NVIDIA_API_KEY: ${{ secrets.NVIDIA_API_KEY }}
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           AGENCY_MODEL: "qwen/qwen2.5-coder-32b-instruct"
-          API_KEYS: "ci-test-key"
-          ADMIN_EMAIL: "admin@llmrelay.local"
-          ADMIN_PASSWORD: "WikiAdmin2026!"
-          SECRET_KEY: "ci-test-secret-do-not-use"
-          OLLAMA_BASE: "http://localhost:11434"
-          ROUTER_HEALTH_CHECK_ENABLED: "false"
-          MONGO_URL: "mongodb://localhost:27017"
-          DB_NAME: "llm_wiki_dashboard_ci"
         run: |
           echo "Failing tests: ${{ steps.baseline.outputs.failing }}"
-          python scripts/agency_fix.py /tmp/test_baseline.txt
-          AGENT_EXIT=$?
-          echo "agent_exit=${AGENT_EXIT}" >> "$GITHUB_OUTPUT"
-        id: agent_fix
+          # || true: agent exits 1 when it cannot fix; we still want post-fix
+          # pytest and issue-creation steps to run so the escalation path fires.
+          python scripts/agency_fix.py /tmp/test_baseline.txt || true
 
       - name: Run tests after fix attempt
         if: steps.baseline.outputs.exit_code != '0'
         id: post_fix
-        env:
-          API_KEYS: "ci-test-key"
-          ADMIN_EMAIL: "admin@llmrelay.local"
-          ADMIN_PASSWORD: "WikiAdmin2026!"
-          SECRET_KEY: "ci-test-secret-do-not-use"
-          OLLAMA_BASE: "http://localhost:11434"
-          ROUTER_HEALTH_CHECK_ENABLED: "false"
-          MONGO_URL: "mongodb://localhost:27017"
-          DB_NAME: "llm_wiki_dashboard_ci"
         run: |
           python -m pytest --tb=no -q --no-header --timeout=120 2>&1 | tee /tmp/test_post.txt || true
           echo "exit_code=${PIPESTATUS[0]}" >> "$GITHUB_OUTPUT"

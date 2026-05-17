@@ -12,12 +12,20 @@ Exit codes:
 from __future__ import annotations
 
 import json
+import logging
 import os
 import re
 import subprocess
 import sys
 from pathlib import Path
 from typing import Any
+
+logging.basicConfig(
+    stream=sys.stdout,
+    level=logging.INFO,
+    format="%(levelname)s %(message)s",
+)
+log = logging.getLogger("qwen-proxy")
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 
@@ -43,6 +51,9 @@ def call_llm(messages: list[dict[str, str]]) -> str:
             temperature=0.1,
             max_tokens=8192,
         )
+        if not resp.choices:
+            log.warning("NVIDIA NIM returned empty choices list")
+            return ""
         return resp.choices[0].message.content or ""
 
     if ANTHROPIC_KEY:
@@ -56,6 +67,9 @@ def call_llm(messages: list[dict[str, str]]) -> str:
             messages=user_msgs,  # type: ignore[arg-type]
             max_tokens=8192,
         )
+        if not resp.content:
+            log.warning("Anthropic returned empty content list")
+            return ""
         return resp.content[0].text  # type: ignore[union-attr]
 
     return ""
@@ -101,7 +115,6 @@ def collect_context(failing: list[str], pytest_output: str) -> str:
     parts: list[str] = [f"## Pytest output\n```\n{pytest_output[:8000]}\n```\n"]
     seen_files: set[str] = set()
     for test_id in failing:
-        # test_id format: tests/test_foo.py::TestClass::test_method or tests/test_foo.py::test_fn
         file_part = test_id.split("::")[0]
         if file_part not in seen_files:
             seen_files.add(file_part)
@@ -109,13 +122,11 @@ def collect_context(failing: list[str], pytest_output: str) -> str:
             content = read_file_safe(fpath)
             if content:
                 parts.append(f"## {file_part}\n```python\n{content}\n```\n")
-    # Cap total context
     combined = "\n".join(parts)
     return combined[:MAX_CONTEXT_CHARS]
 
 
 def collect_source_files(failing: list[str]) -> str:
-    """Heuristically pull in source modules referenced in test output."""
     src_files: dict[str, str] = {}
     for py_file in REPO_ROOT.glob("**/*.py"):
         if any(skip in py_file.parts for skip in (".venv", "node_modules", "__pycache__", ".git")):
@@ -123,7 +134,6 @@ def collect_source_files(failing: list[str]) -> str:
         if py_file.parts[len(REPO_ROOT.parts):][0:1] == ("tests",):
             continue
         src_files[str(py_file.relative_to(REPO_ROOT))] = read_file_safe(py_file, max_chars=4000)
-    # Only include files small enough; prioritise backend.server and the failing module paths
     priority = {"backend/server.py", "proxy.py", "provider_router.py"}
     result_parts: list[str] = []
     total = 0
@@ -176,12 +186,10 @@ def build_prompt(pytest_output: str, failing: list[str], iteration: int) -> list
 
 
 def parse_edits(response: str) -> dict[str, Any]:
-    # Strip accidental markdown fences
     response = re.sub(r"```(?:json)?\n?", "", response).strip().rstrip("`")
     try:
         return json.loads(response)
     except json.JSONDecodeError:
-        # Try to extract the first {...} block
         m = re.search(r"\{.*\}", response, re.DOTALL)
         if m:
             try:
@@ -201,15 +209,15 @@ def apply_edits(edits: list[dict[str, str]]) -> list[str]:
             continue
         fpath = REPO_ROOT / rel
         if not fpath.exists():
-            print(f"  [skip] {rel} — file not found", flush=True)
+            log.warning("skip %s — file not found", rel)
             continue
         content = fpath.read_text(errors="replace")
         if old not in content:
-            print(f"  [skip] {rel} — old string not found", flush=True)
+            log.warning("skip %s — old string not found", rel)
             continue
         fpath.write_text(content.replace(old, new, 1))
         applied.append(rel)
-        print(f"  [edit] {rel}", flush=True)
+        log.info("edit applied: %s", rel)
     return applied
 
 
@@ -233,69 +241,68 @@ def update_changelog(explanation: str, fixed_tests: list[str]) -> None:
 
 def main() -> int:
     if not NVIDIA_KEY and not ANTHROPIC_KEY:
-        print("ERROR: Neither NVIDIA_API_KEY nor ANTHROPIC_API_KEY is set.", flush=True)
+        log.error("Neither NVIDIA_API_KEY nor ANTHROPIC_API_KEY is set.")
         return 2
 
-    # Read initial pytest output from file arg, or run fresh
     initial_output_file = Path(sys.argv[1]) if len(sys.argv) > 1 else None
     if initial_output_file and initial_output_file.exists():
         pytest_output = initial_output_file.read_text()
-        exit_code = 1  # Assume failing since we were given output
+        exit_code = 1
     else:
-        print("Running pytest baseline...", flush=True)
+        log.info("Running pytest baseline...")
         exit_code, pytest_output = run_pytest()
 
     if exit_code == 0:
-        print("All tests already passing — nothing to fix.", flush=True)
+        log.info("All tests already passing — nothing to fix.")
         return 0
 
     failing = extract_failing_tests(pytest_output)
     if not failing:
-        print("Tests failed but no FAILED lines found — may be a collection error.", flush=True)
-        print(pytest_output[-2000:], flush=True)
+        log.error("Tests failed but no FAILED lines found — may be a collection error.")
+        log.error(pytest_output[-2000:])
         return 1
 
-    print(f"Failing tests ({len(failing)}): {', '.join(failing[:5])}", flush=True)
+    log.info("Failing tests (%d): %s", len(failing), ", ".join(failing[:5]))
     all_applied: list[str] = []
 
     for iteration in range(1, MAX_ITERATIONS + 1):
-        print(f"\n=== Agency Fix Iteration {iteration}/{MAX_ITERATIONS} ===", flush=True)
+        log.info("=== Agency Fix Iteration %d/%d ===", iteration, MAX_ITERATIONS)
         messages = build_prompt(pytest_output, failing, iteration)
-        print("Calling LLM...", flush=True)
+        log.info("Calling LLM...")
         response = call_llm(messages)
 
         if not response:
-            print("LLM returned empty response.", flush=True)
+            log.warning("LLM returned empty response.")
             break
 
         parsed = parse_edits(response)
         explanation = parsed.get("explanation", "")
         edits = parsed.get("edits", [])
-        print(f"LLM explanation: {explanation}", flush=True)
+        log.info("LLM explanation: %s", explanation)
 
         if not edits:
-            print("No edits suggested.", flush=True)
+            log.warning("No edits suggested.")
             break
 
         applied = apply_edits(edits)
         all_applied.extend(applied)
 
         if not applied:
-            print("No edits could be applied.", flush=True)
+            log.warning("No edits could be applied.")
             break
 
-        print("Re-running pytest...", flush=True)
+        log.info("Re-running pytest...")
         exit_code, pytest_output = run_pytest()
         failing = extract_failing_tests(pytest_output)
 
         if exit_code == 0:
-            print(f"\nAll tests green after iteration {iteration}.", flush=True)
+            log.info("All tests green after iteration %d.", iteration)
             update_changelog(explanation, list(set(all_applied)))
             return 0
 
-        print(f"Still failing: {', '.join(failing[:5])}", flush=True)
+        log.warning("Still failing: %s", ", ".join(failing[:5]))
 
-    print(f"\nCould not fix all tests after {MAX_ITERATIONS} iterations.", flush=True)
+    log.error("Could not fix all tests after %d iterations.", MAX_ITERATIONS)
     return 1
 
 
