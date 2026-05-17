@@ -2,6 +2,12 @@
 
 ## [Unreleased]
 
+### Added
+- `scripts/agency_fix.py` — Standalone LLM-powered fix agent using NVIDIA NIM (`qwen2.5-coder-32b-instruct`) with Anthropic fallback. Analyses failing pytest output, calls the LLM for JSON-formatted code edits, applies them, re-runs pytest to verify green, and updates changelog. Up to 3 fix iterations per cycle.
+- Agency Cycle workflow: `workflow_run` trigger fires immediately when CI fails (previously waited up to 6 hours for cron). Schedule tightened from every 6 hours to every 2 hours.
+- Agency Cycle workflow: `python scripts/agency_fix.py` replaces the defunct `claude` CLI check — the Claude CLI is never installed on GitHub Actions runners, so fixes were never actually applied. NVIDIA NIM is now the primary repair engine.
+- Agency Cycle workflow: proper env vars passed to baseline pytest run so tests don't fail on missing environment during agency checks.
+
 ### Fixed
 - CI: use `python -m pytest` instead of bare `pytest` in the test job — avoids PATH ambiguity when multiple Python versions are present on the runner.
 - CI: add `python -m pip install --upgrade pip` to the lint job before installing requirements — aligns it with the test job and prevents failures from a stale pip version.

@@ -1,23 +1,32 @@
 name: Agency Cycle
 
-# Runs the agency assessment via Claude Code.
-# Reads the improvement loop state, issues directives to specialist agents,
-# and pushes any code fixes directly to master.
+# Proactive AI-powered CI repair loop.
+# Triggers every 2 hours AND immediately when the CI workflow fails.
+# Uses NVIDIA NIM (qwen2.5-coder-32b) or Anthropic as fallback to analyse
+# failing tests, apply code edits, verify green, and push fixes automatically.
 
 on:
   schedule:
-    - cron: '0 */6 * * *'   # every 6 hours
+    - cron: '0 */2 * * *'   # every 2 hours
   workflow_dispatch:
     inputs:
       directive:
         description: 'Optional specific directive for the CEO'
         required: false
         default: ''
+  workflow_run:
+    workflows: ["CI"]
+    types: [completed]
 
 jobs:
   ceo-assess-and-dispatch:
     name: CEO Assessment & Agent Dispatch
     runs-on: ubuntu-latest
+    # On workflow_run events, only act when the CI failed
+    if: >
+      github.event_name != 'workflow_run' ||
+      github.event.workflow_run.conclusion == 'failure'
+
     permissions:
       contents: write
       issues: write
@@ -36,7 +45,10 @@ jobs:
           cache: pip
 
       - name: Install dependencies
-        run: pip install -r requirements.txt 2>&1 | tail -5
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt 2>&1 | tail -5
+          pip install openai 2>&1 | tail -2
 
       - name: Configure git identity
         run: |
@@ -45,8 +57,20 @@ jobs:
 
       - name: Run pytest baseline
         id: baseline
+        env:
+          API_KEYS: "ci-test-key"
+          ADMIN_EMAIL: "admin@llmrelay.local"
+          ADMIN_PASSWORD: "WikiAdmin2026!"
+          SECRET_KEY: "ci-test-secret-do-not-use"
+          OLLAMA_BASE: "http://localhost:11434"
+          LANGFUSE_SECRET_KEY: ""
+          LANGFUSE_PUBLIC_KEY: ""
+          LANGFUSE_HOST: ""
+          ROUTER_HEALTH_CHECK_ENABLED: "false"
+          MONGO_URL: "mongodb://localhost:27017"
+          DB_NAME: "llm_wiki_dashboard_ci"
         run: |
-          python -m pytest --tb=no -q --no-header 2>&1 | tee /tmp/test_baseline.txt || true
+          python -m pytest --tb=short -q --no-header --timeout=120 2>&1 | tee /tmp/test_baseline.txt || true
           EXIT=${PIPESTATUS[0]}
           echo "exit_code=${EXIT}" >> "$GITHUB_OUTPUT"
           FAILING=$(grep '^FAILED ' /tmp/test_baseline.txt | awk '{print $2}' | head -5 | tr '\n' ',' | sed 's/,$//')
@@ -103,49 +127,55 @@ jobs:
           SEC_COUNT: ${{ steps.security.outputs.findings }}
           TEST_OK: ${{ steps.baseline.outputs.exit_code == '0' && '1' || '0' }}
 
-      - name: Dispatch Dev Agent — Fix tests
+      - name: Dispatch Dev Agent — Fix tests via NVIDIA NIM
         if: steps.baseline.outputs.exit_code != '0'
         env:
-          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           NVIDIA_API_KEY: ${{ secrets.NVIDIA_API_KEY }}
-          FAILING: ${{ steps.baseline.outputs.failing }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          AGENCY_MODEL: "qwen/qwen2.5-coder-32b-instruct"
+          API_KEYS: "ci-test-key"
+          ADMIN_EMAIL: "admin@llmrelay.local"
+          ADMIN_PASSWORD: "WikiAdmin2026!"
+          SECRET_KEY: "ci-test-secret-do-not-use"
+          OLLAMA_BASE: "http://localhost:11434"
+          ROUTER_HEALTH_CHECK_ENABLED: "false"
+          MONGO_URL: "mongodb://localhost:27017"
+          DB_NAME: "llm_wiki_dashboard_ci"
         run: |
-          cat > /tmp/dev_instruction.txt <<EOF
-          You are the Dev Agent in the local-llm-server agency.
-
-          The following tests are currently failing:
-          $(echo "$FAILING" | tr ',' '\n' | sed 's/^/  - /')
-
-          Run \`python -m pytest --tb=short -x\` to see the failures.
-          Fix each failing test by correcting the implementation (never skip or mock tests).
-          After fixing, run pytest again to confirm green.
-          Update docs/changelog.md under [Unreleased] ### Fixed.
-          Commit all changes with message: \`fix: resolve failing tests from agency cycle\`
-          EOF
-
-          if command -v claude &>/dev/null; then
-            claude --print --dangerously-skip-permissions "$(cat /tmp/dev_instruction.txt)" || true
-          else
-            echo "Claude CLI not available — skipping automated fix"
-          fi
+          echo "Failing tests: ${{ steps.baseline.outputs.failing }}"
+          python scripts/agency_fix.py /tmp/test_baseline.txt
+          AGENT_EXIT=$?
+          echo "agent_exit=${AGENT_EXIT}" >> "$GITHUB_OUTPUT"
+        id: agent_fix
 
       - name: Run tests after fix attempt
         if: steps.baseline.outputs.exit_code != '0'
         id: post_fix
+        env:
+          API_KEYS: "ci-test-key"
+          ADMIN_EMAIL: "admin@llmrelay.local"
+          ADMIN_PASSWORD: "WikiAdmin2026!"
+          SECRET_KEY: "ci-test-secret-do-not-use"
+          OLLAMA_BASE: "http://localhost:11434"
+          ROUTER_HEALTH_CHECK_ENABLED: "false"
+          MONGO_URL: "mongodb://localhost:27017"
+          DB_NAME: "llm_wiki_dashboard_ci"
         run: |
-          python -m pytest --tb=no -q --no-header 2>&1 | tee /tmp/test_post.txt || true
+          python -m pytest --tb=no -q --no-header --timeout=120 2>&1 | tee /tmp/test_post.txt || true
           echo "exit_code=${PIPESTATUS[0]}" >> "$GITHUB_OUTPUT"
 
       - name: Commit & push fixes
-        if: steps.baseline.outputs.exit_code != '0'
+        if: steps.baseline.outputs.exit_code != '0' && steps.post_fix.outputs.exit_code == '0'
         run: |
           git add -A
           if git diff --staged --quiet; then
             echo "No changes to commit"
           else
-            git commit -m "fix: automated agency fix — failing tests"
-            git push origin master
-            echo "Pushed fixes to master"
+            TRIGGER="${{ github.event_name }}"
+            FAILING="${{ steps.baseline.outputs.failing }}"
+            git commit -m "fix: agency auto-fix — ${FAILING} [trigger: ${TRIGGER}]"
+            git push origin HEAD
+            echo "Pushed fixes to branch"
           fi
 
       - name: Publish agency cycle summary
@@ -153,6 +183,8 @@ jobs:
           ASSESSMENT=$(python3 -c "import json; d=json.load(open('/tmp/assessment.json')); [print('-', i) for i in d['issues']]" 2>/dev/null || echo "Assessment unavailable")
           {
             echo "### Agency Cycle Results — $(date -u '+%Y-%m-%d %H:%M') UTC"
+            echo ""
+            echo "**Trigger:** \`${{ github.event_name }}\`"
             echo ""
             echo "**CEO Assessment:**"
             echo "$ASSESSMENT"
@@ -189,6 +221,8 @@ jobs:
               title: `Agency: Cannot Fix Tests — ${new Date().toISOString().split('T')[0]}`,
               body: [
                 '## Agency Escalation: Tests remain failing after automated fix attempt',
+                '',
+                '**Trigger:** `' + context.eventName + '`',
                 '',
                 '**Baseline failures:**',
                 `\`\`\`\n${baseline.slice(0, 2000)}\n\`\`\``,
