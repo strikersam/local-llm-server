@@ -35,9 +35,84 @@ from enum import Enum
 from pathlib import Path
 from typing import Any
 
+import re
+
 import httpx
 
 log = logging.getLogger("qwen-proxy")
+
+
+# ── GitHub helpers ─────────────────────────────────────────────────────────────
+
+def _gh_token() -> str:
+    return os.environ.get("GH_TOKEN") or os.environ.get("GITHUB_TOKEN", "")
+
+
+def _gh_repo() -> str:
+    return os.environ.get("GITHUB_REPOSITORY", "")
+
+
+async def _fetch_github_quick_notes() -> list[dict]:
+    """Return open GitHub issues labelled 'quick-note' for this repo."""
+    token, repo = _gh_token(), _gh_repo()
+    if not token or not repo:
+        return []
+    async with httpx.AsyncClient(timeout=15) as client:
+        resp = await client.get(
+            f"https://api.github.com/repos/{repo}/issues",
+            params={"state": "open", "labels": "quick-note", "per_page": "30"},
+            headers={
+                "Authorization": f"Bearer {token}",
+                "Accept": "application/vnd.github+json",
+            },
+        )
+    if resp.status_code != 200:
+        log.debug("Agency: GitHub issue fetch returned %d", resp.status_code)
+        return []
+    return [
+        {
+            "number": i["number"],
+            "title": i["title"],
+            "body": (i.get("body") or "")[:800],
+            "labels": [lb["name"] for lb in i.get("labels", [])],
+            "created_at": i.get("created_at", ""),
+        }
+        for i in resp.json()
+    ]
+
+
+async def _close_github_issue(number: int, reason: str = "not_planned") -> None:
+    token, repo = _gh_token(), _gh_repo()
+    if not token or not repo:
+        return
+    async with httpx.AsyncClient(timeout=15) as client:
+        await client.patch(
+            f"https://api.github.com/repos/{repo}/issues/{number}",
+            json={"state": "closed", "state_reason": reason},
+            headers={
+                "Authorization": f"Bearer {token}",
+                "Accept": "application/vnd.github+json",
+            },
+        )
+
+
+def _build_quick_note_instruction(issue: dict) -> str:
+    body = issue.get("body", "")
+    url_m  = re.search(r"https?://\S+", body)
+    task_m = re.search(r"[Tt]ask:\s*(.+?)(?:\n|$)", body)
+    url  = url_m.group(0)  if url_m  else ""
+    task = task_m.group(1).strip() if task_m else body[:300]
+    return (
+        f"Implement GitHub issue #{issue['number']}: {issue['title']}\n\n"
+        + (f"Source URL: {url}\n" if url else "")
+        + f"Task: {task}\n\n"
+        "Instructions:\n"
+        "1. Implement the feature with minimal, correct code in the appropriate module.\n"
+        "2. Add or update tests in tests/.\n"
+        "3. Add an entry to docs/changelog.md under ## [Unreleased] ### Added.\n"
+        "4. Run `pytest -x` and confirm all tests pass.\n"
+        "5. Stage and commit with a descriptive message.\n"
+    )
 
 _REPO_ROOT = Path(__file__).parent.parent
 TICK_INTERVAL_MINUTES = int(os.environ.get("AGENCY_TICK_MINUTES", "15"))
@@ -135,6 +210,7 @@ class Agency:
         self._history: list[AgencyCycleResult] = []
         self._directives: list[AgentDirective] = []
         self._cycle_count = 0
+        self._last_quick_notes: dict = {}  # cached for CEO prompt
 
     # ── Lifecycle ─────────────────────────────────────────────────────────────
 
@@ -172,11 +248,16 @@ class Agency:
         self._cycle_count += 1
         log.info("Agency cycle %s starting (count=%d)", cycle_id, self._cycle_count)
 
+        # Quick-note maintenance: close exhausted issues, dispatch pending ones to Dev
+        qn_directives = await self._handle_quick_notes()
+
         state_context = self._build_state_context()
+        state_context["quick_notes"] = self._last_quick_notes
 
         # CEO assessment — try LLM first, fall back to rule-based
-        assessment, directives = await self._ceo_assess_llm(state_context)
+        assessment, ceo_directives = await self._ceo_assess_llm(state_context)
 
+        directives = qn_directives + ceo_directives
         for directive in directives:
             self._directives.append(directive)
             self._dispatch_directive(directive)
@@ -198,6 +279,50 @@ class Agency:
 
         log.info("Agency cycle %s done — %d directive(s)", cycle_id, len(directives))
         return result
+
+    # ── Quick-note GitHub issue maintenance ──────────────────────────────────
+
+    async def _handle_quick_notes(self) -> list[AgentDirective]:
+        """Close exhausted quick-note issues; dispatch Dev directives for open ones."""
+        directives: list[AgentDirective] = []
+        try:
+            issues = await _fetch_github_quick_notes()
+        except Exception as exc:
+            log.debug("Agency: quick-note fetch failed: %s", exc)
+            return directives
+
+        exhausted = [i for i in issues if "quick-note:exhausted" in i["labels"]]
+        # Issues with no exhausted label and not on their last retry are fair game for Dev
+        actionable = [
+            i for i in issues
+            if "quick-note:exhausted" not in i["labels"]
+        ]
+
+        closed = 0
+        for issue in exhausted:
+            log.info("Agency: auto-closing exhausted quick-note #%d", issue["number"])
+            try:
+                await _close_github_issue(issue["number"])
+                closed += 1
+            except Exception as exc:
+                log.warning("Agency: could not close issue #%d: %s", issue["number"], exc)
+
+        # Dispatch at most one Dev directive per cycle to avoid flooding the queue
+        if actionable:
+            issue = actionable[0]
+            directives.append(self._make_directive(
+                role=AgentRole.DEV,
+                priority=3,
+                title=f"quick-note #{issue['number']}: {issue['title'][:50]}",
+                instruction=_build_quick_note_instruction(issue),
+            ))
+            log.info(
+                "Agency: dispatched Dev for quick-note #%d (%d actionable)",
+                issue["number"], len(actionable),
+            )
+
+        self._last_quick_notes = {"actionable": actionable, "exhausted_closed": closed}
+        return directives
 
     # ── State snapshot ────────────────────────────────────────────────────────
 
@@ -434,8 +559,13 @@ Respond ONLY with valid JSON array of directives. Each directive:
   "instruction": "detailed instruction for the agent (multi-line ok)"
 }
 
-Priority guide: 1=critical test failures, 2=security CVEs, 3=backend errors,
+Priority guide: 1=critical test failures, 2=security CVEs, 3=open quick-note tasks,
 4=code quality, 5=trend evaluation, 6=review, 7=optimization, 8=release check.
+
+Note: open GitHub issues titled "quick-note:*" that are not exhausted represent
+features requested by the repo owner. Treat them as priority 3 dev tasks.
+Exhausted quick-note issues (label: quick-note:exhausted) are handled automatically
+and should not appear in your directives.
 
 Only issue directives where there is real work to do. If all nominal, return [].
 """
@@ -463,6 +593,14 @@ def _build_ceo_prompt(state: dict[str, Any], cycle: int) -> str:
     lines.append(f"\nIssue totals — detected: {loop.get('issues_detected',0)}, "
                  f"resolved: {loop.get('issues_resolved',0)}, "
                  f"scans: {loop.get('scan_count',0)}")
+    qn = state.get("quick_notes", {})
+    if qn.get("actionable"):
+        lines.append(f"\n**OPEN QUICK-NOTE ISSUES ({len(qn['actionable'])}):**")
+        for i in qn["actionable"][:3]:
+            labels = ", ".join(i.get("labels", []))
+            lines.append(f"  #{i['number']} [{labels}] {i['title'][:80]}")
+    if qn.get("exhausted_closed"):
+        lines.append(f"\nAuto-closed {qn['exhausted_closed']} exhausted quick-note issue(s) this cycle.")
     return "\n".join(lines)
 
 

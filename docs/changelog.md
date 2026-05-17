@@ -4,6 +4,8 @@
 ### Added
 - `proxy.py` — `/api/ping` GET endpoint (no auth). Returns `{status: "ok", timestamp: "<ISO-8601 UTC>"}`. Registered before the wildcard `/api/{path:path}` handler so it is never swallowed by the Ollama proxy.
 - `tests/test_ping.py` — 4 tests covering status code, response shape, ISO timestamp validity, and auth-free access.
+- `agent/agency.py` — CEO agency now handles GitHub `quick-note:*` issues autonomously every cycle: (1) issues with the `quick-note:exhausted` label are auto-closed via the GitHub REST API; (2) open actionable quick-note issues (not exhausted) generate a priority-3 Dev directive dispatched to the ClaudeCode/InternalAgent runtime; (3) quick-note state is surfaced in the CEO LLM prompt so the CEO can reason about pending feature requests. New helpers: `_fetch_github_quick_notes()`, `_close_github_issue()`, `_build_quick_note_instruction()`, `Agency._handle_quick_notes()`.
+- `agent/improvement_loop.py` — Added `IssueCategory.QUICK_NOTE` enum value for categorising quick-note feature requests in the improvement state store.
 
 ### Added
 - `tests/test_e2e_agent_chat.py` — end-to-end test for the agent chat code-change flow: real FastAPI app, real auth, real session/job dispatch, real `WorkspaceTools.write_file` to disk, intercepting only outbound LLM HTTP calls via `monkeypatch`. Covers the full Planner → Executor → Verifier → Judge cycle, job polling, status aliases, and MCP server mount.
