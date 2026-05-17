@@ -29,7 +29,7 @@
 - `scripts/agency_fix.py`: validate LLM-supplied edit fields are strings before calling `str.replace()` — prevents `TypeError` crash when the LLM returns `null` for the `new` field.
 - `scripts/agency_fix.py`: normalise `edits` response from LLM — wrap a bare dict in a list and filter out non-dict entries, preventing `AttributeError` if the model returns `{"edits": {...}}` instead of `{"edits": [{...}]}`.
 - `tests/conftest.py`: force `gc.collect()` in a session-scoped async teardown fixture — ensures orphaned asyncio subprocess transports are collected while the event loop is still alive, fixing `PytestUnraisableExceptionWarning: RuntimeError: Event loop is closed` failures on Python 3.13.
-- `pytest.ini`: add `filterwarnings = ignore::pytest.PytestUnraisableExceptionWarning` — belt-and-suspenders for Python 3.13's more aggressive GC which can trigger `BaseSubprocessTransport.__del__` after the session event loop closes, causing spurious test failures.
+- `pytest.ini`: add targeted `filterwarnings` to ignore `PytestUnraisableExceptionWarning` only when it originates from `BaseSubprocessTransport.__del__` — belt-and-suspenders for Python 3.13's more aggressive GC which triggers this destructor after the session event loop closes, causing spurious test failures without masking real unraisable exceptions.
 
 ## [4.1.0] — 2026-05-16
 ### Fixed
