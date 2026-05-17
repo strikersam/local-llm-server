@@ -1,6 +1,9 @@
 # Changelog
 
 ## [Unreleased]
+### Added
+- `proxy.py` — `/api/ping` GET endpoint (no auth). Returns `{status: "ok", timestamp: "<ISO-8601 UTC>"}`. Registered before the wildcard `/api/{path:path}` handler so it is never swallowed by the Ollama proxy.
+- `tests/test_ping.py` — 4 tests covering status code, response shape, ISO timestamp validity, and auth-free access.
 
 ### Fixed
 - CI: add global git identity (`user.email`, `user.name`, `commit.gpgsign false`, `init.defaultBranch main`) before running pytest — ensures `test_commit_tracker.py` git subprocess calls work correctly across all CI runner configurations.
