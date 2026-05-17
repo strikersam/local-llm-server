@@ -32,6 +32,9 @@
 - `.github/workflows/agency-cycle.yml`: replace custom branch-name regex with `git check-ref-format --branch` — the regex incorrectly rejected valid names containing `@` and permitted `:` which Git rejects.
 - `tests/conftest.py`: force `gc.collect()` in a session-scoped async teardown fixture — ensures orphaned asyncio subprocess transports are collected while the event loop is still alive, fixing `PytestUnraisableExceptionWarning: RuntimeError: Event loop is closed` failures on Python 3.13.
 - `pytest.ini`: add `filterwarnings = ignore::pytest.PytestUnraisableExceptionWarning` — suppresses false-positive test failures on Python 3.13 where `BaseSubprocessTransport.__del__` is called by the GC after the session event loop closes; the `_gc_before_loop_close` fixture handles the root cause for cyclic references.
+- `tests/test_agent_chat_integration.py`: convert `test_risky_module_detection_emits_warning`, `test_complex_multi_file_task_parallel_detection`, and `test_spawn_subagent_integrates_into_plan` from sync tests using `asyncio.run()` to proper `async def` tests — eliminates ephemeral event loop creation/destruction per test which triggered `PytestUnraisableExceptionWarning` on Python 3.13's more aggressive GC.
+- `scripts/agency_fix.py`: use `fpath.is_file()` instead of `fpath.exists()` before reading content — prevents `IsADirectoryError` when LLM supplies a directory path as an edit target.
+- `scripts/agency_fix.py`: validate that `parsed` is a `dict` before calling `.get()` — prevents `AttributeError` crash when the LLM returns a top-level array or string instead of a JSON object.
 
 ## [4.1.0] — 2026-05-16
 ### Fixed

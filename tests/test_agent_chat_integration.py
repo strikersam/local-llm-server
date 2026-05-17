@@ -10,7 +10,6 @@ Covers:
 """
 from __future__ import annotations
 
-import asyncio
 import json
 import logging
 import os
@@ -235,7 +234,7 @@ def test_agent_runner_singleton_uses_nim_when_key_set(
 # Test: risky module detection fires a warning
 # ---------------------------------------------------------------------------
 
-def test_risky_module_detection_emits_warning(
+async def test_risky_module_detection_emits_warning(
     tmp_path: Path, caplog: pytest.LogCaptureFixture
 ) -> None:
     root = tmp_path / "repo"
@@ -257,14 +256,12 @@ def test_risky_module_detection_emits_warning(
 
     with mock.patch.object(AgentRunner, "_chat_text", fake_chat_text), \
          caplog.at_level(logging.WARNING, logger="qwen-agent"):
-        result = asyncio.run(
-            runner.run(
-                instruction="Change admin auth behaviour",
-                history=[],
-                requested_model=None,
-                auto_commit=False,
-                max_steps=3,
-            )
+        result = await runner.run(
+            instruction="Change admin auth behaviour",
+            history=[],
+            requested_model=None,
+            auto_commit=False,
+            max_steps=3,
         )
 
     assert any("RISKY MODULE" in r.message for r in caplog.records), \
@@ -276,7 +273,7 @@ def test_risky_module_detection_emits_warning(
 # Test: complex multi-file task with 3 independent steps triggers parallel check
 # ---------------------------------------------------------------------------
 
-def test_complex_multi_file_task_parallel_detection(tmp_path: Path) -> None:
+async def test_complex_multi_file_task_parallel_detection(tmp_path: Path) -> None:
     from agent.loop import AgentRunner as Runner
     root = tmp_path / "repo"
     root.mkdir()
@@ -315,14 +312,12 @@ def test_complex_multi_file_task_parallel_detection(tmp_path: Path) -> None:
 
     with mock.patch.object(Runner, "_chat_text", fake_chat_text), \
          mock.patch.object(Runner, "_maybe_run_parallel", spy_maybe_parallel):
-        result = asyncio.run(
-            runner.run(
-                instruction="Update three modules independently",
-                history=[],
-                requested_model=None,
-                auto_commit=False,
-                max_steps=5,
-            )
+        result = await runner.run(
+            instruction="Update three modules independently",
+            history=[],
+            requested_model=None,
+            auto_commit=False,
+            max_steps=5,
         )
 
     assert maybe_parallel_called["called"], "_maybe_run_parallel was not called"
@@ -338,7 +333,7 @@ def test_complex_multi_file_task_parallel_detection(tmp_path: Path) -> None:
 # Test: spawn_subagent is called and its result surfaces in the run output
 # ---------------------------------------------------------------------------
 
-def test_spawn_subagent_integrates_into_plan(tmp_path: Path) -> None:
+async def test_spawn_subagent_integrates_into_plan(tmp_path: Path) -> None:
     root = tmp_path / "repo"
     root.mkdir()
     (root / "main.py").write_text("# main\n")
@@ -362,14 +357,12 @@ def test_spawn_subagent_integrates_into_plan(tmp_path: Path) -> None:
 
     with mock.patch.object(AgentRunner, "_chat_text", fake_chat_text), \
          mock.patch.object(runner, "_spawn_subagent", spawn_mock):
-        result = asyncio.run(
-            runner.run(
-                instruction="Analyze and fix main.py",
-                history=[],
-                requested_model=None,
-                auto_commit=False,
-                max_steps=3,
-            )
+        result = await runner.run(
+            instruction="Analyze and fix main.py",
+            history=[],
+            requested_model=None,
+            auto_commit=False,
+            max_steps=3,
         )
 
     # Verify spawn_subagent was actually invoked with the expected instruction

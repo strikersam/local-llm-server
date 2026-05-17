@@ -223,8 +223,8 @@ def apply_edits(edits: list[dict[str, str]]) -> list[str]:
         if rel_resolved.parts[0:1] == ("tests",):
             log.warning("skip %s — refusing to edit test files", rel)
             continue
-        if not fpath.exists():
-            log.warning("skip %s — file not found", rel)
+        if not fpath.is_file():
+            log.warning("skip %s — not a regular file", rel)
             continue
         content = fpath.read_text(errors="replace")
         if old not in content:
@@ -296,6 +296,9 @@ def main() -> int:
             break
 
         parsed = parse_edits(response)
+        if not isinstance(parsed, dict):
+            log.warning("LLM response parsed to non-dict type %s; skipping.", type(parsed).__name__)
+            break
         explanation = parsed.get("explanation", "")
         raw_edits = parsed.get("edits", [])
         # Normalise: a single dict response is wrapped into a list; anything
