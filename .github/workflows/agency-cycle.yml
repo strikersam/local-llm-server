@@ -178,8 +178,8 @@ jobs:
             else
               TARGET_BRANCH="${GITHUB_REF_NAME}"
             fi
-            # Validate branch name — must contain only safe characters.
-            if ! echo "${TARGET_BRANCH}" | grep -qE '^[a-zA-Z0-9_./:-]+$'; then
+            # Validate branch name using git's own rules.
+            if ! git check-ref-format --branch "${TARGET_BRANCH}" > /dev/null 2>&1; then
               echo "ERROR: Unsafe branch name rejected: ${TARGET_BRANCH}"
               exit 1
             fi

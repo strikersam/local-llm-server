@@ -230,6 +230,9 @@ def apply_edits(edits: list[dict[str, str]]) -> list[str]:
         if old not in content:
             log.warning("skip %s — old string not found", rel)
             continue
+        if content.count(old) != 1:
+            log.warning("skip %s — old string matches %d locations (must be unique)", rel, content.count(old))
+            continue
         fpath.write_text(content.replace(old, new, 1))
         applied.append(rel)
         log.info("edit applied: %s", rel)
