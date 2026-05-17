@@ -2,6 +2,9 @@
 
 ## [Unreleased]
 
+### Added
+- `tests/test_e2e_agent_chat.py` — end-to-end test for the agent chat code-change flow: real FastAPI app, real auth, real session/job dispatch, real `WorkspaceTools.write_file` to disk, intercepting only outbound LLM HTTP calls via `monkeypatch`. Covers the full Planner → Executor → Verifier → Judge cycle, job polling, status aliases, and MCP server mount.
+
 ### Fixed
 - CI: add global git identity (`user.email`, `user.name`, `commit.gpgsign false`, `init.defaultBranch main`) before running pytest — ensures `test_commit_tracker.py` git subprocess calls work correctly across all CI runner configurations.
 - CI: add `pytest-timeout>=2.3.1` to requirements and `--timeout=120` to pytest command — prevents hanging tests from occupying the full 6-hour GitHub Actions job limit and makes timeout failures identifiable; 120 s gives slow runners 2-3× headroom over the local 104 s full-suite runtime.
