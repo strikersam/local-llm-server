@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 ### Fixed
+- CI: remove stale `.claude/worktrees/` gitlinks from git index and add to `.gitignore` — these orphaned git worktrees were tracked as mode-160000 gitlinks without a `.gitmodules` URL entry, causing every `actions/checkout` step to fail with "exit code 128 — No url found for submodule path". This was the root cause of ALL CI failures (lint 4s, frontend 4s, test 29s, CodeQL 7s).
+- CI: fix `github/codeql-action` from non-existent `@v4` to `@v3` in `codeql.yml`.
 - CI: fix non-existent GitHub Actions versions across all workflow files — `checkout@v6`→`v4`, `setup-python@v6`→`v5`, `setup-node@v6`→`v4`, `upload-artifact@v7`→`v4`. These invalid versions caused all CI jobs to fail immediately at the first step before any user-defined code ran.
 - `scripts/agency_fix.py`: restrict LLM edits to in-repo non-test source files — resolve paths with `relative_to(REPO_ROOT)` and reject `tests/` paths and any traversal outside the repo root (P1 security fix).
 - `scripts/agency_fix.py`: preserve real baseline exit status when reading from a saved pytest output file — derive `exit_code` from whether FAILED lines are present rather than hardcoding `1`, so a green baseline log correctly short-circuits the fix loop (P2 correctness fix).

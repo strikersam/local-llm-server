@@ -262,7 +262,9 @@ def main() -> int:
     initial_output_file = Path(sys.argv[1]) if len(sys.argv) > 1 else None
     if initial_output_file and initial_output_file.exists():
         pytest_output = initial_output_file.read_text()
-        exit_code = 0 if not extract_failing_tests(pytest_output) else 1
+        has_failures = bool(extract_failing_tests(pytest_output))
+        has_errors = bool(re.search(r"^(ERROR|FAILED)\s", pytest_output, re.MULTILINE))
+        exit_code = 0 if not (has_failures or has_errors) else 1
     else:
         log.info("Running pytest baseline...")
         exit_code, pytest_output = run_pytest()
