@@ -22,10 +22,15 @@ jobs:
   ceo-assess-and-dispatch:
     name: CEO Assessment & Agent Dispatch
     runs-on: ubuntu-latest
-    # On workflow_run events, only act when the CI failed
+    # Security gates:
+    # 1. workflow_run: only act on failures AND only on commits from THIS repo
+    #    (never forks) to prevent untrusted code running with write permissions.
+    # 2. All other triggers: always run.
     if: >
-      github.event_name != 'workflow_run' ||
-      github.event.workflow_run.conclusion == 'failure'
+      github.event_name != 'workflow_run' || (
+        github.event.workflow_run.conclusion == 'failure' &&
+        github.event.workflow_run.head_repository.full_name == github.repository
+      )
 
     permissions:
       contents: write
@@ -51,8 +56,8 @@ jobs:
         with:
           fetch-depth: 0
           token: ${{ secrets.GITHUB_TOKEN }}
-          # For workflow_run triggers, check out the commit that actually failed
-          # rather than the default branch (which is what GITHUB_REF resolves to).
+          # For workflow_run on our own repo: check out the failing commit SHA.
+          # This is safe because the fork gate above blocks untrusted branches.
           ref: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || github.sha }}
 
       - name: Set up Python
@@ -154,20 +159,29 @@ jobs:
 
       - name: Commit & push fixes
         if: steps.baseline.outputs.exit_code != '0' && steps.post_fix.outputs.exit_code == '0'
+        # Pass user-controlled values through env vars, never inline in the shell
+        # script, to prevent branch-name shell injection (CodeQL CWE-78).
+        env:
+          TRIGGER: ${{ github.event_name }}
+          FAILING: ${{ steps.baseline.outputs.failing }}
+          WR_HEAD_BRANCH: ${{ github.event.workflow_run.head_branch }}
         run: |
           git add -A
           if git diff --staged --quiet; then
             echo "No changes to commit"
           else
-            TRIGGER="${{ github.event_name }}"
-            FAILING="${{ steps.baseline.outputs.failing }}"
-            # Resolve the target branch so we can push in detached-HEAD mode.
-            # workflow_run: use head_branch from the triggering run.
-            # All other triggers: GITHUB_REF_NAME is the branch name.
-            if [ "$TRIGGER" = "workflow_run" ]; then
-              TARGET_BRANCH="${{ github.event.workflow_run.head_branch }}"
+            # Resolve the target branch for detached-HEAD pushes.
+            # workflow_run: head_branch comes from the triggering run.
+            # All other triggers: GITHUB_REF_NAME is the current branch.
+            if [ "${TRIGGER}" = "workflow_run" ]; then
+              TARGET_BRANCH="${WR_HEAD_BRANCH}"
             else
               TARGET_BRANCH="${GITHUB_REF_NAME}"
+            fi
+            # Validate branch name — must contain only safe characters.
+            if ! echo "${TARGET_BRANCH}" | grep -qE '^[a-zA-Z0-9_./:-]+$'; then
+              echo "ERROR: Unsafe branch name rejected: ${TARGET_BRANCH}"
+              exit 1
             fi
             git commit -m "fix: agency auto-fix — ${FAILING} [trigger: ${TRIGGER}]"
             git push origin "HEAD:refs/heads/${TARGET_BRANCH}"
