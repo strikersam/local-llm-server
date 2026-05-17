@@ -81,7 +81,10 @@ class MCPClient:
 
     async def _rpc(self, method: str, params: dict[str, Any] | None = None) -> Any:
         if not self.base_url:
-            raise MCPUnavailableError("MCP_SERVER_BASE_URL not configured")
+            raise MCPUnavailableError(
+                "MCP server not reachable — set MCP_SERVER_BASE_URL to the /mcp-internal endpoint "
+                "(e.g. https://local-llm-server.onrender.com/mcp-internal)"
+            )
         if self._is_open():
             raise MCPUnavailableError("MCP server circuit breaker is open; using local tools")
 

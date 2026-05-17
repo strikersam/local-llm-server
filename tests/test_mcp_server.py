@@ -281,7 +281,7 @@ class TestMCPClient:
         client = get_mcp_client("")
         assert client is not None
         assert client.base_url == ""
-        with pytest.raises(MCPUnavailableError, match="not configured"):
+        with pytest.raises(MCPUnavailableError, match="not reachable"):
             asyncio.run(client._rpc("tools/list"))
 
     def test_circuit_breaker_opens_after_failures(self):
