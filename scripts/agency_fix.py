@@ -294,7 +294,12 @@ def main() -> int:
 
         parsed = parse_edits(response)
         explanation = parsed.get("explanation", "")
-        edits = parsed.get("edits", [])
+        raw_edits = parsed.get("edits", [])
+        # Normalise: a single dict response is wrapped into a list; anything
+        # other than a list of dicts is discarded.
+        if isinstance(raw_edits, dict):
+            raw_edits = [raw_edits]
+        edits = [e for e in raw_edits if isinstance(e, dict)] if isinstance(raw_edits, list) else []
         log.info("LLM explanation: %s", explanation)
 
         if not edits:
