@@ -2962,6 +2962,17 @@ async def list_models_openai(auth: AuthContext = Depends(verify_api_key)):
 # ─── Ollama native routes (/api/*) ─────────────────────────────────────────────
 
 
+class PingResponse(BaseModel):
+    status: str
+    timestamp: str
+
+
+@app.get("/api/ping", response_model=PingResponse)
+async def api_ping():
+    from datetime import datetime, timezone
+    return PingResponse(status="ok", timestamp=datetime.now(timezone.utc).isoformat())
+
+
 @app.api_route("/api/{path:path}", methods=["GET", "POST", "PUT", "DELETE"])
 async def ollama_api(
     path: str, request: Request, auth: AuthContext = Depends(verify_api_key)

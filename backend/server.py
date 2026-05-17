@@ -5395,6 +5395,16 @@ app.include_router(secrets_router)
 # same database as the rest of the app.
 get_secrets_store(db=db)
 
+# ─── Mount MCP server in-process ────────────────────────────────────────────
+# Serves at /mcp-internal so MCP_SERVER_BASE_URL can point at this service's
+# own external URL without needing a separate container or paid disk.
+try:
+    from mcp_server.server import app as _mcp_app
+    app.mount("/mcp-internal", _mcp_app)
+    log.info("MCP server mounted at /mcp-internal")
+except Exception as _mcp_err:
+    log.warning("MCP server not mounted: %s", _mcp_err)
+
 # ─── Serve React Frontend (Replit compatibility) ────────────────────────────────
 # Mount the built React app and serve index.html for unknown routes (SPA routing)
 

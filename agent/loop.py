@@ -799,7 +799,7 @@ class AgentRunner:
             try:
                 return await self._mcp_call(tool, args)
             except MCPUnavailableError as exc:
-                return f"[tool error: mcp server unreachable — {exc}. Ensure the MCP server is running (docker compose up mcp-server).]"
+                return f"[tool error: mcp server unreachable — {exc}]"
 
         # GitHub Tools
         if tool == "github_get_issue":

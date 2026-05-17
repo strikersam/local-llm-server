@@ -1,6 +1,9 @@
 # Changelog
 
 ## [Unreleased]
+### Added
+- `proxy.py` — `/api/ping` GET endpoint (no auth). Returns `{status: "ok", timestamp: "<ISO-8601 UTC>"}`. Registered before the wildcard `/api/{path:path}` handler so it is never swallowed by the Ollama proxy.
+- `tests/test_ping.py` — 4 tests covering status code, response shape, ISO timestamp validity, and auth-free access.
 
 ### Added
 - `scripts/agency_fix.py` — Standalone LLM-powered fix agent using NVIDIA NIM (`qwen2.5-coder-32b-instruct`) with Anthropic fallback. Analyses failing pytest output, calls the LLM for JSON-formatted code edits, applies them, re-runs pytest to verify green, and updates changelog. Up to 3 fix iterations per cycle.

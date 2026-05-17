@@ -1,5 +1,8 @@
 FROM python:3.11-slim
 
+# git is required by mcp_server workspace tools (clone_repo, git_commit, etc.)
+RUN apt-get update && apt-get install -y --no-install-recommends git && rm -rf /var/lib/apt/lists/*
+
 WORKDIR /app
 
 COPY backend/requirements.txt backend/requirements.txt
@@ -9,6 +12,7 @@ COPY backend/ backend/
 COPY agent/ agent/
 COPY router/ router/
 COPY agents/ agents/
+COPY mcp_server/ mcp_server/
 COPY schedules/ schedules/
 COPY docker/ docker/
 COPY runtimes/ runtimes/
