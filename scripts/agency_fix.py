@@ -60,20 +60,23 @@ def call_llm(messages: list[dict[str, str]]) -> str:
             log.warning("NVIDIA NIM call failed (%s) — falling back to Anthropic", exc)
 
     if ANTHROPIC_KEY:
-        import anthropic  # type: ignore[import]
-        client = anthropic.Anthropic(api_key=ANTHROPIC_KEY)
-        system = next((m["content"] for m in messages if m["role"] == "system"), "")
-        user_msgs = [{"role": m["role"], "content": m["content"]} for m in messages if m["role"] != "system"]
-        resp = client.messages.create(
-            model=ANTHROPIC_MODEL,
-            system=system,
-            messages=user_msgs,  # type: ignore[arg-type]
-            max_tokens=8192,
-        )
-        if not resp.content:
-            log.warning("Anthropic returned empty content list")
-            return ""
-        return resp.content[0].text  # type: ignore[union-attr]
+        try:
+            import anthropic  # type: ignore[import]
+            client = anthropic.Anthropic(api_key=ANTHROPIC_KEY)
+            system = next((m["content"] for m in messages if m["role"] == "system"), "")
+            user_msgs = [{"role": m["role"], "content": m["content"]} for m in messages if m["role"] != "system"]
+            resp = client.messages.create(
+                model=ANTHROPIC_MODEL,
+                system=system,
+                messages=user_msgs,  # type: ignore[arg-type]
+                max_tokens=8192,
+            )
+            if not resp.content:
+                log.warning("Anthropic returned empty content list")
+                return ""
+            return resp.content[0].text  # type: ignore[union-attr]
+        except Exception as exc:
+            log.warning("Anthropic call failed (%s)", exc)
 
     return ""
 

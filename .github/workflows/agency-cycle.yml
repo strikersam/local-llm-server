@@ -70,7 +70,7 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt 2>&1 | tail -5
-          pip install openai 2>&1 | tail -2
+          pip install openai anthropic 2>&1 | tail -2
 
       - name: Configure git identity
         run: |
