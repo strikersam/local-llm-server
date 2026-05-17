@@ -8,7 +8,11 @@
 - `agent/improvement_loop.py` — Added `IssueCategory.QUICK_NOTE` enum value for categorising quick-note feature requests in the improvement state store.
 
 ### Added
-- `tests/test_e2e_agent_chat.py` — end-to-end test for the agent chat code-change flow: real FastAPI app, real auth, real session/job dispatch, real `WorkspaceTools.write_file` to disk, intercepting only outbound LLM HTTP calls via `monkeypatch`. Covers the full Planner → Executor → Verifier → Judge cycle, job polling, status aliases, MCP server mount, `clone_repo` MCP routing, and the localhost MCP fallback.
+- `tests/test_mcp_workspace_git.py` — 36 tests covering the full MCP workspace git stack via real JSON-RPC to `/mcp-internal/mcp`: protocol handshake, clone (local bare repo), read/head/list/search, git status/diff, branch creation, commit (all-files and specific-paths), push, full code-change workflow, sequential multi-commit branches, workspace lifecycle, error paths (bad IDs, path traversal, missing files).
+- `tests/test_e2e_agent_chat.py` — extended with 13 new tests: GitHub API tools (`create_branch`, `open_pull_request`, `merge_pull_request`, `get_issue`), MCP git agent dispatch (`git_status`, `git_diff`, `git_create_branch`, `git_commit`, `git_push`), full PR workflow (write→commit→push→open PR→merge PR), issue-to-PR workflow, 2-step sequential plan, and post-merge comment chaining.
+- `agent/github_tools.py`: `merge_pull_request()` method — merges a PR via `PUT /repos/{owner}/{repo}/pulls/{pr}/merge` with configurable merge method and commit title.
+- `agent/loop.py` + `agent/models.py`: `github_merge_pull_request` tool dispatch and `ToolCall` Literal — agents can now merge PRs as part of a workflow.
+- `_build_agent_http_mock()` helper in e2e tests — unified httpx mock routing LLM calls, MCP JSON-RPC, and GitHub API (POST/GET/PUT) by URL pattern, enabling full workflow simulation without any real network calls.
 
 ### Fixed
 - `agent/mcp_client.py`: `get_mcp_client()` now constructs a localhost URL (`http://127.0.0.1:{PORT}/mcp-internal`) when `MCP_SERVER_BASE_URL` is not set, instead of returning a no-URL client. The MCP server is mounted in-process, so `clone_repo`, `git_status`, `git_commit` and all other MCP-only tools now reach it automatically without requiring the env var. This fixes the `[tool error: mcp server unreachable]` errors seen on every `clone_repo` call in the Live Agent Workspace, and the downstream `[Errno 2] No such file or directory` failures on `head_file` (which occurred because the repo was never cloned).

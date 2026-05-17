@@ -246,6 +246,28 @@ class GitHubTools:
             resp.raise_for_status()
             return resp.json()
 
+    async def merge_pull_request(
+        self,
+        owner: str,
+        repo: str,
+        pull_number: int,
+        merge_method: str = "merge",
+        commit_title: str | None = None,
+    ) -> dict[str, Any]:
+        """Merge an open pull request via the GitHub API."""
+        self._validate_repo_parts(owner, repo)
+        payload: dict[str, Any] = {"merge_method": merge_method}
+        if commit_title:
+            payload["commit_title"] = commit_title
+        async with httpx.AsyncClient(timeout=10) as client:
+            resp = await client.put(
+                f"{self.base_url}/repos/{owner}/{repo}/pulls/{pull_number}/merge",
+                headers=self._headers(),
+                json=payload,
+            )
+            resp.raise_for_status()
+            return resp.json()
+
     # ── backwards compat shims (old single-string owner/repo argument) ─────────
 
     async def read_repo_file_compat(
