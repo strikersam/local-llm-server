@@ -1,7 +1,7 @@
 {
-  "last_scan": "2026-05-16T21:07:51Z",
-  "scan_count": 6,
-  "issues_detected": 20,
+  "last_scan": "2026-05-17T05:16:00Z",
+  "scan_count": 8,
+  "issues_detected": 22,
   "issues_resolved": 2,
   "active_issues": [
     {
@@ -313,6 +313,30 @@
       "file_path": "./proxy.py",
       "line_number": 989,
       "detected_at": "2026-05-16T20:39:48Z",
+      "task_id": null,
+      "resolved": false
+    },
+    {
+      "issue_id": "sec_0cc0af12",
+      "category": "security",
+      "severity": "high",
+      "title": "Potential hardcoded API key in tests/test_security_scanner.py:51",
+      "description": "A pattern matching `Potential hardcoded API key` was found in `tests/test_security_scanner.py` at line 51.\n\nSnippet: `'API_KEY = \"sk-abcdefghijklmnopqrstuvwxyz1234\"\\n'`\n\nIf this is a real credential, rotate it immediately and move it to an env var.",
+      "file_path": "tests/test_security_scanner.py",
+      "line_number": 51,
+      "detected_at": "2026-05-17T05:12:39Z",
+      "task_id": null,
+      "resolved": false
+    },
+    {
+      "issue_id": "sec_462f4513",
+      "category": "security",
+      "severity": "high",
+      "title": "Potential hardcoded API key in tests/test_security_scanner.py:60",
+      "description": "A pattern matching `Potential hardcoded API key` was found in `tests/test_security_scanner.py` at line 60.\n\nSnippet: `'# API_KEY = \"sk-abcdefghijklmnopqrstuvwxyz1234\"\\n'`\n\nIf this is a real credential, rotate it immediately and move it to an env var.",
+      "file_path": "tests/test_security_scanner.py",
+      "line_number": 60,
+      "detected_at": "2026-05-17T05:12:39Z",
       "task_id": null,
       "resolved": false
     }
