@@ -2,6 +2,9 @@
 
 Common problems and how to fix them. For configuration details, see [docs/configuration-reference.md](configuration-reference.md).
 
+For **CI / GitHub Actions failures**, see the dedicated runbook:
+[docs/runbooks/ci-troubleshooting.md](runbooks/ci-troubleshooting.md)
+
 ---
 
 ## Quick Diagnostics

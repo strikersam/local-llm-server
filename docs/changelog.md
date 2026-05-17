@@ -4,13 +4,17 @@
 
 ### Fixed
 - CI: add global git identity (`user.email`, `user.name`, `commit.gpgsign false`, `init.defaultBranch main`) before running pytest — ensures `test_commit_tracker.py` git subprocess calls work correctly across all CI runner configurations.
-- CI: add `pytest-timeout>=2.3.1` to requirements and `--timeout=60` to pytest command — prevents hanging tests from occupying the full 6-hour GitHub Actions job limit and makes timeout failures identifiable.
+- CI: add `pytest-timeout>=2.3.1` to requirements and `--timeout=120` to pytest command — prevents hanging tests from occupying the full 6-hour GitHub Actions job limit and makes timeout failures identifiable; 120 s gives slow runners 2-3× headroom over the local 104 s full-suite runtime.
+- CI: add `persist-credentials: false` to all `actions/checkout` steps — prevents Post Checkout git credential cleanup from failing with exit code 128 on certain GitHub Actions runners, which was causing all three CI jobs (test, lint, frontend) to report spurious git failures.
 - CI: upgrade `github/codeql-action` from v3 to v4 in `codeql.yml` — v3 actions were failing.
 - CI: fix `process-quick-note.yml` YAML syntax — bash heredoc content at column 0 conflicted with YAML block scalar indentation rules, causing the parser to fail with "0 jobs". Indented all heredoc content to match the block scalar level (10 spaces); YAML strips the indentation before passing to bash, so the shell correctly sees the heredoc delimiter at column 0.
 - Frontend: downgraded `react-router-dom` from `^7.x` to `^6.28.2` — react-router-dom v7 uses ESM sub-path exports (`react-router/dom`) that Jest 27 (bundled with react-scripts@5) cannot resolve, causing all router-dependent tests to fail with "Cannot find module".
 - Frontend: added `@testing-library/dom@^10.4.0` to `devDependencies` — `@testing-library/react@16` declares it as a peer dep but npm doesn't auto-install peers, causing "Cannot find module @testing-library/dom" errors.
 - Frontend: test isolation — changed CI test command to `--watchAll=false --forceExit --runInBand` to prevent async timer leaks between test suites from causing flaky failures.
 - Frontend: updated `controlPlanePage.test.js` to match current v4.1 heading text (was asserting `v4.0`).
+
+### Added
+- `docs/runbooks/ci-troubleshooting.md` — captures all CI/GitHub Actions failure patterns and fixes discovered during v4.1 stabilisation: YAML heredoc indentation rules, `persist-credentials: false`, `pytest-timeout`, react-router-dom v7 + Jest 27 incompatibility, `@testing-library/dom` peer dep, Python 3.13 compatibility status.
 
 ## [4.1.0] — 2026-05-16
 ### Fixed
