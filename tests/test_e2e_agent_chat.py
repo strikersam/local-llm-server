@@ -255,3 +255,86 @@ class TestAgentChatE2E:
             f"/mcp-internal/health returned {resp.status_code}. "
             "mcp_server/ may not be mounted — check backend/server.py MCP mount block."
         )
+
+    def test_mcp_client_localhost_fallback(self, monkeypatch) -> None:
+        """
+        get_mcp_client() must resolve to localhost when MCP_SERVER_BASE_URL is
+        absent — the MCP server is mounted in-process, so self-calls work.
+        This catches the production bug where clone_repo always returned
+        '[tool error: mcp server unreachable]' because MCP_SERVER_BASE_URL
+        was never set in the Render container.
+        """
+        import agent.mcp_client as _m
+        monkeypatch.delenv("MCP_SERVER_BASE_URL", raising=False)
+        monkeypatch.setattr(_m, "_client", None)
+        monkeypatch.setenv("PORT", "9999")
+        client_obj = _m.get_mcp_client()
+        assert client_obj.base_url == "http://127.0.0.1:9999/mcp-internal", (
+            f"Expected localhost fallback, got: {client_obj.base_url!r}. "
+            "clone_repo / git tools will fail in production if this isn't set."
+        )
+
+    def test_clone_repo_hits_mcp_not_crashes(
+        self, client: TestClient, monkeypatch
+    ) -> None:
+        """
+        clone_repo must route through the MCP client (not crash the agent loop).
+        With the localhost fallback fix, the MCP client calls /mcp-internal/mcp.
+        We verify the agent job completes (succeeded or failed) — never 'cancelled'
+        or 500, which would indicate the background task panicked.
+        """
+        import backend.server as srv
+
+        responses = [PLAN_JSON, EXECUTOR_JSON, VERIFIER_JSON, JUDGE_JSON]
+        monkeypatch.setattr("httpx.AsyncClient.post", _nim_post_factory(responses))
+
+        # Plan that uses clone_repo so the MCP path is exercised
+        clone_plan = json.dumps({
+            "goal": "Clone a repo",
+            "steps": [
+                {
+                    "id": 1,
+                    "description": "Clone the repo",
+                    "files": [],
+                    "type": "create",
+                    "risky": False,
+                    "acceptance": "repo cloned",
+                }
+            ],
+            "risks": [],
+            "requires_risky_review": False,
+        })
+        clone_executor = json.dumps({
+            "tool": "clone_repo",
+            "args": {
+                "workspace_id": "test-ws",
+                "repo_url": "https://github.com/example/nonexistent",
+                "branch": "main",
+            },
+            "explanation": "Cloning repo",
+        })
+
+        monkeypatch.setattr(
+            "httpx.AsyncClient.post",
+            _nim_post_factory([clone_plan, clone_executor, VERIFIER_JSON, JUDGE_JSON]),
+        )
+
+        headers = _auth_headers(client)
+        resp = client.post(
+            "/api/chat/send",
+            headers=headers,
+            json={
+                "session_id": f"mcp-{uuid.uuid4()}",
+                "agent_mode": True,
+                "content": "Clone https://github.com/example/nonexistent",
+            },
+        )
+        assert resp.status_code == 202, resp.text
+        job_id = resp.json()["job_id"]
+
+        job = _poll_job(client, headers, job_id, timeout=30.0)
+        # Job must reach a terminal state — never stuck or 500
+        assert job["status"] in {"succeeded", "failed"}, (
+            f"Job stuck in '{job['status']}' — agent loop may have crashed.\n"
+            f"Progress: {[e['phase'] + ': ' + e['message'] for e in job.get('progress_events', [])]}"
+        )

@@ -8,9 +8,11 @@
 - `agent/improvement_loop.py` — Added `IssueCategory.QUICK_NOTE` enum value for categorising quick-note feature requests in the improvement state store.
 
 ### Added
-- `tests/test_e2e_agent_chat.py` — end-to-end test for the agent chat code-change flow: real FastAPI app, real auth, real session/job dispatch, real `WorkspaceTools.write_file` to disk, intercepting only outbound LLM HTTP calls via `monkeypatch`. Covers the full Planner → Executor → Verifier → Judge cycle, job polling, status aliases, and MCP server mount.
+- `tests/test_e2e_agent_chat.py` — end-to-end test for the agent chat code-change flow: real FastAPI app, real auth, real session/job dispatch, real `WorkspaceTools.write_file` to disk, intercepting only outbound LLM HTTP calls via `monkeypatch`. Covers the full Planner → Executor → Verifier → Judge cycle, job polling, status aliases, MCP server mount, `clone_repo` MCP routing, and the localhost MCP fallback.
 
 ### Fixed
+- `agent/mcp_client.py`: `get_mcp_client()` now constructs a localhost URL (`http://127.0.0.1:{PORT}/mcp-internal`) when `MCP_SERVER_BASE_URL` is not set, instead of returning a no-URL client. The MCP server is mounted in-process, so `clone_repo`, `git_status`, `git_commit` and all other MCP-only tools now reach it automatically without requiring the env var. This fixes the `[tool error: mcp server unreachable]` errors seen on every `clone_repo` call in the Live Agent Workspace, and the downstream `[Errno 2] No such file or directory` failures on `head_file` (which occurred because the repo was never cloned).
+
 - CI: add global git identity (`user.email`, `user.name`, `commit.gpgsign false`, `init.defaultBranch main`) before running pytest — ensures `test_commit_tracker.py` git subprocess calls work correctly across all CI runner configurations.
 - CI: add `pytest-timeout>=2.3.1` to requirements and `--timeout=120` to pytest command — prevents hanging tests from occupying the full 6-hour GitHub Actions job limit and makes timeout failures identifiable; 120 s gives slow runners 2-3× headroom over the local 104 s full-suite runtime.
 - CI: add `persist-credentials: false` to all `actions/checkout` steps — prevents Post Checkout git credential cleanup from failing with exit code 128 on certain GitHub Actions runners, which was causing all three CI jobs (test, lint, frontend) to report spurious git failures.
