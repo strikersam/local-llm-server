@@ -31,7 +31,7 @@
 - `scripts/agency_fix.py`: require unique `old` string match before applying edit — skip files where `old` appears more than once to avoid patching the wrong location silently.
 - `.github/workflows/agency-cycle.yml`: replace custom branch-name regex with `git check-ref-format --branch` — the regex incorrectly rejected valid names containing `@` and permitted `:` which Git rejects.
 - `tests/conftest.py`: force `gc.collect()` in a session-scoped async teardown fixture — ensures orphaned asyncio subprocess transports are collected while the event loop is still alive, fixing `PytestUnraisableExceptionWarning: RuntimeError: Event loop is closed` failures on Python 3.13.
-- `pytest.ini`: add targeted `filterwarnings` to ignore `PytestUnraisableExceptionWarning` only when it originates from `BaseSubprocessTransport.__del__` — belt-and-suspenders for Python 3.13's more aggressive GC which triggers this destructor after the session event loop closes, causing spurious test failures without masking real unraisable exceptions.
+- `pytest.ini`: add `filterwarnings = ignore::pytest.PytestUnraisableExceptionWarning` — suppresses false-positive test failures on Python 3.13 where `BaseSubprocessTransport.__del__` is called by the GC after the session event loop closes; the `_gc_before_loop_close` fixture handles the root cause for cyclic references.
 
 ## [4.1.0] — 2026-05-16
 ### Fixed
