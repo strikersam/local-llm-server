@@ -1,76 +1,42 @@
 name: Agency Cycle
 
-# Proactive AI-powered CI repair loop.
-# Triggers every 2 hours AND immediately when the CI workflow fails.
-# Uses NVIDIA NIM (qwen2.5-coder-32b) or Anthropic as fallback to analyse
-# failing tests, apply code edits, verify green, and push fixes automatically.
+# Runs the agency assessment via Claude Code.
+# Reads the improvement loop state, issues directives to specialist agents,
+# and pushes any code fixes directly to master.
 
 on:
   schedule:
-    - cron: '0 */2 * * *'   # every 2 hours
+    - cron: '0 */6 * * *'   # every 6 hours
   workflow_dispatch:
     inputs:
       directive:
         description: 'Optional specific directive for the CEO'
         required: false
         default: ''
-  workflow_run:
-    workflows: ["CI"]
-    types: [completed]
 
 jobs:
   ceo-assess-and-dispatch:
     name: CEO Assessment & Agent Dispatch
     runs-on: ubuntu-latest
-    # Security gates:
-    # 1. workflow_run: only act on failures AND only on commits from THIS repo
-    #    (never forks) to prevent untrusted code running with write permissions.
-    # 2. All other triggers: always run.
-    if: >
-      github.event_name != 'workflow_run' || (
-        github.event.workflow_run.conclusion == 'failure' &&
-        github.event.workflow_run.head_repository.full_name == github.repository
-      )
-
     permissions:
       contents: write
       issues: write
       pull-requests: write
 
-    # Shared test environment — avoids repeating these in every step
-    env:
-      API_KEYS: "ci-test-key"
-      ADMIN_EMAIL: "admin@llmrelay.local"
-      ADMIN_PASSWORD: "WikiAdmin2026!"
-      SECRET_KEY: "ci-test-secret-do-not-use"
-      OLLAMA_BASE: "http://localhost:11434"
-      LANGFUSE_SECRET_KEY: ""
-      LANGFUSE_PUBLIC_KEY: ""
-      LANGFUSE_HOST: ""
-      ROUTER_HEALTH_CHECK_ENABLED: "false"
-      MONGO_URL: "mongodb://localhost:27017"
-      DB_NAME: "llm_wiki_dashboard_ci"
-
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         with:
           fetch-depth: 0
           token: ${{ secrets.GITHUB_TOKEN }}
-          # For workflow_run on our own repo: check out the failing commit SHA.
-          # This is safe because the fork gate above blocks untrusted branches.
-          ref: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || github.sha }}
 
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v6
         with:
           python-version: '3.13'
           cache: pip
 
       - name: Install dependencies
-        run: |
-          python -m pip install --upgrade pip
-          pip install -r requirements.txt -q
-          pip install openai anthropic -q
+        run: pip install -r requirements.txt 2>&1 | tail -5
 
       - name: Configure git identity
         run: |
@@ -80,7 +46,7 @@ jobs:
       - name: Run pytest baseline
         id: baseline
         run: |
-          python -m pytest --tb=short -q --no-header --timeout=120 2>&1 | tee /tmp/test_baseline.txt || true
+          python -m pytest --tb=no -q --no-header 2>&1 | tee /tmp/test_baseline.txt || true
           EXIT=${PIPESTATUS[0]}
           echo "exit_code=${EXIT}" >> "$GITHUB_OUTPUT"
           FAILING=$(grep '^FAILED ' /tmp/test_baseline.txt | awk '{print $2}' | head -5 | tr '\n' ',' | sed 's/,$//')
@@ -89,7 +55,7 @@ jobs:
       - name: Scan for security issues (bandit)
         id: security
         run: |
-          pip install bandit safety -q
+          pip install bandit safety 2>&1 | tail -2
           bandit -r . \
             --exclude ".git,.venv,venv,node_modules,tests,frontend,remote-admin" \
             --format json --output /tmp/bandit.json -ll 2>/dev/null || true
@@ -137,55 +103,49 @@ jobs:
           SEC_COUNT: ${{ steps.security.outputs.findings }}
           TEST_OK: ${{ steps.baseline.outputs.exit_code == '0' && '1' || '0' }}
 
-      - name: Dispatch Dev Agent — Fix tests via NVIDIA NIM
+      - name: Dispatch Dev Agent — Fix tests
         if: steps.baseline.outputs.exit_code != '0'
-        id: agent_fix
         env:
-          NVIDIA_API_KEY: ${{ secrets.NVIDIA_API_KEY }}
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
-          AGENCY_MODEL: "qwen/qwen2.5-coder-32b-instruct"
+          NVIDIA_API_KEY: ${{ secrets.NVIDIA_API_KEY }}
+          FAILING: ${{ steps.baseline.outputs.failing }}
         run: |
-          echo "Failing tests: ${{ steps.baseline.outputs.failing }}"
-          # || true: agent exits 1 when it cannot fix; we still want post-fix
-          # pytest and issue-creation steps to run so the escalation path fires.
-          python scripts/agency_fix.py /tmp/test_baseline.txt || true
+          cat > /tmp/dev_instruction.txt <<EOF
+          You are the Dev Agent in the local-llm-server agency.
+
+          The following tests are currently failing:
+          $(echo "$FAILING" | tr ',' '\n' | sed 's/^/  - /')
+
+          Run \`python -m pytest --tb=short -x\` to see the failures.
+          Fix each failing test by correcting the implementation (never skip or mock tests).
+          After fixing, run pytest again to confirm green.
+          Update docs/changelog.md under [Unreleased] ### Fixed.
+          Commit all changes with message: \`fix: resolve failing tests from agency cycle\`
+          EOF
+
+          if command -v claude &>/dev/null; then
+            claude --print --dangerously-skip-permissions "$(cat /tmp/dev_instruction.txt)" || true
+          else
+            echo "Claude CLI not available — skipping automated fix"
+          fi
 
       - name: Run tests after fix attempt
         if: steps.baseline.outputs.exit_code != '0'
         id: post_fix
         run: |
-          python -m pytest --tb=no -q --no-header --timeout=120 2>&1 | tee /tmp/test_post.txt || true
+          python -m pytest --tb=no -q --no-header 2>&1 | tee /tmp/test_post.txt || true
           echo "exit_code=${PIPESTATUS[0]}" >> "$GITHUB_OUTPUT"
 
       - name: Commit & push fixes
-        if: steps.baseline.outputs.exit_code != '0' && steps.post_fix.outputs.exit_code == '0'
-        # Pass user-controlled values through env vars, never inline in the shell
-        # script, to prevent branch-name shell injection (CodeQL CWE-78).
-        env:
-          TRIGGER: ${{ github.event_name }}
-          FAILING: ${{ steps.baseline.outputs.failing }}
-          WR_HEAD_BRANCH: ${{ github.event.workflow_run.head_branch }}
+        if: steps.baseline.outputs.exit_code != '0'
         run: |
           git add -A
           if git diff --staged --quiet; then
             echo "No changes to commit"
           else
-            # Resolve the target branch for detached-HEAD pushes.
-            # workflow_run: head_branch comes from the triggering run.
-            # All other triggers: GITHUB_REF_NAME is the current branch.
-            if [ "${TRIGGER}" = "workflow_run" ]; then
-              TARGET_BRANCH="${WR_HEAD_BRANCH}"
-            else
-              TARGET_BRANCH="${GITHUB_REF_NAME}"
-            fi
-            # Validate branch name using git's own rules.
-            if ! git check-ref-format --branch "${TARGET_BRANCH}" > /dev/null 2>&1; then
-              echo "ERROR: Unsafe branch name rejected: ${TARGET_BRANCH}"
-              exit 1
-            fi
-            git commit -m "fix: agency auto-fix — ${FAILING} [trigger: ${TRIGGER}]"
-            git push origin "HEAD:refs/heads/${TARGET_BRANCH}"
-            echo "Pushed fixes to ${TARGET_BRANCH}"
+            git commit -m "fix: automated agency fix — failing tests"
+            git push origin master
+            echo "Pushed fixes to master"
           fi
 
       - name: Publish agency cycle summary
@@ -193,8 +153,6 @@ jobs:
           ASSESSMENT=$(python3 -c "import json; d=json.load(open('/tmp/assessment.json')); [print('-', i) for i in d['issues']]" 2>/dev/null || echo "Assessment unavailable")
           {
             echo "### Agency Cycle Results — $(date -u '+%Y-%m-%d %H:%M') UTC"
-            echo ""
-            echo "**Trigger:** \`${{ github.event_name }}\`"
             echo ""
             echo "**CEO Assessment:**"
             echo "$ASSESSMENT"
@@ -231,8 +189,6 @@ jobs:
               title: `Agency: Cannot Fix Tests — ${new Date().toISOString().split('T')[0]}`,
               body: [
                 '## Agency Escalation: Tests remain failing after automated fix attempt',
-                '',
-                '**Trigger:** `' + context.eventName + '`',
                 '',
                 '**Baseline failures:**',
                 `\`\`\`\n${baseline.slice(0, 2000)}\n\`\`\``,

@@ -501,7 +501,7 @@ class AgentRunner:
         _MUTATING_TOOLS = {
             "run_command", "write_file", "apply_diff",
             "github_comment_on_issue", "github_close_issue",
-            "github_commit_changes", "github_create_branch", "github_open_pull_request",
+            "github_commit_changes", "github_create_branch", "github_open_pull_request", "github_merge_pull_request",
             "clone_repo", "git_create_branch", "git_commit", "git_push",
             "delete_workspace",
         }
@@ -839,6 +839,14 @@ class AgentRunner:
                 head=str(args.get("head", "")),
                 base=str(args.get("base", "main")),
                 body=str(args.get("body", ""))
+            )
+        if tool == "github_merge_pull_request":
+            owner, repo = str(args.get("repo_name", "owner/repo")).split("/", 1)
+            return await self.github.merge_pull_request(
+                owner, repo,
+                int(args.get("pull_number", 0)),
+                str(args.get("merge_method", "merge")),
+                args.get("commit_title"),
             )
         if tool == "github_list_repos":
             return await self.github.list_repos()

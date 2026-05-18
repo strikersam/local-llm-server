@@ -34,7 +34,7 @@ jobs:
 
     steps:
       # ── 1. Checkout ───────────────────────────────────────────────────────
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
           fetch-depth: 0
@@ -44,10 +44,9 @@ jobs:
         id: pick
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          ISSUE_NUMBER_OVERRIDE: ${{ github.event.inputs.issue_number }}
         run: |
-          if [ -n "$ISSUE_NUMBER_OVERRIDE" ]; then
-            NUM="$ISSUE_NUMBER_OVERRIDE"
+          if [ -n "${{ github.event.inputs.issue_number }}" ]; then
+            NUM="${{ github.event.inputs.issue_number }}"
             echo "Manual override — using issue #$NUM"
           else
             # Oldest open quick-note that has not exhausted retries
@@ -119,7 +118,7 @@ jobs:
             --repo "${{ github.repository }}" --body "$MSG"
 
       # ── 5. Python + Node setup ─────────────────────────────────────────────
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v6
         if: steps.pick.outputs.found == 'true'
         with:
           python-version: "3.12"

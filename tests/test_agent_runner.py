@@ -1,3 +1,4 @@
+import asyncio
 from pathlib import Path
 
 import pytest
@@ -6,7 +7,7 @@ from agent.loop import AgentPhaseError, AgentRunner
 from agent.state import AgentSessionStore
 
 
-async def test_agent_runner_applies_a_change_with_mocked_model(tmp_path: Path):
+def test_agent_runner_applies_a_change_with_mocked_model(tmp_path: Path):
     root = tmp_path / "repo"
     root.mkdir()
     target = root / "notes.txt"
@@ -28,12 +29,14 @@ async def test_agent_runner_applies_a_change_with_mocked_model(tmp_path: Path):
 
     runner._chat_text = fake_chat_text  # type: ignore[method-assign]
 
-    result = await runner.run(
-        instruction="Update notes",
-        history=[],
-        requested_model=None,
-        auto_commit=False,
-        max_steps=3,
+    result = asyncio.run(
+        runner.run(
+            instruction="Update notes",
+            history=[],
+            requested_model=None,
+            auto_commit=False,
+            max_steps=3,
+        )
     )
 
     assert result["steps"][0]["status"] == "applied"
@@ -41,7 +44,7 @@ async def test_agent_runner_applies_a_change_with_mocked_model(tmp_path: Path):
     assert target.read_text(encoding="utf-8") == "new text\n"
 
 
-async def test_agent_runner_logs_tool_events_for_live_streaming(tmp_path: Path):
+def test_agent_runner_logs_tool_events_for_live_streaming(tmp_path: Path):
     root = tmp_path / "repo"
     root.mkdir()
     target = root / "notes.txt"
@@ -69,13 +72,15 @@ async def test_agent_runner_logs_tool_events_for_live_streaming(tmp_path: Path):
 
     runner._chat_text = fake_chat_text  # type: ignore[method-assign]
 
-    await runner.run(
-        instruction="Update notes",
-        history=[],
-        requested_model=None,
-        auto_commit=False,
-        max_steps=3,
-        session_id="session-live",
+    asyncio.run(
+        runner.run(
+            instruction="Update notes",
+            history=[],
+            requested_model=None,
+            auto_commit=False,
+            max_steps=3,
+            session_id="session-live",
+        )
     )
 
     events = store.get_events("session-live")
@@ -84,7 +89,7 @@ async def test_agent_runner_logs_tool_events_for_live_streaming(tmp_path: Path):
     assert "tool_result" in event_types
 
 
-async def test_agent_runner_reports_format_failure_with_mocked_model(tmp_path: Path):
+def test_agent_runner_reports_format_failure_with_mocked_model(tmp_path: Path):
     root = tmp_path / "repo"
     root.mkdir()
     target = root / "notes.txt"
@@ -109,19 +114,21 @@ async def test_agent_runner_reports_format_failure_with_mocked_model(tmp_path: P
 
     runner._chat_text = fake_chat_text  # type: ignore[method-assign]
 
-    result = await runner.run(
-        instruction="Update notes",
-        history=[],
-        requested_model=None,
-        auto_commit=False,
-        max_steps=3,
+    result = asyncio.run(
+        runner.run(
+            instruction="Update notes",
+            history=[],
+            requested_model=None,
+            auto_commit=False,
+            max_steps=3,
+        )
     )
 
     assert result["steps"][0]["status"] == "failed"
     assert "violated format" in result["steps"][0]["issues"][0].lower()
 
 
-async def test_agent_runner_cleans_language_prefix_from_generated_file(tmp_path: Path):
+def test_agent_runner_cleans_language_prefix_from_generated_file(tmp_path: Path):
     root = tmp_path / "repo"
     root.mkdir()
     target = root / "notes.txt"
@@ -142,19 +149,21 @@ async def test_agent_runner_cleans_language_prefix_from_generated_file(tmp_path:
 
     runner._chat_text = fake_chat_text  # type: ignore[method-assign]
 
-    result = await runner.run(
-        instruction="Update notes",
-        history=[],
-        requested_model="qwen3-coder:30b",
-        auto_commit=False,
-        max_steps=3,
+    result = asyncio.run(
+        runner.run(
+            instruction="Update notes",
+            history=[],
+            requested_model="qwen3-coder:30b",
+            auto_commit=False,
+            max_steps=3,
+        )
     )
 
     assert result["steps"][0]["status"] == "applied"
     assert target.read_text(encoding="utf-8") == "new text\n"
 
 
-async def test_agent_runner_fails_incomplete_shared_logger_change(tmp_path: Path):
+def test_agent_runner_fails_incomplete_shared_logger_change(tmp_path: Path):
     root = tmp_path / "repo"
     root.mkdir()
     target = root / "service.py"
@@ -175,19 +184,21 @@ async def test_agent_runner_fails_incomplete_shared_logger_change(tmp_path: Path
 
     runner._chat_text = fake_chat_text  # type: ignore[method-assign]
 
-    result = await runner.run(
-        instruction="Add logging across this module and create a shared logger utility.",
-        history=[],
-        requested_model="qwen3-coder:30b",
-        auto_commit=False,
-        max_steps=3,
+    result = asyncio.run(
+        runner.run(
+            instruction="Add logging across this module and create a shared logger utility.",
+            history=[],
+            requested_model="qwen3-coder:30b",
+            auto_commit=False,
+            max_steps=3,
+        )
     )
 
     assert result["steps"][0]["status"] == "failed"
     assert any("shared logger utility" in issue.lower() for issue in result["steps"][0]["issues"])
 
 
-async def test_agent_runner_fails_unsafe_jwt_change(tmp_path: Path):
+def test_agent_runner_fails_unsafe_jwt_change(tmp_path: Path):
     root = tmp_path / "repo"
     root.mkdir()
     app_file = root / "app.py"
@@ -214,19 +225,21 @@ async def test_agent_runner_fails_unsafe_jwt_change(tmp_path: Path):
 
     runner._chat_text = fake_chat_text  # type: ignore[method-assign]
 
-    result = await runner.run(
-        instruction="Add authentication to this API using JWT and update all relevant routes.",
-        history=[],
-        requested_model="qwen3-coder:30b",
-        auto_commit=False,
-        max_steps=3,
+    result = asyncio.run(
+        runner.run(
+            instruction="Add authentication to this API using JWT and update all relevant routes.",
+            history=[],
+            requested_model="qwen3-coder:30b",
+            auto_commit=False,
+            max_steps=3,
+        )
     )
 
     assert result["steps"][0]["status"] == "failed"
     assert any("secret_key" in issue.lower() for issue in result["steps"][0]["issues"])
 
 
-async def test_agent_runner_surfaces_structured_planner_failure(tmp_path: Path):
+def test_agent_runner_surfaces_structured_planner_failure(tmp_path: Path):
     root = tmp_path / "repo"
     root.mkdir()
 
@@ -239,16 +252,18 @@ async def test_agent_runner_surfaces_structured_planner_failure(tmp_path: Path):
     runner._chat_text = fake_chat_text  # type: ignore[method-assign]
 
     with pytest.raises(AgentPhaseError, match="planning"):
-        await runner.run(
-            instruction="Plan this work",
-            history=[],
-            requested_model=None,
-            auto_commit=False,
-            max_steps=3,
+        asyncio.run(
+            runner.run(
+                instruction="Plan this work",
+                history=[],
+                requested_model=None,
+                auto_commit=False,
+                max_steps=3,
+            )
         )
 
 
-async def test_agent_runner_surfaces_structured_verifier_failure(tmp_path: Path):
+def test_agent_runner_surfaces_structured_verifier_failure(tmp_path: Path):
     root = tmp_path / "repo"
     root.mkdir()
     target = root / "notes.txt"
@@ -271,12 +286,14 @@ async def test_agent_runner_surfaces_structured_verifier_failure(tmp_path: Path)
 
     runner._chat_text = fake_chat_text  # type: ignore[method-assign]
 
-    result = await runner.run(
-        instruction="Update notes",
-        history=[],
-        requested_model=None,
-        auto_commit=False,
-        max_steps=3,
+    result = asyncio.run(
+        runner.run(
+            instruction="Update notes",
+            history=[],
+            requested_model=None,
+            auto_commit=False,
+            max_steps=3,
+        )
     )
 
     assert result["steps"][0]["status"] == "failed"
@@ -284,7 +301,7 @@ async def test_agent_runner_surfaces_structured_verifier_failure(tmp_path: Path)
     assert "verifier_output_invalid" in result["steps"][0]["issues"][0]
 
 
-async def test_agent_runner_blocks_when_judge_output_invalid(tmp_path: Path):
+def test_agent_runner_blocks_when_judge_output_invalid(tmp_path: Path):
     root = tmp_path / "repo"
     root.mkdir()
     target = root / "notes.txt"
@@ -308,12 +325,14 @@ async def test_agent_runner_blocks_when_judge_output_invalid(tmp_path: Path):
 
     runner._chat_text = fake_chat_text  # type: ignore[method-assign]
 
-    result = await runner.run(
-        instruction="Update notes",
-        history=[],
-        requested_model=None,
-        auto_commit=False,
-        max_steps=3,
+    result = asyncio.run(
+        runner.run(
+            instruction="Update notes",
+            history=[],
+            requested_model=None,
+            auto_commit=False,
+            max_steps=3,
+        )
     )
 
     assert result["judge"]["verdict"] == "BLOCKED"
@@ -399,7 +418,7 @@ def test_normalize_slices_and_missing_goal_together():
     assert result["steps"][0]["type"] == "analyze"
 
 
-async def test_runner_succeeds_when_model_returns_slices_schema(tmp_path: Path):
+def test_runner_succeeds_when_model_returns_slices_schema(tmp_path: Path):
     """End-to-end: model returns CRISPY-style slices, plan should still execute."""
     root = tmp_path / "repo"
     root.mkdir()
@@ -425,12 +444,14 @@ async def test_runner_succeeds_when_model_returns_slices_schema(tmp_path: Path):
 
     runner._chat_text = fake_chat_text  # type: ignore[method-assign]
 
-    result = await runner.run(
-        instruction="Update notes file",
-        history=[],
-        requested_model=None,
-        auto_commit=False,
-        max_steps=3,
+    result = asyncio.run(
+        runner.run(
+            instruction="Update notes file",
+            history=[],
+            requested_model=None,
+            auto_commit=False,
+            max_steps=3,
+        )
     )
 
     assert result["steps"][0]["status"] == "applied"
@@ -439,7 +460,7 @@ async def test_runner_succeeds_when_model_returns_slices_schema(tmp_path: Path):
 
 # ── spawn_subagent tool ───────────────────────────────────────────────────────
 
-async def test_spawn_subagent_delegates_to_child_runner(tmp_path: Path):
+def test_spawn_subagent_delegates_to_child_runner(tmp_path: Path):
     """spawn_subagent creates a child AgentRunner and returns a condensed result."""
     import unittest.mock as mock
 
@@ -469,27 +490,31 @@ async def test_spawn_subagent_delegates_to_child_runner(tmp_path: Path):
 
     # Patch at class level so child AgentRunner instances also use the mock
     with mock.patch.object(AgentRunner, "_chat_text", fake_chat_text):
-        result = await parent.run(
-            instruction="Delegate work",
-            history=[],
-            requested_model=None,
-            auto_commit=False,
-            max_steps=3,
+        result = asyncio.run(
+            parent.run(
+                instruction="Delegate work",
+                history=[],
+                requested_model=None,
+                auto_commit=False,
+                max_steps=3,
+            )
         )
 
     assert result["goal"] == "Delegate work"
     assert (root / "child.txt").read_text(encoding="utf-8") == "hello\n"
 
 
-async def test_spawn_subagent_empty_instruction_returns_error(tmp_path: Path):
+def test_spawn_subagent_empty_instruction_returns_error(tmp_path: Path):
     root = tmp_path / "repo"
     root.mkdir()
     runner = AgentRunner(ollama_base="http://localhost:11434", workspace_root=root)
 
-    result = await runner._spawn_subagent(
-        instruction="   ",
-        requested_model=None,
-        max_steps=3,
+    result = asyncio.run(
+        runner._spawn_subagent(
+            instruction="   ",
+            requested_model=None,
+            max_steps=3,
+        )
     )
     assert "error" in result
 
@@ -527,7 +552,7 @@ def test_steps_are_independent_empty_files():
 
 # ── auto-parallelize ──────────────────────────────────────────────────────────
 
-async def test_auto_parallelize_triggers_for_independent_steps(tmp_path: Path):
+def test_auto_parallelize_triggers_for_independent_steps(tmp_path: Path):
     """When all steps touch different files, run() delegates to MultiAgentSwarm."""
     root = tmp_path / "repo"
     root.mkdir()
@@ -565,25 +590,36 @@ async def test_auto_parallelize_triggers_for_independent_steps(tmp_path: Path):
     runner._chat_text = fake_chat_text  # type: ignore[method-assign]
     runner._maybe_run_parallel = fake_maybe_parallel  # type: ignore[method-assign]
 
-    result = await runner.run(
-        instruction="Multi-file refactor",
-        history=[],
-        requested_model=None,
-        auto_commit=False,
-        max_steps=5,
+    result = asyncio.run(
+        runner.run(
+            instruction="Multi-file refactor",
+            history=[],
+            requested_model=None,
+            auto_commit=False,
+            max_steps=5,
+        )
     )
 
     assert swarm_called, "_maybe_run_parallel was not called"
     assert result["summary"] == "Ran in parallel"
 
 
-async def test_sequential_fallback_when_steps_share_files(tmp_path: Path):
+def test_sequential_fallback_when_steps_share_files(tmp_path: Path):
     """Steps sharing a file must run sequentially — _maybe_run_parallel returns None."""
     root = tmp_path / "repo"
     root.mkdir()
     (root / "shared.py").write_text("pass\n", encoding="utf-8")
 
     runner = AgentRunner(ollama_base="http://localhost:11434", workspace_root=root)
+
+    # 3 steps all touching the same file
+    plan_json = (
+        '{"goal":"Sequential edits","steps":['
+        '{"id":1,"description":"Edit shared","files":["shared.py"],"type":"edit"},'
+        '{"id":2,"description":"Edit shared again","files":["shared.py"],"type":"edit"},'
+        '{"id":3,"description":"Final touch","files":["shared.py"],"type":"edit"}'
+        ']}'
+    )
 
     from agent.models import AgentPlan
     runner2 = AgentRunner(ollama_base="http://localhost:11434", workspace_root=root)
@@ -595,17 +631,19 @@ async def test_sequential_fallback_when_steps_share_files(tmp_path: Path):
             {"id": 3, "description": "Final touch", "files": ["shared.py"], "type": "edit"},
         ],
     })
-    result = await runner2._maybe_run_parallel(
-        plan=plan,
-        instruction="Sequential edits",
-        requested_model=None,
-        max_steps=5,
-        auto_commit=False,
-        user_id=None,
-        memory_store=None,
-        session_id=None,
-        department=None,
-        key_id=None,
+    result = asyncio.run(
+        runner2._maybe_run_parallel(
+            plan=plan,
+            instruction="Sequential edits",
+            requested_model=None,
+            max_steps=5,
+            auto_commit=False,
+            user_id=None,
+            memory_store=None,
+            session_id=None,
+            department=None,
+            key_id=None,
+        )
     )
     assert result is None, "Expected None (sequential), got parallel result"
 

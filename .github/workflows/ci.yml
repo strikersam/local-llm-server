@@ -33,18 +33,12 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           persist-credentials: false
-          # For pull_request events checkout the branch HEAD (not the synthetic
-          # merge commit GitHub creates for refs/pull/N/merge). Our branch is
-          # kept in sync with master so testing the branch HEAD is equivalent
-          # and avoids a category of detached-HEAD-related test failures that
-          # only appear in the PR context.
-          ref: ${{ github.event.pull_request.head.sha || github.sha }}
 
       - name: Set up Python ${{ matrix.python-version }}
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v6
         with:
           python-version: ${{ matrix.python-version }}
           cache: pip
@@ -97,11 +91,11 @@ jobs:
           MONGO_URL: "mongodb://localhost:27017"
           DB_NAME: "llm_wiki_dashboard_ci"
         run: |
-          python -m pytest -x -v --tb=short --timeout=120
+          pytest -x -v --tb=short --timeout=120
 
       - name: Upload test results
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: test-results-${{ matrix.python-version }}
           path: .pytest_cache/
@@ -112,16 +106,16 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         with:
           persist-credentials: false
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v6
         with:
           python-version: "3.13"
           cache: pip
       - name: Install
         run: |
-          python -m pip install --upgrade pip
+          python -m pip install --upgrade pip setuptools wheel
           pip install -r requirements.txt
       - name: Check for hardcoded secrets
         run: |
@@ -140,11 +134,11 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         with:
           persist-credentials: false
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v6
         with:
           node-version: "20"
           cache: npm

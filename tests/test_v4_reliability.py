@@ -10,6 +10,7 @@ code is added.  They prove the core system still works correctly.
 
 from __future__ import annotations
 
+import asyncio
 import time
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock
@@ -22,7 +23,7 @@ import pytest
 
 
 class TestRuntimePreflight:
-    async def test_missing_binary_produces_structured_validation_issue(self):
+    def test_missing_binary_produces_structured_validation_issue(self):
         """Preflight must return RuntimeReadinessReport with issues, not raise."""
         from runtimes.base import RuntimeAdapter, RuntimeHealth, RuntimeTier, RuntimeCapability, IntegrationMode, TaskSpec, TaskResult, RuntimeDependency
 
@@ -56,7 +57,10 @@ class TestRuntimePreflight:
         adapter = _BinaryMissingAdapter()
         spec = TaskSpec(task_id="t1", instruction="test")
 
-        report = await adapter.readiness_check(spec)
+        async def run():
+            return await adapter.readiness_check(spec)
+
+        report = asyncio.run(run())
         assert report.ready is False
         assert len(report.issues) > 0
         issue = report.issues[0]
@@ -191,25 +195,26 @@ class TestAgentModeQueuesJob:
 
 
 class TestJobLifecycle:
-    async def test_job_transitions_queued_running_succeeded(self):
+    def test_job_transitions_queued_running_succeeded(self):
         from agent.job_manager import AgentJob, AgentJobManager
-        import asyncio as _asyncio
 
         mgr = AgentJobManager()
         job = mgr.create_job(session_id="as_sess1", instruction="do work")
         assert job.status == "queued"
         assert job.phase == "queued"
 
-        async def runner(heartbeat):
-            heartbeat("planning", "planning step")
-            return {"summary": "done"}
+        async def _run():
+            async def runner(heartbeat):
+                heartbeat("planning", "planning step")
+                return {"summary": "done"}
+            mgr.start_job(job.job_id, runner)
+            # Wait for completion
+            for _ in range(50):
+                await asyncio.sleep(0.02)
+                if job.status in ("succeeded", "failed"):
+                    break
 
-        mgr.start_job(job.job_id, runner)
-        for _ in range(50):
-            await _asyncio.sleep(0.02)
-            if job.status in ("succeeded", "failed"):
-                break
-
+        asyncio.run(_run())
         assert job.status == "succeeded"
         assert job.phase == "completed"
         assert len(job.progress_events) >= 1
@@ -223,22 +228,22 @@ class TestJobLifecycle:
         assert cancelled is not None
         assert cancelled.status == "cancelled"
 
-    async def test_job_failure_captures_error(self):
+    def test_job_failure_captures_error(self):
         from agent.job_manager import AgentJobManager
-        import asyncio as _asyncio
 
         mgr = AgentJobManager()
         job = mgr.create_job(session_id="as_sess3", instruction="fail me")
 
-        async def runner(heartbeat):
-            raise RuntimeError("deliberate test failure")
+        async def _run():
+            async def runner(heartbeat):
+                raise RuntimeError("deliberate test failure")
+            mgr.start_job(job.job_id, runner)
+            for _ in range(50):
+                await asyncio.sleep(0.02)
+                if job.status in ("succeeded", "failed"):
+                    break
 
-        mgr.start_job(job.job_id, runner)
-        for _ in range(50):
-            await _asyncio.sleep(0.02)
-            if job.status in ("succeeded", "failed"):
-                break
-
+        asyncio.run(_run())
         assert job.status == "failed"
         assert job.error is not None
         assert "RuntimeError" in job.error["type"]
@@ -375,23 +380,31 @@ class TestMakeIsolatedWorkspace:
 
 
 class TestWorkspaceSecurityRegressions:
-    async def test_workspace_manager_blocks_traversal_session_id(self, tmp_path: Path):
+    def test_workspace_manager_blocks_traversal_session_id(self, tmp_path: Path):
         from agent.workspace import WorkspaceManager, WorkspaceIDError
         mgr = WorkspaceManager(tmp_path / "ws")
         with pytest.raises(WorkspaceIDError):
-            await mgr.create("../../etc/passwd", "aj_job001")
+            asyncio.run(
+                mgr.create("../../etc/passwd", "aj_job001")
+            )
 
-    async def test_workspace_manager_blocks_traversal_job_id(self, tmp_path: Path):
+    def test_workspace_manager_blocks_traversal_job_id(self, tmp_path: Path):
         from agent.workspace import WorkspaceManager, WorkspaceIDError
         mgr = WorkspaceManager(tmp_path / "ws")
         with pytest.raises(WorkspaceIDError):
-            await mgr.create("as_sess1", "../../etc/shadow")
+            asyncio.run(
+                mgr.create("as_sess1", "../../etc/shadow")
+            )
 
-    async def test_workspace_error_dict_does_not_leak_base_path(self, tmp_path: Path):
+    def test_workspace_error_dict_does_not_leak_base_path(self, tmp_path: Path):
         from agent.workspace import WorkspaceManager, WorkspaceEscapeError
         mgr = WorkspaceManager(tmp_path / "ws_secret_base")
-        await mgr.create("as_sess1", "aj_job001")
-        ws = await mgr.open("as_sess1", "aj_job001")
+        asyncio.run(
+            mgr.create("as_sess1", "aj_job001")
+        )
+        ws = asyncio.run(
+            mgr.open("as_sess1", "aj_job001")
+        )
         try:
             mgr.safe_path(ws, "../../outside")
         except WorkspaceEscapeError as exc:

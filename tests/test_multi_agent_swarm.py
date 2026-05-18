@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import asyncio
+
 import pytest
 
 from agent.coordinate import (
@@ -32,7 +34,7 @@ def test_build_swarm_registers_agents(tmp_path):
     assert {"planner", "executor", "reviewer"} == roles
 
 
-async def test_dependency_ordering_is_respected(monkeypatch, tmp_path):
+def test_dependency_ordering_is_respected(monkeypatch, tmp_path):
     order: list[str] = []
 
     class FakeRunner:
@@ -73,13 +75,15 @@ async def test_dependency_ordering_is_respected(monkeypatch, tmp_path):
     swarm, agents = build_swarm(configs, workspace_root=str(tmp_path))
     tasks = build_task_specs(tasks_in)
 
-    result = await swarm.run(goal="test", agents=agents, tasks=tasks, max_concurrent=3)
+    result = asyncio.run(
+        swarm.run(goal="test", agents=agents, tasks=tasks, max_concurrent=3)
+    )
 
     assert order == ["research first", "code second", "review third"]
     assert all(w["status"] == "ok" for w in result.workers)
 
 
-async def test_blocked_task_when_dependency_missing(monkeypatch, tmp_path):
+def test_blocked_task_when_dependency_missing(monkeypatch, tmp_path):
     swarm = MultiAgentSwarm(
         ollama_base="http://localhost:11434", workspace_root=str(tmp_path)
     )
@@ -90,12 +94,14 @@ async def test_blocked_task_when_dependency_missing(monkeypatch, tmp_path):
         )
     ]
 
-    result = await swarm.run(goal="test", agents=agents, tasks=tasks, max_concurrent=1)
+    result = asyncio.run(
+        swarm.run(goal="test", agents=agents, tasks=tasks, max_concurrent=1)
+    )
 
     assert result.workers[0]["status"] == "blocked"
 
 
-async def test_failed_task_does_not_deadlock_remaining(monkeypatch, tmp_path):
+def test_failed_task_does_not_deadlock_remaining(monkeypatch, tmp_path):
     call_count = {"n": 0}
 
     class FakeRunner:
@@ -120,7 +126,9 @@ async def test_failed_task_does_not_deadlock_remaining(monkeypatch, tmp_path):
     swarm, agents = build_swarm(configs, workspace_root=str(tmp_path))
     tasks = build_task_specs(tasks_in)
 
-    result = await swarm.run(goal="test", agents=agents, tasks=tasks, max_concurrent=2)
+    result = asyncio.run(
+        swarm.run(goal="test", agents=agents, tasks=tasks, max_concurrent=2)
+    )
 
     statuses = {w["task_id"]: w["status"] for w in result.workers}
     # Independent task should succeed even though t1 failed
