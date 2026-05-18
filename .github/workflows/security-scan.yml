@@ -73,7 +73,7 @@ jobs:
 
       - name: Create issue for high-severity findings
         if: steps.bandit.outputs.high > 0 && github.event_name == 'schedule'
-        uses: actions/github-script@v7
+        uses: actions/github-script@v9
         with:
           script: |
             const fs = require('fs');
@@ -150,7 +150,7 @@ jobs:
 
       - name: Create issue for CVEs
         if: steps.safety.outputs.vuln_count > 0 && github.event_name == 'schedule'
-        uses: actions/github-script@v7
+        uses: actions/github-script@v9
         with:
           script: |
             const fs = require('fs');

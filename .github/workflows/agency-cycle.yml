@@ -170,7 +170,7 @@ jobs:
 
       - name: Create issue if agency cannot fix
         if: steps.baseline.outputs.exit_code != '0' && steps.post_fix.outputs.exit_code != '0'
-        uses: actions/github-script@v7
+        uses: actions/github-script@v9
         with:
           script: |
             const fs = require('fs');
