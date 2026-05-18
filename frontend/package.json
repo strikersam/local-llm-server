@@ -32,6 +32,15 @@
       "last 1 chrome version"
     ]
   },
+  "jest": {
+    "moduleNameMapper": {
+      "^react-router-dom$": "<rootDir>/node_modules/react-router-dom/dist/index.js",
+      "^react-router-dom/(.*)$": "<rootDir>/node_modules/react-router-dom/$1",
+      "^react-router/dom$": "<rootDir>/node_modules/react-router/dist/development/dom-export.js",
+      "^react-router$": "<rootDir>/node_modules/react-router/dist/development/index.js",
+      "^react-router/(.*)$": "<rootDir>/node_modules/react-router/$1"
+    }
+  },
   "devDependencies": {
     "@testing-library/dom": "^10.4.0",
     "@testing-library/jest-dom": "^6.9.1",
