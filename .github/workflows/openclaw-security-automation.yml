@@ -1,0 +1,145 @@
+name: OpenClaw Security Automation
+
+on:
+  schedule:
+    - cron: '0 * * * *'  # Hourly
+  workflow_dispatch:
+  push:
+    branches: [master]
+    paths:
+      - '.github/workflows/openclaw-security-automation.yml'
+      - '.github/scripts/security_fix_agent.py'
+
+permissions:
+  contents: write
+  issues: write
+  pull-requests: write
+  security-events: write
+  administration: read
+
+jobs:
+  security-automation:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      GITHUB_REPOSITORY: ${{ github.repository }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+          cache: pip
+
+      - name: Install Python dependencies
+        run: pip install requests
+
+      - name: Install OpenClaw (from source)
+        env:
+          GH_PAT: ${{ secrets.GH_PAT }}
+        run: |
+          if [ -n "${GH_PAT}" ]; then
+            git clone "https://x-access-token:${GH_PAT}@github.com/openclaw/openclaw" /app/openclaw 2>/dev/null || true
+          else
+            git clone https://github.com/openclaw/openclaw /app/openclaw 2>/dev/null || true
+          fi
+          if [ -d /app/openclaw ]; then
+            cd /app/openclaw && npm install --silent 2>/dev/null || true
+          fi
+
+      - name: Get timestamp
+        id: timestamp
+        run: echo "timestamp=$(date -u '+%Y-%m-%dT%H:%M:%SZ')" >> "$GITHUB_OUTPUT"
+
+      - name: Check Dependabot alert count
+        id: dependabot
+        run: |
+          COUNT=$(python3 .github/scripts/security_fix_agent.py --check-dependabot 2>/dev/null || echo "0")
+          echo "count=${COUNT}" >> "$GITHUB_OUTPUT"
+
+      - name: Check CodeQL alert count
+        id: codeql
+        run: |
+          COUNT=$(python3 .github/scripts/security_fix_agent.py --check-codeql 2>/dev/null || echo "0")
+          echo "count=${COUNT}" >> "$GITHUB_OUTPUT"
+
+      - name: Fix Dependabot alerts
+        if: steps.dependabot.outputs.count != '0'
+        run: python3 .github/scripts/security_fix_agent.py --fix-dependabot || true
+
+      - name: Fix CodeQL alerts
+        if: steps.codeql.outputs.count != '0'
+        run: python3 .github/scripts/security_fix_agent.py --fix-codeql || true
+
+      - name: Configure git identity
+        run: |
+          git config user.email "openclaw-bot@local-llm-server"
+          git config user.name "OpenClaw Bot"
+
+      - name: Commit and push any automated fixes
+        run: |
+          git add -A
+          if git diff --staged --quiet; then
+            echo "No changes to commit"
+          else
+            git commit -m "fix(security): automated OpenClaw security fixes"
+            git push origin master
+          fi
+
+      - name: Create summary issue if alerts found
+        if: steps.dependabot.outputs.count != '0' || steps.codeql.outputs.count != '0'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const dependabotCount = parseInt('${{ steps.dependabot.outputs.count }}') || 0;
+            const codeqlCount     = parseInt('${{ steps.codeql.outputs.count }}')     || 0;
+            const repository      = '${{ github.repository }}';
+            const commitSha       = '${{ github.sha }}';
+            const timestamp       = '${{ steps.timestamp.outputs.timestamp }}';
+
+            // Avoid duplicate open issues
+            const { data: existingIssues } = await github.rest.issues.listForRepo({
+              owner: context.repo.owner,
+              repo:  context.repo.repo,
+              labels: 'security,automated',
+              state: 'open',
+              per_page: 5,
+            });
+            if (existingIssues.some(i => i.title.includes('OpenClaw Security Automation Report'))) {
+              console.log('Open security issue already exists — skipping creation');
+              return;
+            }
+
+            await github.rest.issues.create({
+              owner: context.repo.owner,
+              repo:  context.repo.repo,
+              title: '🔧 OpenClaw Security Automation Report',
+              body: [
+                '## Security Automation Summary',
+                '',
+                'The OpenClaw security automation workflow has completed.',
+                '',
+                '#### Findings:',
+                `- Dependabot alerts: \`${dependabotCount}\``,
+                `- CodeQL alerts: \`${codeqlCount}\``,
+                '',
+                '#### Actions Taken:',
+                '- Automated fixes attempted for all detectable issues',
+                '- Manual review may be required for complex fixes',
+                '',
+                '#### Workflow Details:',
+                `- Repository: ${repository}`,
+                `- Commit: ${commitSha}`,
+                `- Timestamp: ${timestamp}`,
+                '',
+                'For more details, check the workflow run logs.',
+              ].join('\n'),
+              labels: ['security', 'automated'],
+            });
