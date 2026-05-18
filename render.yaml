@@ -68,7 +68,7 @@ services:
       # ================================================================
       # AWS BEDROCK — priority-15 (highest-precedence commercial provider)
       # Set AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY in the Render
-      # dashboard to enable.  Default model: us.anthropic.claude-opus-4-7
+      # dashboard to enable.  Default model: us.anthropic.claude-opus-4-6-v1
       # Alternate env names: BEDROCK_ACCESS_KEY / BEDROCK_SECRET_KEY
       # ================================================================
       - key: AWS_ACCESS_KEY_ID

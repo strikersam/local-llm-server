@@ -8,6 +8,7 @@ import pytest
 from router.model_router import ModelRouter, RoutingDecision, reset_router, get_router
 from router.classifier import classify_task
 from router.health import invalidate_cache as invalidate_health_cache
+from router.registry import get_registry
 
 
 # ── Fixtures ──────────────────────────────────────────────────────────────────
@@ -301,6 +302,59 @@ def test_is_model_available_true_when_checks_disabled(monkeypatch):
     from router.health import is_model_available
     # Empty set = no filtering = everything is "available"
     assert is_model_available("any-model:latest") is True
+
+
+# ── Bedrock model registry entries ────────────────────────────────────────────
+
+_BEDROCK_MODEL_IDS = [
+    "us.anthropic.claude-opus-4-7",
+    "us.anthropic.claude-opus-4-6-v1",
+    "us.anthropic.claude-sonnet-4-6",
+    "us.anthropic.claude-haiku-4-5-20251001-v1:0",
+]
+
+
+def test_bedrock_opus_4_7_in_registry():
+    reg = get_registry()
+    cap = reg["us.anthropic.claude-opus-4-7"]
+    assert cap.type == "reasoning"
+    assert cap.cost_tier == 3
+    assert "bedrock" in cap.tags
+    assert "claude4" in cap.tags
+
+
+def test_bedrock_opus_4_6_v1_in_registry():
+    reg = get_registry()
+    cap = reg["us.anthropic.claude-opus-4-6-v1"]
+    assert cap.type == "reasoning"
+    assert cap.cost_tier == 3
+    assert "bedrock" in cap.tags
+    assert "flagship" in cap.tags
+
+
+def test_bedrock_sonnet_4_6_in_registry():
+    reg = get_registry()
+    cap = reg["us.anthropic.claude-sonnet-4-6"]
+    assert cap.type == "coder"
+    assert cap.cost_tier == 2
+    assert "bedrock" in cap.tags
+
+
+def test_bedrock_haiku_4_5_in_registry():
+    reg = get_registry()
+    cap = reg["us.anthropic.claude-haiku-4-5-20251001-v1:0"]
+    assert cap.type == "coder"
+    assert cap.cost_tier == 1
+    assert "bedrock" in cap.tags
+    assert "fast" in cap.tags
+
+
+def test_bedrock_models_route_as_passthrough():
+    for model_id in _BEDROCK_MODEL_IDS:
+        reset_router()
+        decision = _router().route(requested_model=model_id)
+        assert decision.resolved_model == model_id, f"Expected passthrough for {model_id}"
+        assert decision.selection_source == "passthrough", f"Wrong source for {model_id}"
 
 
 def test_is_model_available_prefix_match(monkeypatch):

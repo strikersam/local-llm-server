@@ -611,7 +611,7 @@ class ProviderRouter:
                 or "us-east-1"
             )
             bedrock_model = (
-                os.environ.get("BEDROCK_MODEL_ID") or "us.anthropic.claude-opus-4-7"
+                os.environ.get("BEDROCK_MODEL_ID") or "us.anthropic.claude-opus-4-6-v1"
             )
             providers.append(
                 ProviderConfig(

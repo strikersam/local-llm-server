@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """
 Live end-to-end test for AWS Bedrock + Claude Opus 4.6 (highest confirmed-accessible model).
 
@@ -11,13 +13,15 @@ Run locally:
 
 Skipped automatically when credentials are absent (CI-safe).
 """
-from __future__ import annotations
 
 import asyncio
+import logging
 import os
 import time
 
 import pytest
+
+log = logging.getLogger("qwen-proxy")
 
 _ACCESS_KEY = os.environ.get("AWS_ACCESS_KEY_ID") or os.environ.get("BEDROCK_ACCESS_KEY")
 _SECRET_KEY = os.environ.get("AWS_SECRET_ACCESS_KEY") or os.environ.get("BEDROCK_SECRET_KEY")
@@ -33,7 +37,7 @@ _NEEDS_CREDS = pytest.mark.skipif(
 # ── Direct boto3 smoke test ───────────────────────────────────────────────────
 
 @_NEEDS_CREDS
-def test_bedrock_direct_boto3_ping():
+def test_bedrock_direct_boto3_ping() -> None:
     """Call Bedrock Converse API directly with boto3 — no proxy layer."""
     import boto3  # type: ignore[import-untyped]
 
@@ -59,19 +63,16 @@ def test_bedrock_direct_boto3_ping():
         output_text += block.get("text", "")
 
     usage = response.get("usage", {})
-    print(f"\n  model      : {_MODEL_ID}")
-    print(f"  region     : {_REGION}")
-    print(f"  response   : {output_text!r}")
-    print(f"  input tok  : {usage.get('inputTokens')}")
-    print(f"  output tok : {usage.get('outputTokens')}")
-    print(f"  latency    : {latency_ms} ms")
+    log.info("model=%s region=%s response=%r input_tok=%s output_tok=%s latency_ms=%s",
+             _MODEL_ID, _REGION, output_text,
+             usage.get("inputTokens"), usage.get("outputTokens"), latency_ms)
 
     assert output_text.strip(), "Empty response from Bedrock"
     assert usage.get("outputTokens", 0) > 0, "No output tokens counted"
 
 
 @_NEEDS_CREDS
-def test_bedrock_model_id_is_accessible():
+def test_bedrock_model_id_is_accessible() -> None:
     """Verify the configured model ID accepts a converse request without auth errors."""
     import boto3  # type: ignore[import-untyped]
     from botocore.exceptions import ClientError  # type: ignore[import-untyped]
@@ -90,7 +91,7 @@ def test_bedrock_model_id_is_accessible():
             inferenceConfig={"maxTokens": 8},
         )
         assert response["ResponseMetadata"]["HTTPStatusCode"] == 200
-        print(f"\n  {_MODEL_ID} accessible in {_REGION} — PASS")
+        log.info("%s accessible in %s — PASS", _MODEL_ID, _REGION)
     except ClientError as exc:
         code = exc.response["Error"]["Code"]
         msg = exc.response["Error"]["Message"]
@@ -106,7 +107,7 @@ def test_bedrock_model_id_is_accessible():
 
 @_NEEDS_CREDS
 @pytest.mark.asyncio
-async def test_provider_router_bedrock_roundtrip():
+async def test_provider_router_bedrock_roundtrip() -> None:
     """ProviderRouter discovers Bedrock from env and completes a real chat call."""
     from provider_router import ProviderRouter
 
@@ -135,12 +136,10 @@ async def test_provider_router_bedrock_roundtrip():
     content = body["choices"][0]["message"]["content"]
     usage = body.get("usage", {})
 
-    print(f"\n  provider   : {provider.provider_id} (priority {provider.priority})")
-    print(f"  model      : {body.get('model')}")
-    print(f"  response   : {content!r}")
-    print(f"  input tok  : {usage.get('prompt_tokens')}")
-    print(f"  output tok : {usage.get('completion_tokens')}")
-    print(f"  latency    : {latency_ms} ms")
+    log.info("provider=%s(priority=%s) model=%s response=%r "
+             "input_tok=%s output_tok=%s latency_ms=%s",
+             provider.provider_id, provider.priority, body.get("model"),
+             content, usage.get("prompt_tokens"), usage.get("completion_tokens"), latency_ms)
 
     assert content.strip(), "Empty content in proxy response"
     assert body["choices"][0]["finish_reason"] in ("end_turn", "stop", "max_tokens")
@@ -148,7 +147,7 @@ async def test_provider_router_bedrock_roundtrip():
 
 
 @_NEEDS_CREDS
-def test_bedrock_health_check_with_real_creds():
+def test_bedrock_health_check_with_real_creds() -> None:
     """Health check returns True when real credentials are loaded from env."""
     from provider_router import ProviderRouter
 
@@ -158,4 +157,4 @@ def test_bedrock_health_check_with_real_creds():
 
     result = asyncio.run(router.health_check(bedrock))
     assert result is True, "Health check failed with real credentials present"
-    print(f"\n  health_check({bedrock.provider_id}) = {result} — PASS")
+    log.info("health_check(%s) = %s — PASS", bedrock.provider_id, result)

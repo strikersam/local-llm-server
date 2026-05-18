@@ -7,7 +7,15 @@
 
 ### Fixed
 - `provider_router.py` — Bedrock routing affinity now also enforced in the last-resort cooldown-bypass loop; previously a Bedrock model ID could be silently routed to Nvidia NIM when all providers were on cooldown (P1 bug reported by Codex review).
+- `provider_router.py` — `from_env()` default Bedrock model changed from `us.anthropic.claude-opus-4-7` (requires AWS Sales approval) to `us.anthropic.claude-opus-4-6-v1`; fixes `AccessDeniedException` for accounts without Opus 4.7 access (P1 CodeRabbit finding).
+- `render.yaml` — Updated Bedrock comment to reflect `us.anthropic.claude-opus-4-6-v1` as the confirmed-accessible default.
 - `tests/test_bedrock_live.py` — Default `_MODEL_ID` changed from `us.anthropic.claude-opus-4-7` (requires AWS Sales approval) to `us.anthropic.claude-opus-4-6-v1` so live tests pass with the current account's access level when `BEDROCK_MODEL_ID` env var is not set (P2 bug reported by Codex review).
+- `tests/test_bedrock_live.py` — Moved `from __future__ import annotations` to before module docstring (Python 3.13 compatibility); replaced `print()` with `log.info()` via module-level logger; added `-> None` return type annotations to all 4 test functions.
+- `tests/test_bedrock_provider.py` — `test_bedrock_default_model` updated to assert `us.anthropic.claude-opus-4-6-v1` as default; added `-> None` return type annotations to all new test methods in `TestIsBedrockModelId` and `TestBedrockRoutingAffinity`.
+- `tests/test_all_providers_discovery.py` — `test_bedrock_discovery` updated to assert new default model `us.anthropic.claude-opus-4-6-v1`.
+
+### Added
+- `tests/test_model_router.py` — Added 5 tests for the 4 new Bedrock `ModelCapability` registry entries: `test_bedrock_opus_4_7_in_registry`, `test_bedrock_opus_4_6_v1_in_registry`, `test_bedrock_sonnet_4_6_in_registry`, `test_bedrock_haiku_4_5_in_registry`, and `test_bedrock_models_route_as_passthrough` (verifies all 4 IDs are correctly served as passthrough routing decisions).
 
 ### Added
 - `.github/workflows/ci-failure-autofix.yml` — CI failure auto-fix workflow: triggers on any CI failure on non-master branches, reproduces the failure, calls Claude Sonnet 4.6 via Anthropic API to generate a patch, applies and verifies it, then commits the fix directly to the branch. Opens a GitHub issue if the fix is too complex or the patch fails verification.

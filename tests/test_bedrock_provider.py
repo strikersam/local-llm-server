@@ -266,7 +266,7 @@ class TestFromEnvBedrock:
         monkeypatch.delenv("NVidiaApiKey", raising=False)
         router = ProviderRouter.from_env()
         bedrock = next(p for p in router.providers if p.provider_id == "bedrock")
-        assert bedrock.default_model == "us.anthropic.claude-opus-4-7"
+        assert bedrock.default_model == "us.anthropic.claude-opus-4-6-v1"
 
 
 # ── health_check for bedrock ──────────────────────────────────────────────────
@@ -296,37 +296,37 @@ class TestBedrockHealthCheck:
 # ── _is_bedrock_model_id ──────────────────────────────────────────────────────
 
 class TestIsBedrockModelId:
-    def test_us_inference_profile(self):
+    def test_us_inference_profile(self) -> None:
         assert _is_bedrock_model_id("us.anthropic.claude-opus-4-6-v1") is True
 
-    def test_us_opus_4_7(self):
+    def test_us_opus_4_7(self) -> None:
         assert _is_bedrock_model_id("us.anthropic.claude-opus-4-7") is True
 
-    def test_eu_inference_profile(self):
+    def test_eu_inference_profile(self) -> None:
         assert _is_bedrock_model_id("eu.anthropic.claude-sonnet-4-6") is True
 
-    def test_global_inference_profile(self):
+    def test_global_inference_profile(self) -> None:
         assert _is_bedrock_model_id("global.anthropic.claude-opus-4-7") is True
 
-    def test_arn_format(self):
+    def test_arn_format(self) -> None:
         assert _is_bedrock_model_id(
             "arn:aws:bedrock:us-east-1:123456789:inference-profile/us.anthropic.claude-opus-4-7"
         ) is True
 
-    def test_direct_bedrock_model_id(self):
+    def test_direct_bedrock_model_id(self) -> None:
         assert _is_bedrock_model_id("anthropic.claude-opus-4-7") is True
 
-    def test_nim_model_not_bedrock(self):
+    def test_nim_model_not_bedrock(self) -> None:
         assert _is_bedrock_model_id("nvidia/nemotron-3-super-120b-a12b") is False
 
-    def test_deepseek_not_bedrock(self):
+    def test_deepseek_not_bedrock(self) -> None:
         assert _is_bedrock_model_id("deepseek-ai/deepseek-v4-pro") is False
 
-    def test_plain_claude_not_bedrock(self):
+    def test_plain_claude_not_bedrock(self) -> None:
         # Direct Anthropic API model IDs don't have the Bedrock prefix
         assert _is_bedrock_model_id("claude-sonnet-4-6") is False
 
-    def test_empty_string(self):
+    def test_empty_string(self) -> None:
         assert _is_bedrock_model_id("") is False
 
 
@@ -346,7 +346,7 @@ class TestBedrockRoutingAffinity:
             priority=5,
         )
 
-    async def test_bedrock_model_skips_nim(self):
+    async def test_bedrock_model_skips_nim(self) -> None:
         """When model is a Bedrock ID, NIM should not be attempted."""
         nim = self._nim_provider()
         bedrock = _bedrock_provider()
@@ -366,7 +366,7 @@ class TestBedrockRoutingAffinity:
         assert "bedrock" in provider_ids
         assert "nvidia-nim" not in provider_ids
 
-    async def test_bedrock_model_is_primary_for_bedrock_provider(self):
+    async def test_bedrock_model_is_primary_for_bedrock_provider(self) -> None:
         """When NIM is skipped, Bedrock becomes the primary provider and uses the original model."""
         nim = self._nim_provider()
         bedrock = _bedrock_provider("us.anthropic.claude-opus-4-6-v1")
@@ -386,7 +386,7 @@ class TestBedrockRoutingAffinity:
         call_kwargs = mock_client.converse.call_args.kwargs
         assert call_kwargs["modelId"] == "us.anthropic.claude-opus-4-6-v1"
 
-    async def test_bedrock_affinity_preserved_in_cooldown_bypass(self):
+    async def test_bedrock_affinity_preserved_in_cooldown_bypass(self) -> None:
         """Bedrock affinity must hold even in the last-resort cooldown-bypass path."""
         from unittest.mock import AsyncMock, patch as mock_patch
         import provider_router as pr_mod
@@ -413,7 +413,7 @@ class TestBedrockRoutingAffinity:
         assert "bedrock" in provider_ids, "Bedrock not attempted in bypass path"
         assert "nvidia-nim" not in provider_ids, "NIM was incorrectly tried in bypass path"
 
-    async def test_non_bedrock_model_still_tries_nim_first(self):
+    async def test_non_bedrock_model_still_tries_nim_first(self) -> None:
         """Non-Bedrock model IDs still route to NIM first (existing behaviour)."""
         import httpx
 
