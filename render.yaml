@@ -75,8 +75,10 @@ services:
         sync: false
       - key: AWS_REGION
         value: "us-east-1"
+      # Opus 4.7 requires AWS Sales approval — use Opus 4.6 until access is granted
+      # To upgrade: change to us.anthropic.claude-opus-4-7 after AWS confirms access
       - key: BEDROCK_MODEL_ID
-        value: "us.anthropic.claude-opus-4-7"
+        value: "us.anthropic.claude-opus-4-6-v1"
 
       - key: ANTHROPIC_API_KEY
         sync: false

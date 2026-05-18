@@ -126,7 +126,7 @@ async def test_provider_router_bedrock_roundtrip():
     }
 
     t0 = time.monotonic()
-    response = await router._post_bedrock_converse(provider, payload, timeout=30.0)
+    response = await router._post_bedrock_converse(provider, payload, 30.0)
     latency_ms = int((time.monotonic() - t0) * 1000)
 
     assert response.status_code == 200, f"Proxy layer returned {response.status_code}"
