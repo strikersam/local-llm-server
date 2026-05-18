@@ -1,7 +1,7 @@
 {
-  "last_scan": "2026-05-17T16:04:07Z",
-  "scan_count": 20,
-  "issues_detected": 22,
+  "last_scan": "2026-05-18T04:26:24Z",
+  "scan_count": 21,
+  "issues_detected": 24,
   "issues_resolved": 2,
   "active_issues": [
     {
@@ -505,6 +505,30 @@
       "file_path": null,
       "line_number": null,
       "detected_at": "2026-05-17T14:51:54Z",
+      "task_id": null,
+      "resolved": false
+    },
+    {
+      "issue_id": "td_c8dd7b1b",
+      "category": "todo_fixme",
+      "severity": "medium",
+      "title": "Code marker in ./agent/improvement_loop.py:258",
+      "description": "Unresolved marker: `[\"grep\", \"-rn\", \"--include=*.py\", \"-E\", r\"FIXME|TODO.?FIX|HACK.?URGENT\", \".\"],`",
+      "file_path": "./agent/improvement_loop.py",
+      "line_number": 258,
+      "detected_at": "2026-05-18T04:26:22Z",
+      "task_id": null,
+      "resolved": false
+    },
+    {
+      "issue_id": "td_7a02635a",
+      "category": "todo_fixme",
+      "severity": "medium",
+      "title": "Code marker in ./agent/improvement_loop.py:272",
+      "description": "Unresolved marker: `category=IssueCategory.TODO_FIXME,`",
+      "file_path": "./agent/improvement_loop.py",
+      "line_number": 272,
+      "detected_at": "2026-05-18T04:26:22Z",
       "task_id": null,
       "resolved": false
     }
