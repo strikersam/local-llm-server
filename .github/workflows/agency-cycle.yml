@@ -24,13 +24,13 @@ jobs:
       pull-requests: write
 
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v4
         with:
           fetch-depth: 0
           token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Set up Python
-        uses: actions/setup-python@v6
+        uses: actions/setup-python@v5
         with:
           python-version: '3.13'
           cache: pip
@@ -49,16 +49,15 @@ jobs:
           python -m pytest --tb=no -q --no-header 2>&1 | tee /tmp/test_baseline.txt || true
           EXIT=${PIPESTATUS[0]}
           echo "exit_code=${EXIT}" >> "$GITHUB_OUTPUT"
-          FAILING=$(grep '^FAILED ' /tmp/test_baseline.txt | awk '{print $2}' | head -5 | tr '\n' ',' | sed 's/,$//')
+          FAILING=$(grep '^FAILED ' /tmp/test_baseline.txt | awk '{print $2}' | head -5 | tr '
+' ',' | sed 's/,$//')
           echo "failing=${FAILING}" >> "$GITHUB_OUTPUT"
 
       - name: Scan for security issues (bandit)
         id: security
         run: |
           pip install bandit safety anthropic 2>&1 | tail -2
-          bandit -r . \
-            --exclude ".git,.venv,venv,node_modules,tests,frontend,remote-admin" \
-            --format json --output /tmp/bandit.json -ll 2>/dev/null || true
+          bandit -r .             --exclude ".git,.venv,venv,node_modules,tests,frontend,remote-admin"             --format json --output /tmp/bandit.json -ll 2>/dev/null || true
           COUNT=$(python3 -c "import json; d=json.load(open('/tmp/bandit.json')); print(len(d.get('results',[])))" 2>/dev/null || echo 0)
           echo "findings=${COUNT}" >> "$GITHUB_OUTPUT"
 
@@ -114,7 +113,8 @@ jobs:
           You are the Dev Agent in the local-llm-server agency.
 
           The following tests are currently failing:
-          $(echo "$FAILING" | tr ',' '\n' | sed 's/^/  - /')
+          $(echo "$FAILING" | tr ',' '
+' | sed 's/^/  - /')
 
           Run \`python -m pytest --tb=short -x\` to see the failures.
           Fix each failing test by correcting the implementation (never skip or mock tests).
@@ -191,12 +191,17 @@ jobs:
                 '## Agency Escalation: Tests remain failing after automated fix attempt',
                 '',
                 '**Baseline failures:**',
-                `\`\`\`\n${baseline.slice(0, 2000)}\n\`\`\``,
+                `\`\`\`
+${baseline.slice(0, 2000)}
+\`\`\``,
                 '',
                 '**Post-fix run:**',
-                `\`\`\`\n${postFix.slice(0, 2000)}\n\`\`\``,
+                `\`\`\`
+${postFix.slice(0, 2000)}
+\`\`\``,
                 '',
                 '_Human review required. The Dev Agent could not resolve these automatically._',
-              ].join('\n'),
+              ].join('
+'),
               labels: ['bug', 'auto-detected', 'agency-escalation'],
             });
