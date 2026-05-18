@@ -264,7 +264,7 @@ class TestAgentChatE2E:
 
         # Detailed failure message so a regression is easy to diagnose
         workspace_files = [str(p.relative_to(tmp_path)) for p in tmp_path.rglob("*")]
-        assert job["status"] in {"succeeded", "failed"}, (
+        assert job["status"] == "succeeded", (
             f"Job stuck in '{job['status']}' — likely the background task was cancelled.\n"
             f"Progress: {[e['phase'] + ': ' + e['message'] for e in job.get('progress_events', [])]}"
         )
@@ -419,7 +419,7 @@ class TestAgentChatE2E:
 
         job = _poll_job(client, headers, job_id, timeout=30.0)
         # Job must reach a terminal state — never stuck or 500
-        assert job["status"] in {"succeeded", "failed"}, (
+        assert job["status"] == "succeeded", (
             f"Job stuck in '{job['status']}' — agent loop may have crashed.\n"
             f"Progress: {[e['phase'] + ': ' + e['message'] for e in job.get('progress_events', [])]}"
         )
@@ -564,7 +564,7 @@ class TestAgentGitHubAPITools:
         })
         assert resp.status_code == 202, resp.text
         job = _poll_job(client, headers, resp.json()["job_id"], timeout=30.0)
-        assert job["status"] in {"succeeded", "failed"}
+        assert job["status"] == "succeeded"
 
     def test_agent_merges_pull_request(
         self, client: TestClient, monkeypatch
@@ -594,7 +594,7 @@ class TestAgentGitHubAPITools:
         })
         assert resp.status_code == 202, resp.text
         job = _poll_job(client, headers, resp.json()["job_id"], timeout=30.0)
-        assert job["status"] in {"succeeded", "failed"}
+        assert job["status"] == "succeeded"
 
     def test_agent_reads_github_issue(
         self, client: TestClient, monkeypatch
@@ -621,7 +621,7 @@ class TestAgentGitHubAPITools:
         })
         assert resp.status_code == 202, resp.text
         job = _poll_job(client, headers, resp.json()["job_id"], timeout=30.0)
-        assert job["status"] in {"succeeded", "failed"}
+        assert job["status"] == "succeeded"
 
 
 # ---------------------------------------------------------------------------
@@ -650,7 +650,7 @@ class TestAgentMCPGitTools:
         })
         assert resp.status_code == 202, resp.text
         job = _poll_job(client, headers, resp.json()["job_id"], timeout=30.0)
-        assert job["status"] in {"succeeded", "failed"}
+        assert job["status"] == "succeeded"
 
     def test_agent_git_diff(self, client: TestClient, monkeypatch) -> None:
         plan = _one_step_plan("git_diff", "Get the diff")
@@ -670,7 +670,7 @@ class TestAgentMCPGitTools:
         })
         assert resp.status_code == 202, resp.text
         job = _poll_job(client, headers, resp.json()["job_id"], timeout=30.0)
-        assert job["status"] in {"succeeded", "failed"}
+        assert job["status"] == "succeeded"
 
     def test_agent_git_create_branch(self, client: TestClient, monkeypatch) -> None:
         plan = _one_step_plan("git_create_branch", "Create branch")
@@ -693,7 +693,7 @@ class TestAgentMCPGitTools:
         })
         assert resp.status_code == 202, resp.text
         job = _poll_job(client, headers, resp.json()["job_id"], timeout=30.0)
-        assert job["status"] in {"succeeded", "failed"}
+        assert job["status"] == "succeeded"
 
     def test_agent_git_commit(self, client: TestClient, monkeypatch) -> None:
         plan = _one_step_plan("git_commit", "Commit changes")
@@ -716,7 +716,7 @@ class TestAgentMCPGitTools:
         })
         assert resp.status_code == 202, resp.text
         job = _poll_job(client, headers, resp.json()["job_id"], timeout=30.0)
-        assert job["status"] in {"succeeded", "failed"}
+        assert job["status"] == "succeeded"
 
     def test_agent_git_push(self, client: TestClient, monkeypatch) -> None:
         plan = _one_step_plan("git_push", "Push to remote")
@@ -739,7 +739,7 @@ class TestAgentMCPGitTools:
         })
         assert resp.status_code == 202, resp.text
         job = _poll_job(client, headers, resp.json()["job_id"], timeout=30.0)
-        assert job["status"] in {"succeeded", "failed"}
+        assert job["status"] == "succeeded"
 
 
 # ---------------------------------------------------------------------------
@@ -902,7 +902,7 @@ class TestAgentFullPRWorkflow:
         job = _poll_job(client, headers, resp.json()["job_id"], timeout=30.0)
 
         workspace_files = list(tmp_path.rglob("*.txt"))
-        assert job["status"] in {"succeeded", "failed"}, (
+        assert job["status"] == "succeeded", (
             f"Job stuck in '{job['status']}'\n"
             f"Progress: {[e['phase'] + ': ' + e['message'] for e in job.get('progress_events', [])]}"
         )
@@ -959,4 +959,4 @@ class TestAgentFullPRWorkflow:
         })
         assert resp.status_code == 202, resp.text
         job = _poll_job(client, headers, resp.json()["job_id"], timeout=30.0)
-        assert job["status"] in {"succeeded", "failed"}
+        assert job["status"] == "succeeded"
