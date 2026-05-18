@@ -63,6 +63,21 @@ services:
         sync: false
       - key: DEEPSEEK_BASE_URL
         value: "https://api.deepseek.com"
+      # ================================================================
+      # AWS BEDROCK — priority-15 (highest-precedence commercial provider)
+      # Set AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY in the Render
+      # dashboard to enable.  Default model: us.anthropic.claude-opus-4-7
+      # Alternate env names: BEDROCK_ACCESS_KEY / BEDROCK_SECRET_KEY
+      # ================================================================
+      - key: AWS_ACCESS_KEY_ID
+        sync: false
+      - key: AWS_SECRET_ACCESS_KEY
+        sync: false
+      - key: AWS_REGION
+        value: "us-east-1"
+      - key: BEDROCK_MODEL_ID
+        value: "us.anthropic.claude-opus-4-7"
+
       - key: ANTHROPIC_API_KEY
         sync: false
       - key: ANTHROPIC_BASE_URL
