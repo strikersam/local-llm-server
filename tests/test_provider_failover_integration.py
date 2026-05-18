@@ -22,7 +22,7 @@ def reset_cooldowns():
 
 
 @pytest.mark.anyio
-async def test_failover_skips_local_uses_windows_server(monkeypatch):
+async def test_failover_skips_local_uses_windows_server(monkeypatch) -> None:
     """Local Ollama down → Windows server Ollama used."""
     attempts: list[str] = []
 
@@ -65,7 +65,7 @@ async def test_failover_skips_local_uses_windows_server(monkeypatch):
 
 
 @pytest.mark.anyio
-async def test_failover_chain_local_windows_hf_deepseek_anthropic(monkeypatch):
+async def test_failover_chain_local_windows_hf_deepseek_anthropic(monkeypatch) -> None:
     """Full chain: local → windows → hf → deepseek → anthropic."""
     attempts: list[str] = []
 
@@ -139,7 +139,7 @@ async def test_failover_chain_local_windows_hf_deepseek_anthropic(monkeypatch):
 
 
 @pytest.mark.anyio
-async def test_failover_raises_503_when_all_fail(monkeypatch):
+async def test_failover_raises_503_when_all_fail(monkeypatch) -> None:
     """All providers fail → ProviderFallbackError is raised."""
 
     async def fake_post_chat(self, provider, payload, timeout_sec):
@@ -174,7 +174,7 @@ async def test_failover_raises_503_when_all_fail(monkeypatch):
 
 
 @pytest.mark.anyio
-async def test_provider_on_cooldown_is_skipped(monkeypatch):
+async def test_provider_on_cooldown_is_skipped(monkeypatch) -> None:
     """A provider on cooldown is not attempted."""
     from provider_router import mark_provider_failed
 
@@ -218,7 +218,7 @@ async def test_provider_on_cooldown_is_skipped(monkeypatch):
 
 
 @pytest.mark.anyio
-async def test_from_env_includes_windows_server(monkeypatch):
+async def test_from_env_includes_windows_server(monkeypatch) -> None:
     """ProviderRouter.from_env() picks up OLLAMA_WINDOWS_SERVER."""
     monkeypatch.setenv("OLLAMA_WINDOWS_SERVER", "http://192.168.1.50:11434")
     monkeypatch.setenv("OLLAMA_WINDOWS_MODEL", "llama3.2")
