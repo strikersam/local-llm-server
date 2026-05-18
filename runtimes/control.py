@@ -326,6 +326,15 @@ async def start_runtime(runtime_id: str) -> dict[str, Any]:
             if remote_resp.get("remote_managed"):
                 return remote_resp
             return await _start_local_runtime(runtime_id)
+        # Container name conflict means the container already exists/is running.
+        # Treat this as a non-error "already running" state rather than raising 500.
+        if "conflict" in error_msg.lower() or "already in use" in error_msg.lower() or "already started" in error_msg.lower():
+            log.info("Runtime %s container already exists — treating as running", runtime_id)
+            return {
+                "runtime_id": runtime_id,
+                "action": "start",
+                "status": "already_running",
+            }
         log.error("Failed to start %s: %s", runtime_id, error_msg)
         return {
             "runtime_id": runtime_id,
