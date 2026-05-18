@@ -37,11 +37,11 @@ def test_stub_mode_fill():
     assert result.success is False
 
 
-def test_stub_mode_screenshot():
+def test_stub_mode_screenshot(tmp_path):
     session = BrowserSession()
     if session.available:
         pytest.skip("Playwright installed")
-    result = asyncio.run(session.screenshot("/tmp/snap.png"))
+    result = asyncio.run(session.screenshot(str(tmp_path / "snap.png")))
     assert result.success is False
 
 

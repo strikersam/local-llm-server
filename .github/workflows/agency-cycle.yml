@@ -55,7 +55,7 @@ jobs:
       - name: Scan for security issues (bandit)
         id: security
         run: |
-          pip install bandit safety 2>&1 | tail -2
+          pip install bandit safety anthropic 2>&1 | tail -2
           bandit -r . \
             --exclude ".git,.venv,venv,node_modules,tests,frontend,remote-admin" \
             --format json --output /tmp/bandit.json -ll 2>/dev/null || true

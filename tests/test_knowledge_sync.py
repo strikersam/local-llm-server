@@ -109,7 +109,7 @@ def test_build_digest_includes_low_relevance_section():
 # ── Async: fetch_and_store ────────────────────────────────────────────────────
 
 @pytest.mark.asyncio
-async def test_fetch_and_store_success():
+async def test_fetch_and_store_success() -> None:
     client = _FakeClient(_FakeResp(201, {"id": "src-1", "title": "My source"}))
     result = await fetch_and_store(
         url="https://example.com/article",
@@ -121,7 +121,7 @@ async def test_fetch_and_store_success():
 
 
 @pytest.mark.asyncio
-async def test_fetch_and_store_non_200_returns_error():
+async def test_fetch_and_store_non_200_returns_error() -> None:
     client = _FakeClient(_FakeResp(422, text="Unprocessable"))
     result = await fetch_and_store(
         url="https://example.com",
@@ -133,7 +133,7 @@ async def test_fetch_and_store_non_200_returns_error():
 
 
 @pytest.mark.asyncio
-async def test_fetch_and_store_network_error():
+async def test_fetch_and_store_network_error() -> None:
     async def _fail(*a, **kw):
         raise httpx.ConnectError("refused")
 
@@ -146,7 +146,7 @@ async def test_fetch_and_store_network_error():
 # ── Async: create_wiki_page ────────────────────────────────────────────────────
 
 @pytest.mark.asyncio
-async def test_create_wiki_page_success():
+async def test_create_wiki_page_success() -> None:
     client = _FakeClient(_FakeResp(201, {"id": "page-42", "title": "My page"}))
     result = await create_wiki_page(
         title="AI Trend Digest — Week of 2025-05-01",
@@ -158,7 +158,7 @@ async def test_create_wiki_page_success():
 
 
 @pytest.mark.asyncio
-async def test_create_wiki_page_409_returns_skipped():
+async def test_create_wiki_page_409_returns_skipped() -> None:
     client = _FakeClient(_FakeResp(409, text="Conflict"))
     result = await create_wiki_page(title="duplicate", content="x", client=client)
     assert result.get("skipped") is True
@@ -167,7 +167,7 @@ async def test_create_wiki_page_409_returns_skipped():
 # ── Async: sync_trends ────────────────────────────────────────────────────────
 
 @pytest.mark.asyncio
-async def test_sync_trends_no_watcher_returns_empty():
+async def test_sync_trends_no_watcher_returns_empty() -> None:
     with patch("agent.trend_watcher.get_trend_watcher", return_value=None):
         result = await sync_trends()
     assert isinstance(result, SyncResult)
@@ -175,14 +175,14 @@ async def test_sync_trends_no_watcher_returns_empty():
 
 
 @pytest.mark.asyncio
-async def test_sync_trends_empty_alerts():
+async def test_sync_trends_empty_alerts() -> None:
     result = await sync_trends(alerts=[])
     assert result.ingested == 0
     assert result.errors == 0
 
 
 @pytest.mark.asyncio
-async def test_sync_trends_ingests_high_relevance(monkeypatch):
+async def test_sync_trends_ingests_high_relevance(monkeypatch) -> None:
     alerts = [_make_alert(score=0.8, url="https://ollama.ai/blog/release")]
     post_calls: list[dict] = []
 
@@ -203,7 +203,7 @@ async def test_sync_trends_ingests_high_relevance(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_sync_trends_skips_low_relevance(monkeypatch):
+async def test_sync_trends_skips_low_relevance(monkeypatch) -> None:
     alerts = [_make_alert(score=0.1, url="https://example.com/irrelevant")]
     wiki_calls: list = []
 
@@ -244,7 +244,7 @@ def test_knowledge_sync_defaults_none_before_set():
 # ── KnowledgeSync class methods ───────────────────────────────────────────────
 
 @pytest.mark.asyncio
-async def test_knowledge_sync_ingest_url():
+async def test_knowledge_sync_ingest_url() -> None:
     ks = KnowledgeSync()
     with patch("agent.knowledge_sync.fetch_and_store", new_callable=AsyncMock, return_value={"id": "s1"}) as mock_fn:
         result = await ks.ingest_url("https://x.com", "Test", ["tag1"])
@@ -253,7 +253,7 @@ async def test_knowledge_sync_ingest_url():
 
 
 @pytest.mark.asyncio
-async def test_knowledge_sync_create_page():
+async def test_knowledge_sync_create_page() -> None:
     ks = KnowledgeSync()
     with patch("agent.knowledge_sync.create_wiki_page", new_callable=AsyncMock, return_value={"id": "p1"}) as mock_fn:
         result = await ks.create_page("Title", "Content")

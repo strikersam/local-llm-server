@@ -256,6 +256,11 @@ class GitHubTools:
     ) -> dict[str, Any]:
         """Merge an open pull request via the GitHub API."""
         self._validate_repo_parts(owner, repo)
+        if not isinstance(pull_number, int) or pull_number < 1:
+            raise ValueError(f"pull_number must be a positive integer, got {pull_number!r}")
+        _valid_methods = {"merge", "squash", "rebase"}
+        if merge_method not in _valid_methods:
+            raise ValueError(f"merge_method must be one of {_valid_methods}, got {merge_method!r}")
         payload: dict[str, Any] = {"merge_method": merge_method}
         if commit_title:
             payload["commit_title"] = commit_title

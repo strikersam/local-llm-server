@@ -177,7 +177,7 @@ def test_mask_observations_preserves_message_count():
 # ── _run_agent_loop ───────────────────────────────────────────────────────────
 
 @pytest.mark.anyio
-async def test_run_agent_loop_success(monkeypatch):
+async def test_run_agent_loop_success(monkeypatch) -> None:
     """Verify _run_agent_loop calls AgentRunner.run and returns the summary."""
     mock_result = {"summary": "Agent reached a conclusion."}
     captured: dict[str, object] = {}
@@ -209,7 +209,7 @@ async def test_run_agent_loop_success(monkeypatch):
     assert "AUTO-SELECTED SKILLS" in captured["instruction"]
 
 @pytest.mark.anyio
-async def test_run_agent_loop_failure(monkeypatch):
+async def test_run_agent_loop_failure(monkeypatch) -> None:
     """Verify _run_agent_loop handles AgentRunner exceptions gracefully."""
     
     class MockRunner:

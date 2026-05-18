@@ -31,7 +31,7 @@ def test_adapter_metadata(adapter: ClaudeCodeAdapter):
 
 
 @pytest.mark.asyncio
-async def test_health_check_binary_not_found(adapter: ClaudeCodeAdapter, monkeypatch):
+async def test_health_check_binary_not_found(adapter: ClaudeCodeAdapter, monkeypatch) -> None:
     monkeypatch.setattr("shutil.which", lambda _: None)
     health = await adapter.health_check()
     assert health.available is False
@@ -39,7 +39,7 @@ async def test_health_check_binary_not_found(adapter: ClaudeCodeAdapter, monkeyp
 
 
 @pytest.mark.asyncio
-async def test_health_check_no_api_key(adapter: ClaudeCodeAdapter, monkeypatch):
+async def test_health_check_no_api_key(adapter: ClaudeCodeAdapter, monkeypatch) -> None:
     monkeypatch.setattr("shutil.which", lambda _: "/usr/bin/claude")
     monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
     health = await adapter.health_check()
@@ -48,7 +48,7 @@ async def test_health_check_no_api_key(adapter: ClaudeCodeAdapter, monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_health_check_success(adapter: ClaudeCodeAdapter, monkeypatch):
+async def test_health_check_success(adapter: ClaudeCodeAdapter, monkeypatch) -> None:
     monkeypatch.setattr("shutil.which", lambda _: "/usr/bin/claude")
     monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-test-key")
 
@@ -63,7 +63,7 @@ async def test_health_check_success(adapter: ClaudeCodeAdapter, monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_execute_binary_not_found(adapter: ClaudeCodeAdapter, monkeypatch):
+async def test_execute_binary_not_found(adapter: ClaudeCodeAdapter, monkeypatch) -> None:
     from runtimes.base import RuntimeUnavailableError, TaskSpec
     monkeypatch.setattr("shutil.which", lambda _: None)
     spec = TaskSpec(task_id="t1", instruction="do something", task_type="code_generation")
@@ -72,7 +72,7 @@ async def test_execute_binary_not_found(adapter: ClaudeCodeAdapter, monkeypatch)
 
 
 @pytest.mark.asyncio
-async def test_execute_no_api_key(adapter: ClaudeCodeAdapter, monkeypatch):
+async def test_execute_no_api_key(adapter: ClaudeCodeAdapter, monkeypatch) -> None:
     from runtimes.base import RuntimeUnavailableError, TaskSpec
     monkeypatch.setattr("shutil.which", lambda _: "/usr/bin/claude")
     monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
@@ -82,7 +82,7 @@ async def test_execute_no_api_key(adapter: ClaudeCodeAdapter, monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_execute_success(adapter: ClaudeCodeAdapter, monkeypatch):
+async def test_execute_success(adapter: ClaudeCodeAdapter, monkeypatch) -> None:
     from runtimes.base import TaskSpec
     monkeypatch.setattr("shutil.which", lambda _: "/usr/bin/claude")
     monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-test-key")
@@ -103,7 +103,7 @@ async def test_execute_success(adapter: ClaudeCodeAdapter, monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_execute_failure_returns_result(adapter: ClaudeCodeAdapter, monkeypatch):
+async def test_execute_failure_returns_result(adapter: ClaudeCodeAdapter, monkeypatch) -> None:
     from runtimes.base import TaskSpec
     monkeypatch.setattr("shutil.which", lambda _: "/usr/bin/claude")
     monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-test-key")
