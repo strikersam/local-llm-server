@@ -13,6 +13,7 @@
 ### Added
 - `agent/repowise.py`, `agent/tools.py` — Implemented Repowise-inspired codebase intelligence tools: `get_overview`, `get_context`, `get_risk`, and `get_why` for enhanced agent reasoning.
 ### Fixed
+- `.github/workflows/weekly-trend-digest.yml` — Fixed failing "Fetch & Digest AI Trends" job: the workflow was installing only `httpx`, but importing `agent.trend_watcher` triggers `agent/__init__.py` which pulls in the full agent stack (`agent.loop`, `provider_router`, `router`, etc.). Changed to install `requirements.txt` so all transitive dependencies are available.
 - `.github/workflows/auto-merge.yml`, `.github/workflows/pull-request.yml` — Removed reference to non-existent `actions/setup-cli@v1` action (marketplace returns 404). `gh` CLI is pre-installed on `ubuntu-latest` runners; no setup step is needed.
 - `.github/workflows/openclaw-security-automation.yml` — Replaced binary-corrupted YAML file with a clean, valid workflow. Also fixed OpenClaw installation to clone from `github.com/openclaw/openclaw` (git clone) instead of `npm install openclaw@latest` (package does not exist on npm).
 - `.github/workflows/agency-cycle.yml` (PR #185) — Fixed invalid `actions/checkout@v6` and `actions/setup-python@v6` references; bumped to `@v4` and `@v5` respectively (highest available versions).
