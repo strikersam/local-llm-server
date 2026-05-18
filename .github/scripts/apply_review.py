@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+from __future__ import annotations
+
 """
 apply_review.py — Apply PR review comments using a NVIDIA NIM agentic loop.
 
@@ -9,7 +11,7 @@ Env vars:
   GH_TOKEN              GitHub token for reading/posting PR comments
   GITHUB_REPOSITORY     owner/repo string (set automatically by GitHub Actions)
 """
-from __future__ import annotations
+
 
 import json
 import logging
