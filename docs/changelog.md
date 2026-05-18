@@ -26,6 +26,7 @@
 - CI: add `pytest-timeout>=2.3.1` to requirements and `--timeout=120` — prevents hanging tests from blocking CI.
 - CI: add `persist-credentials: false` to all `actions/checkout` steps.
 - CI: remove custom `codeql.yml` workflow — GitHub Default Setup already runs CodeQL (python, javascript-typescript, actions) and passes; the custom workflow was redundant and conflicted with the Default Setup checks.
+- CI: fix `ci.yml` checkout to use branch HEAD SHA for PR events instead of the synthetic merge commit (`refs/pull/N/merge`); eliminates a class of detached-HEAD-related test failures that only appeared in the PR CI context.
 - CI: fix `process-quick-note.yml` YAML heredoc indentation causing parser failure with "0 jobs".
 - Frontend: downgraded `react-router-dom` to `^6.28.2` — v7 ESM exports incompatible with Jest 27.
 - Frontend: added `@testing-library/dom@^10.4.0` to devDependencies — peer dep not auto-installed.
