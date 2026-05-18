@@ -897,7 +897,7 @@ class TestAgentFullPRWorkflow:
             llm_responses=llm_responses,
             github_get_results={
                 "/issues/42": _GH_ISSUE_RESPONSE,
-                "/git/ref/heads/main": {"object": {"sha": "000000"}},
+                "/git/refs/heads/main": {"object": {"sha": "000000"}},
                 "/contents/src/main.py": {"sha": "existing_blob_sha", "encoding": "base64", "content": ""},
             },
             github_post_results={
@@ -920,7 +920,10 @@ class TestAgentFullPRWorkflow:
         })
         assert resp.status_code == 202, resp.text
         job = _poll_job(client, headers, resp.json()["job_id"], timeout=30.0)
-        assert job["status"] in {"succeeded", "failed"}
+        assert job["status"] == "succeeded", (
+            f"Expected succeeded but got {job['status']!r}\n"
+            f"Progress: {[e['phase'] + ': ' + e['message'] for e in job.get('progress_events', [])]}"
+        )
 
     def test_agent_multi_step_plan_executes_all_steps(
         self, client: TestClient, tmp_path: Path, monkeypatch
