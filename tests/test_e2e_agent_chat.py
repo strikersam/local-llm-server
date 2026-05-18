@@ -147,11 +147,19 @@ def _build_agent_http_mock(
             body = kwargs.get("json") or {}
             req_id = body.get("id", 1)
             method = body.get("method", "")
-            if method == "tools/call" and mcp_results:
+            if method == "tools/call":
                 tool_name = (body.get("params") or {}).get("name", "")
-                if tool_name in mcp_results:
+                if tool_name in (mcp_results or {}):
                     return _mcp_tool_response(req_id, mcp_results[tool_name])
-            # Default: return an empty success
+                # Unknown tool — return error so mis-dispatched calls fail visibly
+                return httpx.Response(200, json={
+                    "jsonrpc": "2.0", "id": req_id,
+                    "result": {
+                        "content": [{"type": "text", "text": f"Unknown tool: {tool_name}"}],
+                        "isError": True,
+                    },
+                })
+            # Non-tools/call MCP request (e.g. initialize, list): return empty success
             return httpx.Response(200, json={
                 "jsonrpc": "2.0", "id": req_id,
                 "result": {"content": [{"type": "text", "text": "{}"}], "isError": False},
@@ -748,44 +756,23 @@ class TestAgentFullPRWorkflow:
         self, client: TestClient, tmp_path: Path, monkeypatch
     ) -> None:
         """
-        Complete code-change → PR workflow:
-        1. write_file (edit the code)
-        2. git_commit (commit via MCP)
-        3. git_push (push via MCP)
-        4. github_open_pull_request (open PR via GitHub API)
-        5. github_merge_pull_request (merge PR via GitHub API)
+        Code-change + PR-merge workflow (2 steps, stays on sequential path).
 
-        Verifies the agent reaches a terminal state for every step and
-        that both MCP and GitHub API calls are handled correctly.
+        Uses write_file (MCP) then github_merge_pull_request (GitHub API)
+        to cover both tool categories without exceeding _PARALLEL_THRESHOLD=3
+        and switching to MultiAgentSwarm, which is incompatible with the
+        sequential mock.
         """
         import backend.server as srv
         monkeypatch.setattr(srv, "_CHAT_AGENT_WORKSPACE_ROOT", tmp_path)
 
         plan = _multi_step_plan([
             {"desc": "Write the fix", "files": ["src/main.py"], "type": "modify"},
-            {"desc": "Commit the fix", "files": [], "type": "modify"},
-            {"desc": "Push to remote", "files": [], "type": "modify"},
-            {"desc": "Open pull request", "files": [], "type": "github"},
             {"desc": "Merge pull request", "files": [], "type": "github"},
         ])
         exec_write = _exec("write_file", {
             "path": "src/main.py",
             "content": "def hello():\n    return 'Hello Agent'\n",
-        })
-        exec_commit = _exec("git_commit", {
-            "workspace_id": "pr-workflow-ws",
-            "message": "fix: update hello return value",
-        })
-        exec_push = _exec("git_push", {
-            "workspace_id": "pr-workflow-ws",
-            "branch": "fix/hello-return",
-        })
-        exec_open_pr = _exec("github_open_pull_request", {
-            "repo_name": "strikersam/local-llm-server",
-            "title": "fix: update hello return value",
-            "head": "fix/hello-return",
-            "base": "main",
-            "body": "Fixes #42 — updates hello() to return 'Hello Agent'.",
         })
         exec_merge_pr = _exec("github_merge_pull_request", {
             "repo_name": "strikersam/local-llm-server",
@@ -793,24 +780,15 @@ class TestAgentFullPRWorkflow:
             "merge_method": "squash",
         })
 
-        # LLM response cycle: plan → exec1 → verify1 → exec2 → verify2 → ... → judge
         llm_responses = [
             plan,
             exec_write, VERIFIER_JSON,
-            exec_commit, VERIFIER_JSON,
-            exec_push, VERIFIER_JSON,
-            exec_open_pr, VERIFIER_JSON,
             exec_merge_pr, VERIFIER_JSON,
             JUDGE_JSON,
         ]
 
         mock_post, mock_get, mock_put = _build_agent_http_mock(
             llm_responses=llm_responses,
-            mcp_results={
-                "git_commit": {"committed": True, "message": "fix: update hello return value"},
-                "git_push": {"pushed": True},
-            },
-            github_post_results={"/pulls": _GH_PR_RESPONSE},
             github_put_results={"/pulls/99/merge": _GH_MERGE_RESPONSE},
         )
         monkeypatch.setattr("httpx.AsyncClient.post", mock_post)
@@ -821,14 +799,14 @@ class TestAgentFullPRWorkflow:
         resp = client.post("/api/chat/send", headers=headers, json={
             "session_id": f"pr-workflow-{uuid.uuid4()}",
             "agent_mode": True,
-            "content": "Fix the hello() function, commit, push, open a PR and merge it",
+            "content": "Fix the hello() function and merge the PR",
         })
         assert resp.status_code == 202, resp.text
         job_id = resp.json()["job_id"]
 
         job = _poll_job(client, headers, job_id, timeout=30.0)
-        assert job["status"] in {"succeeded", "failed"}, (
-            f"Full PR workflow job stuck in '{job['status']}'\n"
+        assert job["status"] == "succeeded", (
+            f"Full PR workflow job got '{job['status']}'\n"
             f"Progress: {[e['phase'] + ': ' + e['message'] for e in job.get('progress_events', [])]}"
         )
 
@@ -836,39 +814,18 @@ class TestAgentFullPRWorkflow:
         self, client: TestClient, monkeypatch
     ) -> None:
         """
-        Issue-driven workflow:
-        1. github_get_issue — read what needs to be done
-        2. write_file — implement the fix
-        3. github_create_branch — create branch via GitHub API
-        4. github_commit_changes — commit via GitHub API
-        5. github_open_pull_request — open the PR
+        Issue-driven workflow (2 steps, stays on sequential path).
+
+        Uses github_get_issue then github_open_pull_request to cover reading
+        an issue and opening a PR without exceeding _PARALLEL_THRESHOLD=3.
         """
         plan = _multi_step_plan([
             {"desc": "Read the issue", "files": [], "type": "analyze"},
-            {"desc": "Implement fix", "files": ["src/main.py"], "type": "modify"},
-            {"desc": "Create branch", "files": [], "type": "github"},
-            {"desc": "Commit changes via GitHub API", "files": [], "type": "github"},
             {"desc": "Open pull request", "files": [], "type": "github"},
         ])
         exec_get_issue = _exec("github_get_issue", {
             "repo_name": "strikersam/local-llm-server",
             "issue_number": 42,
-        })
-        exec_write = _exec("write_file", {
-            "path": "src/main.py",
-            "content": "def hello():\n    return 'Hello Agent'\n",
-        })
-        exec_create_branch = _exec("github_create_branch", {
-            "repo_name": "strikersam/local-llm-server",
-            "branch_name": "fix/issue-42",
-            "base_branch": "main",
-        })
-        exec_commit = _exec("github_commit_changes", {
-            "repo_name": "strikersam/local-llm-server",
-            "branch_name": "fix/issue-42",
-            "message": "fix: closes #42",
-            "path": "src/main.py",
-            "content": "def hello():\n    return 'Hello Agent'\n",
         })
         exec_open_pr = _exec("github_open_pull_request", {
             "repo_name": "strikersam/local-llm-server",
@@ -878,35 +835,17 @@ class TestAgentFullPRWorkflow:
             "body": "Closes #42.",
         })
 
-        _gh_commit_response = {
-            "commit": {"sha": "abc123", "message": "fix: closes #42"},
-            "content": {"path": "src/main.py"},
-        }
-
         llm_responses = [
             plan,
             exec_get_issue, VERIFIER_JSON,
-            exec_write, VERIFIER_JSON,
-            exec_create_branch, VERIFIER_JSON,
-            exec_commit, VERIFIER_JSON,
             exec_open_pr, VERIFIER_JSON,
             JUDGE_JSON,
         ]
 
         mock_post, mock_get, mock_put = _build_agent_http_mock(
             llm_responses=llm_responses,
-            github_get_results={
-                "/issues/42": _GH_ISSUE_RESPONSE,
-                "/git/refs/heads/main": {"object": {"sha": "000000"}},
-                "/contents/src/main.py": {"sha": "existing_blob_sha", "encoding": "base64", "content": ""},
-            },
-            github_post_results={
-                "/git/refs": _GH_BRANCH_RESPONSE,
-                "/pulls": _GH_PR_RESPONSE,
-            },
-            github_put_results={
-                "/contents/src/main.py": _gh_commit_response,
-            },
+            github_get_results={"/issues/42": _GH_ISSUE_RESPONSE},
+            github_post_results={"/pulls": _GH_PR_RESPONSE},
         )
         monkeypatch.setattr("httpx.AsyncClient.post", mock_post)
         monkeypatch.setattr("httpx.AsyncClient.get", mock_get)
