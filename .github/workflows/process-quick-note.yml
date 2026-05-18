@@ -44,9 +44,10 @@ jobs:
         id: pick
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          ISSUE_NUMBER_OVERRIDE: ${{ github.event.inputs.issue_number }}
         run: |
-          if [ -n "${{ github.event.inputs.issue_number }}" ]; then
-            NUM="${{ github.event.inputs.issue_number }}"
+          if [ -n "$ISSUE_NUMBER_OVERRIDE" ]; then
+            NUM="$ISSUE_NUMBER_OVERRIDE"
             echo "Manual override — using issue #$NUM"
           else
             # Oldest open quick-note that has not exhausted retries
