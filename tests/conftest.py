@@ -1,3 +1,4 @@
+import gc
 import os
 import sys
 from pathlib import Path
@@ -198,3 +199,18 @@ def reset_provider_cooldowns():
     clear_cooldowns()
     yield
     clear_cooldowns()
+
+
+@pytest.fixture(autouse=True, scope="session")
+async def _gc_before_loop_close():
+    """Force GC while the session event loop is still alive.
+
+    On Python 3.13, stricter GC timing causes BaseSubprocessTransport.__del__
+    to fire after the event loop closes, raising RuntimeError inside a test.
+    Running gc.collect() here (in a session-scoped async fixture teardown)
+    ensures any orphaned subprocess transports are cleaned up before the loop
+    is closed, preventing PytestUnraisableExceptionWarning failures.
+    """
+    yield
+    gc.collect()
+    gc.collect()
