@@ -118,13 +118,18 @@ jobs:
                 });
               } catch (e) {
                 if (e.status === 404) {
-                  await github.rest.issues.createLabel({
-                    owner:       context.repo.owner,
-                    repo:        context.repo.repo,
-                    name:        label.name,
-                    color:       label.color,
-                    description: label.description,
-                  });
+                  try {
+                    await github.rest.issues.createLabel({
+                      owner:       context.repo.owner,
+                      repo:        context.repo.repo,
+                      name:        label.name,
+                      color:       label.color,
+                      description: label.description,
+                    });
+                  } catch (createErr) {
+                    // 422 means another concurrent run already created it — treat as success
+                    if (createErr.status !== 422) throw createErr;
+                  }
                 }
               }
             }
