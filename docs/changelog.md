@@ -27,6 +27,7 @@
 - CI: add `persist-credentials: false` to all `actions/checkout` steps.
 - CI: remove custom `codeql.yml` workflow — GitHub Default Setup already runs CodeQL (python, javascript-typescript, actions) and passes; the custom workflow was redundant and conflicted with the Default Setup checks.
 - CI: fix `ci.yml` checkout to use branch HEAD SHA for PR events instead of the synthetic merge commit (`refs/pull/N/merge`); eliminates a class of detached-HEAD-related test failures that only appeared in the PR CI context.
+- `scripts/agency_fix.py`: block LLM writes to control/CI files in `apply_edits` — added `_is_blocked()` guard that rejects paths under `.github/`, `tests/`, `scripts/`, named control files (`pytest.ini`, `conftest.py`, `requirements.txt`, `CLAUDE.md`), and config-extension files (`.yml`, `.yaml`, `.toml`, `.ini`).
 - CI: fix `process-quick-note.yml` YAML heredoc indentation causing parser failure with "0 jobs".
 - Frontend: downgraded `react-router-dom` to `^6.28.2` — v7 ESM exports incompatible with Jest 27.
 - Frontend: added `@testing-library/dom@^10.4.0` to devDependencies — peer dep not auto-installed.

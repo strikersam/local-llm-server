@@ -202,6 +202,25 @@ def parse_edits(response: str) -> dict[str, Any]:
     return {"explanation": "Could not parse LLM response", "edits": []}
 
 
+_BLOCKED_TOP_DIRS = frozenset({"tests", ".github", "scripts"})
+_BLOCKED_FILES = frozenset({
+    "pytest.ini", "setup.cfg", "pyproject.toml", "conftest.py",
+    "requirements.txt", "requirements-dev.txt", "CLAUDE.md",
+})
+_BLOCKED_EXTENSIONS = frozenset({".yml", ".yaml", ".toml", ".cfg", ".ini"})
+
+
+def _is_blocked(rel_resolved: Path) -> str | None:
+    """Return a human-readable reason if the path should not be edited, else None."""
+    if rel_resolved.parts[0:1] and rel_resolved.parts[0] in _BLOCKED_TOP_DIRS:
+        return f"top-level directory '{rel_resolved.parts[0]}' is blocked"
+    if rel_resolved.name in _BLOCKED_FILES:
+        return f"file '{rel_resolved.name}' is a control file"
+    if rel_resolved.suffix in _BLOCKED_EXTENSIONS:
+        return f"extension '{rel_resolved.suffix}' is blocked (config/CI files)"
+    return None
+
+
 def apply_edits(edits: list[dict[str, str]]) -> list[str]:
     applied: list[str] = []
     repo_root_resolved = REPO_ROOT.resolve()
@@ -217,8 +236,9 @@ def apply_edits(edits: list[dict[str, str]]) -> list[str]:
         except ValueError:
             log.warning("skip %s — path escapes repo root", rel)
             continue
-        if rel_resolved.parts[0:1] == ("tests",):
-            log.warning("skip %s — refusing to edit test files", rel)
+        reason = _is_blocked(rel_resolved)
+        if reason:
+            log.warning("skip %s — %s", rel, reason)
             continue
         if not fpath.is_file():
             log.warning("skip %s — not a regular file", rel)
