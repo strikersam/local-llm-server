@@ -93,7 +93,7 @@ def build_tool_prompt(
                 "- github_list_repos()\n"
                 "- github_list_branches(repo_name)\n"
                 "- github_create_branch(repo_name, branch_name, base_branch='main')\n"
-                "- github_commit_changes(repo_name, branch, path, content, message)\n"
+                "- github_commit_changes(repo_name, branch_name, path, content, message)\n"
                 "- github_open_pull_request(repo_name, title, head, base, body='')\n"
                 "- github_merge_pull_request(repo_name, pull_number, merge_method='merge', commit_title=None)\n"
                 "- github_read_repo_file(repo_name, path, branch='main')\n"
