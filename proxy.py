@@ -1,3 +1,4 @@
+from __future__ import annotations
 """
 Qwen3-Coder Authenticated Proxy
 --------------------------------

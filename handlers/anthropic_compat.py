@@ -1,3 +1,4 @@
+from __future__ import annotations
 """
 Anthropic Messages API compatibility layer.
 
@@ -36,7 +37,6 @@ Limitations vs real Anthropic API:
   - Caching / prompt caching headers are accepted but not functional.
 """
 
-from __future__ import annotations
 
 import asyncio
 import json
