@@ -1,7 +1,5 @@
 """Tests for agent/browser.py — Browser Automation (stub-mode tests)."""
-from __future__ import annotations
-
-from pathlib import Path
+import asyncio
 
 import pytest
 
@@ -13,45 +11,45 @@ def test_session_created():
     assert isinstance(session.available, bool)
 
 
-async def test_stub_mode_navigate() -> None:
+def test_stub_mode_navigate():
     """When Playwright is not installed, navigate returns a failed BrowserAction."""
     session = BrowserSession()
     if session.available:
         pytest.skip("Playwright is installed; stub-mode test not applicable")
-    result = await session.navigate("https://example.com")
+    result = asyncio.run(session.navigate("https://example.com"))
     assert result.success is False
     assert "not started" in result.result.lower()
 
 
-async def test_stub_mode_click() -> None:
+def test_stub_mode_click():
     session = BrowserSession()
     if session.available:
         pytest.skip("Playwright installed")
-    result = await session.click("#btn")
+    result = asyncio.run(session.click("#btn"))
     assert result.success is False
 
 
-async def test_stub_mode_fill() -> None:
+def test_stub_mode_fill():
     session = BrowserSession()
     if session.available:
         pytest.skip("Playwright installed")
-    result = await session.fill("#inp", "value")
+    result = asyncio.run(session.fill("#inp", "value"))
     assert result.success is False
 
 
-async def test_stub_mode_screenshot(tmp_path: Path) -> None:
+def test_stub_mode_screenshot():
     session = BrowserSession()
     if session.available:
         pytest.skip("Playwright installed")
-    result = await session.screenshot(str(tmp_path / "snap.png"))
+    result = asyncio.run(session.screenshot("/tmp/snap.png"))
     assert result.success is False
 
 
-async def test_stub_mode_get_state() -> None:
+def test_stub_mode_get_state():
     session = BrowserSession()
     if session.available:
         pytest.skip("Playwright installed")
-    result = await session.get_state()
+    result = asyncio.run(session.get_state())
     assert result is None
 
 

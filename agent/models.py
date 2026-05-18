@@ -90,6 +90,7 @@ class ToolCall(BaseModel):
         "github_create_branch",
         "github_commit_changes",
         "github_open_pull_request",
+        "github_merge_pull_request",
         "github_get_issue",
         "github_comment_on_issue",
         "github_close_issue",

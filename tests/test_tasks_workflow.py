@@ -368,9 +368,9 @@ def test_create_task_persists_requested_status(api_client: TestClient):
     assert response.json()["task"]["status"] == "in_review"
 
 
-async def test_run_task_endpoint_schedules_execution(api_client: TestClient, task_store: TaskStore, monkeypatch):
+def test_run_task_endpoint_schedules_execution(api_client: TestClient, task_store: TaskStore, monkeypatch):
     task = Task(owner_id="owner@example.com", title="Run me now", pending_agent_run=True)
-    await task_store.create(task)
+    asyncio.run(task_store.create(task))
 
     calls: list[str] = []
 

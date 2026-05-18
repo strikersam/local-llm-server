@@ -115,8 +115,7 @@ def cmd_save(name: str, source: Path) -> None:
     if not source.exists():
         print(f"File '{source}' not found.", file=sys.stderr)
         sys.exit(1)
-    _ensure_patterns_dir()  # must create dir before resolve() in _pattern_path
-    PATTERNS_DIR.mkdir(parents=True, exist_ok=True)  # ensure resolved path is valid
+    _ensure_patterns_dir()
     dest = _pattern_path(name)
     dest.write_text(source.read_text())
     print(f"Pattern '{name}' saved to {dest}")

@@ -176,9 +176,9 @@ class TestDualModelInvariant:
             profiles=profiles,
         )
 
-    async def test_same_model_triggers_warning(self, swarm_same_model, caplog):
+    def test_same_model_triggers_warning(self, swarm_same_model, caplog):
         """When coder == reviewer model, swarm should log a warning."""
-        import logging
+        import logging, asyncio
         from workflow.artifact_store import ArtifactStore
         from workflow.models import ModelRoutingConfig, Slice, Artifact
         import secrets
@@ -195,11 +195,13 @@ class TestDualModelInvariant:
                 swarm_same_model._runner, "run_slice_review",
                 new=AsyncMock(return_value=fake_art)
             ):
-                await swarm_same_model.run_slice_review(
-                    run_id="wf_test",
-                    sl=sl,
-                    routing=ModelRoutingConfig(),
-                    slice_artifact=fake_art,
+                asyncio.run(
+                    swarm_same_model.run_slice_review(
+                        run_id="wf_test",
+                        sl=sl,
+                        routing=ModelRoutingConfig(),
+                        slice_artifact=fake_art,
+                    )
                 )
         assert any("same model" in r.message for r in caplog.records)
 

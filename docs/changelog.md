@@ -1,38 +1,36 @@
 # Changelog
 
 ## [Unreleased]
-
 ### Added
 - `proxy.py` — `/api/ping` GET endpoint (no auth). Returns `{status: "ok", timestamp: "<ISO-8601 UTC>"}`. Registered before the wildcard `/api/{path:path}` handler so it is never swallowed by the Ollama proxy.
 - `tests/test_ping.py` — 4 tests covering status code, response shape, ISO timestamp validity, and auth-free access.
 - `agent/agency.py` — CEO agency now handles GitHub `quick-note:*` issues autonomously every cycle: (1) issues with the `quick-note:exhausted` label are auto-closed via the GitHub REST API; (2) open actionable quick-note issues (not exhausted) generate a priority-3 Dev directive dispatched to the ClaudeCode/InternalAgent runtime; (3) quick-note state is surfaced in the CEO LLM prompt so the CEO can reason about pending feature requests. New helpers: `_fetch_github_quick_notes()`, `_close_github_issue()`, `_build_quick_note_instruction()`, `Agency._handle_quick_notes()`.
 - `agent/improvement_loop.py` — Added `IssueCategory.QUICK_NOTE` enum value for categorising quick-note feature requests in the improvement state store.
-- `tests/test_e2e_agent_chat.py` — end-to-end test for the agent chat code-change flow: real FastAPI app, real auth, real session/job dispatch, real `WorkspaceTools.write_file` to disk, intercepting only outbound LLM HTTP calls via `monkeypatch`. Covers the full Planner → Executor → Verifier → Judge cycle, job polling, status aliases, MCP server mount, `clone_repo` MCP routing, and the localhost MCP fallback.
-- `docs/runbooks/ci-troubleshooting.md` — captures all CI/GitHub Actions failure patterns and fixes discovered during v4.1 stabilisation: YAML heredoc indentation rules, `persist-credentials: false`, `pytest-timeout`, react-router-dom v7 + Jest 27 incompatibility, `@testing-library/dom` peer dep, Python 3.13 compatibility status.
-- `scripts/agency_fix.py` — Standalone LLM-powered fix agent using NVIDIA NIM (`qwen2.5-coder-32b-instruct`) with Anthropic fallback. Analyses failing pytest output, calls the LLM for JSON-formatted code edits, applies them, re-runs pytest to verify green, and updates changelog. Up to 3 fix iterations per cycle.
+
+### Added
+- `tests/test_mcp_workspace_git.py` — 36 tests covering the full MCP workspace git stack via real JSON-RPC to `/mcp-internal/mcp`: protocol handshake, clone (local bare repo), read/head/list/search, git status/diff, branch creation, commit (all-files and specific-paths), push, full code-change workflow, sequential multi-commit branches, workspace lifecycle, error paths (bad IDs, path traversal, missing files).
+- `tests/test_e2e_agent_chat.py` — extended with 13 new tests: GitHub API tools (`create_branch`, `open_pull_request`, `merge_pull_request`, `get_issue`), MCP git agent dispatch (`git_status`, `git_diff`, `git_create_branch`, `git_commit`, `git_push`), full PR workflow (write→commit→push→open PR→merge PR), issue-to-PR workflow, 2-step sequential plan, and post-merge comment chaining.
+- `agent/github_tools.py`: `merge_pull_request()` method — merges a PR via `PUT /repos/{owner}/{repo}/pulls/{pr}/merge` with configurable merge method and commit title.
+- `agent/loop.py` + `agent/models.py`: `github_merge_pull_request` tool dispatch and `ToolCall` Literal — agents can now merge PRs as part of a workflow.
+- `_build_agent_http_mock()` helper in e2e tests — unified httpx mock routing LLM calls, MCP JSON-RPC, and GitHub API (POST/GET/PUT) by URL pattern, enabling full workflow simulation without any real network calls.
 
 ### Fixed
-- `tests/test_mcp_server.py`: update `test_no_url_gives_disabled_client` to use `MCPClient("")` directly — `get_mcp_client("")` now falls back to localhost URL so the test used the wrong entry point.
-- `tests/test_workflow_engine.py`: remove duplicate sync `test_reject_changes_status_to_failed` no-ops; consolidate into single `async def` with real assertions.
-- `tests/test_browser.py`: replace hardcoded `/tmp/snap.png` with `tmp_path / "snap.png"`; add `-> None` annotations and `from __future__ import annotations`.
-- `tests/test_runtimes.py`: rename unused `result` to `_` in route_and_execute call.
-- `tests/test_workflow_engine.py`, `tests/test_v4_reliability_regression.py`, `tests/test_agent_coordinator_swarm.py`: add `-> None` return annotations to async test functions.
-- `.claude/state/improvement-state.json`: redact remaining `sk-abcdef*` placeholder strings to `sk-****1234`.
-- `tests/test_agency.py`, `test_agent_coordinator_swarm.py`, `test_agent_runner.py`, `test_agents.py`, `test_agents_api.py`, `test_browser.py`, `test_chat_mode_regressions.py`, `test_mcp_server.py`, `test_multi_agent_swarm.py`, `test_runtime_health.py`, `test_runtimes.py`, `test_tasks_workflow.py`, `test_workflow_engine.py`, `test_agent_coordinate.py`, `test_agent_runtime_wrapper.py`, `test_v4_reliability.py`, `test_v4_reliability_regression.py`: convert all `asyncio.run()` sync tests to proper `async def` — eliminates ephemeral event loop creation/destruction triggering `PytestUnraisableExceptionWarning` on Python 3.13.
-- `scripts/agency_fix.py`: remove hardcoded `ADMIN_PASSWORD` and `SECRET_KEY` defaults from `run_pytest()` env setup.
-- `scripts/agency_fix.py`: pass test IDs to `update_changelog()` after successful fix; fall through to Anthropic when NVIDIA returns empty content; `update_changelog` appends to existing `### Fixed` section instead of creating duplicates.
-- `agent/mcp_client.py`: `get_mcp_client()` now constructs a localhost URL (`http://127.0.0.1:{PORT}/mcp-internal`) when `MCP_SERVER_BASE_URL` is not set. Fixes `[tool error: mcp server unreachable]` errors on every `clone_repo` call.
-- CI: add global git identity before running pytest — fixes `test_commit_tracker.py` git subprocess failures.
-- CI: add `pytest-timeout>=2.3.1` to requirements and `--timeout=120` — prevents hanging tests from blocking CI.
-- CI: add `persist-credentials: false` to all `actions/checkout` steps.
-- CI: remove custom `codeql.yml` workflow — GitHub Default Setup already runs CodeQL (python, javascript-typescript, actions) and passes; the custom workflow was redundant and conflicted with the Default Setup checks.
-- CI: fix `ci.yml` checkout to use branch HEAD SHA for PR events instead of the synthetic merge commit (`refs/pull/N/merge`); eliminates a class of detached-HEAD-related test failures that only appeared in the PR CI context.
-- `scripts/agency_fix.py`: block LLM writes to control/CI files in `apply_edits` — added `_is_blocked()` guard that rejects paths under `.github/`, `tests/`, `scripts/`, named control files (`pytest.ini`, `conftest.py`, `requirements.txt`, `CLAUDE.md`), and config-extension files (`.yml`, `.yaml`, `.toml`, `.ini`).
-- CI: fix `process-quick-note.yml` YAML heredoc indentation causing parser failure with "0 jobs".
-- Frontend: downgraded `react-router-dom` to `^6.28.2` — v7 ESM exports incompatible with Jest 27.
-- Frontend: added `@testing-library/dom@^10.4.0` to devDependencies — peer dep not auto-installed.
-- Frontend: test isolation — `--watchAll=false --forceExit --runInBand` to prevent async timer leaks.
-- Frontend: updated `controlPlanePage.test.js` heading assertion from `v4.0` to `v4.1`.
+- `tests/test_e2e_agent_chat.py`: Reduced `test_agent_full_pr_workflow` and `test_agent_issue_to_pr_workflow` from 5-step to 2-step plans — 5 independent steps exceeded `_PARALLEL_THRESHOLD=3` in `agent/loop.py`, causing `_maybe_run_parallel()` to be invoked instead of the sequential path, which is incompatible with the sequential httpx mock and caused non-deterministic failures on Python 3.13. Also fixed the MCP mock fallback for `tools/call` requests: unknown tools now return `isError: True` instead of an empty success, so mis-dispatched tool calls fail visibly rather than silently succeeding.
+- `agent/prompts.py`: `build_tool_prompt()` now lists all GitHub API tools in the executor's "Available tools" section, including `github_create_branch`, `github_open_pull_request`, `github_merge_pull_request`, `github_commit_changes`, `github_list_repos`, `github_list_branches`, and `github_read_repo_file`. Previously only three issue-management tools were listed; the executor model therefore never selected PR/branch tools in real runs. Also fixed parameter name `branch` → `branch_name` in the `github_commit_changes` entry to match the actual dispatch in `_run_tool()`, preventing dropped branch arguments in commit calls.
+- `agent/mcp_client.py`: `get_mcp_client()` now constructs a localhost URL (`http://127.0.0.1:{PORT}/mcp-internal`) when `MCP_SERVER_BASE_URL` is not set, instead of returning a no-URL client. The MCP server is mounted in-process, so `clone_repo`, `git_status`, `git_commit` and all other MCP-only tools now reach it automatically without requiring the env var. This fixes the `[tool error: mcp server unreachable]` errors seen on every `clone_repo` call in the Live Agent Workspace, and the downstream `[Errno 2] No such file or directory` failures on `head_file` (which occurred because the repo was never cloned).
+
+- CI: add global git identity (`user.email`, `user.name`, `commit.gpgsign false`, `init.defaultBranch main`) before running pytest — ensures `test_commit_tracker.py` git subprocess calls work correctly across all CI runner configurations.
+- CI: add `pytest-timeout>=2.3.1` to requirements and `--timeout=120` to pytest command — prevents hanging tests from occupying the full 6-hour GitHub Actions job limit and makes timeout failures identifiable; 120 s gives slow runners 2-3× headroom over the local 104 s full-suite runtime.
+- CI: add `persist-credentials: false` to all `actions/checkout` steps — prevents Post Checkout git credential cleanup from failing with exit code 128 on certain GitHub Actions runners, which was causing all three CI jobs (test, lint, frontend) to report spurious git failures.
+- CI: upgrade `github/codeql-action` from v3 to v4 in `codeql.yml` — v3 actions were failing.
+- CI: fix `process-quick-note.yml` YAML syntax — bash heredoc content at column 0 conflicted with YAML block scalar indentation rules, causing the parser to fail with "0 jobs". Indented all heredoc content to match the block scalar level (10 spaces); YAML strips the indentation before passing to bash, so the shell correctly sees the heredoc delimiter at column 0.
+- Frontend: downgraded `react-router-dom` from `^7.x` to `^6.28.2` — react-router-dom v7 uses ESM sub-path exports (`react-router/dom`) that Jest 27 (bundled with react-scripts@5) cannot resolve, causing all router-dependent tests to fail with "Cannot find module".
+- Frontend: added `@testing-library/dom@^10.4.0` to `devDependencies` — `@testing-library/react@16` declares it as a peer dep but npm doesn't auto-install peers, causing "Cannot find module @testing-library/dom" errors.
+- Frontend: test isolation — changed CI test command to `--watchAll=false --forceExit --runInBand` to prevent async timer leaks between test suites from causing flaky failures.
+- Frontend: updated `controlPlanePage.test.js` to match current v4.1 heading text (was asserting `v4.0`).
+
+### Added
+- `docs/runbooks/ci-troubleshooting.md` — captures all CI/GitHub Actions failure patterns and fixes discovered during v4.1 stabilisation: YAML heredoc indentation rules, `persist-credentials: false`, `pytest-timeout`, react-router-dom v7 + Jest 27 incompatibility, `@testing-library/dom` peer dep, Python 3.13 compatibility status.
 
 ## [4.1.0] — 2026-05-16
 ### Fixed

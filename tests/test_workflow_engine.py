@@ -5,6 +5,7 @@ a running Ollama instance.
 """
 from __future__ import annotations
 
+import asyncio
 import json
 from pathlib import Path
 from typing import Any
@@ -80,16 +81,18 @@ def _artifact_name_for(phase: str) -> str:
 
 
 class TestWorkflowEngineCreate:
-    async def test_create_run_persists_to_db(self, engine: WorkflowEngine) -> None:
+    def test_create_run_persists_to_db(self, engine: WorkflowEngine):
         req = WorkflowBuildRequest(
             request="Add comprehensive unit tests to the router module"
         )
 
-        _stub_phase_runner(engine)
-        # Patch _run_pre_gate_phases to not actually run in background
-        with patch.object(engine, "_run_pre_gate_phases", new=AsyncMock()):
-            result = await engine.create_run(req)
+        async def run():
+            _stub_phase_runner(engine)
+            # Patch _run_pre_gate_phases to not actually run in background
+            with patch.object(engine, "_run_pre_gate_phases", new=AsyncMock()):
+                return await engine.create_run(req)
 
+        result = asyncio.run(run())
         assert result.run_id.startswith("wf_")
         assert result.status == "pending"
         assert result.title.startswith("Add comprehensive")
@@ -98,28 +101,32 @@ class TestWorkflowEngineCreate:
         assert retrieved is not None
         assert retrieved.run_id == result.run_id
 
-    async def test_create_run_builds_phases(self, engine: WorkflowEngine) -> None:
+    def test_create_run_builds_phases(self, engine: WorkflowEngine):
         req = WorkflowBuildRequest(
             request="Implement the CRISPY workflow engine phase system"
         )
 
-        with patch.object(engine, "_run_pre_gate_phases", new=AsyncMock()):
-            result = await engine.create_run(req)
+        async def run():
+            with patch.object(engine, "_run_pre_gate_phases", new=AsyncMock()):
+                return await engine.create_run(req)
 
+        result = asyncio.run(run())
         phase_names = [p.name for p in result.phases]
         assert "context" in phase_names
         assert "research" in phase_names
         assert "plan" in phase_names
         assert "report" in phase_names
 
-    async def test_list_returns_created_run(self, engine: WorkflowEngine) -> None:
+    def test_list_returns_created_run(self, engine: WorkflowEngine):
         req = WorkflowBuildRequest(
             request="Build something very important for the project"
         )
 
-        with patch.object(engine, "_run_pre_gate_phases", new=AsyncMock()):
-            await engine.create_run(req)
+        async def run():
+            with patch.object(engine, "_run_pre_gate_phases", new=AsyncMock()):
+                return await engine.create_run(req)
 
+        asyncio.run(run())
         listed = engine.list_runs()
         assert len(listed) == 1
 
@@ -128,15 +135,17 @@ class TestWorkflowEngineCreate:
 
 
 class TestApprovalGate:
-    async def _create_run_at_gate(self, engine: WorkflowEngine, req_text: str) -> WorkflowRun:
+    def _create_run_at_gate(self, engine: WorkflowEngine, req_text: str) -> WorkflowRun:
         """Create a run and manually put it in awaiting_approval state."""
         from workflow.models import ApprovalGate
 
         req = WorkflowBuildRequest(request=req_text)
 
-        with patch.object(engine, "_run_pre_gate_phases", new=AsyncMock()):
-            result = await engine.create_run(req)
+        async def run():
+            with patch.object(engine, "_run_pre_gate_phases", new=AsyncMock()):
+                return await engine.create_run(req)
 
+        result = asyncio.run(run())
         # Manually set awaiting_approval state (simulating pre-gate complete)
         with engine._lock:
             r = engine._runs[result.run_id]
@@ -149,21 +158,23 @@ class TestApprovalGate:
             engine._save(r)
         return engine.get(result.run_id)  # type: ignore[return-value]
 
-    async def test_approve_changes_status_to_executing(self, engine: WorkflowEngine) -> None:
-        run = await self._create_run_at_gate(
+    def test_approve_changes_status_to_executing(self, engine: WorkflowEngine):
+        run = self._create_run_at_gate(
             engine, "Add authentication to the admin panel module"
         )
 
-        with patch.object(engine, "_run_post_gate", new=AsyncMock()):
-            updated = engine.approve(run.run_id, approved_by="alice")
+        async def do_approve():
+            with patch.object(engine, "_run_post_gate", new=AsyncMock()):
+                return engine.approve(run.run_id, approved_by="alice")
 
+        updated = asyncio.run(do_approve())
         assert updated.status == "executing"
         assert updated.approval_gate.status == "approved"  # type: ignore[union-attr]
         assert updated.approval_gate.approved_by == "alice"  # type: ignore[union-attr]
 
 
-    async def test_reject_changes_status_to_failed(self, engine: WorkflowEngine) -> None:
-        run = await self._create_run_at_gate(
+    def test_reject_changes_status_to_failed(self, engine: WorkflowEngine):
+        run = self._create_run_at_gate(
             engine, "Refactor the routing system across all modules"
         )
         updated = engine.reject(
@@ -173,12 +184,14 @@ class TestApprovalGate:
         assert updated.approval_gate.status == "rejected"  # type: ignore[union-attr]
         assert updated.approval_gate.rejection_reason == "Plan is incomplete"  # type: ignore[union-attr]
 
-    async def test_approve_wrong_status_raises_value_error(self, engine: WorkflowEngine) -> None:
+    def test_approve_wrong_status_raises_value_error(self, engine: WorkflowEngine):
         req = WorkflowBuildRequest(request="Build something critical for the system")
 
-        with patch.object(engine, "_run_pre_gate_phases", new=AsyncMock()):
-            result = await engine.create_run(req)
+        async def run():
+            with patch.object(engine, "_run_pre_gate_phases", new=AsyncMock()):
+                return await engine.create_run(req)
 
+        result = asyncio.run(run())
         # Status is "pending", not "awaiting_approval"
         with pytest.raises(ValueError, match="awaiting_approval"):
             engine.approve(result.run_id)
@@ -191,21 +204,25 @@ class TestApprovalGate:
 
 
 class TestCancel:
-    async def test_cancel_pending_run(self, engine: WorkflowEngine) -> None:
+    def test_cancel_pending_run(self, engine: WorkflowEngine):
         req = WorkflowBuildRequest(request="Implement something that should be cancelled")
 
-        with patch.object(engine, "_run_pre_gate_phases", new=AsyncMock()):
-            created = await engine.create_run(req)
+        async def run():
+            with patch.object(engine, "_run_pre_gate_phases", new=AsyncMock()):
+                return await engine.create_run(req)
 
+        created = asyncio.run(run())
         updated = engine.cancel(created.run_id)
         assert updated.status == "cancelled"
 
-    async def test_cancel_done_run_raises(self, engine: WorkflowEngine) -> None:
+    def test_cancel_done_run_raises(self, engine: WorkflowEngine):
         req = WorkflowBuildRequest(request="Something already complete and done now")
 
-        with patch.object(engine, "_run_pre_gate_phases", new=AsyncMock()):
-            created = await engine.create_run(req)
+        async def run():
+            with patch.object(engine, "_run_pre_gate_phases", new=AsyncMock()):
+                return await engine.create_run(req)
 
+        created = asyncio.run(run())
         with engine._lock:
             r = engine._runs[created.run_id]
             r.status = "done"
@@ -218,22 +235,26 @@ class TestCancel:
 
 
 class TestEventLog:
-    async def test_events_logged_on_create(self, engine: WorkflowEngine) -> None:
+    def test_events_logged_on_create(self, engine: WorkflowEngine):
         req = WorkflowBuildRequest(request="Add comprehensive tests to the workflow module")
 
-        with patch.object(engine, "_run_pre_gate_phases", new=AsyncMock()):
-            result = await engine.create_run(req)
+        async def run():
+            with patch.object(engine, "_run_pre_gate_phases", new=AsyncMock()):
+                return await engine.create_run(req)
 
+        result = asyncio.run(run())
         events = engine.get_events(result.run_id)
         assert len(events) >= 1
         assert events[0]["event_type"] == "workflow_created"
 
-    async def test_events_from_position(self, engine: WorkflowEngine) -> None:
+    def test_events_from_position(self, engine: WorkflowEngine):
         req = WorkflowBuildRequest(request="Build a multi-step feature with proper testing")
 
-        with patch.object(engine, "_run_pre_gate_phases", new=AsyncMock()):
-            result = await engine.create_run(req)
+        async def run():
+            with patch.object(engine, "_run_pre_gate_phases", new=AsyncMock()):
+                return await engine.create_run(req)
 
+        result = asyncio.run(run())
         engine._log_event(result.run_id, "custom_event", {"key": "value"})
         all_events = engine.get_events(result.run_id)
         # from_position=1 should skip the first event
@@ -296,7 +317,7 @@ Some description here.
 
 
 class TestPersistenceAcrossRestart:
-    async def test_runs_survive_engine_restart(self, tmp_path: Path) -> None:
+    def test_runs_survive_engine_restart(self, tmp_path: Path):
         db_path = tmp_path / "workflow.db"
         arts_path = tmp_path / "artifacts"
 
@@ -308,9 +329,11 @@ class TestPersistenceAcrossRestart:
         )
         req = WorkflowBuildRequest(request="A task that must survive a server restart")
 
-        with patch.object(engine1, "_run_pre_gate_phases", new=AsyncMock()):
-            created = await engine1.create_run(req)
+        async def run():
+            with patch.object(engine1, "_run_pre_gate_phases", new=AsyncMock()):
+                return await engine1.create_run(req)
 
+        created = asyncio.run(run())
         run_id = created.run_id
 
         # Simulate engine restart with same DB

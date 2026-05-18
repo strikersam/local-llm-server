@@ -21,7 +21,7 @@ def _build_client() -> TestClient:
     return TestClient(app)
 
 
-async def test_list_agents_reports_running_status_from_open_tasks() -> None:
+def test_list_agents_reports_running_status_from_open_tasks() -> None:
     agent_store = AgentStore()
     set_agent_store(agent_store)
     task_store = TaskStore()
@@ -42,15 +42,19 @@ async def test_list_agents_reports_running_status_from_open_tasks() -> None:
         is_public=True,
     )
 
-    await agent_store.create(busy)
-    await agent_store.create(idle)
-    await task_store.create(
-        Task(
-            owner_id="owner@example.com",
-            title="Active task",
-            agent_id="agent_busy",
-            status=TaskStatus.IN_PROGRESS,
-            pending_agent_run=True,
+    import asyncio
+
+    asyncio.run(agent_store.create(busy))
+    asyncio.run(agent_store.create(idle))
+    asyncio.run(
+        task_store.create(
+            Task(
+                owner_id="owner@example.com",
+                title="Active task",
+                agent_id="agent_busy",
+                status=TaskStatus.IN_PROGRESS,
+                pending_agent_run=True,
+            )
         )
     )
 

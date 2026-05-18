@@ -12,18 +12,15 @@ jobs:
     if: github.actor != 'dependabot[bot]'
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         with:
           fetch-depth: 0
 
       - name: Check for changelog update
-        env:
-          PR_TITLE: ${{ github.event.pull_request.title }}
-          BASE_SHA: ${{ github.event.pull_request.base.sha }}
-          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
         run: |
           # Skip if this is a chore/ci/docs/style/test-only PR
           # (detected by PR title prefix — requires PR title convention)
+          PR_TITLE="${{ github.event.pull_request.title }}"
           case "$PR_TITLE" in
             chore:*|docs:*|style:*|ci:*|test:*|revert:*|build:*)
               echo "ℹ Exempt PR prefix detected ('$PR_TITLE') — changelog check skipped."
@@ -32,6 +29,8 @@ jobs:
           esac
 
           # Check if docs/changelog.md was modified in this PR
+          BASE_SHA="${{ github.event.pull_request.base.sha }}"
+          HEAD_SHA="${{ github.event.pull_request.head.sha }}"
 
           CHANGED=$(git diff --name-only "$BASE_SHA" "$HEAD_SHA" | grep 'docs/changelog\.md' || true)
 
