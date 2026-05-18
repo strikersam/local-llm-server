@@ -90,7 +90,8 @@ jobs:
             echo "No changes to commit"
           else
             git commit -m "fix(security): automated OpenClaw security fixes"
-            git push origin master
+            # Push may fail when branch protection requires PRs — treat as non-fatal
+            git push origin master || echo "::warning::Push to master blocked (branch protection); fixes were not auto-committed."
           fi
 
       - name: Create summary issue if alerts found

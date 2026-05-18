@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 ### Fixed
+- `.github/workflows/openclaw-security-automation.yml` — Made `git push origin master` non-fatal; the push fails when branch protection requires PRs, which was causing the whole workflow run to fail. Now emits a workflow warning instead of a hard failure.
+### Fixed
 - `.github/workflows/pull-request.yml` — Fixed three bugs: (1) `- '!master'` was indented as a sibling of `branches:` rather than a child, so master pushes incorrectly triggered the workflow; (2) missing `GH_TOKEN` env on the "Check if PR already exists" step caused `gh` CLI to fail auth silently; (3) `gh pr create --label auto-created` returned HTTP 422 when the `auto-created` label didn't exist — added a prior step that upserts the label.
 - `.github/workflows/openclaw-security-automation.yml` — `issues.create()` with `labels: ['security', 'automated']` returned HTTP 422 (Unprocessable Entity) when those labels didn't exist in the repo; added a label-upsert guard (getLabel → createLabel on 404) before issue creation.
 - `frontend/package.json` — Added `jest.moduleNameMapper` for `react-router-dom` and `react-router` so jest 27 (react-scripts v5) can resolve react-router-dom v7's exports-only package without falling back to the non-existent `dist/main.js` entry.
