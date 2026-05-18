@@ -4,7 +4,7 @@ from runtimes.adapters.docker_agent import DockerAgentAdapter
 
 
 @pytest.mark.asyncio
-async def test_docker_binary_missing(monkeypatch):
+async def test_docker_binary_missing(monkeypatch) -> None:
     import shutil
     monkeypatch.setattr(shutil, 'which', lambda name: None)
     adapter = DockerAgentAdapter()
