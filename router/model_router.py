@@ -93,23 +93,43 @@ def _nvidia_key_present() -> bool:
     )
 
 
-def _build_builtin_model_map() -> dict[str, str]:
-    """Build the built-in alias table — Nvidia NIM models when key is set,
-    local Ollama models otherwise."""
-    nvidia = _nvidia_key_present()
+def _opus_model() -> str | None:
+    """Return the best available Opus model ID, or None if Opus is not configured.
 
-    # Heavy reasoning model: nemotron-3-super-120b (MoE, 12B active) or deepseek-r1 (local)
-    _heavy = "nvidia/nemotron-3-super-120b-a12b" if nvidia else "deepseek-r1:32b"
-    # Largest model: same on NIM (nemotron-3-super is the heaviest free model available)
-    _largest = "nvidia/nemotron-3-super-120b-a12b" if nvidia else "deepseek-r1:671b"
-    # Coding/execution model: nemotron-3-super-120b (NIM) or qwen3-coder (local)
-    _coder = "nvidia/nemotron-3-super-120b-a12b" if nvidia else "qwen3-coder:30b"
-    # Fast/small model
+    Checks Bedrock (AWS keys) first — higher-priority provider (priority 15).
+    Falls back to direct Anthropic API key (priority 50).
+    """
+    bedrock_key = os.environ.get("AWS_ACCESS_KEY_ID") or os.environ.get("BEDROCK_ACCESS_KEY")
+    bedrock_secret = os.environ.get("AWS_SECRET_ACCESS_KEY") or os.environ.get("BEDROCK_SECRET_KEY")
+    if bedrock_key and bedrock_secret:
+        return "us.anthropic.claude-opus-4-7"
+    if os.environ.get("ANTHROPIC_API_KEY"):
+        return "claude-opus-4-7"
+    return None
+
+
+def _build_builtin_model_map() -> dict[str, str]:
+    """Build the built-in alias table.
+
+    Priority order: Opus (Bedrock/Anthropic) → NVIDIA NIM → local Ollama.
+    CEO / agency / heavy reasoning tasks always prefer Opus when available.
+    Fast/small tasks skip Opus to avoid unnecessary cost.
+    """
+    nvidia = _nvidia_key_present()
+    opus = _opus_model()
+
+    # Heavy reasoning / CEO / agency work: Opus > NVIDIA > local
+    _heavy = opus or ("nvidia/nemotron-3-super-120b-a12b" if nvidia else "deepseek-r1:32b")
+    # Largest model: same priority
+    _largest = opus or ("nvidia/nemotron-3-super-120b-a12b" if nvidia else "deepseek-r1:671b")
+    # Coding/execution: Opus > NVIDIA > local
+    _coder = opus or ("nvidia/nemotron-3-super-120b-a12b" if nvidia else "qwen3-coder:30b")
+    # Fast/small — keep lightweight; don't route to Opus
     _fast  = "meta/llama-3.1-8b-instruct" if nvidia else "qwen3-coder:7b"
-    # Default general model: nemotron-3-super-120b (NIM) or qwen3-coder (local)
-    _gen   = "nvidia/nemotron-3-super-120b-a12b" if nvidia else "qwen3-coder:30b"
-    # Deepseek reasoning / judge
-    _reason = "deepseek-ai/deepseek-v4-pro" if nvidia else "deepseek-r1:32b"
+    # General: Opus > NVIDIA > local
+    _gen   = opus or ("nvidia/nemotron-3-super-120b-a12b" if nvidia else "qwen3-coder:30b")
+    # Reasoning / judge: Opus > deepseek NIM > local
+    _reason = opus or ("deepseek-ai/deepseek-v4-pro" if nvidia else "deepseek-r1:32b")
 
     return {
         # Claude 4.7 family (largest → heaviest reasoning)
@@ -202,6 +222,9 @@ def _default_model() -> str:
     explicit = os.environ.get("AGENT_EXECUTOR_MODEL", "").strip()
     if explicit:
         return explicit
+    opus = _opus_model()
+    if opus:
+        return opus
     return (
         "qwen/qwen2.5-coder-32b-instruct"
         if _nvidia_key_present()
@@ -213,6 +236,9 @@ def _default_reasoning_model() -> str:
     explicit = os.environ.get("AGENT_PLANNER_MODEL", "").strip()
     if explicit:
         return explicit
+    opus = _opus_model()
+    if opus:
+        return opus
     return (
         "deepseek-ai/deepseek-r1"
         if _nvidia_key_present()

@@ -30,13 +30,18 @@ from openai import OpenAI
 PR_NUMBER = sys.argv[1] if len(sys.argv) > 1 else ""
 RESULT_FILE = "/tmp/review_result.json"  # nosec: B108 - Predictable temp file path used for backward compatibility
 
-CANDIDATE_MODELS = [
+# Opus is preferred for council review (CEO / agency quality).
+# NVIDIA NIM models are the fallback when Anthropic is not configured.
+OPUS_MODEL = "claude-opus-4-7"
+NVIDIA_CANDIDATE_MODELS = [
     "qwen/qwen3-coder-480b-a35b-instruct",
     "nvidia/llama-3.1-nemotron-ultra-253b-v1",
     "nvidia/llama-3.3-nemotron-super-49b-v1",
     "meta/llama-3.3-70b-instruct",
     "qwen/qwen2.5-coder-32b-instruct",
 ]
+# Keep the old name as an alias so existing code that references CANDIDATE_MODELS still works
+CANDIDATE_MODELS = NVIDIA_CANDIDATE_MODELS
 
 
 def get_pr_diff(pr_num: str) -> str:
@@ -75,10 +80,52 @@ def load_council_skill() -> str:
     return ""
 
 
+def _call_review_llm(prompt: str, *, anthropic_key: str, nvidia_key: str) -> str:
+    """Call the best available LLM for review. Opus is primary; NVIDIA NIM is fallback."""
+    # Primary: Anthropic Claude Opus
+    if anthropic_key:
+        try:
+            import anthropic as _anthropic
+            client = _anthropic.Anthropic(api_key=anthropic_key)
+            resp = client.messages.create(
+                model=OPUS_MODEL,
+                max_tokens=2048,
+                messages=[{"role": "user", "content": prompt}],
+            )
+            text = resp.content[0].text if resp.content else ""
+            if text:
+                print(f"[review] Got response from {OPUS_MODEL} (Anthropic)", flush=True)
+                return text
+        except Exception as exc:
+            print(f"[review] Anthropic Opus failed: {exc} — trying NVIDIA fallback", file=sys.stderr)
+
+    # Fallback: NVIDIA NIM
+    if nvidia_key:
+        client = OpenAI(base_url="https://integrate.api.nvidia.com/v1", api_key=nvidia_key)
+        for model in NVIDIA_CANDIDATE_MODELS:
+            try:
+                response = client.chat.completions.create(
+                    model=model,
+                    max_tokens=2048,
+                    messages=[{"role": "user", "content": prompt}],
+                )
+                text = response.choices[0].message.content or ""
+                if text:
+                    print(f"[review] Got response from {model} (NVIDIA NIM)", flush=True)
+                    return text
+            except Exception as exc:
+                print(f"[review] Model {model} failed: {exc}", file=sys.stderr)
+                continue
+
+    return ""
+
+
 def main() -> None:
-    api_key = os.environ.get("NVIDIA_API_KEY", "")
-    if not api_key:
-        print("ERROR: NVIDIA_API_KEY not set — defaulting to WARN", file=sys.stderr)
+    anthropic_key = os.environ.get("ANTHROPIC_API_KEY", "")
+    nvidia_key = os.environ.get("NVIDIA_API_KEY", "")
+
+    if not anthropic_key and not nvidia_key:
+        print("ERROR: neither ANTHROPIC_API_KEY nor NVIDIA_API_KEY set — defaulting to WARN", file=sys.stderr)
         with open(RESULT_FILE, "w") as f:
             json.dump({"verdict": "WARN", "summary": "Review skipped (no API key)", "details": ""}, f)
         sys.exit(0)
@@ -128,22 +175,7 @@ def main() -> None:
         SUMMARY: <one-paragraph summary of the changes and verdict>
     """).strip()
 
-    client = OpenAI(base_url="https://integrate.api.nvidia.com/v1", api_key=api_key)
-
-    text = ""
-    for model in CANDIDATE_MODELS:
-        try:
-            response = client.chat.completions.create(
-                model=model,
-                max_tokens=2048,
-                messages=[{"role": "user", "content": prompt}],
-            )
-            text = response.choices[0].message.content or ""
-            print(f"[review] Got response from {model}", flush=True)
-            break
-        except Exception as exc:
-            print(f"[review] Model {model} failed: {exc}", file=sys.stderr)
-            continue
+    text = _call_review_llm(prompt, anthropic_key=anthropic_key, nvidia_key=nvidia_key)
 
     if not text:
         print("All review models failed — defaulting to WARN", file=sys.stderr)

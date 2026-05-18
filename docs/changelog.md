@@ -1,6 +1,13 @@
 # Changelog
 
 ## [Unreleased]
+### Changed
+- `router/model_router.py` — Added `_opus_model()` helper that detects Bedrock (AWS keys) or direct Anthropic API key and returns the appropriate Opus model ID (`us.anthropic.claude-opus-4-7` for Bedrock, `claude-opus-4-7` for Anthropic). Updated `_build_builtin_model_map()` so all heavy/largest/coder/general/reasoning roles prefer Opus over NVIDIA NIM when available; NVIDIA remains the direct fallback. Updated `_default_model()` and `_default_reasoning_model()` to respect the same priority.
+- `agent/loop.py` — Agent role defaults (planner, executor, verifier, judge) now prefer Claude Opus (Bedrock or Anthropic) over NVIDIA NIM. NVIDIA NIM models remain the fallback when Opus is not configured. The `_pick()` helper inside `AgentRunner.__init__()` now checks Opus before NVIDIA.
+- `.github/scripts/review_agent.py` — Council review now calls Claude Opus via `ANTHROPIC_API_KEY` as the primary model; NVIDIA NIM models are the fallback when Anthropic is not configured.
+- `.github/scripts/implement_agent.py` — Implementation agent now runs a native Anthropic tool-use loop (`claude-opus-4-7`) as primary; falls back to the existing NVIDIA NIM loop when `ANTHROPIC_API_KEY` is absent.
+- `.github/scripts/apply_review.py` — Review-application agent now calls Claude Opus via Anthropic SDK as primary; falls back to NVIDIA NIM models when Anthropic is not configured.
+- `requirements.txt` — Added `anthropic>=0.40.0` so the Anthropic SDK is available in CI and server environments.
 ### Fixed
 - `.github/workflows/*.yml` — Downgraded futuristic GitHub Action versions (e.g., `actions/checkout@v6`, `actions/setup-python@v6`) to current stable releases (`v4`, `v5`, etc.) across all workflow files to prevent "Action not found" errors.
 - `.github/scripts/*.py` — Fixed `from __future__ import annotations` placement; moved to the very beginning of files (before docstrings) to ensure compatibility with Python 3.13.

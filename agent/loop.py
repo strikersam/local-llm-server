@@ -41,26 +41,32 @@ _RISKY_FILES: frozenset[str] = frozenset({
     "proxy.py",          # auth middleware — changes need risky-module-review
 })
 
-# Default to role-optimised Nvidia NIM free models — no local infra required.
-# Each role uses the model best suited for that task; override via env vars.
+# Model priority: Opus (Bedrock/Anthropic) > NVIDIA NIM > local.
+# CEO / agency / heavy reasoning tasks always prefer Opus when available.
 _nvidia_key = os.environ.get("NVIDIA_API_KEY") or os.environ.get("NVidiaApiKey")
+_bedrock_key = (os.environ.get("AWS_ACCESS_KEY_ID") or os.environ.get("BEDROCK_ACCESS_KEY")) and (
+    os.environ.get("AWS_SECRET_ACCESS_KEY") or os.environ.get("BEDROCK_SECRET_KEY")
+)
+_opus_model: str | None = (
+    "us.anthropic.claude-opus-4-7" if _bedrock_key
+    else "claude-opus-4-7" if os.environ.get("ANTHROPIC_API_KEY")
+    else None
+)
 DEFAULT_PLANNER_MODEL = os.environ.get(
     "AGENT_PLANNER_MODEL",
-    "qwen/qwen3-coder-480b-a35b-instruct" if _nvidia_key else "deepseek-r1:32b",
+    _opus_model or ("qwen/qwen3-coder-480b-a35b-instruct" if _nvidia_key else "deepseek-r1:32b"),
 )
 DEFAULT_EXECUTOR_MODEL = os.environ.get(
     "AGENT_EXECUTOR_MODEL",
-    "nvidia/nemotron-3-super-120b-a12b" if _nvidia_key else "qwen3-coder:30b",
+    _opus_model or ("nvidia/nemotron-3-super-120b-a12b" if _nvidia_key else "qwen3-coder:30b"),
 )
 DEFAULT_VERIFIER_MODEL = os.environ.get(
     "AGENT_VERIFIER_MODEL",
-    "nvidia/nemotron-3-super-120b-a12b" if _nvidia_key else "deepseek-r1:32b",
+    _opus_model or ("nvidia/nemotron-3-super-120b-a12b" if _nvidia_key else "deepseek-r1:32b"),
 )
 DEFAULT_JUDGE_MODEL = os.environ.get(
     "AGENT_JUDGE_MODEL",
-    "deepseek-ai/deepseek-v4-pro"
-    if _nvidia_key
-    else DEFAULT_VERIFIER_MODEL,
+    _opus_model or ("deepseek-ai/deepseek-v4-pro" if _nvidia_key else DEFAULT_VERIFIER_MODEL),
 )
 
 
@@ -161,8 +167,19 @@ class AgentRunner:
         _current_deepseek_key = os.environ.get("DEEPSEEK_API_KEY")
         _current_groq_key = os.environ.get("GROQ_API_KEY")
         _current_qwen_key = os.environ.get("DASHSCOPE_API_KEY") or os.environ.get("QWEN_API_KEY")
+        _current_bedrock = (
+            os.environ.get("AWS_ACCESS_KEY_ID") or os.environ.get("BEDROCK_ACCESS_KEY")
+        ) and (os.environ.get("AWS_SECRET_ACCESS_KEY") or os.environ.get("BEDROCK_SECRET_KEY"))
+        _current_opus: str | None = (
+            "us.anthropic.claude-opus-4-7" if _current_bedrock
+            else "claude-opus-4-7" if os.environ.get("ANTHROPIC_API_KEY")
+            else None
+        )
 
         def _pick(nvidia_val: str, deepseek_val: str, groq_val: str, qwen_val: str, local_val: str) -> str:
+            # Opus (Bedrock / Anthropic) wins over everything — CEO / agency grade
+            if _current_opus:
+                return _current_opus
             if _current_nvidia_key:
                 return nvidia_val
             if _current_deepseek_key:

@@ -32,9 +32,10 @@ TASK = sys.argv[3] if len(sys.argv) > 3 else ""
 RESULT_FILE = "/tmp/impl_result.json"  # nosec: B108 - Predictable temp file path used for backward compatibility; secure temp file used internally
 MAX_TURNS = 120
 
-# Model preference: heavy reasoning model first, reliable fallbacks after.
-# All are free-tier NVIDIA NIM models.
-CANDIDATE_MODELS = [
+# Primary: Claude Opus via Anthropic (CEO / agency grade).
+# Fallback: NVIDIA NIM free-tier models.
+OPUS_MODEL = "claude-opus-4-7"
+NVIDIA_CANDIDATE_MODELS = [
     ("qwen/qwen3-coder-480b-a35b-instruct",      "coding (Qwen3-Coder 480B — primary)"),
     ("nvidia/llama-3.1-nemotron-ultra-253b-v1", "reasoning (Nemotron Ultra 253B)"),
     ("nvidia/llama-3.3-nemotron-super-49b-v1",  "reasoning (Nemotron Super 49B)"),
@@ -42,6 +43,8 @@ CANDIDATE_MODELS = [
     ("qwen/qwen2.5-coder-32b-instruct",         "coding (Qwen2.5 Coder 32B)"),
     ("qwen/qwen3-coder-480b-a35b-instruct",     "coding (Qwen3-Coder 480B — last resort)"),
 ]
+# Keep old name as alias
+CANDIDATE_MODELS = NVIDIA_CANDIDATE_MODELS
 
 
 # ---------------------------------------------------------------------------
@@ -322,15 +325,134 @@ def _run_baseline_pytest() -> str:
 
 
 # ---------------------------------------------------------------------------
+# Anthropic-native agent loop (Opus primary)
+# ---------------------------------------------------------------------------
+
+def _openai_tools_to_anthropic(tools: list[dict]) -> list[dict]:
+    """Convert OpenAI function-calling tool schemas to Anthropic tool schemas."""
+    result = []
+    for t in tools:
+        fn = t.get("function", {})
+        result.append({
+            "name": fn["name"],
+            "description": fn.get("description", ""),
+            "input_schema": fn.get("parameters", {"type": "object", "properties": {}}),
+        })
+    return result
+
+
+def _run_anthropic_agent_loop(anthropic_key: str, user_msg: str) -> tuple[bool, str, int]:
+    """Run the implementation agent loop using Claude Opus via Anthropic SDK.
+
+    Returns (success, summary, turns_used).
+    """
+    import anthropic as _anthropic
+    client = _anthropic.Anthropic(api_key=anthropic_key)
+    anthropic_tools = _openai_tools_to_anthropic(TOOLS)
+
+    messages: list[dict] = [{"role": "user", "content": user_msg}]
+    success = False
+    last_pytest_passed = False
+    summary = "No implementation performed"
+    turns = 0
+
+    while turns < MAX_TURNS:
+        turns += 1
+        print(f"\n[agent] Turn {turns}/{MAX_TURNS} model={OPUS_MODEL} (Anthropic)", flush=True)
+
+        try:
+            resp = client.messages.create(
+                model=OPUS_MODEL,
+                max_tokens=8192,
+                system=SYSTEM,
+                tools=anthropic_tools,  # type: ignore[arg-type]
+                messages=messages,      # type: ignore[arg-type]
+            )
+        except Exception as exc:
+            print(f"Anthropic API error: {exc}", file=sys.stderr)
+            break
+
+        # Build assistant content list
+        assistant_content: list[dict] = []
+        text_content = ""
+        tool_use_blocks: list = []
+
+        for block in resp.content:
+            if block.type == "text":
+                text_content = block.text
+                assistant_content.append({"type": "text", "text": block.text})
+                print(f"[agent] {block.text[:400]}", flush=True)
+            elif block.type == "tool_use":
+                tool_use_blocks.append(block)
+                assistant_content.append({
+                    "type": "tool_use",
+                    "id": block.id,
+                    "name": block.name,
+                    "input": block.input,
+                })
+
+        messages.append({"role": "assistant", "content": assistant_content})
+
+        # No tool calls → terminal turn
+        if not tool_use_blocks:
+            summary = text_content or summary
+            if text_content and "IMPLEMENTATION_COMPLETE" in text_content and last_pytest_passed:
+                success = True
+                summary = text_content[:500]
+            break
+
+        # Execute tool calls and collect results
+        tool_results: list[dict] = []
+        for call in tool_use_blocks:
+            fn_name = call.name
+            fn_args = call.input if isinstance(call.input, dict) else {}
+            print(f"[tool] {fn_name}({list(fn_args.keys())})", flush=True)
+
+            handler = TOOL_DISPATCH.get(fn_name)
+            out = handler(fn_args) if handler else f"[unknown tool: {fn_name}]"
+            print(f"[tool result] {str(out)[:300]}", flush=True)
+
+            if fn_name == "bash":
+                cmd = fn_args.get("cmd", "")
+                if "pytest" in cmd:
+                    last_pytest_passed = "[exit 0]" in out
+                if "IMPLEMENTATION_COMPLETE" in out:
+                    if last_pytest_passed:
+                        success = True
+                        summary = f"Agent signaled completion after {turns} turns."
+                    else:
+                        out = (
+                            "[BLOCKED] IMPLEMENTATION_COMPLETE rejected: last pytest did not exit 0. "
+                            "Fix all test failures first."
+                        )
+
+            tool_results.append({
+                "type": "tool_result",
+                "tool_use_id": call.id,
+                "content": str(out),
+            })
+
+        messages.append({"role": "user", "content": tool_results})
+
+        if success:
+            break
+
+    if not success and turns >= MAX_TURNS:
+        summary = f"Agent hit turn limit ({MAX_TURNS}) without completing"
+
+    return success, summary, turns
+
+
+# ---------------------------------------------------------------------------
 # Main agent loop
 # ---------------------------------------------------------------------------
 def main() -> None:
-    api_key = os.environ.get("NVIDIA_API_KEY", "")
-    if not api_key:
-        print("ERROR: NVIDIA_API_KEY not set", file=sys.stderr)
-        sys.exit(1)
+    anthropic_key = os.environ.get("ANTHROPIC_API_KEY", "")
+    nvidia_key = os.environ.get("NVIDIA_API_KEY", "")
 
-    client = OpenAI(base_url="https://integrate.api.nvidia.com/v1", api_key=api_key)
+    if not anthropic_key and not nvidia_key:
+        print("ERROR: neither ANTHROPIC_API_KEY nor NVIDIA_API_KEY set", file=sys.stderr)
+        sys.exit(1)
 
     note_path = Path("/tmp/note_content.txt")  # nosec: B108
     url_content = note_path.read_text() if note_path.exists() else ""
@@ -352,126 +474,143 @@ def main() -> None:
         "Remember: always update docs/changelog.md before signaling IMPLEMENTATION_COMPLETE."
     )
 
-    messages: list[dict] = [
-        {"role": "system", "content": SYSTEM},
-        {"role": "user", "content": user_msg},
-    ]
-
     success = False
-    last_pytest_passed = False
     summary = "No implementation performed"
     turns = 0
-    model_idx = 0
-    model = CANDIDATE_MODELS[model_idx][0]
+    final_model = OPUS_MODEL
 
-    while turns < MAX_TURNS:
-        turns += 1
-        print(f"\n[agent] Turn {turns}/{MAX_TURNS} model={model}", flush=True)
-
+    # Primary: Claude Opus via Anthropic
+    if anthropic_key:
+        print("[agent] Using Anthropic Claude Opus as primary model", flush=True)
         try:
-            res = client.chat.completions.create(
-                model=model,
-                max_tokens=8192,
-                tools=TOOLS,  # type: ignore[arg-type]
-                tool_choice="auto",
-                messages=messages,  # type: ignore[arg-type]
-            )
+            success, summary, turns = _run_anthropic_agent_loop(anthropic_key, user_msg)
         except Exception as exc:
-            print(f"Model {model} error: {exc}", file=sys.stderr)
-            model_idx += 1
-            if model_idx >= len(CANDIDATE_MODELS):
-                print("All candidate models exhausted.", file=sys.stderr)
-                break
-            model = CANDIDATE_MODELS[model_idx][0]
-            print(f"Switching to: {model}", file=sys.stderr)
-            turns -= 1
-            continue
+            print(f"[agent] Anthropic agent loop failed: {exc} — falling back to NVIDIA", file=sys.stderr)
 
-        msg = res.choices[0].message
+    # Fallback: NVIDIA NIM
+    if not success and nvidia_key:
+        print("[agent] Falling back to NVIDIA NIM models", flush=True)
+        client = OpenAI(base_url="https://integrate.api.nvidia.com/v1", api_key=nvidia_key)
 
-        if msg.content:
-            print(f"[agent] {msg.content[:400]}", flush=True)
+        messages: list[dict] = [
+            {"role": "system", "content": SYSTEM},
+            {"role": "user", "content": user_msg},
+        ]
 
-        # Serialise without null sentinel fields that NIM rejects with 422
-        assistant_entry: dict = {"role": "assistant"}
-        if msg.content:
-            assistant_entry["content"] = msg.content
-        if msg.tool_calls:
-            assistant_entry["tool_calls"] = [
-                {
-                    "id": tc.id,
-                    "type": "function",
-                    "function": {"name": tc.function.name, "arguments": tc.function.arguments},
-                }
-                for tc in msg.tool_calls
-            ]
-        messages.append(assistant_entry)
+        last_pytest_passed = False
+        model_idx = 0
+        model = NVIDIA_CANDIDATE_MODELS[model_idx][0]
+        final_model = model
 
-        # No tool calls → check for XML-format tool calls (Qwen3 quirk) then terminal turn
-        if not msg.tool_calls:
-            content = msg.content or ""
-            # Some models (e.g. Qwen3-coder) emit tool calls as XML text in content
-            # instead of structured tool_calls. Detect and switch models rather than
-            # treating the response as a completion.
-            if "<tool_call>" in content or "<function=" in content:
-                print(f"[agent] {model} emitted XML tool calls in content — switching model", file=sys.stderr)
-                messages.pop()  # discard the malformed assistant turn
+        while turns < MAX_TURNS:
+            turns += 1
+            print(f"\n[agent] Turn {turns}/{MAX_TURNS} model={model}", flush=True)
+
+            try:
+                res = client.chat.completions.create(
+                    model=model,
+                    max_tokens=8192,
+                    tools=TOOLS,  # type: ignore[arg-type]
+                    tool_choice="auto",
+                    messages=messages,  # type: ignore[arg-type]
+                )
+            except Exception as exc:
+                print(f"Model {model} error: {exc}", file=sys.stderr)
                 model_idx += 1
-                if model_idx < len(CANDIDATE_MODELS):
-                    model = CANDIDATE_MODELS[model_idx][0]
-                    print(f"[agent] Switched to: {model}", flush=True)
-                    turns -= 1  # don't count this as a real turn
-                else:
+                if model_idx >= len(NVIDIA_CANDIDATE_MODELS):
                     print("All candidate models exhausted.", file=sys.stderr)
                     break
+                model = NVIDIA_CANDIDATE_MODELS[model_idx][0]
+                final_model = model
+                print(f"Switching to: {model}", file=sys.stderr)
+                turns -= 1
                 continue
-            summary = content or summary
-            if content and "IMPLEMENTATION_COMPLETE" in content and last_pytest_passed:
-                success = True
-                summary = content[:500]
-            break
 
-        # Execute tool calls
-        for tc in msg.tool_calls:
-            fn_name = tc.function.name
-            try:
-                fn_args = json.loads(tc.function.arguments)
-            except json.JSONDecodeError:
-                fn_args = {}
+            msg = res.choices[0].message
 
-            print(f"[tool] {fn_name}({list(fn_args.keys())})", flush=True)
-            handler = TOOL_DISPATCH.get(fn_name)
-            out = handler(fn_args) if handler else f"[unknown tool: {fn_name}]"
-            print(f"[tool result] {str(out)[:300]}", flush=True)
+            if msg.content:
+                print(f"[agent] {msg.content[:400]}", flush=True)
 
-            if fn_name == "bash":
-                cmd = fn_args.get("cmd", "")
-                if "pytest" in cmd:
-                    last_pytest_passed = "[exit 0]" in out
-                    print(f"pytest exit 0: {last_pytest_passed}", flush=True)
-                if "IMPLEMENTATION_COMPLETE" in out:
-                    if last_pytest_passed:
-                        success = True
-                        summary = f"Agent signaled completion after {turns} turns."
+            # Serialise without null sentinel fields that NIM rejects with 422
+            assistant_entry: dict = {"role": "assistant"}
+            if msg.content:
+                assistant_entry["content"] = msg.content
+            if msg.tool_calls:
+                assistant_entry["tool_calls"] = [
+                    {
+                        "id": tc.id,
+                        "type": "function",
+                        "function": {"name": tc.function.name, "arguments": tc.function.arguments},
+                    }
+                    for tc in msg.tool_calls
+                ]
+            messages.append(assistant_entry)
+
+            # No tool calls → check for XML-format tool calls (Qwen3 quirk) then terminal turn
+            if not msg.tool_calls:
+                content = msg.content or ""
+                # Some models (e.g. Qwen3-coder) emit tool calls as XML text in content
+                # instead of structured tool_calls. Detect and switch models.
+                if "<tool_call>" in content or "<function=" in content:
+                    print(f"[agent] {model} emitted XML tool calls in content — switching model", file=sys.stderr)
+                    messages.pop()  # discard the malformed assistant turn
+                    model_idx += 1
+                    if model_idx < len(NVIDIA_CANDIDATE_MODELS):
+                        model = NVIDIA_CANDIDATE_MODELS[model_idx][0]
+                        final_model = model
+                        print(f"[agent] Switched to: {model}", flush=True)
+                        turns -= 1  # don't count this as a real turn
                     else:
-                        out = (
-                            "[BLOCKED] IMPLEMENTATION_COMPLETE rejected: last pytest did not exit 0. "
-                            "Fix all test failures first, then signal completion."
-                        )
+                        print("All candidate models exhausted.", file=sys.stderr)
+                        break
+                    continue
+                summary = content or summary
+                if content and "IMPLEMENTATION_COMPLETE" in content and last_pytest_passed:
+                    success = True
+                    summary = content[:500]
+                break
 
-            messages.append({"role": "tool", "tool_call_id": tc.id, "content": str(out)})
+            # Execute tool calls
+            for tc in msg.tool_calls:
+                fn_name = tc.function.name
+                try:
+                    fn_args = json.loads(tc.function.arguments)
+                except json.JSONDecodeError:
+                    fn_args = {}
 
-        if success:
-            break
+                print(f"[tool] {fn_name}({list(fn_args.keys())})", flush=True)
+                handler = TOOL_DISPATCH.get(fn_name)
+                out = handler(fn_args) if handler else f"[unknown tool: {fn_name}]"
+                print(f"[tool result] {str(out)[:300]}", flush=True)
 
-    if not success and turns >= MAX_TURNS:
-        summary = f"Agent hit turn limit ({MAX_TURNS}) without completing"
+                if fn_name == "bash":
+                    cmd = fn_args.get("cmd", "")
+                    if "pytest" in cmd:
+                        last_pytest_passed = "[exit 0]" in out
+                        print(f"pytest exit 0: {last_pytest_passed}", flush=True)
+                    if "IMPLEMENTATION_COMPLETE" in out:
+                        if last_pytest_passed:
+                            success = True
+                            summary = f"Agent signaled completion after {turns} turns."
+                        else:
+                            out = (
+                                "[BLOCKED] IMPLEMENTATION_COMPLETE rejected: last pytest did not exit 0. "
+                                "Fix all test failures first, then signal completion."
+                            )
+
+                messages.append({"role": "tool", "tool_call_id": tc.id, "content": str(out)})
+
+            if success:
+                break
+
+        if not success and turns >= MAX_TURNS:
+            summary = f"Agent hit turn limit ({MAX_TURNS}) without completing"
 
     result = {"success": success, "summary": summary, "turns": turns}
     with open(RESULT_FILE, "w") as f:
         json.dump(result, f)
 
-    print(f"\n[agent] Done — success={success}, turns={turns}, model={model}", flush=True)
+    print(f"\n[agent] Done — success={success}, turns={turns}, model={final_model}", flush=True)
     sys.exit(0 if success else 1)
 
 
