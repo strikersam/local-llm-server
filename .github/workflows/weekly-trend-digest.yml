@@ -22,7 +22,9 @@ jobs:
           cache: pip
 
       - name: Install dependencies
-        run: pip install httpx 2>&1 | tail -3
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
 
       - name: Fetch AI trends
         id: fetch
