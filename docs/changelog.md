@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 ### Fixed
+- `.github/workflows/*.yml` — Downgraded futuristic GitHub Action versions (e.g., `actions/checkout@v6`, `actions/setup-python@v6`) to current stable releases (`v4`, `v5`, etc.) across all workflow files to prevent "Action not found" errors.
+- `.github/scripts/*.py` — Fixed `from __future__ import annotations` placement; moved to the very beginning of files (before docstrings) to ensure compatibility with Python 3.13.
+- `.github/workflows/openclaw-security-automation.yml` & `.github/scripts/security_fix_agent.py` — Changed OpenClaw working directory from `/app/openclaw` to `${{ github.workspace }}/openclaw` to avoid permission issues in GitHub Actions environments.
+- `.github/workflows/ci.yml` — Updated Git initialization to use `master` as the default branch for consistency with the repository's primary branch.
 - `.github/workflows/openclaw-security-automation.yml` — Made `git push origin master` non-fatal; the push fails when branch protection requires PRs, which was causing the whole workflow run to fail. Now emits a workflow warning instead of a hard failure.
 ### Fixed
 - `.github/workflows/pull-request.yml` — Fixed three bugs: (1) `- '!master'` was indented as a sibling of `branches:` rather than a child, so master pushes incorrectly triggered the workflow; (2) missing `GH_TOKEN` env on the "Check if PR already exists" step caused `gh` CLI to fail auth silently; (3) `gh pr create --label auto-created` returned HTTP 422 when the `auto-created` label didn't exist — added a prior step that upserts the label.
@@ -48,6 +52,9 @@
 - `runtimes/adapters/internal_agent.py` — Increased default `max_steps` from 8 to 30 and improved task success criteria to allow purely informational tasks to succeed.
 - `agent/prompts.py` — Raised planner step limit to 30 to support advanced coding tasks.
 - `.github/scripts/implement_agent.py` — Enhanced with `search_code` tool and increased turn limits to match backend capabilities.
+
+### Removed
+- None.
 
 ## [v4.1.0] — 2026-05-09
 

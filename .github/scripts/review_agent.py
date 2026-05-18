@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """
 Council-review agent using NVIDIA NIM.
 
@@ -14,7 +16,7 @@ Always exits 0 — the workflow uses the verdict value, not the exit code.
 Defaults to WARN on any API or format error so auto-merge is never silently
 blocked by a reviewer crash.
 """
-from __future__ import annotations
+
 
 import json
 import os

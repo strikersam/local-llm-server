@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """
 Agentic implementation loop using NVIDIA NIM (OpenAI-compatible tool use).
 
@@ -10,7 +12,7 @@ Usage:
 
 Writes /tmp/impl_result.json with {"success": bool, "summary": str}
 """
-from __future__ import annotations
+
 
 import json
 import os
@@ -264,7 +266,7 @@ SYSTEM = textwrap.dedent("""
     2. **Survey the task area** — read relevant existing files before writing anything.
 
     3. **Implement the feature** — create new files or extend existing ones.
-       - All public functions must have type annotations and `from __future__ import annotations`.
+       - All public functions must have type annotations and return type annotations.
        - Use `logging.getLogger("qwen-proxy")` for logging, never `print`.
        - Pydantic models for all API I/O.
        - Tests go in `tests/` and must pass with `pytest -x -q --tb=short`.
