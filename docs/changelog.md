@@ -36,6 +36,9 @@
 - `.github/workflows/auto-merge.yml`, `.github/workflows/pull-request.yml` — Removed reference to non-existent `actions/setup-cli@v1` action (marketplace returns 404). `gh` CLI is pre-installed on `ubuntu-latest` runners; no setup step is needed.
 - `.github/workflows/openclaw-security-automation.yml` — Replaced binary-corrupted YAML file with a clean, valid workflow. Also fixed OpenClaw installation to clone from `github.com/openclaw/openclaw` (git clone) instead of `npm install openclaw@latest` (package does not exist on npm).
 - `.github/workflows/openclaw-security-automation.yml` — Restored corrupted workflow file.
+- `.github/workflows/auto-merge.yml`, `.github/workflows/pull-request.yml` — Removed reference to non-existent `actions/setup-cli@v1` action (marketplace returns 404). `gh` CLI is pre-installed on `ubuntu-latest` runners; no setup step is needed.
+- `.github/workflows/openclaw-security-automation.yml` — Replaced binary-corrupted YAML file with a clean, valid workflow. Also fixed OpenClaw installation to clone from `github.com/openclaw/openclaw` (git clone) instead of `npm install openclaw@latest` (package does not exist on npm).
+- `.github/workflows/openclaw-security-automation.yml` — Restored corrupted workflow file.
 ### Added
 - `docs/runbooks/ci-troubleshooting.md` — captures all CI/GitHub Actions failure patterns and fixes discovered during v4.1 stabilisation: YAML heredoc indentation rules, `persist-credentials: false`, `pytest-timeout`, react-router-dom v7 + Jest 27 incompatibility, `@testing-library/dom` peer dep, Python 3.13 compatibility status.
 
