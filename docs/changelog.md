@@ -1,6 +1,15 @@
 # Changelog
 
 ## [Unreleased]
+### Security
+- `.github/workflows/changelog-check.yml` — Move `PR_TITLE`, `BASE_SHA`, `HEAD_SHA` to `env:` block to prevent shell injection (CWE-78).
+- `.github/workflows/process-quick-note.yml` — Move `issue_number` workflow input to `ISSUE_NUMBER_OVERRIDE` env var to prevent shell injection.
+
+### Fixed
+- `.github/workflows/agency-cycle.yml` — Change `pip install bandit safety 2>&1 | tail -2` to `-q` so pip errors are not silently swallowed.
+- `pytest.ini` — Add `filterwarnings = ignore::pytest.PytestUnraisableExceptionWarning` to suppress Python 3.13 GC timing noise.
+- `tests/conftest.py` — Add `_gc_before_loop_close` session fixture to force GC before the event loop closes on Python 3.13, preventing `PytestUnraisableExceptionWarning` from orphaned subprocess transports.
+
 ### Added
 - `agent/repowise.py`, `agent/tools.py` — Implemented Repowise-inspired codebase intelligence tools: `get_overview`, `get_context`, `get_risk`, and `get_why` for enhanced agent reasoning.
 ### Fixed
