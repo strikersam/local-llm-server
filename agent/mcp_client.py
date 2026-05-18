@@ -160,15 +160,16 @@ def get_mcp_client(base_url: str | None = None) -> MCPClient:
     """Return the module-level MCPClient.
 
     Reads MCP_SERVER_BASE_URL at call time (not import time) so env vars set
-    after module load (e.g. during proxy startup auto-discovery) are honoured.
-    Falls back to http://localhost:8008 if no env var is set.
+    after module load are honoured.  When neither argument nor env var is set,
+    constructs a localhost URL using PORT (default 8001) since the MCP server
+    is mounted in-process at /mcp-internal on the same port as the main app.
     """
     global _client
-    # When MCP_SERVER_BASE_URL is not explicitly set and no override is passed,
-    # return a client with no base_url so _rpc() raises MCPUnavailableError
-    # ("not configured") immediately without incrementing circuit breaker state.
     explicit = base_url or os.environ.get("MCP_SERVER_BASE_URL")
-    url = explicit or ""
+    if not explicit:
+        port = os.environ.get("PORT", "8001")
+        explicit = f"http://127.0.0.1:{port}/mcp-internal"
+    url = explicit
     if _client is None or _client.base_url != url.rstrip("/"):
-        _client = MCPClient(url or None)
+        _client = MCPClient(url)
     return _client

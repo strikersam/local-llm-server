@@ -282,6 +282,23 @@ class TestMCPClient:
         with pytest.raises(MCPUnavailableError, match="not reachable"):
             await client._rpc("tools/list")
 
+    def test_localhost_fallback_when_no_env_var(self, monkeypatch):
+        # When MCP_SERVER_BASE_URL is not set, get_mcp_client() must construct a
+        # localhost URL from PORT so the in-process /mcp-internal mount is reachable.
+        import agent.mcp_client as _m
+        monkeypatch.delenv("MCP_SERVER_BASE_URL", raising=False)
+        monkeypatch.setattr(_m, "_client", None)
+        monkeypatch.setenv("PORT", "8001")
+        client = _m.get_mcp_client()
+        assert client.base_url == "http://127.0.0.1:8001/mcp-internal"
+
+    def test_explicit_base_url_overrides_fallback(self, monkeypatch):
+        import agent.mcp_client as _m
+        monkeypatch.delenv("MCP_SERVER_BASE_URL", raising=False)
+        monkeypatch.setattr(_m, "_client", None)
+        client = _m.get_mcp_client("https://example.com/mcp-internal")
+        assert client.base_url == "https://example.com/mcp-internal"
+
     def test_circuit_breaker_opens_after_failures(self):
         from agent.mcp_client import MCPClient, _CB_FAILURE_THRESHOLD
         client = MCPClient("http://localhost:19999")

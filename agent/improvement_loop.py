@@ -50,6 +50,7 @@ class IssueCategory(str, Enum):
     DOCUMENTATION   = "documentation"
     FEATURE_REQUEST = "feature_request"
     TREND           = "trend"
+    QUICK_NOTE      = "quick_note"
 
 
 @dataclass
