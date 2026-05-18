@@ -4,8 +4,11 @@ on:
   push:
     branches:
       - '**'
-    # Exclude master branch to avoid creating PR from master to master
-    - '!master'
+      - '!master'
+
+permissions:
+  contents: read
+  pull-requests: write
 
 jobs:
   create-pr:
@@ -16,8 +19,6 @@ jobs:
         with:
           fetch-depth: 0
 
-      # gh CLI is pre-installed on ubuntu-latest; no additional setup step needed.
-
       - name: Get current branch
         id: branch
         run: |
@@ -25,8 +26,10 @@ jobs:
 
       - name: Check if PR already exists
         id: pr_check
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          BRANCH_NAME=${{ steps.branch.outputs.branch_name }}
+          BRANCH_NAME="${{ steps.branch.outputs.branch_name }}"
           EXISTING_PR=$(gh pr list --head "$BRANCH_NAME" --base master --state open --json number -q '.[0].number')
           if [ -n "$EXISTING_PR" ]; then
             echo "pr_number=$EXISTING_PR" >> $GITHUB_OUTPUT
@@ -35,12 +38,19 @@ jobs:
             echo "exists=false" >> $GITHUB_OUTPUT
           fi
 
+      - name: Ensure auto-created label exists
+        if: steps.pr_check.outputs.exists == 'false'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh label create auto-created --color "0075ca" --description "Automatically created PR" 2>/dev/null || true
+
       - name: Create PR if not exists
         if: steps.pr_check.outputs.exists == 'false'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          BRANCH_NAME=${{ steps.branch.outputs.branch_name }}
+          BRANCH_NAME="${{ steps.branch.outputs.branch_name }}"
           PR_TITLE="Automated PR: $BRANCH_NAME"
           PR_BODY="This PR was automatically created by the Pull Request Creation workflow."
           gh pr create --title "$PR_TITLE" --body "$PR_BODY" --base master --head "$BRANCH_NAME" --label auto-created
