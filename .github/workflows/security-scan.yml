@@ -22,10 +22,10 @@ jobs:
       security-events: write
 
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v4
 
       - name: Set up Python
-        uses: actions/setup-python@v6
+        uses: actions/setup-python@v5
         with:
           python-version: '3.13'
           cache: pip
@@ -49,7 +49,7 @@ jobs:
           echo "medium=${MEDIUM}" >> "$GITHUB_OUTPUT"
 
       - name: Upload bandit SARIF
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@v4
         with:
           name: bandit-results
           path: /tmp/bandit.json
@@ -73,7 +73,7 @@ jobs:
 
       - name: Create issue for high-severity findings
         if: steps.bandit.outputs.high > 0 && github.event_name == 'schedule'
-        uses: actions/github-script@v9
+        uses: actions/github-script@v7
         with:
           script: |
             const fs = require('fs');
@@ -122,10 +122,10 @@ jobs:
       issues: write
 
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v4
 
       - name: Set up Python
-        uses: actions/setup-python@v6
+        uses: actions/setup-python@v5
         with:
           python-version: '3.13'
           cache: pip
@@ -150,7 +150,7 @@ jobs:
 
       - name: Create issue for CVEs
         if: steps.safety.outputs.vuln_count > 0 && github.event_name == 'schedule'
-        uses: actions/github-script@v9
+        uses: actions/github-script@v7
         with:
           script: |
             const fs = require('fs');
@@ -201,7 +201,7 @@ jobs:
       contents: read
 
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v4
         with:
           fetch-depth: 0
 

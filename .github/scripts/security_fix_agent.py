@@ -4,7 +4,9 @@
 Lightweight CLI used by CI to check/fix Dependabot and CodeQL alerts.
 Designed to fail-safe: check commands print counts; fix commands attempt work and exit 0.
 """
+
 from __future__ import annotations
+
 
 import os
 import sys
@@ -71,15 +73,15 @@ def main() -> int:
         if cmd == "--fix-dependabot":
             print("Running OpenClaw for Dependabot alerts...")
             # Use the local index.js if it exists, otherwise fall back to npx
-            if os.path.exists("/app/openclaw/index.js"):
-                subprocess.run(["node", "/app/openclaw/index.js", "--fix", "dependabot"], check=False)
+            if os.path.exists("openclaw/index.js"):
+                subprocess.run(["node", "openclaw/index.js", "--fix", "dependabot"], check=False)
             else:
                 subprocess.run(["npx", "openclaw", "--fix", "dependabot"], check=False)
             return 0
         if cmd == "--fix-codeql":
             print("Running OpenClaw for CodeQL alerts...")
-            if os.path.exists("/app/openclaw/index.js"):
-                subprocess.run(["node", "/app/openclaw/index.js", "--fix", "codeql"], check=False)
+            if os.path.exists("openclaw/index.js"):
+                subprocess.run(["node", "openclaw/index.js", "--fix", "codeql"], check=False)
             else:
                 subprocess.run(["npx", "openclaw", "--fix", "codeql"], check=False)
             return 0

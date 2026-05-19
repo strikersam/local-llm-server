@@ -2,6 +2,7 @@
 
 ## [Unreleased]
 ### Security
+- `.github/workflows/ci-failure-autofix.yml` — Rewrote workflow to fix four CodeQL findings: (1/2) code injection: all `workflow_run` context values (`head_branch`, `head_sha`, `id`) moved to job-level `env:` vars and referenced as `$VAR` in shell — never as `${{ }}` inside `run:` steps; (3/4/5) untrusted code checkout: switched from checking out the PR branch to checking out master only, fetching the failing branch as a non-executed ref, and diffing via `git diff` — untrusted branch code is never executed in the privileged runner context. Added fork guard (`head_repository.full_name == github.repository`).
 - `proxy.py` — Fixed timing side-channel in admin authentication by always calling `hmac.compare_digest` (P1-A).
 - `proxy.py` — Implemented weak-secret guard to prevent starting with empty or common placeholder `ADMIN_SECRET` values (P1-B).
 - `agent/tools.py` — Strengthened path traversal prevention in `_resolve_path` using `Path.resolve()` and robust prefix validation to prevent symlink-based escapes (P1-C).
@@ -13,8 +14,39 @@
 - `proxy.py` — Removed silent fallback to unauthenticated local MongoDB in production environments (P2-B).
 - `agent/loop.py` — Improved fallback reporting when MCP servers are unreachable, marking results as `[DEGRADED]` (P2-C).
 - `langfuse_obs.py` — Future-proofed synchronous HTTP usage by explicitly marking internal sync functions and updating all async call sites (P2-D).
+- `.github/workflows/ci-failure-autofix.yml` — Fixed non-fast-forward push rejection (Codex P1): the "Commit and push" step previously committed on master's history then pushed to the feature branch, which is rejected because the branch has diverged. Now: restore master to clean state, create a local branch at `origin/$AUTOFIX_BRANCH`, apply the verified patch with `git apply --3way --index` (tolerates minor context differences), commit, and push as a true fast-forward. Emits a workflow warning if the patch does not apply to the branch tree.
+- `provider_router.py` — Bedrock routing affinity now also enforced in the last-resort cooldown-bypass loop; previously a Bedrock model ID could be silently routed to Nvidia NIM when all providers were on cooldown (P1 bug reported by Codex review).
+- `provider_router.py` — `from_env()` default Bedrock model changed from `us.anthropic.claude-opus-4-7` (requires AWS Sales approval) to `us.anthropic.claude-opus-4-6-v1`; fixes `AccessDeniedException` for accounts without Opus 4.7 access (P1 CodeRabbit finding).
+- `render.yaml` — Updated Bedrock comment to reflect `us.anthropic.claude-opus-4-6-v1` as the confirmed-accessible default.
+- `tests/test_bedrock_live.py` — Default `_MODEL_ID` changed from `us.anthropic.claude-opus-4-7` (requires AWS Sales approval) to `us.anthropic.claude-opus-4-6-v1` so live tests pass with the current account's access level when `BEDROCK_MODEL_ID` env var is not set (P2 bug reported by Codex review).
+- `tests/test_bedrock_live.py` — Moved `from __future__ import annotations` to before module docstring (Python 3.13 compatibility); replaced `print()` with `log.info()` via module-level logger; added `-> None` return type annotations to all 4 test functions.
+- `tests/test_bedrock_provider.py` — `test_bedrock_default_model` updated to assert `us.anthropic.claude-opus-4-6-v1` as default; added `-> None` return type annotations to all new test methods in `TestIsBedrockModelId` and `TestBedrockRoutingAffinity`.
+- `tests/test_all_providers_discovery.py` — `test_bedrock_discovery` updated to assert new default model `us.anthropic.claude-opus-4-6-v1`.
 
+### Added
+- `.github/workflows/ci-failure-autofix.yml` — CI failure auto-fix workflow: triggers on any CI failure on non-master branches, reproduces the failure, calls Claude Sonnet 4.6 via Anthropic API to generate a patch, applies and verifies it, then commits the fix directly to the branch. Opens a GitHub issue if the fix is too complex or the patch fails verification.
+- `tests/test_bedrock_provider.py` — `test_bedrock_affinity_preserved_in_cooldown_bypass`: asserts that NIM is not attempted for Bedrock model IDs even in the cooldown-bypass path.
+- `provider_router.py` — `_is_bedrock_model_id()` helper and Bedrock routing affinity: requests whose model ID starts with `us.anthropic.*`, `eu.anthropic.*`, `global.anthropic.*`, `arn:aws:bedrock:*`, or `anthropic.claude-*` are now routed exclusively to the `bedrock` provider, bypassing Nvidia NIM and other providers that cannot serve them.
+- `router/registry.py` — Added `us.anthropic.claude-opus-4-6-v1` (Opus 4.6, confirmed accessible) and `us.anthropic.claude-haiku-4-5-20251001-v1:0` to the model capability registry.
+- `tests/test_bedrock_provider.py` — Tests for `_is_bedrock_model_id` (10 cases) and Bedrock routing affinity (3 integration tests including NIM bypass and primary-provider correctness).
+- `tests/test_bedrock_live.py` — Live E2E tests for AWS Bedrock (auto-skipped without credentials): direct boto3 ping, model accessibility, ProviderRouter round-trip, health check.
+
+### Changed
+- `render.yaml` — All agent role models (`AGENT_PLANNER_MODEL`, `AGENT_EXECUTOR_MODEL`, `AGENT_VERIFIER_MODEL`, `AGENT_JUDGE_MODEL`) and coding runtime models (`OPENCODE_MODEL`, `AIDER_MODEL`, `GOOSE_MODEL`) set to `us.anthropic.claude-opus-4-6-v1` (Claude Opus 4.6 via AWS Bedrock — highest confirmed-accessible Opus model). Previous defaults were Nvidia NIM free-tier models.
+- `render.yaml` — Added `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_REGION`, `BEDROCK_MODEL_ID` env var entries (documented for Render dashboard sync).
+- `render.yaml` — `BEDROCK_MODEL_ID` default set to `us.anthropic.claude-opus-4-6-v1`; Opus 4.7 requires AWS Sales approval.
+- `router/model_router.py` — Added `_opus_model()` helper that detects Bedrock (AWS keys + region) or direct Anthropic API key and returns the appropriate Opus model ID (`us.anthropic.claude-opus-4-6-v1` for Bedrock, `claude-opus-4-6` for Anthropic direct). The built-in model map and default functions continue to use NVIDIA NIM / Ollama aliases (routable by the proxy); `_opus_model()` is for use by agent/loop.py only.
+- `agent/loop.py` — Agent role defaults (planner, executor, verifier, judge) now prefer Claude Opus 4.6 (`us.anthropic.claude-opus-4-6-v1` via Bedrock, `claude-opus-4-6` via Anthropic direct) over NVIDIA NIM. NVIDIA NIM models remain the fallback when Opus is not configured. Added `_bedrock_ready()` helper requiring an AWS region env var to prevent generic S3-only credentials from enabling Bedrock routing. When Opus credentials are present, `AgentRunner` promotes Anthropic/Bedrock providers to priority=-20 in the ProviderRouter so they are tried before NVIDIA NIM (priority=-10), fixing the routing bypass identified by Codex review.
+- `.github/scripts/review_agent.py` — Council review now calls Claude Opus via `ANTHROPIC_API_KEY` as the primary model; NVIDIA NIM models are the fallback when Anthropic is not configured. Defensive text-block type check added when reading Anthropic response.
+- `.github/scripts/implement_agent.py` — Implementation agent now runs a native Anthropic tool-use loop (`claude-opus-4-6`) as primary; falls back to the existing NVIDIA NIM loop when `ANTHROPIC_API_KEY` is absent. Transient Anthropic API errors now retry with backoff instead of aborting. NVIDIA fallback starts with a fresh turn budget.
+- `.github/scripts/apply_review.py` — Review-application agent now calls Claude Opus via Anthropic SDK as primary; falls back to NVIDIA NIM models when Anthropic is not configured. Transient Anthropic API errors now retry with backoff instead of returning False immediately.
+- `requirements.txt` — Added `anthropic>=0.40.0` so the Anthropic SDK is available in CI and server environments.
+- `.github/workflows/process-quick-note.yml` — Added `ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}` to the `implement`, `review_apply`, and `review` step env blocks so Opus-primary routing is actually exercised in normal workflow runs (previously only `NVIDIA_API_KEY` was passed, silently bypassing Opus). Renamed "Apply review comments (NVIDIA NIM)" step to "Apply review comments".
 ### Fixed
+- `.github/workflows/*.yml` — Downgraded futuristic GitHub Action versions (e.g., `actions/checkout@v6`, `actions/setup-python@v6`) to current stable releases (`v4`, `v5`, etc.) across all workflow files to prevent "Action not found" errors.
+- `.github/scripts/*.py` — Fixed `from __future__ import annotations` placement; moved to the very beginning of files (before docstrings) to ensure compatibility with Python 3.13.
+- `.github/workflows/openclaw-security-automation.yml` & `.github/scripts/security_fix_agent.py` — Changed OpenClaw working directory from `/app/openclaw` to `${{ github.workspace }}/openclaw` to avoid permission issues in GitHub Actions environments.
+- `.github/workflows/ci.yml` — Updated Git initialization to use `master` as the default branch for consistency with the repository's primary branch.
 - `.github/workflows/openclaw-security-automation.yml` — Made `git push origin master` non-fatal; the push fails when branch protection requires PRs, which was causing the whole workflow run to fail. Now emits a workflow warning instead of a hard failure.
 ### Fixed
 - `.github/workflows/pull-request.yml` — Fixed three bugs: (1) `- '!master'` was indented as a sibling of `branches:` rather than a child, so master pushes incorrectly triggered the workflow; (2) missing `GH_TOKEN` env on the "Check if PR already exists" step caused `gh` CLI to fail auth silently; (3) `gh pr create --label auto-created` returned HTTP 422 when the `auto-created` label didn't exist — added a prior step that upserts the label.
@@ -61,6 +93,9 @@
 - `runtimes/adapters/internal_agent.py` — Increased default `max_steps` from 8 to 30 and improved task success criteria to allow purely informational tasks to succeed.
 - `agent/prompts.py` — Raised planner step limit to 30 to support advanced coding tasks.
 - `.github/scripts/implement_agent.py` — Enhanced with `search_code` tool and increased turn limits to match backend capabilities.
+
+### Removed
+- None.
 
 ## [v4.1.0] — 2026-05-09
 

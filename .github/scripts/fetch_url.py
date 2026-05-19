@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """
 Multi-strategy URL content fetcher for process-quick-note workflow.
 
@@ -6,7 +8,7 @@ Exit codes:
   2 — all strategies exhausted, URL inaccessible
   1 — bad args / unexpected error
 """
-from __future__ import annotations
+
 
 import re
 import sys

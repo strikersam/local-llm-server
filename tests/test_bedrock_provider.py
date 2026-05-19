@@ -8,7 +8,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from provider_router import ProviderConfig, ProviderRouter
+from provider_router import ProviderConfig, ProviderRouter, _is_bedrock_model_id
 
 
 @contextmanager
@@ -266,7 +266,7 @@ class TestFromEnvBedrock:
         monkeypatch.delenv("NVidiaApiKey", raising=False)
         router = ProviderRouter.from_env()
         bedrock = next(p for p in router.providers if p.provider_id == "bedrock")
-        assert bedrock.default_model == "us.anthropic.claude-opus-4-7"
+        assert bedrock.default_model == "us.anthropic.claude-opus-4-6-v1"
 
 
 # ── health_check for bedrock ──────────────────────────────────────────────────
@@ -291,6 +291,158 @@ class TestBedrockHealthCheck:
         )
         router = ProviderRouter([provider])
         assert await router.health_check(provider) is False
+
+
+# ── _is_bedrock_model_id ──────────────────────────────────────────────────────
+
+class TestIsBedrockModelId:
+    def test_us_inference_profile(self) -> None:
+        assert _is_bedrock_model_id("us.anthropic.claude-opus-4-6-v1") is True
+
+    def test_us_opus_4_7(self) -> None:
+        assert _is_bedrock_model_id("us.anthropic.claude-opus-4-7") is True
+
+    def test_eu_inference_profile(self) -> None:
+        assert _is_bedrock_model_id("eu.anthropic.claude-sonnet-4-6") is True
+
+    def test_global_inference_profile(self) -> None:
+        assert _is_bedrock_model_id("global.anthropic.claude-opus-4-7") is True
+
+    def test_arn_format(self) -> None:
+        assert _is_bedrock_model_id(
+            "arn:aws:bedrock:us-east-1:123456789:inference-profile/us.anthropic.claude-opus-4-7"
+        ) is True
+
+    def test_direct_bedrock_model_id(self) -> None:
+        assert _is_bedrock_model_id("anthropic.claude-opus-4-7") is True
+
+    def test_nim_model_not_bedrock(self) -> None:
+        assert _is_bedrock_model_id("nvidia/nemotron-3-super-120b-a12b") is False
+
+    def test_deepseek_not_bedrock(self) -> None:
+        assert _is_bedrock_model_id("deepseek-ai/deepseek-v4-pro") is False
+
+    def test_plain_claude_not_bedrock(self) -> None:
+        # Direct Anthropic API model IDs don't have the Bedrock prefix
+        assert _is_bedrock_model_id("claude-sonnet-4-6") is False
+
+    def test_empty_string(self) -> None:
+        assert _is_bedrock_model_id("") is False
+
+
+# ── Bedrock routing affinity in chat_completion ───────────────────────────────
+
+@pytest.mark.asyncio
+class TestBedrockRoutingAffinity:
+    """Verify that Bedrock model IDs bypass non-Bedrock providers."""
+
+    def _nim_provider(self) -> ProviderConfig:
+        return ProviderConfig(
+            provider_id="nvidia-nim",
+            type="nvidia-nim",
+            base_url="https://integrate.api.nvidia.com/v1",
+            api_key="nvapi-test",
+            default_model="nvidia/nemotron-3-super-120b-a12b",
+            priority=5,
+        )
+
+    async def test_bedrock_model_skips_nim(self) -> None:
+        """When model is a Bedrock ID, NIM should not be attempted."""
+        nim = self._nim_provider()
+        bedrock = _bedrock_provider()
+        mock_client = MagicMock()
+        mock_client.converse.return_value = _bedrock_api_response("hello")
+
+        with _mock_boto3(mock_client):
+            router = ProviderRouter([nim, bedrock])
+            payload = {
+                "model": "us.anthropic.claude-opus-4-6-v1",
+                "messages": [{"role": "user", "content": "hi"}],
+            }
+            result = await router.chat_completion(payload)
+
+        # Only Bedrock should have been attempted — NIM never called
+        provider_ids = [a.provider_id for a in result.attempts]
+        assert "bedrock" in provider_ids
+        assert "nvidia-nim" not in provider_ids
+
+    async def test_bedrock_model_is_primary_for_bedrock_provider(self) -> None:
+        """When NIM is skipped, Bedrock becomes the primary provider and uses the original model."""
+        nim = self._nim_provider()
+        bedrock = _bedrock_provider("us.anthropic.claude-opus-4-6-v1")
+        mock_client = MagicMock()
+        mock_client.converse.return_value = _bedrock_api_response("ok")
+
+        with _mock_boto3(mock_client):
+            router = ProviderRouter([nim, bedrock])
+            payload = {
+                "model": "us.anthropic.claude-opus-4-6-v1",
+                "messages": [{"role": "user", "content": "hi"}],
+            }
+            result = await router.chat_completion(payload)
+
+        assert result.model == "us.anthropic.claude-opus-4-6-v1"
+        # Verify boto3 was called with the correct model ID
+        call_kwargs = mock_client.converse.call_args.kwargs
+        assert call_kwargs["modelId"] == "us.anthropic.claude-opus-4-6-v1"
+
+    async def test_bedrock_affinity_preserved_in_cooldown_bypass(self) -> None:
+        """Bedrock affinity must hold even in the last-resort cooldown-bypass path."""
+        from unittest.mock import AsyncMock, patch as mock_patch
+        import provider_router as pr_mod
+
+        nim = self._nim_provider()
+        bedrock = _bedrock_provider("us.anthropic.claude-opus-4-6-v1")
+        mock_client = MagicMock()
+        mock_client.converse.return_value = _bedrock_api_response("bypass-ok")
+
+        with _mock_boto3(mock_client):
+            router = ProviderRouter([nim, bedrock])
+            payload = {
+                "model": "us.anthropic.claude-opus-4-6-v1",
+                "messages": [{"role": "user", "content": "hi"}],
+            }
+            # Simulate all providers on cooldown so bypass path is triggered
+            with mock_patch.object(pr_mod, "is_provider_on_cooldown", return_value=True):
+                with mock_patch.object(pr_mod, "mark_provider_failed"):
+                    # Bypass sees skipped_on_cooldown = [nim, bedrock].
+                    # NIM must still be skipped because the model is a Bedrock ID.
+                    result = await router.chat_completion(payload)
+
+        provider_ids = [a.provider_id for a in result.attempts]
+        assert "bedrock" in provider_ids, "Bedrock not attempted in bypass path"
+        assert "nvidia-nim" not in provider_ids, "NIM was incorrectly tried in bypass path"
+
+    async def test_non_bedrock_model_still_tries_nim_first(self) -> None:
+        """Non-Bedrock model IDs still route to NIM first (existing behaviour)."""
+        import httpx
+
+        nim = self._nim_provider()
+        bedrock = _bedrock_provider()
+        nim_called = []
+
+        original_post_chat = ProviderRouter._post_chat
+
+        async def mock_post_chat(self, provider, payload, timeout_sec=300.0):
+            if provider.provider_id == "nvidia-nim":
+                nim_called.append(payload.get("model"))
+                return httpx.Response(200, json={
+                    "choices": [{"message": {"role": "assistant", "content": "ok"}, "finish_reason": "stop"}],
+                    "usage": {"prompt_tokens": 5, "completion_tokens": 3, "total_tokens": 8},
+                    "model": payload.get("model"),
+                })
+            return await original_post_chat(self, provider, payload, timeout_sec)
+
+        with patch.object(ProviderRouter, "_post_chat", mock_post_chat):
+            router = ProviderRouter([nim, bedrock])
+            payload = {
+                "model": "nvidia/nemotron-3-super-120b-a12b",
+                "messages": [{"role": "user", "content": "hi"}],
+            }
+            result = await router.chat_completion(payload)
+
+        assert nim_called, "NIM should be tried first for a NIM model ID"
+        assert result.provider.provider_id == "nvidia-nim"
 
 
 # ── _post_bedrock_converse round-trip ─────────────────────────────────────────
