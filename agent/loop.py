@@ -203,7 +203,7 @@ class AgentRunner:
         # priority so they are tried before NVIDIA NIM.  from_env() gives NVIDIA priority=-10
         # and Anthropic priority=50; without this reordering NVIDIA is always tried first and
         # falls back to its own default model instead of routing to Opus.
-        if _current_opus and self.provider_chain is None:
+        if _current_opus:
             from dataclasses import replace as _dc_replace
             _opus_types = {"anthropic", "bedrock"}
             _promoted_any = False

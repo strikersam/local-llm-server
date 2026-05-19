@@ -370,9 +370,16 @@ def _run_anthropic_agent_loop(anthropic_key: str, user_msg: str) -> tuple[bool, 
                 messages=messages,      # type: ignore[arg-type]
             )
         except Exception as exc:
-            print(f"Anthropic API error: {exc}", file=sys.stderr)
+            # Permanent failures (bad key, access denied, unknown model) must not be
+            # retried — they will never recover and would exhaust all 120 turns before
+            # NVIDIA fallback can run.
+            status = getattr(exc, "status_code", None)
+            if status in (401, 403, 404):
+                print(f"Anthropic permanent error ({status}): {exc} — falling back to NVIDIA", file=sys.stderr)
+                break
+            print(f"Anthropic transient error: {exc}", file=sys.stderr)
             time.sleep(5)
-            continue  # retry transient errors
+            continue  # retry transient errors (rate limit, server error, network)
 
         # Build assistant content list
         assistant_content: list[dict] = []
