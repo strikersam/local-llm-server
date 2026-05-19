@@ -10,19 +10,10 @@ ANTHROPIC_BASE_URL to use your local Ollama models transparently.
 Model routing:
   - Reads MODEL_MAP env var to map Anthropic model names → local Ollama names.
   - Falls back to AGENT_EXECUTOR_MODEL if no mapping found.
-  - Requests with ``thinking: {type: "enabled"}`` are automatically routed to the
-    best available reasoning model (e.g. DeepSeek-R1), since thinking mode signals
-    a need for chain-of-thought reasoning.
 
 Auth:
   - Accepts both x-api-key header (Claude Code default) and Authorization: Bearer.
   - Auth is enforced by proxy.py before this handler is called.
-
-Structured outputs:
-  - Native Anthropic ``output_format: {type: "json_schema", json_schema: {...}}``
-    is translated to Ollama's ``format`` field. ``output_format: {type: "json_object"}``
-    maps to ``format: "json"``. When ``output_format`` is set the response includes
-    ``anthropic-beta: structured-outputs-2025-11-13``.
 
 Limitations vs real Anthropic API:
   - Images in content blocks are skipped (Ollama text models don't support vision).
@@ -54,104 +45,6 @@ from router import get_router, RoutingDecision
 from router.health import invalidate_cache as _invalidate_health_cache
 
 log = logging.getLogger("qwen-proxy")
-
-
-# ─── Token estimation ─────────────────────────────────────────────────────────
-
-# Heuristic tokeniser — ~4 chars per token (English + code average).
-# Used for the /v1/messages/count_tokens endpoint and context-size routing.
-_CHARS_PER_TOKEN: float = 4.0
-_TOKENS_PER_IMAGE: int = 1_000
-_TOKENS_PER_MESSAGE_OVERHEAD: int = 4
-_TOKENS_PER_TOOL_DEF: float = 10.0  # rough average per property entry
-
-
-def _estimate_tokens_for_messages(
-    messages: list[dict[str, Any]],
-    system: str | None,
-    tools: list[dict[str, Any]] | None = None,
-) -> int:
-    """Estimate the input token count for a set of messages.
-
-    Uses character-based heuristics consistent with Anthropic's public guidance
-    (~3.5-4 chars/token for mixed English/code). Always returns at least 1.
-    """
-    total_chars = len(system or "")
-
-    for msg in messages:
-        total_chars += _TOKENS_PER_MESSAGE_OVERHEAD * int(_CHARS_PER_TOKEN)
-        content = msg.get("content", "")
-        if isinstance(content, str):
-            total_chars += len(content)
-        elif isinstance(content, list):
-            for block in content:
-                if not isinstance(block, dict):
-                    continue
-                btype = block.get("type", "")
-                if btype == "text":
-                    total_chars += len(block.get("text", ""))
-                elif btype == "image":
-                    # Images estimated as fixed token cost, not char-based
-                    total_chars += _TOKENS_PER_IMAGE * int(_CHARS_PER_TOKEN)
-                elif btype == "tool_result":
-                    inner = block.get("content", "")
-                    if isinstance(inner, str):
-                        total_chars += len(inner)
-                    elif isinstance(inner, list):
-                        for b2 in inner:
-                            if isinstance(b2, dict) and b2.get("type") == "text":
-                                total_chars += len(b2.get("text", ""))
-                elif btype == "tool_use":
-                    total_chars += len(json.dumps(block.get("input", {})))
-
-    # Tool definitions add overhead proportional to their JSON size
-    for tool in tools or []:
-        total_chars += len(json.dumps(tool))
-
-    return max(1, round(total_chars / _CHARS_PER_TOKEN))
-
-
-# ─── Output format normalisation (Anthropic structured outputs) ───────────────
-
-def _normalize_anthropic_output_format(
-    payload: dict[str, Any],
-    openai_payload: dict[str, Any],
-) -> bool:
-    """Translate Anthropic's ``output_format`` to Ollama's ``format`` field.
-
-    Returns True when an output_format was processed (caller should add the
-    ``structured-outputs`` beta header to the response).
-
-    Supported mappings:
-      output_format: {type: "json_schema", json_schema: {schema: {...}}}
-        → openai_payload["format"] = the schema dict
-      output_format: {type: "json_object"}
-        → openai_payload["format"] = "json"
-    """
-    output_format = payload.get("output_format")
-    if not isinstance(output_format, dict):
-        return False
-
-    of_type = output_format.get("type")
-    if of_type == "json_schema":
-        json_schema_obj = output_format.get("json_schema")
-        if isinstance(json_schema_obj, dict):
-            schema = json_schema_obj.get("schema")
-            if isinstance(schema, dict):
-                openai_payload["format"] = schema
-                log.debug("output_format json_schema → Ollama format (schema)")
-                return True
-        # Malformed json_schema — fall back to plain JSON mode
-        openai_payload["format"] = "json"
-        log.debug("output_format json_schema (malformed) → Ollama format=json")
-        return True
-
-    if of_type == "json_object":
-        openai_payload["format"] = "json"
-        log.debug("output_format json_object → Ollama format=json")
-        return True
-
-    return False
 
 
 # ─── Fallback-aware HTTP helper ───────────────────────────────────────────────
@@ -383,10 +276,6 @@ def _build_anthropic_response(
         "usage": {
             "input_tokens": int(usage.get("prompt_tokens") or 0),
             "output_tokens": int(usage.get("completion_tokens") or 0),
-            # Prompt caching fields — always present for SDK compatibility.
-            # Local Ollama models don't support prompt caching so values are 0.
-            "cache_creation_input_tokens": 0,
-            "cache_read_input_tokens": 0,
         },
     }
 
@@ -427,12 +316,7 @@ async def _stream_anthropic_sse(
             "model": anthropic_model,
             "stop_reason": None,
             "stop_sequence": None,
-            "usage": {
-                "input_tokens": 0,
-                "output_tokens": 1,
-                "cache_creation_input_tokens": 0,
-                "cache_read_input_tokens": 0,
-            },
+            "usage": {"input_tokens": 0, "output_tokens": 1},
         },
     })
     yield _sse_event("content_block_start", {
@@ -448,8 +332,6 @@ async def _stream_anthropic_sse(
     output_tokens = 0
     ttft_ms: int | None = None
     line_buf = bytearray()
-    last_finish_reason: str | None = None
-    tool_calls_seen = False
 
     async with httpx.AsyncClient(timeout=httpx.Timeout(300.0, connect=10.0)) as client:
         async with client.stream("POST", target_url, content=forward_body, headers=forward_headers) as resp:
@@ -466,7 +348,7 @@ async def _stream_anthropic_sse(
                 line_buf.extend(chunk)
                 # Parse complete SSE lines from the buffer
                 while True:
-                    nl = line_buf.find(b"\n")
+                    nl = bytes(line_buf).find(b"\n")
                     if nl == -1:
                         break
                     raw_line = bytes(line_buf[:nl])
@@ -491,11 +373,6 @@ async def _stream_anthropic_sse(
 
                     # Extract text deltas and emit as Anthropic content_block_delta
                     for ch in (obj.get("choices") or []):
-                        if not isinstance(ch, dict):
-                            continue
-                        fr = ch.get("finish_reason")
-                        if isinstance(fr, str):
-                            last_finish_reason = fr
                         delta = ch.get("delta") or {}
                         text = delta.get("content")
                         if isinstance(text, str) and text:
@@ -507,34 +384,16 @@ async def _stream_anthropic_sse(
                                 "index": 0,
                                 "delta": {"type": "text_delta", "text": text},
                             })
-                        # Detect streamed tool_calls: Anthropic's native streaming
-                        # protocol for tool_use is richer (content_block_start with
-                        # tool_use, input_json_delta). We don't synthesize that
-                        # here yet, so log + flip finish_reason so the epilogue
-                        # reports stop_reason="tool_use" instead of "end_turn".
-                        if isinstance(delta.get("tool_calls"), list) and delta["tool_calls"]:
-                            tool_calls_seen = True
 
     # ── Epilogue events ────────────────────────────────────────────────────────
     full_text = "".join(text_parts)
     if not output_tokens and full_text:
         output_tokens = max(len(full_text) // 4, 1)
 
-    effective_finish = last_finish_reason
-    if tool_calls_seen and effective_finish not in ("tool_calls", "tool_use"):
-        log.warning(
-            "Anthropic SSE: upstream emitted tool_calls mid-stream but finish_reason=%r — "
-            "reporting stop_reason='tool_use'. (Full streamed tool_use block emission "
-            "is not implemented — clients should retry non-streaming if they need it.)",
-            effective_finish,
-        )
-        effective_finish = "tool_calls"
-    stop_reason = _finish_reason_to_stop_reason(effective_finish)
-
     yield _sse_event("content_block_stop", {"type": "content_block_stop", "index": 0})
     yield _sse_event("message_delta", {
         "type": "message_delta",
-        "delta": {"stop_reason": stop_reason, "stop_sequence": None},
+        "delta": {"stop_reason": "end_turn", "stop_sequence": None},
         "usage": {"output_tokens": output_tokens},
     })
     yield _sse_event("message_stop", {"type": "message_stop"})
@@ -617,24 +476,6 @@ async def handle_anthropic_messages(
     max_tokens = payload.get("max_tokens")
     tools: list[dict[str, Any]] = payload.get("tools") or []
 
-    # ── Extended thinking (Anthropic API feature, April 2026+) ───────────────
-    # When the client requests thinking mode, treat the request as "reasoning"
-    # category so the router selects a thinking-capable model (DeepSeek-R1,
-    # QwQ, etc.). Ollama models think natively via <think> tokens — we don't
-    # pass the thinking param itself to Ollama, but we do honour it for routing.
-    thinking_param = payload.get("thinking")
-    thinking_budget: int | None = None
-    thinking_endpoint_type = "chat"
-    if thinking_param and isinstance(thinking_param, dict):
-        thinking_budget = thinking_param.get("budget_tokens")
-        if thinking_param.get("type") == "enabled":
-            thinking_endpoint_type = "agent_plan"  # forces "reasoning" category
-            log.debug(
-                "Extended thinking requested (budget_tokens=%s) — "
-                "routing to reasoning model via agent_plan endpoint_type",
-                thinking_budget,
-            )
-
     # ── Route: decide which local model to use ─────────────────────────────────
     # Manual override: client sends X-Model-Override header (works from any IDE).
     override_model = request.headers.get("x-model-override") or None
@@ -646,12 +487,10 @@ async def handle_anthropic_messages(
         has_tools=bool(tools),
         stream=stream,
         override_model=override_model,
-        endpoint_type=thinking_endpoint_type,
+        endpoint_type="chat",
     )
     local_model = routing.resolved_model
     routing_meta = routing.to_meta()
-    if thinking_budget is not None:
-        routing_meta["thinking_budget_tokens"] = thinking_budget
 
     # ── Build OpenAI payload ───────────────────────────────────────────────────
     openai_messages = openai_messages_for_routing
@@ -677,37 +516,20 @@ async def handle_anthropic_messages(
         if val is not None:
             openai_payload[param] = val
 
-    # ── Structured outputs: translate output_format → Ollama format ───────────
-    used_structured_output = _normalize_anthropic_output_format(payload, openai_payload)
-
     forward_body = json.dumps(openai_payload).encode("utf-8")
     target_url = f"{ollama_base}/v1/chat/completions"
     forward_headers = {"Content-Type": "application/json"}
     msg_id = f"msg_{uuid.uuid4().hex[:24]}"
 
     log.info(
-        "→ /v1/messages model=%s → %s [%s/%s] stream=%s tools=%d thinking=%s",
+        "→ /v1/messages model=%s → %s [%s/%s] stream=%s tools=%d",
         anthropic_model, local_model,
         routing.mode, routing.selection_source,
         stream, len(tools),
-        "enabled" if thinking_param else "off",
     )
-
-    # Build common extra response headers
-    extra_headers: dict[str, str] = {
-        "X-Accel-Buffering": "no",
-        "anthropic-version": "2023-06-01",
-        "X-Routing-Mode": routing.mode,
-        "X-Routing-Model": local_model,
-    }
-    if used_structured_output:
-        extra_headers["anthropic-beta"] = "structured-outputs-2025-11-13"
-    if thinking_budget is not None:
-        extra_headers["X-Thinking-Budget"] = str(thinking_budget)
 
     # ── Streaming response ─────────────────────────────────────────────────────
     if stream:
-        stream_headers = {**extra_headers, "Cache-Control": "no-cache"}
         return StreamingResponse(
             _stream_anthropic_sse(
                 target_url, forward_headers, forward_body,
@@ -716,7 +538,13 @@ async def handle_anthropic_messages(
                 routing_meta=routing_meta,
             ),
             media_type="text/event-stream",
-            headers=stream_headers,
+            headers={
+                "X-Accel-Buffering": "no",
+                "Cache-Control": "no-cache",
+                "anthropic-version": "2023-06-01",
+                "X-Routing-Mode": routing.mode,
+                "X-Routing-Model": local_model,
+            },
         )
 
     # ── Non-streaming response (with fallback retry on 5xx) ───────────────────
@@ -749,43 +577,9 @@ async def handle_anthropic_messages(
     return JSONResponse(
         content=anthropic_resp,
         status_code=resp.status_code,
-        headers={k: v for k, v in extra_headers.items() if k != "X-Accel-Buffering"},
-    )
-
-
-# ─── /v1/messages/count_tokens handler ────────────────────────────────────────
-
-async def handle_count_tokens(
-    *,
-    request: Request,
-) -> JSONResponse:
-    """Handle POST /v1/messages/count_tokens — Anthropic token counting endpoint.
-
-    Estimates how many input tokens the given messages and system prompt would
-    consume, without making a full inference request. Useful for preflight
-    context-size checks in Claude Code CLI and other clients.
-
-    Returns:
-        ``{"input_tokens": N}`` — estimated token count.
-    """
-    body_bytes = await request.body()
-    try:
-        payload: dict[str, Any] = json.loads(body_bytes) if body_bytes else {}
-    except json.JSONDecodeError:
-        raise HTTPException(status_code=400, detail="Invalid JSON body")
-
-    if not isinstance(payload, dict):
-        raise HTTPException(status_code=400, detail="JSON body must be an object")
-
-    system_raw = payload.get("system")
-    system_text = _system_field_to_string(system_raw) if system_raw else None
-    messages: list[dict[str, Any]] = payload.get("messages") or []
-    tools: list[dict[str, Any]] = payload.get("tools") or []
-
-    estimated = _estimate_tokens_for_messages(messages, system_text, tools)
-
-    log.debug("count_tokens: estimated %d input tokens", estimated)
-    return JSONResponse(
-        content={"input_tokens": estimated},
-        headers={"anthropic-version": "2023-06-01"},
+        headers={
+            "anthropic-version": "2023-06-01",
+            "X-Routing-Mode": routing.mode,
+            "X-Routing-Model": local_model,
+        },
     )
