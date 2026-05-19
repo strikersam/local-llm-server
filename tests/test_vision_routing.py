@@ -240,11 +240,11 @@ class TestLangfuseSessionId:
                 session_id="claude-code-session-abc123",
             )
 
-    def test_emit_langfuse_http_accepts_session_id(self):
-        """_emit_langfuse_http must have session_id parameter."""
-        from langfuse_obs import _emit_langfuse_http
+    def test_emit_langfuse_http_sync_accepts_session_id(self):
+        """_emit_langfuse_http_sync must have session_id parameter."""
+        from langfuse_obs import _emit_langfuse_http_sync
         import inspect
-        sig = inspect.signature(_emit_langfuse_http)
+        sig = inspect.signature(_emit_langfuse_http_sync)
         assert "session_id" in sig.parameters
 
     def test_emit_sdk_accepts_session_id(self):
@@ -256,7 +256,7 @@ class TestLangfuseSessionId:
 
     def test_http_body_includes_session_id_in_trace(self):
         """When session_id provided, trace body must include sessionId field."""
-        from langfuse_obs import _emit_langfuse_http
+        from langfuse_obs import _emit_langfuse_http_sync
         import unittest.mock as mock
 
         captured_trace_body = {}
@@ -277,7 +277,7 @@ class TestLangfuseSessionId:
                 mock_client.post = fake_post
                 mock_client_cls.return_value = mock_client
 
-                _emit_langfuse_http(
+                _emit_langfuse_http_sync(
                     email="user@test.com",
                     department="eng",
                     key_id=None,
@@ -295,7 +295,7 @@ class TestLangfuseSessionId:
 
     def test_http_trace_includes_session_tag(self):
         """When session_id provided, trace tags must include session:<id>."""
-        from langfuse_obs import _emit_langfuse_http
+        from langfuse_obs import _emit_langfuse_http_sync
         import unittest.mock as mock
 
         captured_tags = []
@@ -316,7 +316,7 @@ class TestLangfuseSessionId:
                 mock_client.post = fake_post
                 mock_client_cls.return_value = mock_client
 
-                _emit_langfuse_http(
+                _emit_langfuse_http_sync(
                     email="user@test.com",
                     department="eng",
                     key_id=None,
