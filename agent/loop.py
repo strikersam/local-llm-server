@@ -109,6 +109,22 @@ class AgentRunner:
         step_results: list[dict[str, Any]] = []
         commits: list[str] = []
 
+        # Warn about risky steps before executing
+        for step in plan.steps[:max_steps]:
+            if step.risky:
+                log.warning(
+                    "RISKY MODULE: step %d touches security-sensitive files: %s",
+                    step.id, step.files,
+                )
+
+        # Check for parallel execution opportunity (falls through to sequential)
+        await self._maybe_run_parallel(
+            plan=plan,
+            requested_model=requested_model,
+            auto_commit=auto_commit,
+            session_id=session_id,
+        )
+
         for step in plan.steps[:max_steps]:
             step_data = step.model_dump()
             self._log_event(session_id, "step_start", {"step_id": step_data["id"], "description": step_data["description"]})
@@ -122,6 +138,40 @@ class AgentRunner:
                 commit = self._commit_step(step_data["description"], result["changed_files"])
                 if commit:
                     commits.append(commit)
+
+        # Judge the overall run result
+        judge: dict[str, Any] = {}
+        if step_results:
+            judge_model = requested_model or DEFAULT_VERIFIER_MODEL
+            judge_messages = [
+                {
+                    "role": "system",
+                    "content": (
+                        "You are a code-review judge. Respond with ONLY a JSON object with keys: "
+                        "verdict (APPROVED, APPROVED_WITH_CONDITIONS, or REJECTED), "
+                        "security (PASS, WARN, or FAIL), correctness (PASS, WARN, or FAIL), "
+                        "notes (string)."
+                    ),
+                },
+                {
+                    "role": "user",
+                    "content": (
+                        f"Goal: {plan.goal}\n"
+                        f"Steps completed: {len(step_results)}\n"
+                        f"All applied: {all(s.get('status') == 'applied' for s in step_results)}\n"
+                        f"Risky review required: {plan.requires_risky_review}"
+                    ),
+                },
+            ]
+            for _ in range(3):
+                try:
+                    raw = await self._chat_json(judge_model, judge_messages)
+                    if "verdict" not in raw:
+                        continue
+                    judge = raw
+                    break
+                except Exception:
+                    continue
 
         summary = self._build_summary(plan.goal, step_results, commits)
         self._log_event(session_id, "assistant_message", {"summary": summary})
@@ -140,6 +190,7 @@ class AgentRunner:
             "steps": step_results,
             "commits": commits,
             "summary": summary,
+            "judge": judge,
         }
 
     async def _generate_plan(
@@ -232,6 +283,11 @@ class AgentRunner:
             if call.tool == "finish":
                 observations.append({"tool": "finish", "result": call.args.get("reason", "done inspecting")})
                 break
+            if call.tool == "spawn_subagent":
+                sub_result = await self._spawn_subagent(**call.args)
+                observations.append({"tool": "spawn_subagent", "result": sub_result.get("summary", str(sub_result))})
+                context_items.append({"tool": "spawn_subagent", "result": sub_result})
+                continue
             result = await self._run_tool(call.tool, call.args, user_id=user_id, memory_store=memory_store)
             observations.append({"tool": call.tool, "args": call.args, "result": result})
             context_items.append({"tool": call.tool, "result": result})
@@ -698,6 +754,50 @@ class AgentRunner:
         except subprocess.CalledProcessError as exc:
             log.warning("Auto-commit failed: %s", exc.stderr.strip() if exc.stderr else exc)
             return None
+
+    async def _maybe_run_parallel(
+        self,
+        *,
+        plan: Any,
+        **kwargs: Any,
+    ) -> None:
+        """Check if plan steps can run in parallel; falls through to sequential execution."""
+        return None
+
+    @staticmethod
+    def _steps_are_independent(steps: list) -> bool:
+        """Return True when no file is touched by more than one step."""
+        seen: set[str] = set()
+        for step in steps:
+            files = step.files if hasattr(step, "files") else step.get("files", [])
+            for f in files:
+                if f in seen:
+                    return False
+                seen.add(f)
+        return True
+
+    async def _spawn_subagent(
+        self,
+        *,
+        instruction: str,
+        max_steps: int = 3,
+        **kwargs: Any,
+    ) -> dict[str, Any]:
+        """Spawn a child AgentRunner for a delegated sub-task."""
+        sub = AgentRunner(
+            ollama_base=self.ollama_base,
+            workspace_root=self.tools.root,
+            provider_headers=self.provider_headers or None,
+            provider_temperature=self.provider_temperature,
+            session_store=self._session_store,
+        )
+        return await sub.run(
+            instruction=instruction,
+            history=[],
+            requested_model=None,
+            auto_commit=False,
+            max_steps=int(max_steps),
+        )
 
     def _build_summary(self, goal: str, step_results: list[dict[str, Any]], commits: list[str]) -> str:
         applied = sum(1 for step in step_results if step.get("status") == "applied")
