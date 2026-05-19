@@ -198,76 +198,6 @@ class ApplyReviewAgent:
         import openai
         client = openai.OpenAI(api_key=self.api_key, base_url=NVIDIA_BASE)
 
-    def run_with_anthropic(self, anthropic_key: str) -> bool:
-        """Run using Claude Opus via Anthropic SDK (primary path)."""
-        import anthropic as _anthropic
-        client = _anthropic.Anthropic(api_key=anthropic_key)
-        # Convert OpenAI tool schemas to Anthropic format
-        tools_list = [
-            {"type": "function", "function": {"name": "read_file", "description": "Read a source file",
-             "parameters": {"type": "object", "properties": {"path": {"type": "string"}}, "required": ["path"]}}},
-            {"type": "function", "function": {"name": "write_file", "description": "Write/overwrite a file",
-             "parameters": {"type": "object", "properties": {"path": {"type": "string"}, "content": {"type": "string", "description": "Full file content"}}, "required": ["path", "content"]}}},
-            {"type": "function", "function": {"name": "bash", "description": "Run a shell command",
-             "parameters": {"type": "object", "properties": {"cmd": {"type": "string"}}, "required": ["cmd"]}}},
-            {"type": "function", "function": {"name": "done", "description": "Signal completion",
-             "parameters": {"type": "object", "properties": {"success": {"type": "boolean"}, "summary": {"type": "string"}}, "required": ["success"]}}},
-        ]
-        anthropic_tools = _openai_tools_to_anthropic(tools_list)
-
-        # Extract system and user messages for Anthropic format
-        system_content = ""
-        messages: list[dict] = []
-        for msg in self.history:
-            if msg["role"] == "system":
-                system_content = msg["content"]
-            else:
-                messages.append({"role": msg["role"], "content": msg["content"]})
-
-        for turn in range(MAX_TURNS):
-            log.info(f"Turn {turn + 1}/{MAX_TURNS} model={OPUS_MODEL} (Anthropic)")
-            try:
-                resp = client.messages.create(
-                    model=OPUS_MODEL,
-                    max_tokens=4096,
-                    system=system_content,
-                    tools=anthropic_tools,  # type: ignore[arg-type]
-                    messages=messages,      # type: ignore[arg-type]
-                )
-            except Exception as e:
-                log.warning(f"Anthropic API error: {e}")
-                return False
-
-            assistant_content: list[dict] = []
-            tool_use_blocks: list = []
-            for block in resp.content:
-                if block.type == "text":
-                    assistant_content.append({"type": "text", "text": block.text})
-                elif block.type == "tool_use":
-                    tool_use_blocks.append(block)
-                    assistant_content.append({"type": "tool_use", "id": block.id, "name": block.name, "input": block.input})
-
-            messages.append({"role": "assistant", "content": assistant_content})
-
-            if not tool_use_blocks:
-                break
-
-            tool_results: list[dict] = []
-            stop = False
-            for call in tool_use_blocks:
-                fn_args = call.input if isinstance(call.input, dict) else {}
-                log.info(f"  tool={call.name} args_keys={list(fn_args.keys())}")
-                text, stop_now = self._dispatch(call.name, fn_args)
-                tool_results.append({"type": "tool_result", "tool_use_id": call.id, "content": text})
-                if stop_now:
-                    stop = True
-
-            messages.append({"role": "user", "content": tool_results})
-            if stop:
-                break
-
-        return self.success
-
         tools = [
             {
                 "type": "function",
@@ -361,6 +291,76 @@ class ApplyReviewAgent:
                     stop = True
 
             self.history.extend(results)
+            if stop:
+                break
+
+        return self.success
+
+    def run_with_anthropic(self, anthropic_key: str) -> bool:
+        """Run using Claude Opus via Anthropic SDK (primary path)."""
+        import anthropic as _anthropic
+        client = _anthropic.Anthropic(api_key=anthropic_key)
+        # Convert OpenAI tool schemas to Anthropic format
+        tools_list = [
+            {"type": "function", "function": {"name": "read_file", "description": "Read a source file",
+             "parameters": {"type": "object", "properties": {"path": {"type": "string"}}, "required": ["path"]}}},
+            {"type": "function", "function": {"name": "write_file", "description": "Write/overwrite a file",
+             "parameters": {"type": "object", "properties": {"path": {"type": "string"}, "content": {"type": "string", "description": "Full file content"}}, "required": ["path", "content"]}}},
+            {"type": "function", "function": {"name": "bash", "description": "Run a shell command",
+             "parameters": {"type": "object", "properties": {"cmd": {"type": "string"}}, "required": ["cmd"]}}},
+            {"type": "function", "function": {"name": "done", "description": "Signal completion",
+             "parameters": {"type": "object", "properties": {"success": {"type": "boolean"}, "summary": {"type": "string"}}, "required": ["success"]}}},
+        ]
+        anthropic_tools = _openai_tools_to_anthropic(tools_list)
+
+        # Extract system and user messages for Anthropic format
+        system_content = ""
+        messages: list[dict] = []
+        for msg in self.history:
+            if msg["role"] == "system":
+                system_content = msg["content"]
+            else:
+                messages.append({"role": msg["role"], "content": msg["content"]})
+
+        for turn in range(MAX_TURNS):
+            log.info(f"Turn {turn + 1}/{MAX_TURNS} model={OPUS_MODEL} (Anthropic)")
+            try:
+                resp = client.messages.create(
+                    model=OPUS_MODEL,
+                    max_tokens=4096,
+                    system=system_content,
+                    tools=anthropic_tools,  # type: ignore[arg-type]
+                    messages=messages,      # type: ignore[arg-type]
+                )
+            except Exception as e:
+                log.warning(f"Anthropic API error: {e}")
+                return False
+
+            assistant_content: list[dict] = []
+            tool_use_blocks: list = []
+            for block in resp.content:
+                if block.type == "text":
+                    assistant_content.append({"type": "text", "text": block.text})
+                elif block.type == "tool_use":
+                    tool_use_blocks.append(block)
+                    assistant_content.append({"type": "tool_use", "id": block.id, "name": block.name, "input": block.input})
+
+            messages.append({"role": "assistant", "content": assistant_content})
+
+            if not tool_use_blocks:
+                break
+
+            tool_results: list[dict] = []
+            stop = False
+            for call in tool_use_blocks:
+                fn_args = call.input if isinstance(call.input, dict) else {}
+                log.info(f"  tool={call.name} args_keys={list(fn_args.keys())}")
+                text, stop_now = self._dispatch(call.name, fn_args)
+                tool_results.append({"type": "tool_result", "tool_use_id": call.id, "content": text})
+                if stop_now:
+                    stop = True
+
+            messages.append({"role": "user", "content": tool_results})
             if stop:
                 break
 
