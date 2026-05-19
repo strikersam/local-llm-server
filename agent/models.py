@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Any, Literal
+from typing import Any, Literal, Optional
 
 from pydantic import BaseModel, Field, field_validator
 
@@ -153,6 +153,8 @@ class AgentSession(BaseModel):
     title: str
     provider_id: str | None = None
     workspace_id: str | None = None
+    repo_url: Optional[str] = None
+    repo_ref: Optional[str] = None
     owner_id: str = ""   # email of the creating user; enforced on load in /agent/chat
     created_at: str
     updated_at: str

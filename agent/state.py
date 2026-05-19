@@ -57,6 +57,8 @@ class AgentSessionStore:
                     title        TEXT NOT NULL,
                     provider_id  TEXT,
                     workspace_id TEXT,
+                    repo_url     TEXT,
+                    repo_ref     TEXT,
                     owner_id     TEXT NOT NULL DEFAULT '',
                     created_at   TEXT NOT NULL,
                     updated_at   TEXT NOT NULL,
@@ -100,6 +102,10 @@ class AgentSessionStore:
             existing_cols = {row[1] for row in conn.execute("PRAGMA table_info(agent_sessions)")}
             if "owner_id" not in existing_cols:
                 conn.execute("ALTER TABLE agent_sessions ADD COLUMN owner_id TEXT NOT NULL DEFAULT ''")
+            if "repo_url" not in existing_cols:
+                conn.execute("ALTER TABLE agent_sessions ADD COLUMN repo_url TEXT")
+            if "repo_ref" not in existing_cols:
+                conn.execute("ALTER TABLE agent_sessions ADD COLUMN repo_ref TEXT")
             conn.commit()
 
     def _load_all(self) -> dict[str, AgentSession]:
@@ -115,6 +121,8 @@ class AgentSessionStore:
                     title=row["title"],
                     provider_id=row["provider_id"],
                     workspace_id=row["workspace_id"],
+                    repo_url=row["repo_url"] if "repo_url" in row.keys() else None,
+                    repo_ref=row["repo_ref"] if "repo_ref" in row.keys() else None,
                     owner_id=row["owner_id"] if "owner_id" in row.keys() else "",
                     created_at=row["created_at"],
                     updated_at=row["updated_at"],
@@ -129,15 +137,17 @@ class AgentSessionStore:
         conn.execute(
             """
             INSERT OR REPLACE INTO agent_sessions
-                (session_id, title, provider_id, workspace_id, owner_id,
+                (session_id, title, provider_id, workspace_id, repo_url, repo_ref, owner_id,
                  created_at, updated_at, last_plan, last_result, event_count)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 session.session_id,
                 session.title,
                 session.provider_id,
                 session.workspace_id,
+                session.repo_url,
+                session.repo_ref,
                 session.owner_id,
                 session.created_at,
                 session.updated_at,
@@ -350,6 +360,22 @@ class AgentSessionStore:
                         json.dumps(result),
                         session_id,
                     ),
+                )
+                conn.commit()
+            return AgentSession.model_validate(session.model_dump())
+
+    def update_repo_context(self, session_id: str, repo_url: str | None = None, repo_ref: str | None = None) -> AgentSession:
+        with self._lock:
+            session = self._sessions[session_id]
+            if repo_url:
+                session.repo_url = repo_url
+            if repo_ref:
+                session.repo_ref = repo_ref
+            session.updated_at = _now()
+            with self._connect() as conn:
+                conn.execute(
+                    "UPDATE agent_sessions SET updated_at = ?, repo_url = ?, repo_ref = ? WHERE session_id = ?",
+                    (session.updated_at, session.repo_url, session.repo_ref, session_id),
                 )
                 conn.commit()
             return AgentSession.model_validate(session.model_dump())

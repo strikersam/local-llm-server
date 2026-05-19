@@ -21,6 +21,9 @@ from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel
 
 from agent.job_manager import AgentJobManager, make_isolated_workspace
+from agent.intent import detect_intent, INTENT_EXECUTION
+from agent.doctor import DirectChatDoctor, translate_error_to_conversational
+from agent.schemas import DirectChatState
 from tokens import verify_token
 from provider_router import ProviderRouter
 from runtimes.adapters.internal_agent import InternalAgentAdapter
@@ -98,6 +101,8 @@ class AgentStatusResponse(BaseModel):
     tool_calls: list[AgentEventModel]
     latest_summary: str
     latest_error: str
+    state: DirectChatState | None = None
+    humanized_progress: str | None = None
 
 
 def _get_bearer_token(authorization: str | None = Header(None)) -> str:
@@ -155,6 +160,7 @@ async def _get_github_token_for_user(user_email: str) -> str | None:
 
 
 def _is_trivial_message(content: str) -> bool:
+    """Detect simple greetings/replies to avoid unnecessary agent promotion."""
     if not content or not isinstance(content, str):
         return False
     stripped = content.strip()
@@ -195,9 +201,16 @@ async def send_chat_message(
     request: Request,
     user: Annotated[UserInfo, Depends(_get_current_user)],
 ):
+    # Auto-detect intent to promote to agent mode if execution is required
+    intent = detect_intent(req.content)
+    if intent == INTENT_EXECUTION and not req.agent_mode:
+        log.info(f"Execution intent detected for '{req.content[:50]}...', promoting to agent mode.")
+        req.agent_mode = True
+
     if req.agent_mode and _is_trivial_message(req.content):
         log.info(f"Trivial message detected, forcing regular chat mode for: {req.content[:50]}...")
         req.agent_mode = False
+
     if req.agent_mode:
         return await _handle_agent_mode(req, user, request)
     else:
@@ -262,6 +275,36 @@ async def _handle_agent_mode(
     user: UserInfo,
     request: Request,
 ):
+    try:
+        return await _do_handle_agent_mode(req, user, request)
+    except HTTPException as he:
+        if he.status_code == 412:
+            # Recovery: convert preflight failure into conversational assistant message
+            msg = translate_error_to_conversational(he.detail)
+            target_session_id = req.session_id or str(uuid.uuid4())
+            _ensure_session(target_session_id, user)
+            _direct_chat_store.append_message(target_session_id, "assistant", msg)
+
+            # For backward compatibility with legacy tests, we return 412 wrapped in detail if requested
+            if os.environ.get("DIRECT_CHAT_STRICT_PREFLIGHT") == "true":
+                return JSONResponse(status_code=412, content={"detail": he.detail})
+
+            return JSONResponse(status_code=200, content={
+                "session_id": target_session_id,
+                "response": msg,
+                "preflight_failed": True,
+                "detail": he.detail
+            })
+        raise
+    except Exception as e:
+        log.exception("Agent mode failed")
+        raise
+
+async def _do_handle_agent_mode(
+    req: ChatSendRequest,
+    user: UserInfo,
+    request: Request,
+):
     """
     Initiates and queues an agent-mode workflow for a direct chat message, performing repository and GitHub preflight checks before starting an asynchronous job.
     
@@ -273,7 +316,7 @@ async def _handle_agent_mode(
     
     Parameters:
         req (ChatSendRequest): Incoming chat request including content, agent_mode controls, repo metadata, and provider/model hints.
-        user (UserInfo): Authenticated user information (id and email) used for ownership and token lookup.
+        user (UserInfo): Authenticated user information (id and email) used for ownership and lookup.
         request (Request): FastAPI request object; used to access application state (workspaces, provider router).
     
     Returns:
@@ -285,10 +328,24 @@ async def _handle_agent_mode(
     """
     log.info(f"Agent mode chat from {user.email}: {req.content[:50]}...")
     session_id = req.session_id
-    if session_id: history = _session_history(session_id)
+    if session_id:
+        history = _session_history(session_id)
+        session = _direct_chat_store.get(session_id)
+        if session:
+            # Sticky context: reuse repo_url/repo_ref if not provided in request
+            if not req.repo_url:
+                req.repo_url = session.repo_url
+            if not req.repo_ref:
+                req.repo_ref = session.repo_ref
     else:
         session_id = str(uuid.uuid4())
         history = []
+
+    # Persist current repo context in session
+    if req.repo_url or req.repo_ref:
+        _ensure_session(session_id, user)
+        _direct_chat_store.update_repo_context(session_id, req.repo_url, req.repo_ref)
+
     # Preflight validation for repo_ref/repo_url
     ws_mgr = request.app.state.webui_workspaces
     validation = await ws_mgr.validate_repo_ref(req.repo_url, req.repo_ref)
@@ -305,125 +362,39 @@ async def _handle_agent_mode(
     else:
         github_token = _token_res
 
-    # GitHub preflight: for prompts that appear to require repo/git access, ensure
-    # a token and git binary are available and provide structured actionable errors
-    # rather than letting the job enter a vague failing state.
-    import shutil
-    import httpx
+    # Centralized Doctor-based preflight: only for prompts that appear to require repo/git access
     lc = req.content.lower()
     repo_keywords = ("repo", "git", "pull request", "pull-request", "pr", "commit", "push", "clone", "checkout", "branch")
-    if any(kw in lc for kw in repo_keywords):
-        issues = []
-        if not github_token:
-            issues.append({
-                "code": "missing_github_token",
-                "message": "No GitHub token available for this user.",
-                "fix_hint": "Add a GitHub token in Settings or set GH_TOKEN/GITHUB_TOKEN.",
-            })
-        # Validate git binary
-        if not shutil.which("git"):
-            issues.append({
-                "code": "missing_git_binary",
-                "message": "'git' binary not found on PATH.",
-                "fix_hint": "Install git and ensure it is on PATH.",
-            })
-
-        # If metadata provides an explicit repo_url, attempt a non-destructive access check
-        repo_url = None
-        try:
-            if req.metadata and isinstance(req.metadata, dict):
-                repo_url = req.metadata.get("repo_url") or req.metadata.get("repository")
-        except Exception:
-            repo_url = None
-
-        if repo_url:
-            try:
-                from workspace.manager import WorkspaceManager
-                mgr = WorkspaceManager()
-                pre = mgr.repo_access_preflight(repo_url, github_token)
-                if not pre.get("ok"):
-                    issues.append({
-                        "code": "git_repo_access",
-                        "message": f"Could not access repository at {repo_url}.",
-                        "fix_hint": "Verify the repository URL and ensure the GitHub token has access; ensure network egress to git hosts.",
-                        "details": {"error": pre.get("error")},
-                    })
-                # Branch/ref validation if provided in metadata
-                repo_ref = None
-                try:
-                    repo_ref = req.metadata.get("repo_ref") or req.metadata.get("branch") or req.metadata.get("ref") if req.metadata and isinstance(req.metadata, dict) else None
-                except Exception:
-                    repo_ref = None
-                if repo_ref:
-                    ref_check = mgr.validate_repo_ref(repo_url, repo_ref, github_token)
-                    if not ref_check.get("ok"):
-                        issues.append({
-                            "code": "git_repo_ref",
-                            "message": f"Could not find ref/branch '{repo_ref}' in repository {repo_url}.",
-                            "fix_hint": "Verify the branch/ref name and that the token has repo access.",
-                            "details": {"error": ref_check.get("error")},
-                        })
-                # Path validation if provided
-                repo_path = None
-                try:
-                    repo_path = req.metadata.get("repo_path") or req.metadata.get("path") if req.metadata and isinstance(req.metadata, dict) else None
-                except Exception:
-                    repo_path = None
-                if repo_path:
-                    path_check = mgr.validate_repo_path(repo_url, repo_ref or "HEAD", repo_path, github_token)
-                    if not path_check.get("ok"):
-                        issues.append({
-                            "code": "git_repo_path",
-                            "message": f"Could not find path '{repo_path}' at ref '{repo_ref or 'HEAD'}' in repository {repo_url}.",
-                            "fix_hint": "Verify path and ref; note path checks are GitHub-only unless host supports remote APIs.",
-                            "details": {"error": path_check.get("error")},
-                        })
-            except Exception as e:
-                # Fallback: surface an error indicating workspace preflight could not run.
-                issues.append({
-                    "code": "repo_preflight_failed",
-                    "message": "Repository preflight check failed to run.",
-                    "fix_hint": "Ensure the server environment allows git checks and WorkspaceManager is available.",
-                    "details": {"error": str(e)},
-                })
-
-        # If a token exists, do a best-effort validation against GitHub API to detect
-        # invalid tokens or insufficient scopes (we require 'repo' for repo edits).
-        if github_token:
-            try:
-                headers = {
-                    "Authorization": f"token {github_token}",
-                    "Accept": "application/vnd.github+json",
-                }
-                resp = httpx.get("https://api.github.com/user", headers=headers, timeout=2.0)
-                if resp.status_code != 200:
-                    issues.append({
-                        "code": "invalid_github_token",
-                        "message": "GitHub token rejected by GitHub API.",
-                        "fix_hint": "Reconnect GitHub in Settings or set a valid token with repo scopes.",
-                        "details": {"status_code": resp.status_code},
-                    })
-                else:
-                    scopes = resp.headers.get("X-OAuth-Scopes", "").lower()
-                    if any(kw in lc for kw in ("repo", "pull", "commit", "push")) and "repo" not in scopes:
-                        issues.append({
-                            "code": "insufficient_github_scopes",
-                            "message": "GitHub token may be missing 'repo' scope required for repository edits.",
-                            "fix_hint": "Grant 'repo' scope or use a token with repository access.",
-                            "details": {"scopes": scopes},
-                        })
-            except Exception as e:
-                issues.append({
-                    "code": "github_api_unreachable",
-                    "message": "Could not validate GitHub token due to network error.",
-                    "fix_hint": "Ensure the server can reach api.github.com or validate token in Settings.",
-                    "details": {"error": str(e)},
-                })
-        if issues:
-            raise HTTPException(status_code=412, detail={"ready": False, "issues": issues, "summary": "Git/GitHub preflight failed"})
+    if any(kw in lc for kw in repo_keywords) or req.repo_url:
+        doctor = DirectChatDoctor(github_token=github_token)
+        report = await doctor.check_all(repo_url=req.repo_url, repo_ref=req.repo_ref)
+        if not report.ready:
+            raise HTTPException(status_code=412, detail=report.model_dump())
 
     job = _agent_jobs.create_job(session_id=session_id, owner_id=user.email, instruction=req.content, requested_model=req.model, provider_id=req.provider_id)
-    workspace_root = make_isolated_workspace(_agent_workspace_root, session_id, job.job_id)
+
+    # Auto-bootstrap workspace using WorkspaceManager if a repo is present
+    workspace_root = None
+    if req.repo_url:
+        try:
+            ws_mgr = request.app.state.webui_workspaces
+            # Check if we can reuse an existing workspace for this session/repo
+            # For now, create a new isolated one for the job to ensure clean state
+            manifest = ws_mgr.create_workspace(
+                session_id=session_id,
+                job_id=job.job_id,
+                repo_url=req.repo_url,
+                repo_ref=req.repo_ref,
+                github_token=github_token
+            )
+            workspace_root = Path(manifest.root_path)
+            log.info(f"Auto-bootstrapped workspace for {req.repo_url} at {workspace_root}")
+        except Exception as e:
+            log.warning(f"Failed to auto-bootstrap repo workspace: {e}, falling back to local isolated workspace")
+
+    if not workspace_root:
+        workspace_root = make_isolated_workspace(_agent_workspace_root, session_id, job.job_id)
+
     job.workspace_path = str(workspace_root)
     adapter = InternalAgentAdapter(config={"workspace_root": str(workspace_root)})
     spec = TaskSpec(
@@ -534,6 +505,18 @@ async def get_agent_status(
     latest_error = ""
     has_events = False
 
+    # Sort jobs by updated_at to get the most recent one's state
+    sorted_jobs = sorted(jobs, key=lambda j: j.updated_at, reverse=True)
+
+    current_state = DirectChatState.ASSISTANT_REPLY
+    humanized_progress = ""
+
+    if sorted_jobs:
+        latest_job = sorted_jobs[0]
+        current_state = _map_job_status_to_state(latest_job.status, latest_job.phase)
+        last_msg = latest_job.progress_events[-1].get("message") if latest_job.progress_events else None
+        humanized_progress = _humanize_phase(latest_job.phase, last_msg)
+
     for job in jobs:
         jd = job.as_dict()
         events = jd.get("progress_events") or []
@@ -581,6 +564,8 @@ async def get_agent_status(
         tool_calls=tool_calls,
         latest_summary=latest_summary,
         latest_error=latest_error,
+        state=current_state,
+        humanized_progress=humanized_progress,
     )
 
 
@@ -634,3 +619,42 @@ async def get_agent_job(job_id: str):
             error=jd.get("error") or {},
         )
         return failed.model_dump()
+
+def _humanize_phase(phase: str, latest_event_msg: str | None = None) -> str:
+    """Convert technical job phases into friendly conversational progress."""
+    mapping = {
+        "starting": "Preparing workspace",
+        "planning": "Creating a plan",
+        "execution": "Working on tasks",
+        "verification": "Verifying changes",
+        "completed": "Task completed",
+        "failed": "I encountered an issue",
+        "cancelled": "Task cancelled",
+        "queued": "Waiting to start",
+    }
+    base = mapping.get(phase, phase.capitalize())
+    if latest_event_msg and phase == "execution":
+        # If it's a tool call, we can be more specific
+        if "Tool: " in latest_event_msg:
+            tool = latest_event_msg.replace("Tool: ", "")
+            tool_mapping = {
+                "read_file": "Reading files",
+                "write_file": "Editing files",
+                "apply_diff": "Applying changes",
+                "list_files": "Inspecting repository",
+                "search_code": "Searching codebase",
+                "run_command": "Running commands/tests",
+                "github_open_pull_request": "Opening pull request",
+                "git_commit": "Committing changes",
+            }
+            return tool_mapping.get(tool, f"Running {tool}")
+    return base
+
+def _map_job_status_to_state(status: str, phase: str) -> DirectChatState:
+    if status == "running":
+        return DirectChatState.WORKING
+    if status == "succeeded":
+        return DirectChatState.COMPLETED
+    if status == "failed":
+        return DirectChatState.FAILED_WITH_FIX_HINT
+    return DirectChatState.WORKING
