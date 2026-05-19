@@ -13,6 +13,7 @@ import json
 import time
 import logging
 import asyncio
+import threading
 import hashlib
 import subprocess
 from pathlib import Path
@@ -159,30 +160,32 @@ class AuthContext:
 _rate_buckets: dict[str, list[float]] = defaultdict(list)
 _rate_bucket_keys: list[str] = []
 _RATE_BUCKET_MAX_KEYS = 10_000
+_rate_lock = threading.Lock()
 
 def check_rate_limit(api_key: str) -> None:
     now = time.time()
     window = 60.0
-    # Evict keys that have had no activity in the last window to prevent unbounded growth
-    if len(_rate_bucket_keys) >= _RATE_BUCKET_MAX_KEYS:
-        stale = [k for k in list(_rate_bucket_keys) if not _rate_buckets.get(k)]
-        for k in stale:
-            _rate_buckets.pop(k, None)
-            try:
-                _rate_bucket_keys.remove(k)
-            except ValueError:
-                pass
-    if api_key not in _rate_buckets:
-        _rate_bucket_keys.append(api_key)
-    bucket = _rate_buckets[api_key]
-    # Drop entries outside the 1-minute window
-    _rate_buckets[api_key] = [t for t in bucket if now - t < window]
-    if len(_rate_buckets[api_key]) >= RATE_LIMIT_RPM:
-        raise HTTPException(
-            status_code=429,
-            detail=f"Rate limit exceeded: {RATE_LIMIT_RPM} req/min. Slow down."
-        )
-    _rate_buckets[api_key].append(now)
+    with _rate_lock:
+        # Evict keys that have had no activity in the last window to prevent unbounded growth
+        if len(_rate_bucket_keys) >= _RATE_BUCKET_MAX_KEYS:
+            stale = [k for k in list(_rate_bucket_keys) if not _rate_buckets.get(k)]
+            for k in stale:
+                _rate_buckets.pop(k, None)
+                try:
+                    _rate_bucket_keys.remove(k)
+                except ValueError:
+                    pass
+        if api_key not in _rate_buckets:
+            _rate_bucket_keys.append(api_key)
+        bucket = _rate_buckets[api_key]
+        # Drop entries outside the 1-minute window
+        _rate_buckets[api_key] = [t for t in bucket if now - t < window]
+        if len(_rate_buckets[api_key]) >= RATE_LIMIT_RPM:
+            raise HTTPException(
+                status_code=429,
+                detail=f"Rate limit exceeded: {RATE_LIMIT_RPM} req/min. Slow down."
+            )
+        _rate_buckets[api_key].append(now)
 
 # ─── Auth dependency ────────────────────────────────────────────────────────────
 
