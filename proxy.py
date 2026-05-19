@@ -661,14 +661,14 @@ async def run_agent_once(body: AgentRunRequest, auth: AuthContext = Depends(veri
             memory_store=USER_MEMORY,
             session_id=temp.session_id,
         )
-    except Exception as exc:
+    except Exception:
         log.exception("Agent one-off run failed")
         result = {
             "goal": body.instruction,
             "plan": None,
             "steps": [],
             "commits": [],
-            "summary": f"Agent run failed: {exc}",
+            "summary": "Agent run failed. Check server logs for details.",
             "status": "failed",
         }
     AGENT_SESSIONS.append_message(temp.session_id, "assistant", result["summary"])
