@@ -1,4 +1,5 @@
 import pytest
+import time
 from fastapi.testclient import TestClient
 import proxy
 import direct_chat
@@ -8,8 +9,10 @@ from direct_chat import UserInfo
 from runtimes.manager import get_runtime_manager
 from runtimes.base import TaskResult
 
+
 def _fake_user():
     return UserInfo(id="user123", email="test@example.com")
+
 
 def test_specialized_runtime_execution(monkeypatch, tmp_path):
     proxy.app.dependency_overrides[direct_chat._get_current_user] = _fake_user
@@ -39,26 +42,41 @@ def test_specialized_runtime_execution(monkeypatch, tmp_path):
     # Mock PROVIDER_ROUTER
     class _FakeRouter:
         providers = []
-    monkeypatch.setattr(proxy.app.state, "PROVIDER_ROUTER", _FakeRouter(), raising=False)
+    proxy.app.state.PROVIDER_ROUTER = _FakeRouter()
+
+    # Auth: patch proxy.verify_token (the local name imported via `from tokens import`)
+    # AND add token to VALID_API_KEYS as belt-and-suspenders.
+    # The JWT path sets email from the payload; we need it to match the job owner.
+    monkeypatch.setattr(proxy, "verify_token", lambda token, **kwargs: {
+        "sub": "user123", "email": "test@example.com", "name": "Test User", "role": "user"
+    })
+    monkeypatch.setattr(proxy, "VALID_API_KEYS", {"fake-token"})
 
     client = TestClient(proxy.app)
     session_id = "adapter-session"
+    headers = {"Authorization": "Bearer fake-token"}
 
-    # Simple auth mock that doesn't break middleware
-    monkeypatch.setattr("tokens.verify_token", lambda token, **kwargs: {"sub": "user123", "email": "test@example.com"})
-
-    response = client.post("/api/chat/send", json={"content": "Use specialized tool", "agent_mode": True, "session_id": session_id})
+    response = client.post(
+        "/api/chat/send",
+        json={"content": "Use specialized tool", "agent_mode": True, "session_id": session_id},
+        headers=headers,
+    )
     assert response.status_code == 202
 
-    # Verify execution output reaches session
-    import time
-    max_wait = 10
+    # Poll until the specialized runtime result appears in the session
+    max_wait = 10.0
+    status_data = {}
     while max_wait > 0:
-        status = client.get(f"/api/chat/agent-status?session_id={session_id}", headers={"Authorization": "Bearer fake"})
-        if status.status_code == 200:
-            if status.json().get("latest_summary") == "Specialized output":
+        resp = client.get(f"/api/chat/agent-status?session_id={session_id}", headers=headers)
+        if resp.status_code == 200:
+            status_data = resp.json()
+            if status_data.get("latest_summary") == "Specialized output":
                 break
         time.sleep(0.5)
         max_wait -= 0.5
 
-    assert status.json()["latest_summary"] == "Specialized output"
+    assert status_data.get("latest_summary") == "Specialized output", (
+        f"Expected 'Specialized output', got status_data={status_data}"
+    )
+
+    proxy.app.dependency_overrides.clear()
