@@ -250,6 +250,7 @@ def test_agent_session_run_redacts_internal_exception_details(monkeypatch):
 
 
 def test_admin_api_login_status_and_control(monkeypatch):
+    monkeypatch.setattr(proxy.ADMIN_AUTH, "admin_secret", "test-secret")
     monkeypatch.setattr(
         proxy.ADMIN_AUTH,
         "authenticate",
