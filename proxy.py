@@ -305,6 +305,14 @@ if ADMIN_AUTH.enabled:
     )
 
 register_admin_gui(app, KEY_STORE, ADMIN_AUTH, SERVICE_MANAGER)
+class ProviderRouter:
+    """Holds external provider configs (e.g., NVIDIA NIM) for use in agent routing."""
+
+    def __init__(self) -> None:
+        self.providers: list = []
+
+
+PROVIDER_ROUTER = ProviderRouter()
 AGENT_SESSIONS = AgentSessionStore()
 USER_MEMORY = UserMemoryStore()
 _GITHUB_TOKEN = os.environ.get("GITHUB_TOKEN") or None
@@ -1331,6 +1339,79 @@ async def openai_compat(path: str, request: Request, auth: AuthContext = Depends
             key_id=auth.key_id,
         )
     return await proxy_request(request, f"v1/{path}", auth=auth)
+
+# ─── /agent/chat ──────────────────────────────────────────────────────────────
+
+
+class AgentChatRequest(BaseModel):
+    instruction: str
+    session_id: str | None = None
+    model: str | None = None
+    auto_commit: bool = False
+    max_steps: int = 10
+
+
+@app.post("/agent/chat")
+async def agent_chat(body: AgentChatRequest, auth: AuthContext = Depends(verify_api_key)):
+    """Stateful chat endpoint: creates or resumes a session by session_id."""
+    session_id = body.session_id
+    if session_id:
+        session = AGENT_SESSIONS.get(session_id)
+        if session is None:
+            session = AGENT_SESSIONS.create(
+                title=f"Chat: {body.instruction[:60]}",
+                session_id=session_id,
+            )
+    else:
+        session = AGENT_SESSIONS.create(title=f"Chat: {body.instruction[:60]}")
+        session_id = session.session_id
+
+    AGENT_SESSIONS.append_message(session_id, "user", body.instruction)
+    current = AGENT_SESSIONS.get(session_id)
+    # history = all messages except the one we just appended (the current instruction)
+    history = [item.model_dump() for item in (current.history[:-1] if current else [])]
+
+    try:
+        runner = AgentRunner(
+            ollama_base=OLLAMA_BASE,
+            workspace_root=Path(__file__).resolve().parent,
+            github_token=_GITHUB_TOKEN,
+            session_store=AGENT_SESSIONS,
+            email=auth.email,
+            department=auth.department,
+            key_id=auth.key_id,
+        )
+        result = await runner.run(
+            instruction=body.instruction,
+            history=history,
+            requested_model=body.model,
+            auto_commit=body.auto_commit,
+            max_steps=body.max_steps,
+            user_id=auth.email,
+            department=auth.department,
+            key_id=auth.key_id,
+            memory_store=USER_MEMORY,
+            session_id=session_id,
+        )
+    except Exception:
+        log.exception("Agent chat run failed")
+        result = {
+            "goal": body.instruction,
+            "plan": None,
+            "steps": [],
+            "commits": [],
+            "summary": "Agent run failed. Check server logs for details.",
+            "status": "failed",
+        }
+
+    AGENT_SESSIONS.append_message(session_id, "assistant", result["summary"])
+    updated = AGENT_SESSIONS.update_result(
+        session_id,
+        plan=result["plan"] or {"goal": body.instruction, "steps": []},
+        result=result,
+    )
+    return {"session_id": session_id, "session": updated, "result": result}
+
 
 # ─── Entry point ────────────────────────────────────────────────────────────────
 
