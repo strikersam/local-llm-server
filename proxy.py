@@ -592,14 +592,14 @@ async def run_agent_task(
             memory_store=USER_MEMORY,
             session_id=session_id,
         )
-    except Exception as exc:
+    except Exception:
         log.exception("Agent run failed")
         result = {
             "goal": body.instruction,
             "plan": None,
             "steps": [],
             "commits": [],
-            "summary": f"Agent run failed: {exc}",
+            "summary": "Agent run failed. Check server logs for details.",
             "status": "failed",
         }
     AGENT_SESSIONS.append_message(session_id, "assistant", result["summary"])
