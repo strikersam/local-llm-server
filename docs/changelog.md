@@ -1,29 +1,21 @@
 # Changelog
 
 ## [Unreleased]
-### Added
-- `agent/intent.py` — New intent classification layer for Direct Chat. Automatically detects execution intent (e.g., "fix this bug") and promotes requests to Agent Mode without requiring a manual toggle.
-- `agent/doctor.py` — New centralized preflight system (`DirectChatDoctor`) that validates Git installation, GitHub token validity/scopes, and repository accessibility before starting execution tasks.
-- `agent/schemas.py` — Introduced `DirectChatState` enum (`assistant_reply`, `working`, `needs_input`, `needs_approval`, `completed`, `failed_with_fix_hint`) to normalize execution lifecycle for conversational UX.
-- `tests/test_direct_chat_interactive_approval.py` — New integration test for the interactive approval and clarification flows.
-
-### Changed
-- `direct_chat.py` — Major upgrade to the Direct Chat handler. Requests now follow a unified conversational flow with automatic intent-based promotion, humanized progress reporting (e.g., "Inspecting repository" instead of raw technical phases), and conversational failure recovery.
-- `agent/state.py` & `agent/models.py` — Updated `AgentSession` to support "sticky" repository context. `repo_url` and `repo_ref` are now persisted in the SQLite session store and automatically reused across multiple turns in a conversation.
-- `frontend/src/pages/ChatPage.js` — Integrated new conversational states (`needs_approval`, `needs_input`) into the UI. Added interactive gating controls in the agent console for user approval and clarification.
-- `frontend/src/api.js` — Added `resumeAgentChatJob` to support interactive task resumption.
-
-### Fixed
-- `direct_chat.py` — Replaced technical HTTP 412 errors with conversational assistant replies that include actionable fix hints.
-- `direct_chat.py` — Improved workspace lifecycle management by automatically bootstrapping repository workspaces.
-- `direct_chat.py` — Fixed scoping issue where `spec` was not accessible in background agent jobs.
-- `tests/test_direct_chat_async.py` — Fixed attribute error in tests where `PROVIDER_ROUTER` was not correctly mocked.
-
-## [Unreleased]
 ### Security
 - `.github/workflows/ci-failure-autofix.yml` — Rewrote workflow to fix four CodeQL findings: (1/2) code injection: all `workflow_run` context values (`head_branch`, `head_sha`, `id`) moved to job-level `env:` vars and referenced as `$VAR` in shell — never as `${{ }}` inside `run:` steps; (3/4/5) untrusted code checkout: switched from checking out the PR branch to checking out master only, fetching the failing branch as a non-executed ref, and diffing via `git diff` — untrusted branch code is never executed in the privileged runner context. Added fork guard (`head_repository.full_name == github.repository`).
 
 ### Fixed
+- `proxy.py` — Fixed timing side-channel in admin authentication by always calling `hmac.compare_digest` (P1-A).
+- `proxy.py` — Implemented weak-secret guard to prevent starting with empty or common placeholder `ADMIN_SECRET` values (P1-B).
+- `agent/tools.py` — Strengthened path traversal prevention in `_resolve_path` using `Path.resolve()` and robust prefix validation to prevent symlink-based escapes (P1-C).
+- `proxy.py` — Added `threading.Lock` to the in-memory rate limiter to prevent race conditions and potential bypasses during concurrent requests (P1-D).
+- `admin_auth.py` — Fixed handle leak and initialization in Windows `LogonUserW` implementation (P1-E).
+
+### Fixed
+- `handlers/anthropic_compat.py` — Added validation to ensure the `model` field is non-empty and non-whitespace (P2-A).
+- `proxy.py` — Removed silent fallback to unauthenticated local MongoDB in production environments (P2-B).
+- `agent/loop.py` — Improved fallback reporting when MCP servers are unreachable, marking results as `[DEGRADED]` (P2-C).
+- `langfuse_obs.py` — Future-proofed synchronous HTTP usage by explicitly marking internal sync functions and updating all async call sites (P2-D).
 - `.github/workflows/ci-failure-autofix.yml` — Fixed non-fast-forward push rejection (Codex P1): the "Commit and push" step previously committed on master's history then pushed to the feature branch, which is rejected because the branch has diverged. Now: restore master to clean state, create a local branch at `origin/$AUTOFIX_BRANCH`, apply the verified patch with `git apply --3way --index` (tolerates minor context differences), commit, and push as a true fast-forward. Emits a workflow warning if the patch does not apply to the branch tree.
 - `provider_router.py` — Bedrock routing affinity now also enforced in the last-resort cooldown-bypass loop; previously a Bedrock model ID could be silently routed to Nvidia NIM when all providers were on cooldown (P1 bug reported by Codex review).
 - `provider_router.py` — `from_env()` default Bedrock model changed from `us.anthropic.claude-opus-4-7` (requires AWS Sales approval) to `us.anthropic.claude-opus-4-6-v1`; fixes `AccessDeniedException` for accounts without Opus 4.7 access (P1 CodeRabbit finding).
@@ -130,16 +122,3 @@
 
 ### Added
 - **`as_dict()` enhancements** (`features/matrix.py`) — `FeatureMatrix.as_dict()` now returns `schema_version: "1"`, a top-level `entries` list (for consumers that prefer arrays over keyed maps), and a top-level `by_maturity` dict alongside the existing `features` dict and `summary` block.
-
-## [Unreleased]
-### Added
-- `agent/intent.py` — Nuanced intent classification (EXECUTION, ANALYSIS, CLARIFY).
-- `direct_chat.py` — Clarification stage to ask users for more detail before committing to async jobs.
-- `direct_chat.py` — Momentum detection for humanized progress (e.g., "Still working on...").
-- `agent/state.py` — Persistent tracking of `active_objective`, `last_branch`, and session `metadata`.
-- `runtimes/manager.py` — New `select_runtime` and `get_runtime_manager` helpers.
-
-### Changed
-- `direct_chat.py` — Upgraded runtime selection to use capability-based matching and support matrix.
-- `direct_chat.py` — Implemented preflight caching to optimize multi-turn performance.
-- `direct_chat.py` — Enhanced bootstrap failure recovery with conversational guidance.
