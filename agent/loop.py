@@ -34,6 +34,11 @@ DEFAULT_EXECUTOR_MODEL = os.environ.get("AGENT_EXECUTOR_MODEL", "qwen3-coder:30b
 DEFAULT_VERIFIER_MODEL = os.environ.get("AGENT_VERIFIER_MODEL", "deepseek-r1:32b")
 
 
+
+
+class AgentPhaseError(Exception):
+    """Raised when a named agent phase (planning, verification, etc.) fails."""
+
 class AgentRunner:
     def __init__(
         self,
@@ -161,8 +166,11 @@ class AgentRunner:
             "agent plan: model=%s [%s/%s]",
             planner_model, planner_decision.mode, planner_decision.selection_source,
         )
-        raw = await self._chat_json(planner_model, messages)
-        plan = AgentPlan.model_validate(raw)
+        try:
+            raw = await self._chat_json(planner_model, messages)
+            plan = AgentPlan.model_validate(raw)
+        except Exception as exc:
+            raise AgentPhaseError(f"planning: {exc}") from exc
         plan.steps = plan.steps[:max_steps]
         return plan
 
