@@ -903,6 +903,18 @@
       "detected_at": "2026-05-19T10:47:59Z",
       "task_id": null,
       "resolved": false
+    },
+    {
+      "issue_id": "he_0cbc64e5c308",
+      "category": "todo_fixme",
+      "severity": "medium",
+      "title": "Backend ERROR: qwen-agent \u2014 2026-05-19 11:16:39,247 [ERROR] qwen-agent: Agent job aj_d066515085c264b1 failed",
+      "description": "The server emitted a `ERROR` log entry from `qwen-agent`.\n\n**Full message:**\n```\n2026-05-19 11:16:39,247 [ERROR] qwen-agent: Agent job aj_d066515085c264b1 failed\nTraceback (most recent call last):\n  File \"/home/jules/.pyenv/versions/3.12.13/lib/python3.12/site-packages/starlette/datastructures.py\", line 685, in __getattr__\n    return self._state[key]\n           ~~~~~~~~~~~^^^^^\nKeyError: 'PROVIDER_ROUTER'\n\nDuring handling of the above exception, another exception occurred:\n\nTraceback (most recent call last):\n  File \"/app/agent/job_manager.py\", line 222, in _run_job\n    result = await runner(heartbeat)\n             ^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/app/direct_chat.py\", line 388, in _run_agent_job\n    app_router: ProviderRouter = request.app.state.PROVIDER_ROUTER\n                                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/home/jules/.pyenv/versions/3.12.13/lib/python3.12/site-packages/starlette/datastructures.py\", line 688, in __getattr__\n    raise AttributeError(message.format(self.__class__.__name__, key))\nAttributeError: 'State' object has no attribute 'PROVIDER_ROUTER'\n```\n\nPlease investigate the root cause and apply the minimum fix.",
+      "file_path": null,
+      "line_number": null,
+      "detected_at": "2026-05-19T11:16:39Z",
+      "task_id": null,
+      "resolved": false
     }
   ],
   "resolved_issues": [
