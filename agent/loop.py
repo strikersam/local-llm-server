@@ -44,9 +44,26 @@ _RISKY_FILES: frozenset[str] = frozenset({
 # Model priority: Opus (Bedrock/Anthropic) > NVIDIA NIM > local.
 # CEO / agency / heavy reasoning tasks always prefer Opus when available.
 _nvidia_key = os.environ.get("NVIDIA_API_KEY") or os.environ.get("NVidiaApiKey")
-_bedrock_key = (os.environ.get("AWS_ACCESS_KEY_ID") or os.environ.get("BEDROCK_ACCESS_KEY")) and (
-    os.environ.get("AWS_SECRET_ACCESS_KEY") or os.environ.get("BEDROCK_SECRET_KEY")
-)
+
+
+def _bedrock_ready() -> bool:
+    """Return True only when Bedrock-specific credentials AND a region are configured.
+
+    Requiring a region prevents generic S3-only AWS creds from being treated as
+    Bedrock-ready, which would incorrectly route agent calls to Bedrock.
+    """
+    return bool(
+        (os.environ.get("AWS_ACCESS_KEY_ID") or os.environ.get("BEDROCK_ACCESS_KEY"))
+        and (os.environ.get("AWS_SECRET_ACCESS_KEY") or os.environ.get("BEDROCK_SECRET_KEY"))
+        and (
+            os.environ.get("AWS_REGION")
+            or os.environ.get("AWS_DEFAULT_REGION")
+            or os.environ.get("BEDROCK_REGION")
+        )
+    )
+
+
+_bedrock_key = _bedrock_ready()
 _opus_model: str | None = (
     "us.anthropic.claude-opus-4-6-v1" if _bedrock_key
     else "claude-opus-4-6" if os.environ.get("ANTHROPIC_API_KEY")
@@ -167,14 +184,32 @@ class AgentRunner:
         _current_deepseek_key = os.environ.get("DEEPSEEK_API_KEY")
         _current_groq_key = os.environ.get("GROQ_API_KEY")
         _current_qwen_key = os.environ.get("DASHSCOPE_API_KEY") or os.environ.get("QWEN_API_KEY")
-        _current_bedrock = (
-            os.environ.get("AWS_ACCESS_KEY_ID") or os.environ.get("BEDROCK_ACCESS_KEY")
-        ) and (os.environ.get("AWS_SECRET_ACCESS_KEY") or os.environ.get("BEDROCK_SECRET_KEY"))
+        _current_bedrock = _bedrock_ready()
         _current_opus: str | None = (
             "us.anthropic.claude-opus-4-6-v1" if _current_bedrock
             else "claude-opus-4-6" if os.environ.get("ANTHROPIC_API_KEY")
             else None
         )
+
+        # When Opus credentials are present, promote Anthropic/Bedrock providers to highest
+        # priority so they are tried before NVIDIA NIM.  from_env() gives NVIDIA priority=-10
+        # and Anthropic priority=50; without this reordering NVIDIA is always tried first and
+        # falls back to its own default model instead of routing to Opus.
+        if _current_opus and self.provider_chain is None:
+            from dataclasses import replace as _dc_replace
+            _opus_types = {"anthropic", "bedrock"}
+            _promoted_any = False
+            _promoted_providers = []
+            for _p in self._router.providers:
+                if _p.type in _opus_types:
+                    _promoted_providers.append(
+                        _dc_replace(_p, priority=-20, default_model=_current_opus)
+                    )
+                    _promoted_any = True
+                else:
+                    _promoted_providers.append(_p)
+            if _promoted_any:
+                self._router = ProviderRouter(_promoted_providers)
 
         def _pick(nvidia_val: str, deepseek_val: str, groq_val: str, qwen_val: str, local_val: str) -> str:
             # Opus (Bedrock / Anthropic) wins over everything — CEO / agency grade

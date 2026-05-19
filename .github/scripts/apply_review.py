@@ -334,7 +334,8 @@ class ApplyReviewAgent:
                 )
             except Exception as e:
                 log.warning(f"Anthropic API error: {e}")
-                return False
+                time.sleep(5)
+                continue  # retry transient errors
 
             assistant_content: list[dict] = []
             tool_use_blocks: list = []

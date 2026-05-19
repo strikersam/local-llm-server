@@ -92,7 +92,7 @@ def _call_review_llm(prompt: str, *, anthropic_key: str, nvidia_key: str) -> str
                 max_tokens=2048,
                 messages=[{"role": "user", "content": prompt}],
             )
-            text = resp.content[0].text if resp.content else ""
+            text = next((b.text for b in resp.content if b.type == "text"), "")
             if text:
                 print(f"[review] Got response from {OPUS_MODEL} (Anthropic)", flush=True)
                 return text

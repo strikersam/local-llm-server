@@ -19,6 +19,7 @@ import os
 import subprocess
 import sys
 import textwrap
+import time
 from pathlib import Path
 
 from openai import OpenAI
@@ -370,7 +371,8 @@ def _run_anthropic_agent_loop(anthropic_key: str, user_msg: str) -> tuple[bool, 
             )
         except Exception as exc:
             print(f"Anthropic API error: {exc}", file=sys.stderr)
-            break
+            time.sleep(5)
+            continue  # retry transient errors
 
         # Build assistant content list
         assistant_content: list[dict] = []
@@ -501,6 +503,7 @@ def main() -> None:
         model_idx = 0
         model = NVIDIA_CANDIDATE_MODELS[model_idx][0]
         final_model = model
+        turns = 0  # fresh turn budget for NVIDIA fallback
 
         while turns < MAX_TURNS:
             turns += 1
