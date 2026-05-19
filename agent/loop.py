@@ -203,9 +203,9 @@ class AgentRunner:
         # priority so they are tried before NVIDIA NIM.  from_env() gives NVIDIA priority=-10
         # and Anthropic priority=50; without this reordering NVIDIA is always tried first and
         # falls back to its own default model instead of routing to Opus.
+        _opus_types = {"anthropic", "bedrock"}
         if _current_opus:
             from dataclasses import replace as _dc_replace
-            _opus_types = {"anthropic", "bedrock"}
             _promoted_any = False
             _promoted_providers = []
             for _p in self._router.providers:
@@ -225,10 +225,17 @@ class AgentRunner:
             if _promoted_any:
                 self._router = ProviderRouter(_promoted_providers)
 
+        # Only use Opus as the model default when the router actually contains an
+        # Anthropic/Bedrock provider.  Runners with provider_chain=[] (primary-only,
+        # e.g. /agent/chat in proxy.py) have no Anthropic provider, so posting
+        # "claude-opus-4-6" to their NIM provider would always fail.
+        _router_has_opus = any(p.type in _opus_types for p in self._router.providers)
+        _effective_opus = _current_opus if _router_has_opus else None
+
         def _pick(nvidia_val: str, deepseek_val: str, groq_val: str, qwen_val: str, local_val: str) -> str:
             # Opus (Bedrock / Anthropic) wins over everything — CEO / agency grade
-            if _current_opus:
-                return _current_opus
+            if _effective_opus:
+                return _effective_opus
             if _current_nvidia_key:
                 return nvidia_val
             if _current_deepseek_key:

@@ -333,9 +333,14 @@ class ApplyReviewAgent:
                     messages=messages,      # type: ignore[arg-type]
                 )
             except Exception as e:
-                log.warning(f"Anthropic API error: {e}")
+                # Permanent failures must not be retried — break to NVIDIA fallback.
+                status = getattr(e, "status_code", None)
+                if status in (401, 403, 404):
+                    log.warning(f"Anthropic permanent error ({status}): {e} — falling back to NVIDIA")
+                    return False
+                log.warning(f"Anthropic transient error: {e}")
                 time.sleep(5)
-                continue  # retry transient errors
+                continue  # retry transient errors (rate limit, server error, network)
 
             assistant_content: list[dict] = []
             tool_use_blocks: list = []
