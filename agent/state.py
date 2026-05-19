@@ -115,6 +115,8 @@ class AgentSessionStore:
                 conn.execute("ALTER TABLE agent_sessions ADD COLUMN last_branch TEXT")
             if "metadata" not in existing_cols:
                 conn.execute("ALTER TABLE agent_sessions ADD COLUMN metadata TEXT")
+            if "resume_payload" not in existing_cols:
+                conn.execute("ALTER TABLE agent_sessions ADD COLUMN resume_payload TEXT")
             conn.commit()
 
     def _load_all(self) -> dict[str, AgentSession]:
@@ -408,6 +410,19 @@ class AgentSessionStore:
                 conn.execute(
                     "UPDATE agent_sessions SET updated_at = ?, active_objective = ?, last_branch = ? WHERE session_id = ?",
                     (session.updated_at, session.active_objective, session.last_branch, session_id),
+                )
+                conn.commit()
+            return AgentSession.model_validate(session.model_dump())
+
+    def update_resume_payload(self, session_id: str, payload: dict[str, Any] | None) -> AgentSession:
+        with self._lock:
+            session = self._sessions[session_id]
+            session.resume_payload = payload
+            session.updated_at = _now()
+            with self._connect() as conn:
+                conn.execute(
+                    "UPDATE agent_sessions SET updated_at = ?, resume_payload = ? WHERE session_id = ?",
+                    (session.updated_at, json.dumps(payload) if payload else None, session_id),
                 )
                 conn.commit()
             return AgentSession.model_validate(session.model_dump())

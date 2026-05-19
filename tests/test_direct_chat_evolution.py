@@ -20,7 +20,8 @@ def test_intent_clarification(monkeypatch, clean_store):
     monkeypatch.setattr(direct_chat, "_direct_chat_store", clean_store)
 
     client = TestClient(proxy.app)
-    response = client.post("/api/chat/send", json={"content": "Fix it", "agent_mode": False})
+    headers = {"Authorization": "Bearer fake-token"}
+    response = client.post("/api/chat/send", json={"content": "Fix it", "agent_mode": False}, headers=headers)
 
     assert response.status_code == 200
     data = response.json()
@@ -32,6 +33,17 @@ def test_sticky_objective_memory(monkeypatch, clean_store):
     proxy.app.dependency_overrides[direct_chat._get_current_user] = _fake_user
     monkeypatch.setattr(direct_chat, "_direct_chat_store", clean_store)
     monkeypatch.setattr(direct_chat, "_agent_jobs", AgentJobManager())
+
+    # Mock PROVIDER_ROUTER
+    class _FakeProvider:
+        priority = 1
+        api_key = None
+        normalized_base_url = "http://localhost:11434"
+        def auth_headers(self) -> dict: return {}
+
+    class _FakeRouter:
+        providers = [_FakeProvider()]
+    proxy.app.state.PROVIDER_ROUTER = _FakeRouter()
 
     # Mock doctor & readiness
     class FakeDoctor:
@@ -47,10 +59,11 @@ def test_sticky_objective_memory(monkeypatch, clean_store):
     monkeypatch.setattr("runtimes.adapters.internal_agent.InternalAgentAdapter.readiness_check", fake_readiness)
 
     client = TestClient(proxy.app)
+    headers = {"Authorization": "Bearer fake-token"}
     session_id = "sticky-eval"
 
     # turn 1
-    client.post("/api/chat/send", json={"content": "Implement auth feature", "agent_mode": True, "session_id": session_id})
+    client.post("/api/chat/send", json={"content": "Implement auth feature", "agent_mode": True, "session_id": session_id}, headers=headers)
 
     # turn 2 - should remember objective
     session = clean_store.get(session_id)

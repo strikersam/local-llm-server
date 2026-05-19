@@ -5,16 +5,19 @@
 - `agent/intent.py` — New intent classification layer for Direct Chat. Automatically detects execution intent (e.g., "fix this bug") and promotes requests to Agent Mode without requiring a manual toggle.
 - `agent/doctor.py` — New centralized preflight system (`DirectChatDoctor`) that validates Git installation, GitHub token validity/scopes, and repository accessibility before starting execution tasks.
 - `agent/schemas.py` — Introduced `DirectChatState` enum (`assistant_reply`, `working`, `needs_input`, `needs_approval`, `completed`, `failed_with_fix_hint`) to normalize execution lifecycle for conversational UX.
+- `tests/test_direct_chat_interactive_approval.py` — New integration test for the interactive approval and clarification flows.
 
 ### Changed
 - `direct_chat.py` — Major upgrade to the Direct Chat handler. Requests now follow a unified conversational flow with automatic intent-based promotion, humanized progress reporting (e.g., "Inspecting repository" instead of raw technical phases), and conversational failure recovery.
 - `agent/state.py` & `agent/models.py` — Updated `AgentSession` to support "sticky" repository context. `repo_url` and `repo_ref` are now persisted in the SQLite session store and automatically reused across multiple turns in a conversation.
-- `frontend/src/components/AgentStatusPanel.jsx` — Updated to display humanized progress strings and active task status with animated indicators.
-- `frontend/src/pages/ChatPage.js` & `frontend/src/utils/agentWorkspaceTransport.js` — Integrated new conversational state and humanized progress data from the backend into the chat UI.
+- `frontend/src/pages/ChatPage.js` — Integrated new conversational states (`needs_approval`, `needs_input`) into the UI. Added interactive gating controls in the agent console for user approval and clarification.
+- `frontend/src/api.js` — Added `resumeAgentChatJob` to support interactive task resumption.
 
 ### Fixed
-- `direct_chat.py` — Replaced technical HTTP 412 errors with conversational assistant replies that include actionable fix hints (e.g., "I need a GitHub token... Add one in Settings").
-- `direct_chat.py` — Improved workspace lifecycle management by automatically bootstrapping (cloning/initializing) repository workspaces via `WorkspaceManager` when an execution task is detected.
+- `direct_chat.py` — Replaced technical HTTP 412 errors with conversational assistant replies that include actionable fix hints.
+- `direct_chat.py` — Improved workspace lifecycle management by automatically bootstrapping repository workspaces.
+- `direct_chat.py` — Fixed scoping issue where `spec` was not accessible in background agent jobs.
+- `tests/test_direct_chat_async.py` — Fixed attribute error in tests where `PROVIDER_ROUTER` was not correctly mocked.
 
 ## [Unreleased]
 ### Security

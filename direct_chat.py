@@ -8,6 +8,7 @@ Delegates to LLM providers via the proxy's routing system.
 """
 
 
+import asyncio
 import json
 import logging
 import os
@@ -28,6 +29,7 @@ from tokens import verify_token
 from provider_router import ProviderRouter
 from runtimes.adapters.internal_agent import InternalAgentAdapter
 from runtimes.base import TaskSpec
+from agent.models import ResumeRequest
 
 log = logging.getLogger("qwen-proxy")
 OLLAMA_BASE = os.environ.get("OLLAMA_BASE", "http://localhost:11434")
@@ -377,19 +379,74 @@ async def _do_handle_agent_mode(
     runtime_mgr = get_runtime_manager()
     task_type = "repo_editing" if intent == INTENT_EXECUTION else "code_review"
     primary_runtime, _ = runtime_mgr.select_runtime(task_type)
+    # We prefer the internal agent for Direct Chat due to its rich interactive features
+    # but we'll respect the selected adapter if it's a specialized one.
     adapter = primary_runtime or InternalAgentAdapter(config={"workspace_root": str(workspace_root)})
+    spec = TaskSpec(
+        task_id=job.job_id,
+        instruction=req.content,
+        task_type=task_type,
+        workspace_path=str(workspace_root),
+        model_preference=req.model,
+        timeout_sec=int(os.environ.get("DIRECT_CHAT_AGENT_TIMEOUT_SEC", "1800")),
+        context={
+            "conversation": history,
+            "max_steps": 30,
+            "owner_id": user.id,
+            "user_email": user.email,
+            "session_id": session_id,
+            "metadata": req.metadata or {},
+            "github_token": github_token,
+        },
+    )
 
     _direct_chat_store.append_message(session_id, "user", req.content)
 
-    async def _run_agent_job(heartbeat):
-        from agent.loop import AgentRunner
-        heartbeat("planning", "Analyzing repository and creating an execution plan")
+    # Extract required state before background job starts (it may lose request context)
+    app_router: ProviderRouter = request.app.state.PROVIDER_ROUTER
+    sorted_providers = sorted(app_router.providers, key=lambda p: p.priority)
+    primary_provider = sorted_providers[0] if sorted_providers else None
+    ollama_base = primary_provider.normalized_base_url if primary_provider else OLLAMA_BASE
+    primary_headers = primary_provider.auth_headers() if primary_provider and primary_provider.api_key else {}
 
-        app_router: ProviderRouter = request.app.state.PROVIDER_ROUTER
-        sorted_providers = sorted(app_router.providers, key=lambda p: p.priority)
-        primary_provider = sorted_providers[0] if sorted_providers else None
-        ollama_base = primary_provider.normalized_base_url if primary_provider else OLLAMA_BASE
-        primary_headers = primary_provider.auth_headers() if primary_provider and primary_provider.api_key else {}
+    # Interactive Gating Helper
+    async def wait_for_resume(job_id: str, session_id: str):
+        """Wait for the user to resume the job via the resume endpoint."""
+        while True:
+            _s = _direct_chat_store.get(session_id)
+            if _s and _s.resume_payload:
+                payload = _s.resume_payload
+                _direct_chat_store.update_resume_payload(session_id, None)
+                return payload
+            await asyncio.sleep(1.0)
+
+    async def _run_agent_job(heartbeat):
+        log.info(f"Background agent job starting: job_id={job.job_id} session_id={session_id}")
+        try:
+            return await _do_run_agent_job(heartbeat)
+        except Exception as e:
+            log.exception(f"Background agent job {job.job_id} failed")
+            heartbeat("failed", str(e))
+            return {"session_id": session_id, "error": str(e), "status": "failed"}
+
+    async def _do_run_agent_job(heartbeat):
+        from agent.loop import AgentRunner
+
+        _spec = spec
+        # If we selected a specialized external runtime, delegate to its execute() method
+        if adapter.RUNTIME_ID != "internal_agent":
+            heartbeat("execution", f"Dispatching task to specialized runtime: {adapter.RUNTIME_ID}")
+            try:
+                res = await adapter.execute(_spec)
+                _direct_chat_store.append_message(session_id, "assistant", res.output)
+                return {"session_id": session_id, "response": res.output}
+            except Exception as e:
+                log.exception(f"External runtime {adapter.RUNTIME_ID} failed")
+                heartbeat("failed", str(e))
+                return {"session_id": session_id, "error": str(e)}
+
+        # Otherwise, proceed with the rich Internal Agent cognition flow
+        heartbeat("planning", "Analyzing repository and creating an execution plan")
 
         _active_job = _agent_jobs.get_job(job.job_id)
         def _on_tool_call(tn: str, args: dict, res: Any) -> None:
@@ -400,6 +457,11 @@ async def _do_handle_agent_mode(
             })
 
         import time as _time
+
+        # Connect the selected adapter's execution logic if it's not the internal agent
+        # For now, we still prefer InternalAgent for the rich interactive features
+        # but we use the adapter's properties.
+
         runner = AgentRunner(
             ollama_base=ollama_base, workspace_root=str(workspace_root),
             provider_headers=primary_headers, provider_chain=sorted_providers[1:],
@@ -408,6 +470,7 @@ async def _do_handle_agent_mode(
         )
 
         # Cognition Stage: Planning
+        # We use the runner to plan, which is compatible with most task types
         plan = await runner.plan(
             instruction=req.content, history=history, requested_model=req.model,
             max_steps=30, user_id=user.id, session_id=session_id, memory_store=UserMemoryStore(),
@@ -416,10 +479,12 @@ async def _do_handle_agent_mode(
 
         # Check for risky plans that need approval
         if plan.requires_risky_review:
-            heartbeat("needs_approval", f"Plan involves sensitive changes. Waiting for your approval. Goal: {plan.goal}")
-            # In a real system we'd wait here, but for this evolution we'll log it and proceed if auto-approved
-            # or just return the plan. For now, let's just proceed but with high visibility.
-            log.warning(f"Plan for {session_id} requires review: {plan.risks}")
+            heartbeat("needs_approval", f"I've created a plan, but it involves sensitive changes to security or core files. Please review and approve to proceed. Goal: {plan.goal}")
+            resume_data = await wait_for_resume(job.job_id, session_id)
+            if resume_data.get("action") != "approve":
+                heartbeat("failed", "Task cancelled by user during approval.")
+                _direct_chat_store.append_message(session_id, "assistant", "I've cancelled the task as requested.")
+                return {"session_id": session_id, "status": "cancelled", "summary": "User rejected plan."}
 
         heartbeat("execution", "Executing planned changes")
         result = await runner.run(metadata=req.metadata or {}, instruction=req.content, history=history, requested_model=req.model, auto_commit=True, max_steps=30, user_id=user.id, session_id=session_id, memory_store=UserMemoryStore())
@@ -427,9 +492,9 @@ async def _do_handle_agent_mode(
         heartbeat("verification", "Validating the changes and ensuring quality")
         heartbeat("completed", "Task successfully completed")
 
-        assistant_message = result.get("summary", "Agent completed")
+        assistant_message = result.get("summary", result.get("response", "Agent completed"))
         _direct_chat_store.append_message(session_id, "assistant", assistant_message)
-        return {"session_id": session_id, "response": assistant_message}
+        return {"session_id": session_id, "response": assistant_message, "status": "succeeded"}
 
     _agent_jobs.start_job(job.job_id, _run_agent_job)
     return JSONResponse(status_code=202, content={"session_id": session_id, "job_id": job.job_id, "status": job.status, "phase": job.phase, "message": "Assistant is working on your request."})
@@ -535,7 +600,30 @@ def _humanize_phase(phase: str, latest_event_msg: str | None = None, updated_at:
     return f"Still {base.lower()}..." if is_slow and phase not in ("completed", "failed", "cancelled") else base
 
 def _map_job_status_to_state(status: str, phase: str) -> DirectChatState:
+    if phase == "needs_approval": return DirectChatState.NEEDS_APPROVAL
+    if phase == "needs_input": return DirectChatState.NEEDS_INPUT
     if status == "running": return DirectChatState.WORKING
     if status == "succeeded": return DirectChatState.COMPLETED
     if status == "failed": return DirectChatState.FAILED_WITH_FIX_HINT
     return DirectChatState.WORKING
+
+@direct_chat_router.post("/resume/{session_id}")
+async def resume_chat_job(
+    session_id: str,
+    req: ResumeRequest,
+    user: Annotated[UserInfo, Depends(_get_current_user)],
+):
+    """Resume a paused agent job with user input/action."""
+    session = _direct_chat_store.get(session_id)
+    if not session:
+        raise HTTPException(status_code=404, detail="Session not found")
+
+    # Store resume payload in session; the background job is polling for this
+    _direct_chat_store.update_resume_payload(session_id, req.model_dump())
+
+    # Also log the user's response in history for continuity
+    msg = f"Action: {req.action}"
+    if req.input: msg += f" - Input: {req.input}"
+    _direct_chat_store.append_message(session_id, "user", msg)
+
+    return {"status": "resumed", "session_id": session_id}
