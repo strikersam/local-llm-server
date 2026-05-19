@@ -155,6 +155,9 @@ class AgentSession(BaseModel):
     workspace_id: str | None = None
     repo_url: Optional[str] = None
     repo_ref: Optional[str] = None
+    active_objective: Optional[str] = None
+    last_branch: Optional[str] = None
+    metadata: Optional[dict[str, Any]] = Field(default_factory=dict)
     owner_id: str = ""   # email of the creating user; enforced on load in /agent/chat
     created_at: str
     updated_at: str

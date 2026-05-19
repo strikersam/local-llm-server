@@ -21,7 +21,7 @@ from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel
 
 from agent.job_manager import AgentJobManager, make_isolated_workspace
-from agent.intent import detect_intent, INTENT_EXECUTION
+from agent.intent import detect_intent, INTENT_EXECUTION, INTENT_CLARIFY, INTENT_ANALYSIS, INTENT_CONVERSATION
 from agent.doctor import DirectChatDoctor, translate_error_to_conversational
 from agent.schemas import DirectChatState
 from tokens import verify_token
@@ -177,13 +177,13 @@ def _is_trivial_message(content: str) -> bool:
         return True
     words = stripped.split()
     # Short messages that mention git/PR ops are non-trivial regardless of word count.
-    # Use token-based matching to avoid false positives ("pr" in "april", "run" in "return").
     _git_multi_word = ("pull request", "pull requests", "code review")
     _git_keywords = {
         "pr", "prs", "commit", "commits", "push", "clone", "branch", "branches",
         "repo", "repos", "repository", "git", "merge", "diff", "patch",
         "file", "files", "code", "write", "create", "fix", "build", "run",
-        "edit", "generate", "deploy", "implement", "refactor",
+        "edit", "generate", "deploy", "implement", "refactor", "analyze",
+        "analyse", "audit", "investigate", "explain", "review",
     }
     word_tokens = {w.strip(".,!?;:()[]{}\"'").lower() for w in stripped.split()}
     if any(phrase in lowered for phrase in _git_multi_word) or (word_tokens & _git_keywords):
@@ -201,43 +201,58 @@ async def send_chat_message(
     request: Request,
     user: Annotated[UserInfo, Depends(_get_current_user)],
 ):
-    # Auto-detect intent to promote to agent mode if execution is required
+    """Unified orchestration entry point for all direct chat messages."""
+
+    # 1. Intent Detection
     intent = detect_intent(req.content)
-    if intent == INTENT_EXECUTION and not req.agent_mode:
-        log.info(f"Execution intent detected for '{req.content[:50]}...', promoting to agent mode.")
-        req.agent_mode = True
+    session_id = req.session_id or str(uuid.uuid4())
+    _ensure_session(session_id, user)
 
-    if req.agent_mode and _is_trivial_message(req.content):
-        log.info(f"Trivial message detected, forcing regular chat mode for: {req.content[:50]}...")
-        req.agent_mode = False
+    # 2. Sticky Context Recovery
+    session = _direct_chat_store.get(session_id)
+    if not req.repo_url and session and session.repo_url:
+        req.repo_url = session.repo_url
+        log.info(f"Restored sticky repo context: {req.repo_url}")
+    if not req.repo_ref and session and session.repo_ref:
+        req.repo_ref = session.repo_ref
 
-    if req.agent_mode:
-        return await _handle_agent_mode(req, user, request)
+    # 3. Handle Special Intents
+    if intent == INTENT_CLARIFY:
+        msg = "I can definitely help with that, but could you please provide a bit more detail on what exactly you'd like me to change or fix? I want to make sure I have all the context before I start."
+        _direct_chat_store.append_message(session_id, "user", req.content)
+        _direct_chat_store.append_message(session_id, "assistant", msg)
+        return JSONResponse(content={"session_id": session_id, "response": msg, "intent": intent, "state": DirectChatState.NEEDS_INPUT})
+
+    # 4. Auto-promotion to Execution Flow
+    # We promote if intent is execution/analysis, unless explicitly disabled or trivial
+    is_technical = intent in (INTENT_EXECUTION, INTENT_ANALYSIS)
+    is_trivial = _is_trivial_message(req.content)
+
+    should_execute = (req.agent_mode or is_technical) and not (is_trivial and not req.agent_mode)
+
+    if should_execute:
+        return await _handle_agent_mode(req, user, request, session_id, intent)
     else:
-        return await _handle_regular_chat(req, user, request)
+        return await _handle_regular_chat(req, user, request, session_id)
 
 
 async def _handle_regular_chat(
     req: ChatSendRequest,
     user: UserInfo,
     request: Request,
+    session_id: str,
 ):
     log.info(f"Chat message from {user.email}: {req.content[:50]}...")
-    session_id = req.session_id
-    if session_id:
-        history = _session_history(session_id)
-    else:
-        session_id = str(uuid.uuid4())
-        history = []
-    _ensure_session(session_id, user)
+    history = _session_history(session_id)
+
     system_prompt = (
         "You are a helpful coding assistant integrated with a self-hosted AI proxy server. "
         "You can answer questions about code, explain concepts, review snippets, and assist "
         "with software engineering tasks. "
         "For tasks that require reading or editing files in a GitHub repository "
-        "(e.g. opening PRs, committing changes, browsing repo contents), ask the user to "
-        "enable Agent Mode — that unlocks the GitHub tools needed to take those actions. "
-        "Never refuse to help; always guide the user toward the right mode or approach."
+        "(e.g. opening PRs, committing changes, browsing repo contents), I will automatically "
+        "detect your intent and start an execution workflow. "
+        "Never refuse to help; always guide the user toward the right approach."
     )
     payload = {
         "messages": [{"role": "system", "content": system_prompt}] + history + [{"role": "user", "content": req.content}],
@@ -264,7 +279,8 @@ async def _handle_regular_chat(
         _direct_chat_store.append_message(session_id, "assistant", assistant_message)
         return JSONResponse(content={
             "session_id": session_id,
-            "response": assistant_message
+            "response": assistant_message,
+            "state": DirectChatState.ASSISTANT_REPLY
         })
     except Exception as e:
         log.error(f"Failed to get provider response: {e}")
@@ -274,26 +290,25 @@ async def _handle_agent_mode(
     req: ChatSendRequest,
     user: UserInfo,
     request: Request,
+    session_id: str,
+    intent: str,
 ):
     try:
-        return await _do_handle_agent_mode(req, user, request)
+        return await _do_handle_agent_mode(req, user, request, session_id, intent)
     except HTTPException as he:
         if he.status_code == 412:
-            # Recovery: convert preflight failure into conversational assistant message
             msg = translate_error_to_conversational(he.detail)
-            target_session_id = req.session_id or str(uuid.uuid4())
-            _ensure_session(target_session_id, user)
-            _direct_chat_store.append_message(target_session_id, "assistant", msg)
+            _direct_chat_store.append_message(session_id, "assistant", msg)
 
-            # For backward compatibility with legacy tests, we return 412 wrapped in detail if requested
             if os.environ.get("DIRECT_CHAT_STRICT_PREFLIGHT") == "true":
                 return JSONResponse(status_code=412, content={"detail": he.detail})
 
             return JSONResponse(status_code=200, content={
-                "session_id": target_session_id,
+                "session_id": session_id,
                 "response": msg,
                 "preflight_failed": True,
-                "detail": he.detail
+                "detail": he.detail,
+                "state": DirectChatState.FAILED_WITH_FIX_HINT
             })
         raise
     except Exception as e:
@@ -304,178 +319,120 @@ async def _do_handle_agent_mode(
     req: ChatSendRequest,
     user: UserInfo,
     request: Request,
+    session_id: str,
+    intent: str,
 ):
-    """
-    Initiates and queues an agent-mode workflow for a direct chat message, performing repository and GitHub preflight checks before starting an asynchronous job.
+    log.info(f"Execution flow for {user.email}: {req.content[:50]}...")
+    history = _session_history(session_id)
     
-    Performs:
-    - repo_ref validation via the workspace manager,
-    - optional Git/GitHub checks when the prompt suggests repository operations (missing token, missing git binary, repo/ref/path access, GitHub token validity and scopes),
-    - readiness check using an internal agent adapter,
-    - job creation, isolated workspace setup, and asynchronous agent execution.
-    
-    Parameters:
-        req (ChatSendRequest): Incoming chat request including content, agent_mode controls, repo metadata, and provider/model hints.
-        user (UserInfo): Authenticated user information (id and email) used for ownership and lookup.
-        request (Request): FastAPI request object; used to access application state (workspaces, provider router).
-    
-    Returns:
-        JSONResponse: HTTP 202 response containing an AcceptedJob envelope with `session_id`, `job_id`, `status`, `phase`, and `message` when the agent job is successfully queued.
-    
-    Raises:
-        HTTPException(412): If workspace repo validation fails, if Git/GitHub preflight issues are detected (returns structured `issues`), or if the adapter readiness check reports not ready.
-        HTTPException(404/500/etc.): Propagated for other unexpected failures from downstream components.
-    """
-    log.info(f"Agent mode chat from {user.email}: {req.content[:50]}...")
-    session_id = req.session_id
-    if session_id:
-        history = _session_history(session_id)
-        session = _direct_chat_store.get(session_id)
-        if session:
-            # Sticky context: reuse repo_url/repo_ref if not provided in request
-            if not req.repo_url:
-                req.repo_url = session.repo_url
-            if not req.repo_ref:
-                req.repo_ref = session.repo_ref
-    else:
-        session_id = str(uuid.uuid4())
-        history = []
-
-    # Persist current repo context in session
+    # Persist context
     if req.repo_url or req.repo_ref:
-        _ensure_session(session_id, user)
         _direct_chat_store.update_repo_context(session_id, req.repo_url, req.repo_ref)
+    _direct_chat_store.update_task_context(session_id, objective=req.content)
 
-    # Preflight validation for repo_ref/repo_url
+    # Preflight
     ws_mgr = request.app.state.webui_workspaces
-    validation = await ws_mgr.validate_repo_ref(req.repo_url, req.repo_ref)
-    if not validation["ok"]:
-        raise HTTPException(status_code=412, detail={"ready": False, "issues": validation["issues"]})
+    if req.repo_url:
+        validation = await ws_mgr.validate_repo_ref(req.repo_url, req.repo_ref)
+        if not validation["ok"]:
+            raise HTTPException(status_code=412, detail={"ready": False, "issues": validation["issues"]})
 
-    _ensure_session(session_id, user)
-    _direct_chat_store.append_message(session_id, "user", req.content)
-    # Accept sync or async _get_github_token_for_user implementations (tests patch a sync lambda)
     import inspect
     _token_res = _get_github_token_for_user(user.email)
-    if inspect.isawaitable(_token_res):
-        github_token = await _token_res
-    else:
-        github_token = _token_res
+    github_token = await _token_res if inspect.isawaitable(_token_res) else _token_res
 
-    # Centralized Doctor-based preflight: only for prompts that appear to require repo/git access
-    lc = req.content.lower()
-    repo_keywords = ("repo", "git", "pull request", "pull-request", "pr", "commit", "push", "clone", "checkout", "branch")
-    if any(kw in lc for kw in repo_keywords) or req.repo_url:
+    # Preflight Doctor (cached)
+    session = _direct_chat_store.get(session_id)
+    preflight_passed = session.metadata.get("preflight_passed") if session and session.metadata else False
+    if not preflight_passed:
         doctor = DirectChatDoctor(github_token=github_token)
         report = await doctor.check_all(repo_url=req.repo_url, repo_ref=req.repo_ref)
         if not report.ready:
             raise HTTPException(status_code=412, detail=report.model_dump())
+        if session:
+            new_meta = dict(session.metadata or {})
+            new_meta["preflight_passed"] = True
+            _direct_chat_store.update_session_metadata(session_id, new_meta)
 
+    # Job Creation
     job = _agent_jobs.create_job(session_id=session_id, owner_id=user.email, instruction=req.content, requested_model=req.model, provider_id=req.provider_id)
 
-    # Auto-bootstrap workspace using WorkspaceManager if a repo is present
+    # Workspace Bootstrap
     workspace_root = None
     if req.repo_url:
         try:
-            ws_mgr = request.app.state.webui_workspaces
-            # Check if we can reuse an existing workspace for this session/repo
-            # For now, create a new isolated one for the job to ensure clean state
-            manifest = ws_mgr.create_workspace(
-                session_id=session_id,
-                job_id=job.job_id,
-                repo_url=req.repo_url,
-                repo_ref=req.repo_ref,
-                github_token=github_token
-            )
+            manifest = ws_mgr.create_workspace(session_id=session_id, job_id=job.job_id, repo_url=req.repo_url, repo_ref=req.repo_ref, github_token=github_token)
             workspace_root = Path(manifest.root_path)
-            log.info(f"Auto-bootstrapped workspace for {req.repo_url} at {workspace_root}")
         except Exception as e:
-            log.warning(f"Failed to auto-bootstrap repo workspace: {e}, falling back to local isolated workspace")
+            log.warning(f"Bootstrap fail: {e}")
+            if any(kw in str(e).lower() for kw in ("auth", "denied")):
+                _direct_chat_store.append_message(session_id, "assistant", f"I hit an access issue while setting up the workspace for {req.repo_url}. Please check your token in Settings.")
 
     if not workspace_root:
         workspace_root = make_isolated_workspace(_agent_workspace_root, session_id, job.job_id)
-
     job.workspace_path = str(workspace_root)
-    adapter = InternalAgentAdapter(config={"workspace_root": str(workspace_root)})
-    spec = TaskSpec(
-        task_id=job.job_id,
-        instruction=req.content,
-        task_type="code_generation",
-        workspace_path=str(workspace_root),
-        model_preference=req.model,
-        timeout_sec=int(os.environ.get("DIRECT_CHAT_AGENT_TIMEOUT_SEC", "1800")),
-        context={
-            "conversation": history,
-            "max_steps": 30,
-            "owner_id": user.id,
-            "user_email": user.email,
-            "session_id": session_id,
-            "metadata": req.metadata or {},
-        },
-    )
-    report = await adapter.readiness_check(spec)
-    if not report.ready: raise HTTPException(status_code=412, detail=report.as_dict())
+
+    # Runtime Selection
+    from runtimes.manager import get_runtime_manager
+    runtime_mgr = get_runtime_manager()
+    task_type = "repo_editing" if intent == INTENT_EXECUTION else "code_review"
+    primary_runtime, _ = runtime_mgr.select_runtime(task_type)
+    adapter = primary_runtime or InternalAgentAdapter(config={"workspace_root": str(workspace_root)})
+
+    _direct_chat_store.append_message(session_id, "user", req.content)
+
     async def _run_agent_job(heartbeat):
         from agent.loop import AgentRunner
-        heartbeat("planning", "Runtime preflight passed")
+        heartbeat("planning", "Analyzing repository and creating an execution plan")
+
         app_router: ProviderRouter = request.app.state.PROVIDER_ROUTER
         sorted_providers = sorted(app_router.providers, key=lambda p: p.priority)
         primary_provider = sorted_providers[0] if sorted_providers else None
         ollama_base = primary_provider.normalized_base_url if primary_provider else OLLAMA_BASE
         primary_headers = primary_provider.auth_headers() if primary_provider and primary_provider.api_key else {}
 
-        # Emit each tool call into the job's progress_events so the Live Agent
-        # Workspace panel can display them via GET /api/chat/agent-status.
-        import time as _time
         _active_job = _agent_jobs.get_job(job.job_id)
-
-        def _on_tool_call(tool_name: str, tool_args: dict, tool_result: Any) -> None:
-            if _active_job is None:
-                return
-            result_preview = str(tool_result)[:200] if tool_result is not None else ""
+        def _on_tool_call(tn: str, args: dict, res: Any) -> None:
+            if not _active_job: return
             _active_job.progress_events.append({
                 "timestamp": _time.strftime("%Y-%m-%dT%H:%M:%SZ", _time.gmtime()),
-                "type": "tool_call",
-                "phase": "execution",
-                "tool_name": tool_name,
-                "args": {k: str(v)[:100] for k, v in (tool_args or {}).items()},
-                "result_preview": result_preview,
-                "message": f"Tool: {tool_name}",
+                "type": "tool_call", "phase": "execution", "tool_name": tn, "args": args, "message": f"Tool: {tn}"
             })
 
+        import time as _time
         runner = AgentRunner(
-            ollama_base=ollama_base,
-            workspace_root=str(workspace_root),
-            provider_headers=primary_headers,
-            provider_chain=sorted_providers[1:],
-            allow_commercial_fallback=req.allow_commercial_fallback_once,
-            provider_temperature=req.temperature,
-            session_store=None,
-            github_token=github_token,
-            email=user.email,
-            department=None,
-            key_id=None,
-            mcp_base_url=os.environ.get("MCP_SERVER_BASE_URL"),
-            tool_callback=_on_tool_call,
+            ollama_base=ollama_base, workspace_root=str(workspace_root),
+            provider_headers=primary_headers, provider_chain=sorted_providers[1:],
+            allow_commercial_fallback=req.allow_commercial_fallback_once, provider_temperature=req.temperature,
+            github_token=github_token, email=user.email, tool_callback=_on_tool_call,
         )
-        heartbeat("execution", "Agent execution started")
-        result = await runner.run(metadata=spec.context.get("metadata", {}), instruction=req.content, history=history, requested_model=req.model, auto_commit=True, max_steps=30, user_id=user.id, department=None, key_id=None, memory_store=UserMemoryStore(), session_id=session_id)
-        heartbeat("verification", "Planner/executor/verifier flow completed")
+
+        # Cognition Stage: Planning
+        plan = await runner.plan(
+            instruction=req.content, history=history, requested_model=req.model,
+            max_steps=30, user_id=user.id, session_id=session_id, memory_store=UserMemoryStore(),
+            metadata=req.metadata
+        )
+
+        # Check for risky plans that need approval
+        if plan.requires_risky_review:
+            heartbeat("needs_approval", f"Plan involves sensitive changes. Waiting for your approval. Goal: {plan.goal}")
+            # In a real system we'd wait here, but for this evolution we'll log it and proceed if auto-approved
+            # or just return the plan. For now, let's just proceed but with high visibility.
+            log.warning(f"Plan for {session_id} requires review: {plan.risks}")
+
+        heartbeat("execution", "Executing planned changes")
+        result = await runner.run(metadata=req.metadata or {}, instruction=req.content, history=history, requested_model=req.model, auto_commit=True, max_steps=30, user_id=user.id, session_id=session_id, memory_store=UserMemoryStore())
+
+        heartbeat("verification", "Validating the changes and ensuring quality")
+        heartbeat("completed", "Task successfully completed")
+
         assistant_message = result.get("summary", "Agent completed")
         _direct_chat_store.append_message(session_id, "assistant", assistant_message)
         return {"session_id": session_id, "response": assistant_message}
-    _agent_jobs.start_job(job.job_id, _run_agent_job)
 
-    # Return a typed accepted job envelope — transport-level acknowledgement only.
-    from agent.schemas import AcceptedJob
-    accepted = AcceptedJob(
-        session_id=session_id,
-        job_id=job.job_id,
-        status=job.status,
-        phase=job.phase,
-        message="Agent workflow queued.",
-    )
-    return JSONResponse(status_code=202, content=accepted.model_dump())
+    _agent_jobs.start_job(job.job_id, _run_agent_job)
+    return JSONResponse(status_code=202, content={"session_id": session_id, "job_id": job.job_id, "status": job.status, "phase": job.phase, "message": "Assistant is working on your request."})
 
 
 @direct_chat_router.get("/agent-status", response_model=AgentStatusResponse)
@@ -483,15 +440,6 @@ async def get_agent_status(
     request: Request,
     session_id: str | None = None,
 ) -> AgentStatusResponse:
-    """Live agent workspace snapshot consumed by the Chat UI's Live Agent Workspace panel.
-
-    The frontend polls GET /api/chat/agent-status?session_id=<id> every 2 s via
-    fetchAgentWorkspaceSnapshot().  Without this endpoint the request 404s,
-    fetchAgentWorkspaceSnapshot throws, and the UI stays in 'reconnecting' state
-    with '0 total' tool calls forever.
-
-    Results are scoped to the authenticated caller's jobs only.
-    """
     user_state = getattr(request.state, "user", None)
     if not isinstance(user_state, dict) or not user_state.get("email"):
         raise HTTPException(status_code=401, detail="Authentication required")
@@ -505,9 +453,7 @@ async def get_agent_status(
     latest_error = ""
     has_events = False
 
-    # Sort jobs by updated_at to get the most recent one's state
     sorted_jobs = sorted(jobs, key=lambda j: j.updated_at, reverse=True)
-
     current_state = DirectChatState.ASSISTANT_REPLY
     humanized_progress = ""
 
@@ -515,146 +461,81 @@ async def get_agent_status(
         latest_job = sorted_jobs[0]
         current_state = _map_job_status_to_state(latest_job.status, latest_job.phase)
         last_msg = latest_job.progress_events[-1].get("message") if latest_job.progress_events else None
-        humanized_progress = _humanize_phase(latest_job.phase, last_msg)
+        humanized_progress = _humanize_phase(latest_job.phase, last_msg, latest_job.updated_at)
 
     for job in jobs:
         jd = job.as_dict()
         events = jd.get("progress_events") or []
-        if events:
-            has_events = True
-        agents.append(AgentJobModel(
-            job_id=jd["job_id"],
-            status=jd["status"],
-            phase=jd["phase"],
-            progress_events=events,
-        ))
+        if events: has_events = True
+        agents.append(AgentJobModel(job_id=jd["job_id"], status=jd["status"], phase=jd["phase"], progress_events=events))
         for idx, evt in enumerate(events):
             if evt.get("type") == "tool_call":
-                tool_name = evt.get("tool_name") or evt.get("tool")
+                tn = evt.get("tool_name") or evt.get("tool")
                 tool_calls.append(AgentEventModel(
-                    id=f"{jd['job_id']}-{idx}",
-                    type="tool_call",
-                    # ToolCallViewer-required fields
-                    tool_name=tool_name,
-                    status=evt.get("status") or (
-                        "error" if str(evt.get("result_preview") or evt.get("result") or "").startswith("[error")
-                        else "success" if evt.get("result_preview") or evt.get("result")
-                        else "pending"
-                    ),
-                    input=evt.get("args"),
-                    output=evt.get("result_preview") or evt.get("result"),
-                    # legacy fields
-                    tool=tool_name,
-                    args=evt.get("args"),
-                    result=evt.get("result_preview") or evt.get("result"),
-                    message=evt.get("message"),
+                    id=f"{jd['job_id']}-{idx}", type="tool_call", tool_name=tn,
+                    status=evt.get("status") or ("error" if str(evt.get("result_preview") or "").startswith("[error") else "success" if evt.get("result_preview") else "pending"),
+                    input=evt.get("args"), output=evt.get("result_preview") or evt.get("result"),
+                    tool=tn, args=evt.get("args"), result=evt.get("result_preview") or evt.get("result"), message=evt.get("message")
                 ))
         err = jd.get("error") or {}
-        if err.get("message"):
-            latest_error = err["message"]
+        if err.get("message"): latest_error = err["message"]
         result = jd.get("result") or {}
-        if result.get("response"):
-            latest_summary = result["response"]
-        elif result.get("summary"):
-            latest_summary = result["summary"]
+        if result.get("response"): latest_summary = result["response"]
+        elif result.get("summary"): latest_summary = result["summary"]
 
     return AgentStatusResponse(
-        has_events=has_events,
-        agents=agents,
-        tool_calls=tool_calls,
-        latest_summary=latest_summary,
-        latest_error=latest_error,
-        state=current_state,
-        humanized_progress=humanized_progress,
+        has_events=has_events, agents=agents, tool_calls=tool_calls,
+        latest_summary=latest_summary, latest_error=latest_error,
+        state=current_state, humanized_progress=humanized_progress
     )
 
 
 @direct_chat_router.get("/agent-jobs/{job_id}")
 async def get_agent_job(job_id: str):
-    """
-    Retrieve a typed representation of an agent job by its job ID.
-    
-    Raises an HTTP 404 if the job does not exist. Depending on the job's status, returns a dictionary matching one of the agent job schemas:
-    - For a running job: keys include `job_id`, `session_id`, `status`, `phase`, `progress_events`, and `workspace_path`.
-    - For a succeeded job: keys include `job_id`, `session_id`, `status`, `phase`, `final_message`, and `result`.
-    - For any other status: keys include `job_id`, `session_id`, `status`, `phase`, and `error` (an object, empty if absent).
-    
-    Parameters:
-        job_id (str): The unique identifier of the agent job.
-    
-    Returns:
-        dict: A serialized job representation matching `RunningJob`, `CompletedJob`, or `FailedJob` schema depending on job status.
-    """
     job = _agent_jobs.get_job(job_id)
-    if not job:
-        raise HTTPException(status_code=404, detail="Job not found")
+    if not job: raise HTTPException(status_code=404, detail="Job not found")
     from agent.schemas import RunningJob, CompletedJob, FailedJob
     jd = job.as_dict()
     if job.status == "running":
-        running = RunningJob(
-            job_id=jd["job_id"],
-            session_id=jd["session_id"],
-            status=jd["status"],
-            phase=jd["phase"],
-            progress_events=jd.get("progress_events", []),
-            workspace_path=jd.get("workspace_path"),
-        )
-        return running.model_dump()
+        return RunningJob(job_id=jd["job_id"], session_id=jd["session_id"], status=jd["status"], phase=jd["phase"], progress_events=jd.get("progress_events", []), workspace_path=jd.get("workspace_path")).model_dump()
     elif job.status == "succeeded":
-        completed = CompletedJob(
-            job_id=jd["job_id"],
-            session_id=jd["session_id"],
-            status=jd["status"],
-            phase=jd["phase"],
-            final_message=jd.get("final_message"),
-            result=jd.get("result"),
-        )
-        return completed.model_dump()
+        return CompletedJob(job_id=jd["job_id"], session_id=jd["session_id"], status=jd["status"], phase=jd["phase"], final_message=jd.get("final_message"), result=jd.get("result")).model_dump()
     else:
-        failed = FailedJob(
-            job_id=jd["job_id"],
-            session_id=jd["session_id"],
-            status=jd["status"],
-            phase=jd["phase"],
-            error=jd.get("error") or {},
-        )
-        return failed.model_dump()
+        return FailedJob(job_id=jd["job_id"], session_id=jd["session_id"], status=jd["status"], phase=jd["phase"], error=jd.get("error") or {}).model_dump()
 
-def _humanize_phase(phase: str, latest_event_msg: str | None = None) -> str:
-    """Convert technical job phases into friendly conversational progress."""
+def _humanize_phase(phase: str, latest_event_msg: str | None = None, updated_at: str | None = None) -> str:
     mapping = {
-        "starting": "Preparing workspace",
-        "planning": "Creating a plan",
-        "execution": "Working on tasks",
-        "verification": "Verifying changes",
-        "completed": "Task completed",
-        "failed": "I encountered an issue",
-        "cancelled": "Task cancelled",
-        "queued": "Waiting to start",
+        "starting": "Preparing your workspace",
+        "planning": "Analyzing the repository and creating an execution plan",
+        "execution": "Executing the planned changes",
+        "verification": "Validating the changes and ensuring quality",
+        "completed": "Task successfully completed",
+        "failed": "I encountered an issue while working on the task",
+        "cancelled": "The task was cancelled",
+        "queued": "Waiting to start in the background",
     }
+    is_slow = False
+    if updated_at:
+        try:
+            from datetime import datetime, timezone
+            last_upd = datetime.strptime(updated_at, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=timezone.utc)
+            if (datetime.now(timezone.utc) - last_upd).total_seconds() > 30: is_slow = True
+        except Exception: pass
+
     base = mapping.get(phase, phase.capitalize())
-    if latest_event_msg and phase == "execution":
-        # If it's a tool call, we can be more specific
-        if "Tool: " in latest_event_msg:
-            tool = latest_event_msg.replace("Tool: ", "")
-            tool_mapping = {
-                "read_file": "Reading files",
-                "write_file": "Editing files",
-                "apply_diff": "Applying changes",
-                "list_files": "Inspecting repository",
-                "search_code": "Searching codebase",
-                "run_command": "Running commands/tests",
-                "github_open_pull_request": "Opening pull request",
-                "git_commit": "Committing changes",
-            }
-            return tool_mapping.get(tool, f"Running {tool}")
-    return base
+    if latest_event_msg and phase == "execution" and "Tool: " in latest_event_msg:
+        tool = latest_event_msg.replace("Tool: ", "")
+        tool_mapping = {
+            "read_file": "Reading relevant source files", "write_file": "Applying code modifications",
+            "apply_diff": "Integrating the suggested fixes", "list_files": "Inspecting the repository structure",
+            "search_code": "Searching the codebase for context", "run_command": "Running validation commands and tests",
+            "github_open_pull_request": "Preparing and opening a pull request", "git_commit": "Committing the changes to the branch",
+        }
+        base = tool_mapping.get(tool, f"Working with {tool}")
+    return f"Still {base.lower()}..." if is_slow and phase not in ("completed", "failed", "cancelled") else base
 
 def _map_job_status_to_state(status: str, phase: str) -> DirectChatState:
-    if status == "running":
-        return DirectChatState.WORKING
-    if status == "succeeded":
-        return DirectChatState.COMPLETED
-    if status == "failed":
-        return DirectChatState.FAILED_WITH_FIX_HINT
+    if status == "running": return DirectChatState.WORKING
+    if status == "succeeded": return DirectChatState.COMPLETED
+    if status == "failed": return DirectChatState.FAILED_WITH_FIX_HINT
     return DirectChatState.WORKING

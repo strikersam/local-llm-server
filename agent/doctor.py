@@ -61,7 +61,7 @@ class DirectChatDoctor:
                         scopes = resp.headers.get("X-OAuth-Scopes", "").lower()
                         # Basic check: should have 'repo' for write ops
                         if "repo" not in scopes:
-                             log.warning("GitHub token missing 'repo' scope: %s", scopes)
+                             log.warning("GitHub token missing 'repo' scope")
             except Exception as e:
                 issues.append(PreflightIssue(
                     code="github_api_unreachable",

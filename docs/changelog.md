@@ -127,3 +127,16 @@
 
 ### Added
 - **`as_dict()` enhancements** (`features/matrix.py`) — `FeatureMatrix.as_dict()` now returns `schema_version: "1"`, a top-level `entries` list (for consumers that prefer arrays over keyed maps), and a top-level `by_maturity` dict alongside the existing `features` dict and `summary` block.
+
+## [Unreleased]
+### Added
+- `agent/intent.py` — Nuanced intent classification (EXECUTION, ANALYSIS, CLARIFY).
+- `direct_chat.py` — Clarification stage to ask users for more detail before committing to async jobs.
+- `direct_chat.py` — Momentum detection for humanized progress (e.g., "Still working on...").
+- `agent/state.py` — Persistent tracking of `active_objective`, `last_branch`, and session `metadata`.
+- `runtimes/manager.py` — New `select_runtime` and `get_runtime_manager` helpers.
+
+### Changed
+- `direct_chat.py` — Upgraded runtime selection to use capability-based matching and support matrix.
+- `direct_chat.py` — Implemented preflight caching to optimize multi-turn performance.
+- `direct_chat.py` — Enhanced bootstrap failure recovery with conversational guidance.
