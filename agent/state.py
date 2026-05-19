@@ -148,6 +148,7 @@ class AgentSessionStore:
         provider_id: str | None = None,
         workspace_id: str | None = None,
         session_id: str | None = None,
+        owner_id: str = "",
     ) -> AgentSession:
         session_id = session_id or "as_" + secrets.token_hex(8)
         now = _now()
@@ -156,6 +157,7 @@ class AgentSessionStore:
             title=title or "Coding Agent Session",
             provider_id=provider_id,
             workspace_id=workspace_id,
+            owner_id=owner_id,
             created_at=now,
             updated_at=now,
             history=[],
@@ -168,6 +170,24 @@ class AgentSessionStore:
                 self._db_upsert_session(conn, session)
                 conn.commit()
         return session
+
+    def create_with_id(
+        self,
+        *,
+        session_id: str,
+        title: str | None = None,
+        owner_id: str = "",
+        provider_id: str | None = None,
+        workspace_id: str | None = None,
+    ) -> AgentSession:
+        """Create a session with a caller-supplied session_id (useful for tests and deterministic IDs)."""
+        return self.create(
+            session_id=session_id,
+            title=title,
+            owner_id=owner_id,
+            provider_id=provider_id,
+            workspace_id=workspace_id,
+        )
 
     def get(self, session_id: str) -> AgentSession | None:
         with self._lock:
