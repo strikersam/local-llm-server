@@ -93,9 +93,29 @@ def _nvidia_key_present() -> bool:
     )
 
 
+def _opus_model() -> str | None:
+    """Return the best available Opus model ID, or None if Opus is not configured.
+
+    Checks Bedrock (AWS keys) first — higher-priority provider (priority 15).
+    Falls back to direct Anthropic API key (priority 50).
+    """
+    bedrock_key = os.environ.get("AWS_ACCESS_KEY_ID") or os.environ.get("BEDROCK_ACCESS_KEY")
+    bedrock_secret = os.environ.get("AWS_SECRET_ACCESS_KEY") or os.environ.get("BEDROCK_SECRET_KEY")
+    if bedrock_key and bedrock_secret:
+        return "us.anthropic.claude-opus-4-6-v1"
+    if os.environ.get("ANTHROPIC_API_KEY"):
+        return "claude-opus-4-6"
+    return None
+
+
 def _build_builtin_model_map() -> dict[str, str]:
     """Build the built-in alias table — Nvidia NIM models when key is set,
-    local Ollama models otherwise."""
+    local Ollama models otherwise.
+
+    Note: resolved_model must be an Ollama- or NIM-routable name because the
+    proxy and Anthropic-compat handler post it directly to those backends.
+    Anthropic/Bedrock Opus routing is handled by ProviderRouter in agent/loop.py.
+    """
     nvidia = _nvidia_key_present()
 
     # Heavy reasoning model: nemotron-3-super-120b (MoE, 12B active) or deepseek-r1 (local)

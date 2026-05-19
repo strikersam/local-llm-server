@@ -41,26 +41,53 @@ _RISKY_FILES: frozenset[str] = frozenset({
     "proxy.py",          # auth middleware — changes need risky-module-review
 })
 
-# Default to role-optimised Nvidia NIM free models — no local infra required.
-# Each role uses the model best suited for that task; override via env vars.
+# Model priority: Opus (Bedrock/Anthropic) > NVIDIA NIM > local.
+# CEO / agency / heavy reasoning tasks always prefer Opus when available.
 _nvidia_key = os.environ.get("NVIDIA_API_KEY") or os.environ.get("NVidiaApiKey")
+
+
+def _bedrock_ready() -> bool:
+    """Return True only when Bedrock-specific credentials AND a region are configured.
+
+    Requiring a region prevents generic S3-only AWS creds from being treated as
+    Bedrock-ready, which would incorrectly route agent calls to Bedrock.
+    """
+    return bool(
+        (os.environ.get("AWS_ACCESS_KEY_ID") or os.environ.get("BEDROCK_ACCESS_KEY"))
+        and (os.environ.get("AWS_SECRET_ACCESS_KEY") or os.environ.get("BEDROCK_SECRET_KEY"))
+        and (
+            os.environ.get("AWS_REGION")
+            or os.environ.get("AWS_DEFAULT_REGION")
+            or os.environ.get("BEDROCK_REGION")
+        )
+    )
+
+
+_bedrock_key = _bedrock_ready()
+# Always use the generic Anthropic model ID (not the Bedrock-specific one) so
+# ProviderRouter does not treat it as Bedrock-affine.  The Bedrock provider's own
+# default_model ("us.anthropic.claude-opus-4-6-v1") is used internally when Bedrock
+# is tried first; if Bedrock fails the generic ID lets fallback providers (Anthropic
+# direct, NVIDIA NIM) serve the request without being skipped by _is_bedrock_model_id().
+_opus_model: str | None = (
+    "claude-opus-4-6" if (_bedrock_key or os.environ.get("ANTHROPIC_API_KEY"))
+    else None
+)
 DEFAULT_PLANNER_MODEL = os.environ.get(
     "AGENT_PLANNER_MODEL",
-    "qwen/qwen3-coder-480b-a35b-instruct" if _nvidia_key else "deepseek-r1:32b",
+    _opus_model or ("qwen/qwen3-coder-480b-a35b-instruct" if _nvidia_key else "deepseek-r1:32b"),
 )
 DEFAULT_EXECUTOR_MODEL = os.environ.get(
     "AGENT_EXECUTOR_MODEL",
-    "nvidia/nemotron-3-super-120b-a12b" if _nvidia_key else "qwen3-coder:30b",
+    _opus_model or ("nvidia/nemotron-3-super-120b-a12b" if _nvidia_key else "qwen3-coder:30b"),
 )
 DEFAULT_VERIFIER_MODEL = os.environ.get(
     "AGENT_VERIFIER_MODEL",
-    "nvidia/nemotron-3-super-120b-a12b" if _nvidia_key else "deepseek-r1:32b",
+    _opus_model or ("nvidia/nemotron-3-super-120b-a12b" if _nvidia_key else "deepseek-r1:32b"),
 )
 DEFAULT_JUDGE_MODEL = os.environ.get(
     "AGENT_JUDGE_MODEL",
-    "deepseek-ai/deepseek-v4-pro"
-    if _nvidia_key
-    else DEFAULT_VERIFIER_MODEL,
+    _opus_model or ("deepseek-ai/deepseek-v4-pro" if _nvidia_key else DEFAULT_VERIFIER_MODEL),
 )
 
 
@@ -161,8 +188,54 @@ class AgentRunner:
         _current_deepseek_key = os.environ.get("DEEPSEEK_API_KEY")
         _current_groq_key = os.environ.get("GROQ_API_KEY")
         _current_qwen_key = os.environ.get("DASHSCOPE_API_KEY") or os.environ.get("QWEN_API_KEY")
+        _current_bedrock = _bedrock_ready()
+        # Use the generic Anthropic model ID regardless of whether Bedrock or Anthropic
+        # direct is configured.  Passing a Bedrock-specific ID ("us.anthropic.*") as the
+        # requested model would trigger _is_bedrock_model_id() routing affinity and bypass
+        # every non-Bedrock provider, killing the NVIDIA/Anthropic-direct fallback chain.
+        # The Bedrock provider's own default_model handles the ID translation internally.
+        _current_opus: str | None = (
+            "claude-opus-4-6" if (_current_bedrock or os.environ.get("ANTHROPIC_API_KEY"))
+            else None
+        )
+
+        # When Opus credentials are present, promote Anthropic/Bedrock providers to highest
+        # priority so they are tried before NVIDIA NIM.  from_env() gives NVIDIA priority=-10
+        # and Anthropic priority=50; without this reordering NVIDIA is always tried first and
+        # falls back to its own default model instead of routing to Opus.
+        _opus_types = {"anthropic", "bedrock"}
+        if _current_opus:
+            from dataclasses import replace as _dc_replace
+            _promoted_any = False
+            _promoted_providers = []
+            for _p in self._router.providers:
+                if _p.type in _opus_types:
+                    # Bedrock: keep its own default_model ("us.anthropic.claude-opus-4-6-v1")
+                    # so it can resolve the generic "claude-opus-4-6" request to the correct ID.
+                    # Anthropic direct: point to Opus explicitly.
+                    new_default = (
+                        _p.default_model if _p.type == "bedrock" else "claude-opus-4-6"
+                    )
+                    _promoted_providers.append(
+                        _dc_replace(_p, priority=-20, default_model=new_default)
+                    )
+                    _promoted_any = True
+                else:
+                    _promoted_providers.append(_p)
+            if _promoted_any:
+                self._router = ProviderRouter(_promoted_providers)
+
+        # Only use Opus as the model default when the router actually contains an
+        # Anthropic/Bedrock provider.  Runners with provider_chain=[] (primary-only,
+        # e.g. /agent/chat in proxy.py) have no Anthropic provider, so posting
+        # "claude-opus-4-6" to their NIM provider would always fail.
+        _router_has_opus = any(p.type in _opus_types for p in self._router.providers)
+        _effective_opus = _current_opus if _router_has_opus else None
 
         def _pick(nvidia_val: str, deepseek_val: str, groq_val: str, qwen_val: str, local_val: str) -> str:
+            # Opus (Bedrock / Anthropic) wins over everything — CEO / agency grade
+            if _effective_opus:
+                return _effective_opus
             if _current_nvidia_key:
                 return nvidia_val
             if _current_deepseek_key:

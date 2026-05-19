@@ -1,6 +1,6 @@
 {
-  "last_scan": "2026-05-18T22:01:51Z",
-  "scan_count": 13,
+  "last_scan": "2026-05-19T04:19:18Z",
+  "scan_count": 14,
   "issues_detected": 30,
   "issues_resolved": 2,
   "active_issues": [
@@ -463,7 +463,7 @@
       "resolved": true
     }
   ],
-  "last_test_run": "2026-05-18T22:01:49Z",
-  "last_test_result": "fail",
+  "last_test_run": null,
+  "last_test_result": null,
   "failing_tests": []
 }
