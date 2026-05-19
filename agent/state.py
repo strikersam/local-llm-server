@@ -147,8 +147,9 @@ class AgentSessionStore:
         title: str | None = None,
         provider_id: str | None = None,
         workspace_id: str | None = None,
+        session_id: str | None = None,
     ) -> AgentSession:
-        session_id = "as_" + secrets.token_hex(8)
+        session_id = session_id or "as_" + secrets.token_hex(8)
         now = _now()
         session = AgentSession(
             session_id=session_id,
