@@ -128,6 +128,10 @@ def test_agent_session_run_reuses_bearer_key_for_same_origin_provider(monkeypatc
             email=None,
             department=None,
             key_id=None,
+            github_token=None,
+            session_store=None,
+            num_ctx=None,
+            keep_alive=None,
         ) -> None:
             captured["ollama_base"] = ollama_base
             captured["workspace_root"] = workspace_root
