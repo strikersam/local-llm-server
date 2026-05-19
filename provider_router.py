@@ -213,6 +213,23 @@ _KNOWN_FREE_HOSTS = (
 )
 _KNOWN_NVIDIA_HOSTS = ("integrate.api.nvidia.com",)
 
+# Prefixes that identify AWS Bedrock model IDs / inference profile IDs.
+# Requests using these model IDs are routed exclusively to the bedrock provider
+# so that other providers (e.g. Nvidia NIM) cannot intercept or fallback-serve them.
+_BEDROCK_MODEL_PREFIXES = (
+    "us.anthropic.",
+    "eu.anthropic.",
+    "ap.anthropic.",
+    "global.anthropic.",
+    "arn:aws:bedrock:",
+    "anthropic.claude-",  # direct Bedrock foundation model IDs
+)
+
+
+def _is_bedrock_model_id(model_id: str) -> bool:
+    """Return True if model_id is an AWS Bedrock model or inference profile ID."""
+    return any(model_id.startswith(p) for p in _BEDROCK_MODEL_PREFIXES)
+
 
 def _provider_field(
     provider: ProviderConfig | dict[str, Any], field_name: str, default: Any = ""
@@ -594,7 +611,7 @@ class ProviderRouter:
                 or "us-east-1"
             )
             bedrock_model = (
-                os.environ.get("BEDROCK_MODEL_ID") or "us.anthropic.claude-opus-4-7"
+                os.environ.get("BEDROCK_MODEL_ID") or "us.anthropic.claude-opus-4-6-v1"
             )
             providers.append(
                 ProviderConfig(
@@ -778,23 +795,33 @@ class ProviderRouter:
 
         original_model = str(payload.get("model") or "").strip()
         skipped_on_cooldown: list[tuple[ProviderConfig, bool]] = []  # (provider, is_primary)
+        # Track the first actually-eligible provider so is_primary works correctly
+        # even when earlier providers are skipped (cooldown or model-affinity).
+        first_eligible = True
+        _bedrock_only = bool(original_model and _is_bedrock_model_id(original_model))
 
-        for provider_index, provider in enumerate(self.providers):
+        for provider in self.providers:
             if is_provider_on_cooldown(provider.provider_id):
                 log.info(
                     "Skipping provider %s (on cooldown, expires %.0fs from now)",
                     provider.provider_id,
                     _provider_cooldowns.get(provider.provider_id, 0) - time.time(),
                 )
-                skipped_on_cooldown.append((provider, provider_index == 0))
+                skipped_on_cooldown.append((provider, first_eligible))
                 continue
-            if provider_index > 0 and is_commercial_provider(provider) and not allow_commercial_fallback:
+            # Bedrock model IDs (us.anthropic.*, arn:aws:bedrock:*, etc.) must only
+            # be routed to the bedrock provider — other providers cannot serve them
+            # and would silently fall back to their own default model instead.
+            if _bedrock_only and provider.type != "bedrock":
+                continue
+            if not first_eligible and is_commercial_provider(provider) and not allow_commercial_fallback:
                 deferred_commercial.append(provider.provider_id)
                 continue
             result = await self._try_one_provider(
                 provider, payload, original_model, model_fallbacks or [],
-                provider_index == 0, max_retries, attempts, provider_timeout_sec,
+                first_eligible, max_retries, attempts, provider_timeout_sec,
             )
+            first_eligible = False
             if result is not None:
                 return result
 
@@ -809,6 +836,11 @@ class ProviderRouter:
                 len(skipped_on_cooldown),
             )
             for provider, is_primary in skipped_on_cooldown:
+                # Apply the same Bedrock-affinity filter in the bypass path so that
+                # a Bedrock model ID is never routed to a non-Bedrock provider even
+                # when all providers were on cooldown.
+                if _bedrock_only and provider.type != "bedrock":
+                    continue
                 if is_commercial_provider(provider) and not allow_commercial_fallback:
                     deferred_commercial.append(provider.provider_id)
                     continue

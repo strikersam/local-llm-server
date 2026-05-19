@@ -1,6 +1,37 @@
 # Changelog
 
 ## [Unreleased]
+
+### Security
+- `.github/workflows/ci-failure-autofix.yml` — Rewrote workflow to fix four CodeQL findings: (1/2) code injection: all `workflow_run` context values (`head_branch`, `head_sha`, `id`) moved to job-level `env:` vars and referenced as `$VAR` in shell — never as `${{ }}` inside `run:` steps; (3/4/5) untrusted code checkout: switched from checking out the PR branch to checking out master only, fetching the failing branch as a non-executed ref, and diffing via `git diff` — untrusted branch code is never executed in the privileged runner context. Added fork guard (`head_repository.full_name == github.repository`).
+
+### Fixed
+- `.github/workflows/ci-failure-autofix.yml` — Fixed non-fast-forward push rejection (Codex P1): the "Commit and push" step previously committed on master's history then pushed to the feature branch, which is rejected because the branch has diverged. Now: restore master to clean state, create a local branch at `origin/$AUTOFIX_BRANCH`, apply the verified patch with `git apply --3way --index` (tolerates minor context differences), commit, and push as a true fast-forward. Emits a workflow warning if the patch does not apply to the branch tree.
+
+### Fixed
+- `provider_router.py` — Bedrock routing affinity now also enforced in the last-resort cooldown-bypass loop; previously a Bedrock model ID could be silently routed to Nvidia NIM when all providers were on cooldown (P1 bug reported by Codex review).
+- `provider_router.py` — `from_env()` default Bedrock model changed from `us.anthropic.claude-opus-4-7` (requires AWS Sales approval) to `us.anthropic.claude-opus-4-6-v1`; fixes `AccessDeniedException` for accounts without Opus 4.7 access (P1 CodeRabbit finding).
+- `render.yaml` — Updated Bedrock comment to reflect `us.anthropic.claude-opus-4-6-v1` as the confirmed-accessible default.
+- `tests/test_bedrock_live.py` — Default `_MODEL_ID` changed from `us.anthropic.claude-opus-4-7` (requires AWS Sales approval) to `us.anthropic.claude-opus-4-6-v1` so live tests pass with the current account's access level when `BEDROCK_MODEL_ID` env var is not set (P2 bug reported by Codex review).
+- `tests/test_bedrock_live.py` — Moved `from __future__ import annotations` to before module docstring (Python 3.13 compatibility); replaced `print()` with `log.info()` via module-level logger; added `-> None` return type annotations to all 4 test functions.
+- `tests/test_bedrock_provider.py` — `test_bedrock_default_model` updated to assert `us.anthropic.claude-opus-4-6-v1` as default; added `-> None` return type annotations to all new test methods in `TestIsBedrockModelId` and `TestBedrockRoutingAffinity`.
+- `tests/test_all_providers_discovery.py` — `test_bedrock_discovery` updated to assert new default model `us.anthropic.claude-opus-4-6-v1`.
+
+### Added
+- `tests/test_model_router.py` — Added 5 tests for the 4 new Bedrock `ModelCapability` registry entries: `test_bedrock_opus_4_7_in_registry`, `test_bedrock_opus_4_6_v1_in_registry`, `test_bedrock_sonnet_4_6_in_registry`, `test_bedrock_haiku_4_5_in_registry`, and `test_bedrock_models_route_as_passthrough` (verifies all 4 IDs are correctly served as passthrough routing decisions).
+
+### Added
+- `.github/workflows/ci-failure-autofix.yml` — CI failure auto-fix workflow: triggers on any CI failure on non-master branches, reproduces the failure, calls Claude Sonnet 4.6 via Anthropic API to generate a patch, applies and verifies it, then commits the fix directly to the branch. Opens a GitHub issue if the fix is too complex or the patch fails verification.
+- `tests/test_bedrock_provider.py` — `test_bedrock_affinity_preserved_in_cooldown_bypass`: asserts that NIM is not attempted for Bedrock model IDs even in the cooldown-bypass path.
+- `provider_router.py` — `_is_bedrock_model_id()` helper and Bedrock routing affinity: requests whose model ID starts with `us.anthropic.*`, `eu.anthropic.*`, `global.anthropic.*`, `arn:aws:bedrock:*`, or `anthropic.claude-*` are now routed exclusively to the `bedrock` provider, bypassing Nvidia NIM and other providers that cannot serve them.
+- `router/registry.py` — Added `us.anthropic.claude-opus-4-6-v1` (Opus 4.6, confirmed accessible) and `us.anthropic.claude-haiku-4-5-20251001-v1:0` to the model capability registry.
+- `tests/test_bedrock_provider.py` — Tests for `_is_bedrock_model_id` (10 cases) and Bedrock routing affinity (3 integration tests including NIM bypass and primary-provider correctness).
+- `tests/test_bedrock_live.py` — Live E2E tests for AWS Bedrock (auto-skipped without credentials): direct boto3 ping, model accessibility, ProviderRouter round-trip, health check.
+
+### Changed
+- `render.yaml` — All agent role models (`AGENT_PLANNER_MODEL`, `AGENT_EXECUTOR_MODEL`, `AGENT_VERIFIER_MODEL`, `AGENT_JUDGE_MODEL`) and coding runtime models (`OPENCODE_MODEL`, `AIDER_MODEL`, `GOOSE_MODEL`) set to `us.anthropic.claude-opus-4-6-v1` (Claude Opus 4.6 via AWS Bedrock — highest confirmed-accessible Opus model). Previous defaults were Nvidia NIM free-tier models.
+- `render.yaml` — Added `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_REGION`, `BEDROCK_MODEL_ID` env var entries (documented for Render dashboard sync).
+- `render.yaml` — `BEDROCK_MODEL_ID` default set to `us.anthropic.claude-opus-4-6-v1`; Opus 4.7 requires AWS Sales approval.
 ### Fixed
 - `.github/workflows/*.yml` — Downgraded futuristic GitHub Action versions (e.g., `actions/checkout@v6`, `actions/setup-python@v6`) to current stable releases (`v4`, `v5`, etc.) across all workflow files to prevent "Action not found" errors.
 - `.github/scripts/*.py` — Fixed `from __future__ import annotations` placement; moved to the very beginning of files (before docstrings) to ensure compatibility with Python 3.13.

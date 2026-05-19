@@ -247,7 +247,7 @@ def test_bedrock_discovery(monkeypatch):
     assert p.type == "bedrock"
     assert p.priority == 15
     assert "bedrock-runtime" in p.base_url
-    assert p.default_model == "us.anthropic.claude-opus-4-7"
+    assert p.default_model == "us.anthropic.claude-opus-4-6-v1"
 
 
 @pytest.mark.asyncio

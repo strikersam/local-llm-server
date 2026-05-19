@@ -31,15 +31,17 @@ services:
       - key: NVIDIA_DEFAULT_MODEL
         value: "nvidia/nemotron-3-super-120b-a12b"
 
-      # Agent model defaults (Nvidia NIM free models — confirmed live on NIM API)
+      # Agent model defaults — Bedrock Opus 4.6 (highest confirmed-accessible Opus)
+      # Routing: us.anthropic.* model IDs are exclusive to the bedrock provider;
+      # Nvidia NIM and other providers are bypassed automatically.
       - key: AGENT_PLANNER_MODEL
-        value: "qwen/qwen3-coder-480b-a35b-instruct"
+        value: "us.anthropic.claude-opus-4-6-v1"
       - key: AGENT_EXECUTOR_MODEL
-        value: "nvidia/nemotron-3-super-120b-a12b"
+        value: "us.anthropic.claude-opus-4-6-v1"
       - key: AGENT_VERIFIER_MODEL
-        value: "nvidia/nemotron-3-super-120b-a12b"
+        value: "us.anthropic.claude-opus-4-6-v1"
       - key: AGENT_JUDGE_MODEL
-        value: "deepseek-ai/deepseek-v4-pro"
+        value: "us.anthropic.claude-opus-4-6-v1"
 
       # LLM Provider
       - key: LLM_PROVIDER
@@ -63,6 +65,23 @@ services:
         sync: false
       - key: DEEPSEEK_BASE_URL
         value: "https://api.deepseek.com"
+      # ================================================================
+      # AWS BEDROCK — priority-15 (highest-precedence commercial provider)
+      # Set AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY in the Render
+      # dashboard to enable.  Default model: us.anthropic.claude-opus-4-6-v1
+      # Alternate env names: BEDROCK_ACCESS_KEY / BEDROCK_SECRET_KEY
+      # ================================================================
+      - key: AWS_ACCESS_KEY_ID
+        sync: false
+      - key: AWS_SECRET_ACCESS_KEY
+        sync: false
+      - key: AWS_REGION
+        value: "us-east-1"
+      # Opus 4.7 requires AWS Sales approval — use Opus 4.6 until access is granted
+      # To upgrade: change to us.anthropic.claude-opus-4-7 after AWS confirms access
+      - key: BEDROCK_MODEL_ID
+        value: "us.anthropic.claude-opus-4-6-v1"
+
       - key: ANTHROPIC_API_KEY
         sync: false
       - key: ANTHROPIC_BASE_URL
@@ -132,13 +151,13 @@ services:
       - key: HERMES_TIMEOUT_SEC
         value: "300"
       - key: OPENCODE_MODEL
-        value: "qwen/qwen2.5-coder-32b-instruct"
+        value: "us.anthropic.claude-opus-4-6-v1"
       - key: GOOSE_MODEL
-        value: "meta/llama-3.3-70b-instruct"
+        value: "us.anthropic.claude-opus-4-6-v1"
       - key: GOOSE_PROFILE
         value: "default"
       - key: AIDER_MODEL
-        value: "meta/llama-3.3-70b-instruct"
+        value: "us.anthropic.claude-opus-4-6-v1"
       - key: AIDER_NO_AUTO_COMMIT
         value: "false"
 
