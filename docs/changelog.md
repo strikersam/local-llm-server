@@ -32,6 +32,7 @@
 - `.github/scripts/implement_agent.py` — Implementation agent now runs a native Anthropic tool-use loop (`claude-opus-4-6`) as primary; falls back to the existing NVIDIA NIM loop when `ANTHROPIC_API_KEY` is absent. Transient Anthropic API errors now retry with backoff instead of aborting. NVIDIA fallback starts with a fresh turn budget.
 - `.github/scripts/apply_review.py` — Review-application agent now calls Claude Opus via Anthropic SDK as primary; falls back to NVIDIA NIM models when Anthropic is not configured. Transient Anthropic API errors now retry with backoff instead of returning False immediately.
 - `requirements.txt` — Added `anthropic>=0.40.0` so the Anthropic SDK is available in CI and server environments.
+- `.github/workflows/process-quick-note.yml` — Added `ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}` to the `implement`, `review_apply`, and `review` step env blocks so Opus-primary routing is actually exercised in normal workflow runs (previously only `NVIDIA_API_KEY` was passed, silently bypassing Opus). Renamed "Apply review comments (NVIDIA NIM)" step to "Apply review comments".
 ### Fixed
 - `.github/workflows/*.yml` — Downgraded futuristic GitHub Action versions (e.g., `actions/checkout@v6`, `actions/setup-python@v6`) to current stable releases (`v4`, `v5`, etc.) across all workflow files to prevent "Action not found" errors.
 - `.github/scripts/*.py` — Fixed `from __future__ import annotations` placement; moved to the very beginning of files (before docstrings) to ensure compatibility with Python 3.13.
