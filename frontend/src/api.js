@@ -132,6 +132,7 @@ export const chatSend = (content, sessionId, model, providerId, temperature, age
   });
 export const getAgentChatJob = (jobId) => API.get(`/api/chat/agent-jobs/${jobId}`);
 export const cancelAgentChatJob = (jobId) => API.post(`/api/chat/agent-jobs/${jobId}/cancel`);
+export const resumeAgentChatJob = (sessionId, action, input = "") => API.post(`/api/chat/resume/${sessionId}`, { action, input });
 export const listSessions = () => API.get('/api/chat/sessions');
 export const getSession = (id) => API.get(`/api/chat/sessions/${id}`);
 export const deleteSession = (id) => API.delete(`/api/chat/sessions/${id}`);

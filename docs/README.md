@@ -33,3 +33,5 @@ Canonical project docs now live under `docs/`.
 
 - One-off setup transcripts, stale backups, logs, and generated reports were removed from the repo root.
 - `scratch/verification/` now holds the lightweight verification prompt/report pair used by `check_auto.py`.
+
+- [Direct Chat Evolution](./architecture/direct-chat-evolution.md) — Unified assistant orchestration and sticky memory.

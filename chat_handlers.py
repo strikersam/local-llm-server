@@ -201,7 +201,13 @@ def _extract_exact_output(messages: Any) -> str | None:
         content = message.get("content")
         if not isinstance(content, str):
             return None
-        match = re.search(r"Reply with exactly:\s*(.+?)\s*$", content, flags=re.IGNORECASE | re.DOTALL)
+        # Use a more robust check to avoid regex backtracking on untrusted user input
+        marker = "reply with exactly:"
+        idx = content.lower().find(marker)
+        if idx == -1:
+            return None
+        exact = content[idx + len(marker) :].strip()
+        return exact or None
         if not match:
             return None
         exact = match.group(1).strip()

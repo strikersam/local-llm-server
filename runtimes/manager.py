@@ -48,32 +48,10 @@ class RuntimeManager:
     async def execute(self, spec: TaskSpec) -> tuple[TaskResult, RoutingDecision]:
         return await self._router.route_and_execute(spec)
 
-    def list_runtimes(self) -> list[dict[str, Any]]:
-        result = []
-        for adapter in self._registry.all():
-            info = adapter.as_dict()
-            health = self._health.get_health(adapter.RUNTIME_ID)
-            info["health"] = health.as_dict() if health else {"runtime_id": adapter.RUNTIME_ID, "available": None}
-            info["circuit_open"] = not self._health.is_available(adapter.RUNTIME_ID)
-            result.append(info)
-        return result
+    def select_runtime(self, task_type: str, preferred_id: str | None = None) -> tuple[RuntimeAdapter | None, list[dict]]:
+        return self._router._pick_runtime(task_type, preferred_id)
 
-    def get_runtime(self, runtime_id: str) -> dict[str, Any] | None:
-        adapter = self._registry.get(runtime_id)
-        if not adapter: return None
-        info = adapter.as_dict()
-        health = self._health.get_health(runtime_id)
-        info["health"] = health.as_dict() if health else {"runtime_id": runtime_id, "available": None}
-        return info
-
-    def get_policy(self) -> dict[str, Any]: return self._router.policy.as_dict()
-    def update_policy(self, **kwargs: Any) -> None: self._router.update_policy(**kwargs)
-    def get_decision_log(self, limit: int = 100) -> list[dict[str, Any]]: return self._router.get_decision_log(limit)
-    def health_summary(self) -> list[dict[str, Any]]: return self._health.all_health()
-    async def verify_all(self) -> list[dict[str, Any]]: return await self._health.verify_all()
-    async def refresh_runtime_health(self, runtime_id: str) -> dict[str, Any] | None:
-        adapter = self._registry.get(runtime_id)
-        if adapter is None: return None
+    async def get_runtime_health(self, runtime_id: str) -> dict | None:
         circuit = self._health._circuits.get(runtime_id)
         if circuit: circuit.record_success()
         await self._health._poll_one(runtime_id)
@@ -81,6 +59,7 @@ class RuntimeManager:
         return health.as_dict() if health else None
 
 _runtime_manager: RuntimeManager | None = None
+
 def get_runtime_manager() -> RuntimeManager:
     global _runtime_manager
     if _runtime_manager is None: _runtime_manager = _build_default_manager()
@@ -97,6 +76,7 @@ def _build_default_manager() -> RuntimeManager:
     from runtimes.adapters.opencode import OpenCodeAdapter
     from runtimes.adapters.openhands import OpenHandsAdapter
     from runtimes.adapters.task_harness import TaskHarnessAdapter
+
     policy = RoutingPolicy(
         never_use_paid_providers=os.environ.get("RUNTIME_NEVER_PAID", "false").lower() == "true",
         require_approval_before_paid_escalation=os.environ.get("RUNTIME_REQUIRE_APPROVAL", "false").lower() == "true",
@@ -105,6 +85,7 @@ def _build_default_manager() -> RuntimeManager:
         fallback_runtime_ids=["internal_agent"],
         task_type_runtime_overrides={k: v for k, v in {"code_generation": os.environ.get("RUNTIME_CODE_GENERATION"), "code_review": os.environ.get("RUNTIME_CODE_REVIEW"), "repo_editing": os.environ.get("RUNTIME_REPO_EDITING"), "git_operations": os.environ.get("RUNTIME_GIT_OPS")}.items() if v}
     )
+
     mgr = RuntimeManager(policy=policy)
     mgr.register(InternalAgentAdapter())
     if os.environ.get("AGENT_MODE_DOCKER", "false").lower() == "true": mgr.register(DockerAgentAdapter())

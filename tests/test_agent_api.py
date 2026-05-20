@@ -250,6 +250,7 @@ def test_agent_session_run_redacts_internal_exception_details(monkeypatch):
 
 
 def test_admin_api_login_status_and_control(monkeypatch):
+    monkeypatch.setattr(proxy.ADMIN_AUTH, "admin_secret", "test-secret")
     monkeypatch.setattr(
         proxy.ADMIN_AUTH,
         "authenticate",
@@ -276,6 +277,8 @@ def test_admin_api_login_status_and_control(monkeypatch):
     )
 
     client = TestClient(proxy.app)
+    # Ensure ADMIN_SECRET is set so authentication doesn't fail due to disabled auth
+    monkeypatch.setattr(proxy, "ADMIN_SECRET", "test-secret")
     login = client.post("/admin/api/login", json={"username": "swami", "password": "secret"})
     assert login.status_code == 200
     token = login.json()["token"]

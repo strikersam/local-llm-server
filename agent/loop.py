@@ -259,6 +259,29 @@ class AgentRunner:
             "nvidia/llama-3.1-nemotron-70b-instruct", "deepseek-chat", "llama-3.3-70b-versatile", "qwen-plus", self._default_verifier_model,
         )
 
+    async def plan(
+        self,
+        *,
+        instruction: str,
+        history: list[dict[str, str]],
+        requested_model: str | None,
+        model_overrides: dict[str, str | None] | None = None,
+        max_steps: int,
+        user_id: str | None = None,
+        memory_store: UserMemoryStore | None = None,
+        session_id: str | None = None,
+        metadata: dict[str, Any] | None = None,
+    ) -> AgentPlan:
+        """Generate a plan for the instruction without executing it."""
+        effective_history = history
+        if self.ctx.needs_compaction(history):
+            effective_history = await self._compact_history(
+                history, requested_model, session_id
+            )
+        return await self._generate_plan(
+            instruction, effective_history, requested_model, model_overrides, max_steps, user_id, memory_store, metadata
+        )
+
     async def run(
         self,
         *,

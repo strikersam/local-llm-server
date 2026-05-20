@@ -53,11 +53,16 @@ class AgentSessionStore:
             conn.execute(
                 """
                 CREATE TABLE IF NOT EXISTS agent_sessions (
-                    session_id   TEXT PRIMARY KEY,
-                    title        TEXT NOT NULL,
-                    provider_id  TEXT,
-                    workspace_id TEXT,
-                    owner_id     TEXT NOT NULL DEFAULT '',
+                    session_id       TEXT PRIMARY KEY,
+                    title            TEXT NOT NULL,
+                    provider_id      TEXT,
+                    workspace_id     TEXT,
+                    repo_url         TEXT,
+                    repo_ref         TEXT,
+                    active_objective TEXT,
+                    last_branch      TEXT,
+                    metadata         TEXT,
+                    owner_id         TEXT NOT NULL DEFAULT '',
                     created_at   TEXT NOT NULL,
                     updated_at   TEXT NOT NULL,
                     last_plan    TEXT,
@@ -100,6 +105,18 @@ class AgentSessionStore:
             existing_cols = {row[1] for row in conn.execute("PRAGMA table_info(agent_sessions)")}
             if "owner_id" not in existing_cols:
                 conn.execute("ALTER TABLE agent_sessions ADD COLUMN owner_id TEXT NOT NULL DEFAULT ''")
+            if "repo_url" not in existing_cols:
+                conn.execute("ALTER TABLE agent_sessions ADD COLUMN repo_url TEXT")
+            if "repo_ref" not in existing_cols:
+                conn.execute("ALTER TABLE agent_sessions ADD COLUMN repo_ref TEXT")
+            if "active_objective" not in existing_cols:
+                conn.execute("ALTER TABLE agent_sessions ADD COLUMN active_objective TEXT")
+            if "last_branch" not in existing_cols:
+                conn.execute("ALTER TABLE agent_sessions ADD COLUMN last_branch TEXT")
+            if "metadata" not in existing_cols:
+                conn.execute("ALTER TABLE agent_sessions ADD COLUMN metadata TEXT")
+            if "resume_payload" not in existing_cols:
+                conn.execute("ALTER TABLE agent_sessions ADD COLUMN resume_payload TEXT")
             conn.commit()
 
     def _load_all(self) -> dict[str, AgentSession]:
@@ -115,6 +132,11 @@ class AgentSessionStore:
                     title=row["title"],
                     provider_id=row["provider_id"],
                     workspace_id=row["workspace_id"],
+                    repo_url=row["repo_url"] if "repo_url" in row.keys() else None,
+                    repo_ref=row["repo_ref"] if "repo_ref" in row.keys() else None,
+                    active_objective=row["active_objective"] if "active_objective" in row.keys() else None,
+                    last_branch=row["last_branch"] if "last_branch" in row.keys() else None,
+                    metadata=json.loads(row["metadata"]) if "metadata" in row.keys() and row["metadata"] else {},
                     owner_id=row["owner_id"] if "owner_id" in row.keys() else "",
                     created_at=row["created_at"],
                     updated_at=row["updated_at"],
@@ -129,15 +151,21 @@ class AgentSessionStore:
         conn.execute(
             """
             INSERT OR REPLACE INTO agent_sessions
-                (session_id, title, provider_id, workspace_id, owner_id,
+                (session_id, title, provider_id, workspace_id, repo_url, repo_ref,
+                 active_objective, last_branch, metadata, owner_id,
                  created_at, updated_at, last_plan, last_result, event_count)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 session.session_id,
                 session.title,
                 session.provider_id,
                 session.workspace_id,
+                session.repo_url,
+                session.repo_ref,
+                session.active_objective,
+                session.last_branch,
+                json.dumps(session.metadata or {}),
                 session.owner_id,
                 session.created_at,
                 session.updated_at,
@@ -350,6 +378,64 @@ class AgentSessionStore:
                         json.dumps(result),
                         session_id,
                     ),
+                )
+                conn.commit()
+            return AgentSession.model_validate(session.model_dump())
+
+    def update_repo_context(self, session_id: str, repo_url: str | None = None, repo_ref: str | None = None) -> AgentSession:
+        with self._lock:
+            session = self._sessions[session_id]
+            if repo_url:
+                session.repo_url = repo_url
+            if repo_ref:
+                session.repo_ref = repo_ref
+            session.updated_at = _now()
+            with self._connect() as conn:
+                conn.execute(
+                    "UPDATE agent_sessions SET updated_at = ?, repo_url = ?, repo_ref = ? WHERE session_id = ?",
+                    (session.updated_at, session.repo_url, session.repo_ref, session_id),
+                )
+                conn.commit()
+            return AgentSession.model_validate(session.model_dump())
+
+    def update_task_context(self, session_id: str, objective: str | None = None, branch: str | None = None) -> AgentSession:
+        with self._lock:
+            session = self._sessions[session_id]
+            if objective:
+                session.active_objective = objective
+            if branch:
+                session.last_branch = branch
+            session.updated_at = _now()
+            with self._connect() as conn:
+                conn.execute(
+                    "UPDATE agent_sessions SET updated_at = ?, active_objective = ?, last_branch = ? WHERE session_id = ?",
+                    (session.updated_at, session.active_objective, session.last_branch, session_id),
+                )
+                conn.commit()
+            return AgentSession.model_validate(session.model_dump())
+
+    def update_resume_payload(self, session_id: str, payload: dict[str, Any] | None) -> AgentSession:
+        with self._lock:
+            session = self._sessions[session_id]
+            session.resume_payload = payload
+            session.updated_at = _now()
+            with self._connect() as conn:
+                conn.execute(
+                    "UPDATE agent_sessions SET updated_at = ?, resume_payload = ? WHERE session_id = ?",
+                    (session.updated_at, json.dumps(payload) if payload else None, session_id),
+                )
+                conn.commit()
+            return AgentSession.model_validate(session.model_dump())
+
+    def update_session_metadata(self, session_id: str, metadata: dict[str, Any]) -> AgentSession:
+        with self._lock:
+            session = self._sessions[session_id]
+            session.metadata = metadata
+            session.updated_at = _now()
+            with self._connect() as conn:
+                conn.execute(
+                    "UPDATE agent_sessions SET updated_at = ?, metadata = ? WHERE session_id = ?",
+                    (session.updated_at, json.dumps(metadata), session_id),
                 )
                 conn.commit()
             return AgentSession.model_validate(session.model_dump())

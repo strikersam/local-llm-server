@@ -1,6 +1,16 @@
 from __future__ import annotations
+from enum import Enum
 from pydantic import BaseModel
 from typing import Any, Dict, List, Optional
+
+
+class DirectChatState(str, Enum):
+    ASSISTANT_REPLY = "assistant_reply"
+    WORKING = "working"
+    NEEDS_INPUT = "needs_input"
+    NEEDS_APPROVAL = "needs_approval"
+    COMPLETED = "completed"
+    FAILED_WITH_FIX_HINT = "failed_with_fix_hint"
 
 
 class AcceptedJob(BaseModel):

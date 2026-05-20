@@ -1,6 +1,31 @@
 # Changelog
 
 ## [Unreleased]
+### Added
+- `agent/intent.py` — New intent classification layer for Direct Chat. Automatically detects execution intent (e.g., "fix this bug") and promotes requests to Agent Mode without requiring a manual toggle.
+- `agent/doctor.py` — New centralized preflight system (`DirectChatDoctor`) that validates Git installation, GitHub token validity/scopes, and repository accessibility before starting execution tasks.
+- `agent/schemas.py` — Introduced `DirectChatState` enum (`assistant_reply`, `working`, `needs_input`, `needs_approval`, `completed`, `failed_with_fix_hint`) to normalize execution lifecycle for conversational UX.
+- `tests/test_direct_chat_interactive_approval.py` — New integration test for the interactive approval and clarification flows.
+
+### Changed
+- `direct_chat.py` — Major upgrade to the Direct Chat handler. Requests now follow a unified conversational flow with automatic intent-based promotion, humanized progress reporting (e.g., "Inspecting repository" instead of raw technical phases), and conversational failure recovery.
+- `agent/state.py` & `agent/models.py` — Updated `AgentSession` to support "sticky" repository context. `repo_url` and `repo_ref` are now persisted in the SQLite session store and automatically reused across multiple turns in a conversation.
+- `frontend/src/pages/ChatPage.js` — Integrated new conversational states (`needs_approval`, `needs_input`) into the UI. Added interactive gating controls in the agent console for user approval and clarification.
+- `frontend/src/api.js` — Added `resumeAgentChatJob` to support interactive task resumption.
+- `README.md` — Updated to highlight the new Intelligent Assistant capabilities.
+
+### Fixed
+- `direct_chat.py` — Replaced technical HTTP 412 errors with conversational assistant replies that include actionable fix hints.
+- `direct_chat.py` — Improved workspace lifecycle management by automatically bootstrapping repository workspaces.
+- `direct_chat.py` — Fixed scoping issue where `spec` was not accessible in background agent jobs.
+- `tests/test_direct_chat_async.py` — Fixed attribute error in tests where `PROVIDER_ROUTER` was not correctly mocked.
+- `proxy.py` — Sanitized error messages in various endpoints to prevent stack trace leakage and internal information exposure.
+
+### Security
+- `agent/scaffolding.py` — Fixed CodeQL path injection vulnerabilities by implementing strict path sanitization and prefix validation.
+- `chat_handlers.py` — Fixed potential ReDoS vulnerability by replacing regex with robust string search for exact output extraction.
+
+## [2026-05-19]
 ### Security
 - `.github/workflows/ci-failure-autofix.yml` — Rewrote workflow to fix four CodeQL findings: (1/2) code injection: all `workflow_run` context values (`head_branch`, `head_sha`, `id`) moved to job-level `env:` vars and referenced as `$VAR` in shell — never as `${{ }}` inside `run:` steps; (3/4/5) untrusted code checkout: switched from checking out the PR branch to checking out master only, fetching the failing branch as a non-executed ref, and diffing via `git diff` — untrusted branch code is never executed in the privileged runner context. Added fork guard (`head_repository.full_name == github.repository`).
 
@@ -111,3 +136,16 @@
 
 ### Added
 - **`as_dict()` enhancements** (`features/matrix.py`) — `FeatureMatrix.as_dict()` now returns `schema_version: "1"`, a top-level `entries` list (for consumers that prefer arrays over keyed maps), and a top-level `by_maturity` dict alongside the existing `features` dict and `summary` block.
+
+## [Unreleased]
+### Added
+- `agent/intent.py` — Nuanced intent classification (EXECUTION, ANALYSIS, CLARIFY).
+- `direct_chat.py` — Clarification stage to ask users for more detail before committing to async jobs.
+- `direct_chat.py` — Momentum detection for humanized progress (e.g., "Still working on...").
+- `agent/state.py` — Persistent tracking of `active_objective`, `last_branch`, and session `metadata`.
+- `runtimes/manager.py` — New `select_runtime` and `get_runtime_manager` helpers.
+
+### Changed
+- `direct_chat.py` — Upgraded runtime selection to use capability-based matching and support matrix.
+- `direct_chat.py` — Implemented preflight caching to optimize multi-turn performance.
+- `direct_chat.py` — Enhanced bootstrap failure recovery with conversational guidance.

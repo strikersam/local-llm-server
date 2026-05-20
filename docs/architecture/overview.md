@@ -72,6 +72,7 @@ Priority: manual override → MODEL_MAP → heuristic classification → default
 ### `agent/`
 Multi-agent orchestration layer. See `agent/CLAUDE.md` for full details.
 Three-role pipeline: Planner → Implementer (with tool loop) → Verifier.
+Includes an **Intelligent Direct Chat Orchestrator** (`direct_chat.py`) with automated intent detection and interactive gating.
 
 ### `admin_auth.py` + `admin_gui.py`
 Web admin dashboard. Session-based auth with Jinja2 templates.

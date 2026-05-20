@@ -33,6 +33,15 @@ class _FakeChatResult:
 
 
 def test_agent_mode_queues_async_job(monkeypatch, tmp_path: Path):
+    # Mock doctor
+    class FakeDoctor:
+        def __init__(self, **kwargs): pass
+        async def check_all(self, **kwargs):
+            from agent.doctor import PreflightReport
+            return PreflightReport(ready=True, summary="OK")
+    monkeypatch.setattr("direct_chat.DirectChatDoctor", FakeDoctor)
+
+    monkeypatch.setattr(proxy, "VALID_API_KEYS", {"fake-token"})
     proxy.app.dependency_overrides[direct_chat._get_current_user] = _fake_user
     monkeypatch.setattr(direct_chat, "_direct_chat_store", AgentSessionStore(db_path=str(tmp_path / "chat.db")))
     monkeypatch.setattr(direct_chat, "_agent_jobs", AgentJobManager())
@@ -49,7 +58,13 @@ def test_agent_mode_queues_async_job(monkeypatch, tmp_path: Path):
     class _FakeRouter:
         providers = (_FakeProvider(),)
 
-    monkeypatch.setattr(proxy.app.state, "PROVIDER_ROUTER", _FakeRouter(), raising=False)
+    proxy.app.state.PROVIDER_ROUTER = _FakeRouter()
+
+    # Mock runtime manager to fallback to internal agent
+    class FakeRuntimeMgr:
+        def select_runtime(self, *args, **kwargs):
+            return None, []
+    monkeypatch.setattr("runtimes.manager.get_runtime_manager", lambda: FakeRuntimeMgr())
 
     async def fake_readiness(self, spec):
         return RuntimeReadinessReport(runtime_id="internal_agent", ready=True, selected_runtime="internal_agent")
@@ -58,6 +73,10 @@ def test_agent_mode_queues_async_job(monkeypatch, tmp_path: Path):
         def __init__(self, **kwargs):
             pass
 
+        async def plan(self, **kwargs):
+            from agent.models import AgentPlan, AgentStep
+            return AgentPlan(goal="Test goal", steps=[AgentStep(id=1, description="step", type="edit")], requires_risky_review=False)
+
         async def run(self, **kwargs):
             return {"summary": "Agent completed asynchronously", "judge": {"verdict": "APPROVED"}, "steps": []}
 
@@ -65,21 +84,22 @@ def test_agent_mode_queues_async_job(monkeypatch, tmp_path: Path):
     monkeypatch.setattr("agent.loop.AgentRunner", FakeRunner)
 
     client = TestClient(proxy.app)
+    headers = {"Authorization": "Bearer fake-token"}
     # Use 5+ words with a code-op keyword so the trivial-message filter doesn't downgrade to regular chat
-    response = client.post("/api/chat/send", json={"content": "Please implement this important new feature", "agent_mode": True})
+    response = client.post("/api/chat/send", json={"content": "Please implement this important new feature", "agent_mode": True}, headers=headers)
     assert response.status_code == 202
     body = response.json()
     assert body["status"] in {"queued", "running"}
     assert body["job_id"]
 
     for _ in range(10):
-        job_resp = client.get(f"/api/chat/agent-jobs/{body['job_id']}")
+        job_resp = client.get(f"/api/chat/agent-jobs/{body['job_id']}", headers=headers)
         assert job_resp.status_code == 200
         if job_resp.json()["status"] == "succeeded":
             break
         time.sleep(0.05)
 
-    final_job = client.get(f"/api/chat/agent-jobs/{body['job_id']}").json()
+    final_job = client.get(f"/api/chat/agent-jobs/{body['job_id']}", headers=headers).json()
     assert final_job["status"] == "succeeded"
     assert final_job["result"]["response"] == "Agent completed asynchronously"
 
@@ -87,6 +107,8 @@ def test_agent_mode_queues_async_job(monkeypatch, tmp_path: Path):
 
 
 def test_agent_mode_returns_runtime_validation_errors(monkeypatch, tmp_path: Path):
+    monkeypatch.setenv("DIRECT_CHAT_STRICT_PREFLIGHT", "true")
+    monkeypatch.setattr(proxy, "VALID_API_KEYS", {"fake-token"})
     proxy.app.dependency_overrides[direct_chat._get_current_user] = _fake_user
     monkeypatch.setattr(direct_chat, "_direct_chat_store", AgentSessionStore(db_path=str(tmp_path / "chat2.db")))
     monkeypatch.setattr(direct_chat, "_agent_jobs", AgentJobManager())
@@ -103,7 +125,8 @@ def test_agent_mode_returns_runtime_validation_errors(monkeypatch, tmp_path: Pat
     monkeypatch.setattr("runtimes.adapters.internal_agent.InternalAgentAdapter.readiness_check", fake_readiness)
 
     client = TestClient(proxy.app)
-    response = client.post("/api/chat/send", json={"content": "Please implement this important new feature", "agent_mode": True})
+    headers = {"Authorization": "Bearer fake-token"}
+    response = client.post("/api/chat/send", json={"content": "Please implement this important new feature", "agent_mode": True}, headers=headers)
     assert response.status_code == 412
     assert response.json()["detail"]["ready"] is False
 
@@ -111,6 +134,7 @@ def test_agent_mode_returns_runtime_validation_errors(monkeypatch, tmp_path: Pat
 
 
 def test_regular_chat_remains_sync_and_does_not_queue_job(monkeypatch, tmp_path: Path):
+    monkeypatch.setattr(proxy, "VALID_API_KEYS", {"fake-token"})
     proxy.app.dependency_overrides[direct_chat._get_current_user] = _fake_user
     monkeypatch.setattr(direct_chat, "_direct_chat_store", AgentSessionStore(db_path=str(tmp_path / "chat3.db")))
     job_manager = AgentJobManager()
@@ -125,7 +149,8 @@ def test_regular_chat_remains_sync_and_does_not_queue_job(monkeypatch, tmp_path:
     monkeypatch.setattr(proxy.app.state, "PROVIDER_ROUTER", FakeRouter(), raising=False)
 
     client = TestClient(proxy.app)
-    response = client.post("/api/chat/send", json={"content": "Hello", "agent_mode": False})
+    headers = {"Authorization": "Bearer fake-token"}
+    response = client.post("/api/chat/send", json={"content": "Hello", "agent_mode": False}, headers=headers)
     assert response.status_code == 200
     assert response.json()["response"] == "Direct response"
     assert job_manager.list_jobs() == []
@@ -150,6 +175,8 @@ def test_make_isolated_workspace_hashes_valid_identifiers(tmp_path: Path):
 
 
 def test_agent_mode_github_preflight_missing_token(monkeypatch, tmp_path: Path):
+    monkeypatch.setenv("DIRECT_CHAT_STRICT_PREFLIGHT", "true")
+    monkeypatch.setattr(proxy, "VALID_API_KEYS", {"fake-token"})
     proxy.app.dependency_overrides[direct_chat._get_current_user] = _fake_user
     monkeypatch.setattr(direct_chat, "_direct_chat_store", AgentSessionStore(db_path=str(tmp_path / "chat4.db")))
     monkeypatch.setattr(direct_chat, "_agent_jobs", AgentJobManager())
@@ -179,7 +206,8 @@ def test_agent_mode_github_preflight_missing_token(monkeypatch, tmp_path: Path):
     monkeypatch.setattr(proxy.app.state, "PROVIDER_ROUTER", _FakeRouter(), raising=False)
 
     client = TestClient(proxy.app)
-    response = client.post("/api/chat/send", json={"content": "Please clone my repo and create a PR", "agent_mode": True})
+    headers = {"Authorization": "Bearer fake-token"}
+    response = client.post("/api/chat/send", json={"content": "Please clone my repo and create a PR", "agent_mode": True}, headers=headers)
     assert response.status_code == 412
     detail = response.json().get("detail")
     assert detail and detail.get("ready") is False

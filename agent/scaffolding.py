@@ -178,16 +178,40 @@ class ProjectScaffolder:
                 error=f"Template {template_name!r} not found",
             )
 
-        target = Path(target_dir)
+        # Sanitize target directory to prevent path traversal
+        if ".." in str(target_dir):
+            raise ValueError(f"Path traversal detected: {target_dir}")
+
+        # Robust path sanitization to satisfy security scanners (CWE-22)
+        try:
+            target = Path(target_dir).resolve()
+        except Exception as e:
+            raise ValueError(f"Invalid target directory: {target_dir}") from e
+
         target.mkdir(parents=True, exist_ok=True)
         created: list[str] = []
 
         try:
             for rel_path, content in template.files.items():
-                dest = target / rel_path
+                # Strictly forbid any traversal in template keys
+                if ".." in rel_path or rel_path.startswith("/") or rel_path.startswith("\\"):
+                    log.warning("Forbidding suspicious path in template: %s", rel_path)
+                    continue
+
+                # Join and resolve to final destination
+                dest = (target / rel_path).resolve()
+
+                # Robust prefix validation: dest must be a subpath of target
+                try:
+                    dest.relative_to(target)
+                except ValueError:
+                    log.warning("Forbidding path escape: %s -> %s", rel_path, dest)
+                    continue
+
                 if dest.exists() and not overwrite:
                     log.debug("Skipping existing file: %s", dest)
                     continue
+
                 dest.parent.mkdir(parents=True, exist_ok=True)
                 dest.write_text(content, encoding="utf-8")
                 created.append(str(dest))

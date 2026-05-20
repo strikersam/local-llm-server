@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Any, Literal
+from typing import Any, Literal, Optional
 
 from pydantic import BaseModel, Field, field_validator
 
@@ -153,6 +153,12 @@ class AgentSession(BaseModel):
     title: str
     provider_id: str | None = None
     workspace_id: str | None = None
+    repo_url: Optional[str] = None
+    repo_ref: Optional[str] = None
+    active_objective: Optional[str] = None
+    last_branch: Optional[str] = None
+    resume_payload: Optional[dict[str, Any]] = None
+    metadata: Optional[dict[str, Any]] = Field(default_factory=dict)
     owner_id: str = ""   # email of the creating user; enforced on load in /agent/chat
     created_at: str
     updated_at: str
@@ -162,3 +168,7 @@ class AgentSession(BaseModel):
     # Total events appended to the durable event log for this session.
     # Used by the harness to know the current log position without loading all events.
     event_count: int = 0
+
+class ResumeRequest(BaseModel):
+    action: Literal["approve", "clarify", "cancel"]
+    input: Optional[str] = None

@@ -27,7 +27,7 @@ Point Cursor, Claude Code, Aider, Continue, or any OpenAI SDK client at `http://
 - **Smart routing** — free-first, local-first, cost-aware, or quality-first strategies across 15+ providers
 - **Anthropic + OpenAI API compatibility** — both `/v1/messages` and `/v1/chat/completions` on the same server
 - **Async agent engine** — plan → execute → verify pipeline with per-role model assignment
-- **Team control plane** — React dashboard with chat, task boards, schedules, knowledge wiki, and observability
+- **Team control plane** — React dashboard with an **Intelligent Assistant** that automatically detects coding intent, manages workspaces, and handles interactive task approval.
 - **Autonomous agency** — CEO + specialist agents scan, fix, and ship improvements every 15 minutes
 
 No GPU required to start: set `NVIDIA_API_KEY` and free NIM inference handles everything.

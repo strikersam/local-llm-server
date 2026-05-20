@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import { chatSend, listSessions, getSession, deleteSession, listProviders, listProviderModels, getAgentChatJob, cancelAgentChatJob, getGithubStatus, createTask, createSchedule, fmtErr, getBackendUrl } from '../api';
+import { chatSend, listSessions, getSession, deleteSession, listProviders, listProviderModels, getAgentChatJob, cancelAgentChatJob, resumeAgentChatJob, getGithubStatus, createTask, createSchedule, fmtErr, getBackendUrl } from '../api';
 import { Send, Plus, Trash2, MessageSquare, Bot, User, Loader2, Zap, Clock, Settings, X, ChevronDown, AlertCircle, History } from 'lucide-react';
 import AgentStatusPanel from '../components/AgentStatusPanel.jsx';
 import AgentActivityFeed from '../components/AgentActivityFeed.jsx';
@@ -454,6 +454,8 @@ export default function ChatPage() {
             return raw?.response || raw?.summary || raw?.report || raw?.output || raw?.metadata?.agent_comment || null;
           };
           const assistantMsg = extractAssistantMessage(data);
+          // If we have a finalized message, or if it's failed, update the chat.
+          // Note: for needs_approval/needs_input, we keep polling but show interactive UI in the console.
           if (data.status === 'succeeded' && assistantMsg) {
             setMessages(prev => [...prev, { role: 'assistant', content: assistantMsg }]);
             loadSessions();
@@ -462,7 +464,7 @@ export default function ChatPage() {
             const summary = data.result?.raw?.summary || data.result?.raw?.report || data.result?.raw?.output || 'Agent completed with no textual summary.';
             setMessages(prev => [...prev, { role: 'assistant', content: summary }]);
             loadSessions();
-          } else if (data.status !== 'succeeded') {
+          } else if (['failed', 'cancelled'].includes(data.status)) {
             setMessages(prev => [...prev, {
               role: 'assistant',
               content: `Agent job ${data.status}: ${data.error?.message || 'Execution stopped.'}`,
@@ -588,6 +590,7 @@ export default function ChatPage() {
         setMessages(prev => [...prev, {
           role: 'assistant',
           content: data.response,
+          intent: data.intent || null,
           agentHandoff: data.assistant_meta || null,
         }]);
       }
@@ -733,6 +736,23 @@ export default function ChatPage() {
     if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSend(); }
   };
 
+  const handleResumeJob = async (action, resumeInput = "") => {
+    if (!sessionId || workflowAction) return;
+    setWorkflowAction('resume');
+    try {
+      await resumeAgentChatJob(sessionId, action, resumeInput);
+      setAgentJob(prev => prev ? { ...prev, phase: 'working', status: 'running' } : null);
+    } catch (err) {
+      setMessages(prev => [...prev, {
+        role: 'assistant',
+        content: `Error resuming task: ${fmtErr(err?.response?.data?.detail) || err?.message}`,
+        isError: true,
+      }]);
+    } finally {
+      setWorkflowAction('');
+    }
+  };
+
   const providerName = providers.find(p => p.provider_id === providerId)?.name || '';
   const composerRecommendation = !agentMode
     ? detectAgentModeRecommendation(input, githubStatus.connected)
@@ -743,6 +763,8 @@ export default function ChatPage() {
     sessionId && (
       sending ||
       agentMode ||
+      agentJob?.phase === 'needs_approval' ||
+      agentJob?.phase === 'needs_input' ||
       agentWorkspaceState === 'reconnecting' ||
       agentWorkspaceState === 'auth_error' ||
       agentSnapshot.has_events ||
@@ -767,10 +789,61 @@ export default function ChatPage() {
           </div>
         </div>
         <div className="hidden md:flex items-center gap-2 text-[10px] font-mono text-[#737373]">
+          {agentJob?.phase === 'needs_approval' && <span className="bg-amber-500/20 text-amber-300 border border-amber-500/30 px-2 py-1 rounded-full animate-pulse">Approval required</span>}
+          {agentJob?.phase === 'needs_input' && <span className="bg-blue-500/20 text-blue-300 border border-blue-500/30 px-2 py-1 rounded-full animate-pulse">Waiting for input</span>}
           <span className="border border-white/10 px-2 py-1 rounded-full">{agentSnapshot.agents.length} agents</span>
           <span className="border border-white/10 px-2 py-1 rounded-full">{agentSnapshot.tool_calls.length} tools</span>
         </div>
       </div>
+
+      {(agentJob?.phase === 'needs_approval' || agentJob?.phase === 'needs_input') && (
+        <div className="mx-4 mt-3 app-panel border-amber-500/30 bg-amber-500/5 p-4 space-y-3">
+          <div className="flex items-start gap-3">
+            <AlertCircle size={18} className={agentJob.phase === 'needs_approval' ? "text-amber-400 shrink-0" : "text-blue-400 shrink-0"} />
+            <div className="flex-1 space-y-1">
+              <div className="text-xs font-bold text-white uppercase tracking-wider">
+                {agentJob.phase === 'needs_approval' ? "Interactive Approval Required" : "Additional Input Needed"}
+              </div>
+              <div className="text-xs text-[#A0A0A0] leading-relaxed">
+                {agentSnapshot.latest_summary || (agentJob.phase === 'needs_approval' ? "The agent has created a plan that requires your review before proceeding." : "The agent needs more context to continue the task.")}
+              </div>
+            </div>
+          </div>
+
+          <div className="flex flex-wrap gap-2 pt-1">
+            {agentJob.phase === 'needs_approval' ? (
+              <>
+                <button
+                  onClick={() => handleResumeJob('approve')}
+                  className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white text-[10px] font-mono uppercase tracking-wider transition-colors rounded-lg flex items-center gap-1.5"
+                >
+                  {workflowAction === 'resume' ? <Loader2 size={12} className="animate-spin" /> : <Zap size={12} />} Approve & Execute
+                </button>
+                <button
+                  onClick={() => handleResumeJob('cancel')}
+                  className="px-4 py-2 border border-white/10 hover:bg-white/5 text-[#A0A0A0] hover:text-white text-[10px] font-mono uppercase tracking-wider transition-colors rounded-lg"
+                >
+                  Cancel Task
+                </button>
+              </>
+            ) : (
+              <div className="w-full flex gap-2">
+                <input
+                  type="text"
+                  placeholder="Provide additional details..."
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' && e.target.value.trim()) {
+                      handleResumeJob('clarify', e.target.value.trim());
+                      e.target.value = '';
+                    }
+                  }}
+                  className="flex-1 bg-black/40 border border-white/10 rounded-lg px-3 py-2 text-xs text-white outline-none focus:border-[var(--accent)] transition-colors"
+                />
+              </div>
+            )}
+          </div>
+        </div>
+      )}
 
       <div className="md:hidden px-3 pt-3 flex gap-2 overflow-x-auto scrollbar-hide">
         {[
@@ -1165,8 +1238,8 @@ export default function ChatPage() {
                     <div className="wiki-content text-xs text-[#A0A0A0]">
                       <ReactMarkdown remarkPlugins={[remarkGfm]}>{m.content}</ReactMarkdown>
                     </div>
-                    {m.agentHandoff?.recommended_mode === 'agent' && (
-                      <div className="mt-3 border-t border-white/10 pt-3 space-y-2" data-testid="agent-handoff-actions">
+  1240	                    {(m.agentHandoff?.recommended_mode === 'agent' || m.intent === 'execution' || m.intent === 'analysis') && (
+  1241	                      <div className="mt-3 border-t border-white/10 pt-3 space-y-2" data-testid="agent-handoff-actions">
                         <div className="text-[10px] font-mono uppercase tracking-[0.18em] text-[#737373]">
                           Recommended next step
                         </div>

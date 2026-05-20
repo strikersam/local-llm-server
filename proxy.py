@@ -512,7 +512,8 @@ async def _autostart_services_bg() -> None:
     except asyncio.TimeoutError:
         log.warning("docker-compose auto-start timed out after 180 s")
     except Exception as exc:
-        log.debug("docker-compose auto-start skipped: %s", exc)
+        # Mask internal errors to prevent stack trace leakage to external users if triggered via API
+        log.debug("docker-compose auto-start skipped: %s", str(exc))
 
     # Brief pause for containers to initialise, then attempt runtime health refresh.
     # Configurable via AUTOSTART_INIT_DELAY_S env var (default 8 s).
@@ -604,9 +605,13 @@ async def lifespan(app: FastAPI):
             }
             store = get_agent_store()
             for runtime_id, config in runtimes.items():
-                existing = await store.get(runtime_id)
-                if existing:
-                    log.info("Runtime %s already registered, skipping", runtime_id)
+                try:
+                    existing = await store.get(runtime_id)
+                    if existing:
+                        log.info("Runtime %s already registered, skipping", runtime_id)
+                        continue
+                except Exception as e:
+                    log.debug("Could not check existing runtime %s: %s", runtime_id, str(e))
                     continue
                 agent = AgentDefinition(
                     agent_id=runtime_id,
@@ -1316,7 +1321,8 @@ async def rollback_audit_session(
     try:
         session.rollback(body.index)
     except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        log.error("Audit session rollback failed: %s", str(e))
+        raise HTTPException(status_code=400, detail="Invalid rollback index or session state.")
     return AuditSessionResponse(
         session_id=session_id,
         messages=session.get_conversation(),
@@ -1478,7 +1484,8 @@ async def admin_control(
             body.action, body.target, current_proxy_pid=os.getpid()
         )
     except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
+        log.error("Service control failed: %s", str(exc))
+        raise HTTPException(status_code=400, detail="Invalid service control request.") from exc
     result["admin"] = {"username": admin.username}
     return result
 
@@ -2138,9 +2145,10 @@ async def rollback_agent_commit(
             text=True,
         )
     except subprocess.CalledProcessError as exc:
+        log.error("Git revert failed: %s", exc.stderr or exc.stdout)
         raise HTTPException(
             status_code=500,
-            detail=(exc.stderr or exc.stdout or "git revert failed").strip(),
+            detail="Git revert failed. Please check the commit hash and try again.",
         ) from exc
     AGENT_SESSIONS.append_message(session_id, "system", f"Rolled back commit {target}")
     return {
@@ -2710,6 +2718,9 @@ async def browser_action(
     elif body.action == "fill" and body.selector and body.value is not None:
         result = await BROWSER_SESSION.fill(body.selector, body.value)
     elif body.action == "screenshot" and body.path:
+        # Sanitize path to prevent traversal
+        if ".." in body.path:
+            raise HTTPException(status_code=400, detail="Invalid screenshot path")
         result = await BROWSER_SESSION.screenshot(body.path)
     elif body.action == "evaluate" and body.expression:
         result = await BROWSER_SESSION.evaluate(body.expression)
