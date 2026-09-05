@@ -1,0 +1,112 @@
+# Representative task catalogue for the cost-aware routing evaluation.
+#
+# 10 tasks across four categories. `recommended_tier` is what the routing policy
+# would pick; `success_criteria` are fixed here, before any run, and decide
+# acceptance for BOTH the baseline and the routed workflow. Grounded in this
+# repo so a real run is possible, not hypothetical.
+
+tasks:
+  # --- Simple documentation work (route: haiku / docs-auditor) ---
+  - id: docs-env-parity
+    category: documentation
+    recommended_tier: haiku
+    description: >
+      Audit docs/configuration-reference.md and .env.example against the config
+      modules; report any env var documented in one but missing from the other.
+    success_criteria:
+      - Every discrepancy cites a file:line that actually exists in the repo.
+      - No invented env var names (rule 47).
+      - Suggested fixes are concrete lines, not prose.
+
+  - id: docs-command-accuracy
+    category: documentation
+    recommended_tier: haiku
+    description: >
+      Check that the run/test commands in CLAUDE.md section 6 match the actual
+      entry points (ports, module paths, scripts).
+    success_criteria:
+      - Each flagged command is re-derived from the repo, not from memory.
+      - Correct command given for any that is wrong.
+
+  # --- Repository exploration (route: haiku / codebase-explorer) ---
+  - id: explore-failover-chain
+    category: exploration
+    recommended_tier: haiku
+    description: >
+      Trace where the NVIDIA -> TokenIn -> Cerebras -> Groq -> Ollama failover
+      order is defined and enforced at runtime.
+    success_criteria:
+      - Names the config source and the code that reads it, with file:line.
+      - Distinguishes seen-in-repo facts from gaps (rule 47).
+
+  - id: explore-auth-surfaces
+    category: exploration
+    recommended_tier: haiku
+    description: >
+      Identify every auth dependency (get_current_user, _require_admin,
+      verify_api_key, X-Service-Token) and one call site of each.
+    success_criteria:
+      - Each surface backed by a real file:line call site.
+      - No auth surface invented or missed among the documented set.
+
+  - id: explore-scheduler-cleanup
+    category: exploration
+    recommended_tier: haiku
+    description: >
+      Explain when force_cleanup() runs in agent/scheduler.py and why, with
+      evidence.
+    success_criteria:
+      - Cites the cron-tick and startup call sites.
+      - Behaviour claim grounded in quoted lines.
+
+  # --- Routine implementation (route: sonnet / feature-implementer) ---
+  - id: impl-model-registry-entry
+    category: implementation
+    recommended_tier: sonnet
+    description: >
+      Add a MODEL_REGISTRY entry for a new model with accurate strengths and
+      cost_tier, plus a routing test in tests/test_model_router.py (rule 23).
+    success_criteria:
+      - New routing test fails before the entry, passes after.
+      - pytest -x green for the touched area; no unrelated changes.
+
+  - id: impl-endpoint-validation
+    category: implementation
+    recommended_tier: sonnet
+    description: >
+      Add a Pydantic v2 request model to an endpoint currently taking a raw dict
+      (rule 11), with a test.
+    success_criteria:
+      - Endpoint rejects an invalid body with a validated error.
+      - New endpoint test added and green (rule 31).
+
+  - id: impl-changelog-gate-fix
+    category: implementation
+    recommended_tier: sonnet
+    description: >
+      Fix a byte-level drift between CHANGELOG.md and docs/changelog.md so
+      scripts/check_changelog_parity.py passes.
+    success_criteria:
+      - check_changelog_parity.py exits 0.
+      - Only the two changelog files touched.
+
+  # --- Difficult / ambiguous / high-risk (route: opus) ---
+  - id: hard-failover-race
+    category: difficult
+    recommended_tier: opus
+    description: >
+      Diagnose an intermittent failover test flake where a 429 backoff and a 410
+      permanent removal interleave, and propose a fix that preserves rule 4.
+    success_criteria:
+      - Root cause identified with evidence, not a guess.
+      - Fix keeps 429/410/419 semantics intact; regression test added.
+
+  - id: hard-auth-refactor
+    category: difficult
+    recommended_tier: opus
+    description: >
+      Propose consolidating a duplicated authorization check across admin
+      surfaces without widening access; a risky-module change (rule 15, 40).
+    success_criteria:
+      - risky-module-review applied; no access widened.
+      - Migration/rollback path stated; human sign-off requested before merge.
