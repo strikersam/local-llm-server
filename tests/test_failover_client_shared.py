@@ -1122,3 +1122,138 @@ class TestZeroAttemptDiagnostics:
             "services.brain_failover.brain_availability_summary", _boom
         )
         assert fc._describe_registry().startswith("registry unavailable")
+
+
+class TestDeadModelExclusion:
+    """A model that answered 410/404 must be held out of the rotation for a
+    cooldown, not re-tried on every round.
+
+    #1427's implement runs spent one of the three capped NVIDIA slots on
+    ``nvidia/llama-3.1-nemotron-ultra-253b-v1`` every round: NVIDIA's catalogue
+    still lists it, but calling it 404s. The failover chain tried it, fell
+    through to the next model, and did the same again on the next round. These
+    tests lock in that a dead model is remembered and skipped, and that the
+    exclusion is learned at run time (no hardcoded list to rot) and self-heals
+    when the cooldown lapses.
+    """
+
+    @pytest.fixture(autouse=True)
+    def _reset_discovery_state(self):
+        from packages.ai.model_discovery import reset_cache
+
+        reset_cache()
+        yield
+        reset_cache()
+
+    @pytest.mark.asyncio
+    async def test_410_model_is_skipped_on_the_next_request(self, patch_chain) -> None:
+        provider = _StubProvider(
+            "nvidia", "https://integrate.api.nvidia.com", ["dead", "alive"]
+        )
+        # Round 1: dead 410s, sibling serves. Round 2 is scripted with a SINGLE
+        # response — proof the dead model is not called again (a re-probe would
+        # pop past the end of the sequence and raise).
+        manager, calls = patch_chain(
+            [provider],
+            [
+                httpx.Response(410, json={"error": "gone"}),
+                httpx.Response(200, json=_openai_body("first")),
+                httpx.Response(200, json=_openai_body("second")),
+            ],
+        )
+        payload = {"model": "dead", "messages": [{"role": "user", "content": "hi"}]}
+
+        first = await failover_chat_completion(dict(payload))
+        assert first.model == "alive"
+        assert len(calls) == 2
+
+        calls.clear()
+        second = await failover_chat_completion(dict(payload))
+        assert second.model == "alive"
+        # Exactly one call — the known-dead model was excluded, not re-probed.
+        assert len(calls) == 1
+
+    @pytest.mark.asyncio
+    async def test_404_model_is_skipped_on_the_next_request(self, patch_chain) -> None:
+        provider = _StubProvider(
+            "nvidia", "https://integrate.api.nvidia.com", ["ghost", "alive"]
+        )
+        manager, calls = patch_chain(
+            [provider],
+            [
+                httpx.Response(404, text="Not Found"),
+                httpx.Response(200, json=_openai_body("first")),
+                httpx.Response(200, json=_openai_body("second")),
+            ],
+        )
+        payload = {"model": "ghost", "messages": [{"role": "user", "content": "hi"}]}
+
+        first = await failover_chat_completion(dict(payload))
+        assert first.model == "alive"
+        assert len(calls) == 2
+
+        calls.clear()
+        second = await failover_chat_completion(dict(payload))
+        assert second.model == "alive"
+        assert len(calls) == 1
+
+    @pytest.mark.asyncio
+    async def test_dead_model_returns_after_its_cooldown_lapses(self, patch_chain) -> None:
+        """The mark is a cooldown, not a tombstone: a restored id finds its own
+        way back once the TTL expires — no operator action, no list to edit."""
+        import packages.ai.model_discovery as md
+
+        provider = _StubProvider(
+            "nvidia", "https://integrate.api.nvidia.com", ["dead", "alive"]
+        )
+        manager, calls = patch_chain(
+            [provider],
+            [
+                httpx.Response(410, json={"error": "gone"}),
+                httpx.Response(200, json=_openai_body("first")),
+                httpx.Response(410, json={"error": "gone"}),
+                httpx.Response(200, json=_openai_body("recovered")),
+            ],
+        )
+        payload = {"model": "dead", "messages": [{"role": "user", "content": "hi"}]}
+
+        await failover_chat_completion(dict(payload))
+        assert md.dead_models("nvidia") == {"dead"}
+
+        # Force the cooldown to have already elapsed.
+        md._DEAD["nvidia"]["dead"] = 0.0
+        assert md.dead_models("nvidia") == set()
+
+        calls.clear()
+        result = await failover_chat_completion(dict(payload))
+        # Eligible again → the model is re-probed (dead 410s again, alive serves).
+        assert len(calls) == 2
+        assert result.model == "alive"
+
+    def test_exclusion_never_empties_the_rotation(self) -> None:
+        """If every candidate is cooling, keep the order rather than sideline the
+        whole provider on stale marks — one gets through to re-confirm."""
+        from packages.ai.failover_client import _models_to_try
+        from packages.ai.model_discovery import DEAD_TTL_GONE_SEC, mark_dead
+
+        provider = _StubProvider(
+            "nvidia", "https://integrate.api.nvidia.com", ["a", "b"]
+        )
+        mark_dead("nvidia", "a", ttl_sec=DEAD_TTL_GONE_SEC)
+        mark_dead("nvidia", "b", ttl_sec=DEAD_TTL_GONE_SEC)
+
+        ordered = _models_to_try(provider, "a")
+        assert ordered, "all-dead must not filter to an empty rotation"
+
+    def test_a_live_sibling_is_kept_when_only_one_model_is_dead(self) -> None:
+        from packages.ai.failover_client import _models_to_try
+        from packages.ai.model_discovery import DEAD_TTL_UNKNOWN_SEC, mark_dead
+
+        provider = _StubProvider(
+            "nvidia", "https://integrate.api.nvidia.com", ["dead", "alive"]
+        )
+        mark_dead("nvidia", "dead", ttl_sec=DEAD_TTL_UNKNOWN_SEC)
+
+        ordered = _models_to_try(provider, "dead")
+        assert "dead" not in ordered
+        assert "alive" in ordered

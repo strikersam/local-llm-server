@@ -355,20 +355,32 @@ def _models_to_try(provider: Any, provider_model: str) -> list[str]:
     on a second HTTP round trip. When nothing has been discovered yet this
     returns exactly the static ordering it always did.
     """
-    from packages.ai.model_discovery import attempted, cached_models
+    from packages.ai.model_discovery import attempted, cached_models, dead_models
 
     static = [provider_model] + [m for m in provider.models if m != provider_model]
     served = cached_models(provider.id)
     if not served:
-        return static
+        ordered = static
+    else:
+        known = set(served)
+        ordered = [m for m in static if m in known]
+        # Anything the key serves but the catalogue never listed is still a valid
+        # fallback, and on a drifted catalogue it is the only one left.
+        ordered += [m for m in served if m not in ordered]
+        if not ordered:
+            ordered = static
 
-    known = set(served)
-    ordered = [m for m in static if m in known]
-    # Anything the key serves but the catalogue never listed is still a valid
-    # fallback, and on a drifted catalogue it is the only one left.
-    ordered += [m for m in served if m not in ordered]
-    if not ordered:
-        return static
+    # Drop models still inside their dead-cooldown window (a prior 410/404). This
+    # is what stops a catalogue-listed-but-dead id — e.g. NVIDIA still lists an
+    # end-of-lifed model that 404s on call — from burning one of the capped
+    # per-provider slots every round. Never filter to empty: if every model is
+    # cooling, keep the order and let one through to re-confirm rather than
+    # sidelining the whole provider on stale marks.
+    dead = dead_models(provider.id)
+    if dead:
+        live = [m for m in ordered if m not in dead]
+        if live:
+            ordered = live
 
     # Only the first _MAX_MODELS_PER_PROVIDER entries are ever sent, so a key
     # serving more than that would otherwise have its tail retried forever and
@@ -602,6 +614,11 @@ async def _try_provider(
             # decommissioned returns an empty error, contributes nothing to
             # `failures`, and the terminal message reports "none configured"
             # for a provider that was configured, healthy, and fully attempted.
+            # Hold it out of the rotation for a long cooldown (rule 4) so the
+            # next rounds do not keep re-spending a slot on a decommissioned id.
+            from packages.ai.model_discovery import DEAD_TTL_GONE_SEC, mark_dead
+
+            mark_dead(provider.id, try_model, ttl_sec=DEAD_TTL_GONE_SEC)
             last_error = f"{provider.id} model {try_model} 410 gone"
             log.warning(
                 "brain_failover: %s model %s 410 Gone - trying next model",
@@ -658,6 +675,17 @@ async def _try_provider(
                 f"{provider.id} {resp.status_code} out of credit/quota: "
                 f"{resp.text[:120]}"
             )
+
+        if resp.status_code == 404:
+            # A bare 404 on chat-completions means this id does not exist for
+            # this key — the catalogue still lists it but the account cannot call
+            # it. Hold it out briefly (a 404 can be transient drift, so shorter
+            # than a 410) so the next rounds spend their slots on models that
+            # might answer. Still falls through to try the next model now, and
+            # last_error keeps the " 404:" marker `_looks_unknown_model` reads.
+            from packages.ai.model_discovery import DEAD_TTL_UNKNOWN_SEC, mark_dead
+
+            mark_dead(provider.id, try_model, ttl_sec=DEAD_TTL_UNKNOWN_SEC)
 
         last_error = f"{provider.id} {resp.status_code}: {resp.text[:200]}"
         log.warning(
