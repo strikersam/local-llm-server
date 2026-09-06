@@ -46,6 +46,7 @@ import httpx
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from slop_gate import is_destructive_overwrite, python_parses, looks_like_secret_file
+from gh_brain_failover import brain_candidates
 
 GH_TOKEN = os.environ["GH_TOKEN"]
 REPO = os.environ["REPO"]
@@ -83,24 +84,16 @@ _DENYLIST_EXACT |= {
 }
 
 
-def _select_brain() -> tuple[str, str, str, str]:
-    """Pick the fix-generation model from the recommended free-cloud chain.
+def _select_brain() -> tuple[str, str, str, str] | None:
+    """Highest-priority configured provider, or ``None`` if none is set.
 
-    Mirrors autonomous_agent.py's ``_select_brain`` so both auto-PR scripts
-    upgrade together when a better key is configured, instead of this one
-    being permanently pinned to the weak NIM 49B.
+    Shares ``gh_brain_failover.brain_candidates()`` with ``autonomous_agent.py``
+    so both auto-PR scripts read the same free-cloud chain (Cerebras -> Groq
+    -> Mistral -> NVIDIA NIM) from one place instead of two copies drifting
+    apart.
     """
-    if os.environ.get("CEREBRAS_API_KEY"):
-        return ("cerebras", "https://api.cerebras.ai/v1/chat/completions",
-                os.environ["CEREBRAS_API_KEY"], "gpt-oss-120b")
-    if os.environ.get("GROQ_API_KEY"):
-        return ("groq", "https://api.groq.com/openai/v1/chat/completions",
-                os.environ["GROQ_API_KEY"], "openai/gpt-oss-120b")
-    if os.environ.get("MISTRAL_API_KEY"):
-        return ("mistral", "https://api.mistral.ai/v1/chat/completions",
-                os.environ["MISTRAL_API_KEY"], "mistral-small-latest")
-    return ("nvidia", "https://integrate.api.nvidia.com/v1/chat/completions",
-            os.environ.get("NVIDIA_API_KEY", ""), "nvidia/nemotron-3-super-120b-a12b")
+    candidates = brain_candidates()
+    return candidates[0] if candidates else None
 
 
 def _is_denied_path(path: str) -> str:
@@ -260,10 +253,11 @@ def process_pr(pr: dict) -> None:
         error_summary = (output.get("summary", "") + "\n" + output.get("text", ""))[-3000:]
     print(f"  Extracted failure context ({len(error_summary)} chars)")
 
-    _, url, api_key, model = _select_brain()
-    if not api_key:
+    brain = _select_brain()
+    if brain is None:
         print("  No brain API key configured — skipping")
         return
+    _, url, api_key, model = brain
 
     fix_prompt = f"""You are fixing a failing CI check in the Autonomous AI Agency repository.
 

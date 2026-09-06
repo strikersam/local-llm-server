@@ -10,31 +10,11 @@ import json, sys, os, subprocess, httpx, re, ast, pathlib
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from slop_gate import is_destructive_overwrite, python_parses, diff_is_sloppy, looks_like_secret_file, is_doc_only_boilerplate
+from gh_brain_failover import brain_candidates, call_brain_with_failover
 
 gh_token = os.environ['GH_TOKEN']
 repo = os.environ['REPO']
 issue_input = os.environ.get('ISSUE_NUMBER_INPUT', '')
-
-
-def _select_brain():
-    """Pick the auto-PR model from the recommended free-cloud chain by key.
-
-    Mirrors the in-app brain (services/brain_config_store.RECOMMENDED_PROVIDER_
-    PRIORITY): Cerebras -> Groq -> NVIDIA NIM. The auto-PR scripts used to be
-    hardcoded to the weak NIM 49B regardless of which superior key was set — so
-    upgrading the in-app brain did nothing for them. This closes that gap.
-    """
-    if os.environ.get('CEREBRAS_API_KEY'):
-        return ('cerebras', 'https://api.cerebras.ai/v1/chat/completions',
-                os.environ['CEREBRAS_API_KEY'], 'gpt-oss-120b')
-    if os.environ.get('GROQ_API_KEY'):
-        return ('groq', 'https://api.groq.com/openai/v1/chat/completions',
-                os.environ['GROQ_API_KEY'], 'openai/gpt-oss-120b')
-    if os.environ.get('MISTRAL_API_KEY'):
-        return ('mistral', 'https://api.mistral.ai/v1/chat/completions',
-                os.environ['MISTRAL_API_KEY'], 'mistral-small-latest')
-    return ('nvidia', 'https://integrate.api.nvidia.com/v1/chat/completions',
-            os.environ.get('NVIDIA_API_KEY', ''), 'nvidia/nemotron-3-super-120b-a12b')
 
 # 1. Find the oldest open issue
 if issue_input:
@@ -145,29 +125,21 @@ if _grounding:
 ## Existing codebase context (read these before editing):
 {_grounding}"""
 
-brain_provider, brain_url, brain_key, brain_model = _select_brain()
-if not brain_key:
-    print('ERROR: no brain API key configured (set CEREBRAS_API_KEY / GROQ_API_KEY / NVIDIA_API_KEY)')
+candidates = brain_candidates()
+if not candidates:
+    print('ERROR: no brain API key configured (set CEREBRAS_API_KEY / GROQ_API_KEY / MISTRAL_API_KEY / NVIDIA_API_KEY)')
     sys.exit(1)
-print(f'Calling brain: {brain_provider} / {brain_model} ...')
-nim_resp = httpx.post(
-    brain_url,
-    headers={'Authorization': f'Bearer {brain_key}', 'Content-Type': 'application/json'},
-    json={
-        'model': brain_model,
-        'messages': [
+try:
+    brain_provider, brain_model, content = call_brain_with_failover(
+        candidates,
+        [
             {'role': 'system', 'content': 'You are an expert software engineer. Output only valid JSON. Make minimal, additive changes; never delete or empty existing code.'},
             {'role': 'user', 'content': prompt},
         ],
-        'max_tokens': 4096,
-        'temperature': 0.3,
-        'stream': False,
-    },
-    timeout=120.0,
-)
-nim_resp.raise_for_status()
-content = nim_resp.json()['choices'][0]['message']['content']
-print(f'{brain_provider} response received')
+    )
+except RuntimeError as exc:
+    print(f'ERROR: {exc}')
+    sys.exit(1)
 
 # 3. Parse JSON (with repair fallback)
 start = content.find('{')
