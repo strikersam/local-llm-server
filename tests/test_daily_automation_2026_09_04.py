@@ -4,12 +4,17 @@ Covers the ecosystem updates applied today:
   1. config/llm/models.yaml — claude-fable-5-1 added to the model catalog.
      ADAPTIVE_THINKING_MODELS already listed it; the YAML entry and cost-tracker
      entry were missing.
-  2. packages/ai/cost_tracker.py — claude-fable-5 pricing corrected (3.0/15.0 →
-     30.0/120.0) and claude-fable-5-1 added at the same rate. The cost-tracker
-     table diverged from models.yaml, causing under-reporting in admin spend stats.
+  2. packages/ai/cost_tracker.py — claude-fable-5 pricing added to the tracker
+     and claude-fable-5-1 added at the same rate.
   3. packages/llm/types.py / providers/anthropic.py — reasoning_tokens added to
      Usage and populated from output_tokens_details.reasoning_tokens in Anthropic
      API responses.  Thinking models emit this field; it was silently discarded.
+
+NOTE (2026-09-06 correction): the 2026-09-04 run set Fable 5 / 5.1 prices to
+30.0/120.0, which was wrong.  Official pricing is $10/$50 per MTok; context
+window is 1M tokens; max output 128K.  Assertions below were updated in the
+2026-09-06 daily automation (test_daily_automation_2026_09_06.py covers the
+corrections; these tests track the final correct values).
 """
 from __future__ import annotations
 
@@ -40,10 +45,12 @@ class TestCatalogFable51:
         assert _cfg().models["claude-fable-5-1"].provider == "anthropic"
 
     def test_fable51_context_window(self) -> None:
-        assert _cfg().models["claude-fable-5-1"].context_window == 200_000
+        # Corrected 2026-09-06: official context is 1M tokens (1,048,576).
+        assert _cfg().models["claude-fable-5-1"].context_window == 1_048_576
 
     def test_fable51_max_output_tokens(self) -> None:
-        assert _cfg().models["claude-fable-5-1"].max_output_tokens == 32_000
+        # Corrected 2026-09-06: official max output is 128K tokens (131,072).
+        assert _cfg().models["claude-fable-5-1"].max_output_tokens == 131_072
 
     def test_fable51_supports_tools(self) -> None:
         assert _cfg().models["claude-fable-5-1"].supports_tools is True
@@ -58,10 +65,12 @@ class TestCatalogFable51:
         assert _cfg().models["claude-fable-5-1"].supports_streaming is True
 
     def test_fable51_input_cost(self) -> None:
-        assert _cfg().models["claude-fable-5-1"].input_cost_per_1m == 30.0
+        # Corrected 2026-09-06: official price is $10/MTok input (not $30).
+        assert _cfg().models["claude-fable-5-1"].input_cost_per_1m == 10.0
 
     def test_fable51_output_cost(self) -> None:
-        assert _cfg().models["claude-fable-5-1"].output_cost_per_1m == 120.0
+        # Corrected 2026-09-06: official price is $50/MTok output (not $120).
+        assert _cfg().models["claude-fable-5-1"].output_cost_per_1m == 50.0
 
     def test_fable51_has_higher_priority_than_fable5(self) -> None:
         """5.1 is the newer release, so it should be preferred over 5.0."""
@@ -97,20 +106,22 @@ class TestCostTrackerFable:
     """Verify that cost_tracker prices match models.yaml for the Fable family."""
 
     def test_fable5_cost_tracker_matches_yaml(self) -> None:
-        """claude-fable-5 was 3.0/15.0 in the tracker but 30.0/120.0 in models.yaml."""
+        """claude-fable-5 is in the tracker and priced at the official $10/$50 rate."""
+        # Corrected 2026-09-06: official price is $10/$50 per MTok.
         table = _cost_table()
         assert "claude-fable-5" in table
         inp, out = table["claude-fable-5"]
-        assert inp == 30.0, f"expected input 30.0, got {inp}"
-        assert out == 120.0, f"expected output 120.0, got {out}"
+        assert inp == 10.0, f"expected input 10.0, got {inp}"
+        assert out == 50.0, f"expected output 50.0, got {out}"
 
     def test_fable51_in_cost_tracker(self) -> None:
         assert "claude-fable-5-1" in _cost_table()
 
     def test_fable51_cost_tracker_pricing(self) -> None:
+        # Corrected 2026-09-06: official price is $10/$50 per MTok.
         inp, out = _cost_table()["claude-fable-5-1"]
-        assert inp == 30.0
-        assert out == 120.0
+        assert inp == 10.0
+        assert out == 50.0
 
     def test_fable5_and_fable51_same_pricing(self) -> None:
         table = _cost_table()

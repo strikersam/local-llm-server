@@ -25,8 +25,8 @@ from typing import Any
 log = logging.getLogger("llm-cost-tracker")
 
 # ── Per-million-token cost table (USD) ────────────────────────────────────────
-# Pricing as of 2026; free-tier providers are listed at $0.00.
-# Source: provider pricing pages + community tracking.
+# Pricing as of 2026-09-06; free-tier providers are listed at $0.00.
+# Anthropic source: platform.claude.com/docs/en/about-claude/pricing
 _DEFAULT_COST_TABLE: dict[str, tuple[float, float]] = {
     # (input_per_M, output_per_M)
     # --- NVIDIA NIM (free tier) ---
@@ -58,17 +58,20 @@ _DEFAULT_COST_TABLE: dict[str, tuple[float, float]] = {
     # Qwen3 32B on Groq — strong coder, free tier (Aug 2026).
     "qwen-qwq-32b": (0.0, 0.0),
     # --- Anthropic (paid) — Claude 5 family + Sonnet 4.x / Opus 4.x ---
-    "claude-opus-5": (15.0, 75.0),         # Opus 5 — most capable; planner/judge role
-    "claude-sonnet-5": (3.0, 15.0),        # GA July 2026, 1M context, adaptive thinking
-    "claude-sonnet-5-20260501": (3.0, 15.0),
-    "claude-fable-5": (30.0, 120.0),       # Fable 5 — gated flagship; matches models.yaml
-    "claude-fable-5-1": (30.0, 120.0),     # Fable 5.1 — revised release (2026-09)
+    # Prices verified from platform.claude.com/docs/en/about-claude/pricing 2026-09-06.
+    "claude-opus-5": (5.0, 25.0),          # Opus 5 — $5/$25 per MTok
+    "claude-sonnet-5": (2.0, 10.0),        # Sonnet 5 — $2/$10 per MTok (introductory price made permanent 2026-09-01)
+    "claude-sonnet-5-20260501": (2.0, 10.0),
+    "claude-fable-5": (10.0, 50.0),        # Fable 5 — $10/$50 per MTok (gated flagship)
+    "claude-fable-5-1": (10.0, 50.0),      # Fable 5.1 — $10/$50, cache reads 0.025x base
+    "claude-mythos-5": (10.0, 50.0),       # Mythos 5 — same as Fable 5 (restricted)
+    "claude-mythos-5-1": (10.0, 50.0),     # Mythos 5.1 — released 2026-09-01 (restricted)
     "claude-sonnet-4-6": (3.0, 15.0),
-    "claude-opus-4-8": (15.0, 75.0),
-    "claude-opus-4-7": (15.0, 75.0),       # Opus 4.7 — same pricing tier as 4.8
-    "claude-opus-4-6": (15.0, 75.0),       # Opus 4.6 — same pricing tier as 4.8
-    "claude-haiku-4-5-20251001": (0.8, 4.0),
-    "claude-haiku-4-5": (0.8, 4.0),        # short alias used in some callers
+    "claude-opus-4-8": (5.0, 25.0),        # Opus 4.8 — $5/$25 per MTok (same tier as Opus 5)
+    "claude-opus-4-7": (5.0, 25.0),        # Opus 4.7 — $5/$25 per MTok
+    "claude-opus-4-6": (5.0, 25.0),        # Opus 4.6 — $5/$25 per MTok
+    "claude-haiku-4-5-20251001": (1.0, 5.0),
+    "claude-haiku-4-5": (1.0, 5.0),        # Haiku 4.5 — $1/$5 per MTok
     "claude-3-5-sonnet-20241022": (3.0, 15.0),
     "claude-3-5-haiku-20241022": (0.8, 4.0),
     # --- OpenAI (paid) — GPT-5.6 family (GA July 9 2026) + legacy ---

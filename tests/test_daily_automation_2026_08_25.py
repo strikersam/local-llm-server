@@ -49,10 +49,12 @@ class TestCatalogOpus48:
         assert _cfg().models["claude-opus-4-8"].supports_streaming is True
 
     def test_opus48_input_cost(self) -> None:
-        assert _cfg().models["claude-opus-4-8"].input_cost_per_1m == 15.0
+        # Corrected 2026-09-06: official price is $5/MTok (same tier as Opus 5).
+        assert _cfg().models["claude-opus-4-8"].input_cost_per_1m == 5.0
 
     def test_opus48_output_cost(self) -> None:
-        assert _cfg().models["claude-opus-4-8"].output_cost_per_1m == 75.0
+        # Corrected 2026-09-06: official price is $25/MTok output.
+        assert _cfg().models["claude-opus-4-8"].output_cost_per_1m == 25.0
 
     def test_opus48_priority_below_claude5(self) -> None:
         """Claude 4 Opus should have lower priority (higher number) than all Claude 5."""
@@ -96,7 +98,8 @@ class TestCatalogFable5:
         assert _cfg().models["claude-fable-5"].provider == "anthropic"
 
     def test_fable5_context_window(self) -> None:
-        assert _cfg().models["claude-fable-5"].context_window == 200_000
+        # Corrected 2026-09-06: official context is 1M tokens (1,048,576).
+        assert _cfg().models["claude-fable-5"].context_window == 1_048_576
 
     def test_fable5_supports_tools(self) -> None:
         assert _cfg().models["claude-fable-5"].supports_tools is True
@@ -136,7 +139,8 @@ class TestCatalogMythos5:
         assert _cfg().models["claude-mythos-5"].provider == "anthropic"
 
     def test_mythos5_context_window(self) -> None:
-        assert _cfg().models["claude-mythos-5"].context_window == 200_000
+        # Corrected 2026-09-06: official context is 1M tokens (1,048,576).
+        assert _cfg().models["claude-mythos-5"].context_window == 1_048_576
 
     def test_mythos5_supports_tools(self) -> None:
         assert _cfg().models["claude-mythos-5"].supports_tools is True

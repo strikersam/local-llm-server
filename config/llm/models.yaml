@@ -216,8 +216,8 @@ models:
     supports_images: true
     supports_streaming: true
     supports_reasoning: true
-    input_cost_per_1m: 15.0
-    output_cost_per_1m: 75.0
+    input_cost_per_1m: 5.0
+    output_cost_per_1m: 25.0
     priority: 64
     speed_tier: slow
     aliases: [opus-4-8]
@@ -327,20 +327,21 @@ models:
     priority: 63
     speed_tier: medium
 
-  # Opus 5: flagship, most capable Claude model (2026).
+  # Opus 5: flagship, most capable Claude model (2026). 1M context window, 128K
+  # max output. Pricing: $5/$25 per MTok input/output (source: platform.claude.com/docs/en/about-claude/pricing, 2026-09-06).
   claude-opus-5:
     provider: anthropic
     display_name: Claude Opus 5
-    context_window: 200000
-    max_output_tokens: 32000
+    context_window: 1048576
+    max_output_tokens: 131072
     supports_tools: true
     supports_function_calling: true
     supports_json: true
     supports_images: true
     supports_streaming: true
     supports_reasoning: true
-    input_cost_per_1m: 15.0
-    output_cost_per_1m: 75.0
+    input_cost_per_1m: 5.0
+    output_cost_per_1m: 25.0
     priority: 62
     speed_tier: slow
     aliases: [opus5]
@@ -350,39 +351,41 @@ models:
   # under US export-control directive (2026-06-12); requires
   # ROUTER_ALLOW_FABLE5=1 — see router/registry.py for the runtime gate.
   # Adaptive thinking (no temperature, no extended thinking budget).
+  # 1M context, 128K output. Pricing $10/$50 per MTok (source: platform.claude.com/docs/en/about-claude/pricing, 2026-09-06).
   claude-fable-5:
     provider: anthropic
     display_name: Claude Fable 5
-    context_window: 200000
-    max_output_tokens: 32000
+    context_window: 1048576
+    max_output_tokens: 131072
     supports_tools: true
     supports_function_calling: true
     supports_json: true
     supports_images: true
     supports_streaming: true
     supports_reasoning: true
-    input_cost_per_1m: 30.0
-    output_cost_per_1m: 120.0
+    input_cost_per_1m: 10.0
+    output_cost_per_1m: 50.0
     priority: 61
     speed_tier: slow
     aliases: [fable5]
 
-  # Fable 5.1: revised Fable 5 release (2026-09); same gating + adaptive-thinking
-  # constraints as Fable 5, with improved instruction-following and context handling.
+  # Fable 5.1: revised Fable 5 release (2026-09-01); same gating + adaptive-thinking
+  # constraints as Fable 5. Cache reads cost 0.025x base (vs 0.1x on other models).
+  # 1M context, 128K output. Pricing $10/$50 per MTok (source: platform.claude.com/docs/en/about-claude/pricing, 2026-09-06).
   # Requires ROUTER_ALLOW_FABLE5=1.
   claude-fable-5-1:
     provider: anthropic
     display_name: Claude Fable 5.1
-    context_window: 200000
-    max_output_tokens: 32000
+    context_window: 1048576
+    max_output_tokens: 131072
     supports_tools: true
     supports_function_calling: true
     supports_json: true
     supports_images: true
     supports_streaming: true
     supports_reasoning: true
-    input_cost_per_1m: 30.0
-    output_cost_per_1m: 120.0
+    input_cost_per_1m: 10.0
+    output_cost_per_1m: 50.0
     priority: 60
     speed_tier: slow
     aliases: [fable5.1]
@@ -390,19 +393,41 @@ models:
   # Mythos 5: same underlying model as Fable 5 with fewer dual-use safeguards.
   # Restricted to Anthropic-approved organisations; requires ROUTER_ALLOW_MYTHOS=1.
   # Adaptive thinking (no temperature, no extended thinking budget).
+  # 1M context, 128K output. Pricing $10/$50 per MTok (source: platform.claude.com/docs/en/about-claude/pricing, 2026-09-06).
   claude-mythos-5:
     provider: anthropic
     display_name: Claude Mythos 5
-    context_window: 200000
-    max_output_tokens: 32000
+    context_window: 1048576
+    max_output_tokens: 131072
     supports_tools: true
     supports_function_calling: true
     supports_json: true
     supports_images: true
     supports_streaming: true
     supports_reasoning: true
-    input_cost_per_1m: 30.0
-    output_cost_per_1m: 120.0
+    input_cost_per_1m: 10.0
+    output_cost_per_1m: 50.0
     priority: 61
     speed_tier: slow
     aliases: [mythos5]
+
+  # Mythos 5.1: same underlying model as Fable 5.1 with fewer safeguards.
+  # Released 2026-09-01. Restricted to vetted orgs (Anthropic Glasswing program);
+  # requires ROUTER_ALLOW_MYTHOS=1. Cache reads 0.025x base.
+  # 1M context, 128K output. Pricing $10/$50 per MTok.
+  claude-mythos-5-1:
+    provider: anthropic
+    display_name: Claude Mythos 5.1
+    context_window: 1048576
+    max_output_tokens: 131072
+    supports_tools: true
+    supports_function_calling: true
+    supports_json: true
+    supports_images: true
+    supports_streaming: true
+    supports_reasoning: true
+    input_cost_per_1m: 10.0
+    output_cost_per_1m: 50.0
+    priority: 59
+    speed_tier: slow
+    aliases: [mythos5.1]
