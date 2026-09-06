@@ -27,6 +27,7 @@ _GUARDED_FILES = [
     "webui/router.py",
     "workflow/api.py",
     "agents/agile_api.py",
+    "agent/coordinate.py",
 ]
 
 # Matches `detail=str(exc))` or `detail=str(e))` — the leaking pattern.

@@ -213,4 +213,4 @@ async def coordinate_v2(body: CoordinateRequestV2) -> dict[str, Any]:
         raise
     except Exception as exc:
         log.exception("Agent coordination v2 failed")
-        raise HTTPException(status_code=500, detail=str(exc)) from exc
+        raise HTTPException(status_code=500, detail="Internal server error") from exc
