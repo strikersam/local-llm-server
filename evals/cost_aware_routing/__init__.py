@@ -12,6 +12,7 @@ time, and the human/eval acceptance verdict — is a manual step per the README.
 from __future__ import annotations
 
 from .pricing import MODEL_PRICING, ModelPrice, set_price, token_cost
+from .runsio import load_runs, render_report, report_for_file
 from .scoring import Attempt, SuiteResult, TaskRun, compare, score_suite
 from .tasks import TASKS, EvalTask, load_tasks
 
@@ -25,6 +26,9 @@ __all__ = [
     "SuiteResult",
     "score_suite",
     "compare",
+    "load_runs",
+    "render_report",
+    "report_for_file",
     "TASKS",
     "EvalTask",
     "load_tasks",

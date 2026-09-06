@@ -10,6 +10,7 @@ UVICORN ?= .venv/bin/uvicorn
 .PHONY: help install dev test test-fast test-verbose lint hooks-install
 .PHONY: changelog-check ai-start ai-status ai-resume ai-stop ai-logs
 .PHONY: manifest summary audit ui-docs ci-parity doctor agent-readiness
+.PHONY: eval-routing
 
 # ── Help ──────────────────────────────────────────────────────────────────────
 
@@ -36,6 +37,7 @@ help:
 	@echo "  make summary         Summarize last AI session"
 	@echo "  make audit           Run dependency and security audit"
 	@echo "  make ui-docs         Refresh UI screenshots + README gallery"
+	@echo "  make eval-routing    Score cost-aware routing (illustrative sample)"
 	@echo ""
 
 # ── Setup ─────────────────────────────────────────────────────────────────────
@@ -63,6 +65,14 @@ test-verbose:
 # Requires Docker to be running.  Mirrors .github/workflows/ci.yml exactly.
 ci-parity:
 	@bash scripts/test_ci.sh
+
+# ── Evals ─────────────────────────────────────────────────────────────────────
+
+# Score the cost-aware subagent routing. With no RUNS file, scores the bundled
+# illustrative sample (numbers are NOT measured); pass RUNS=path/to/runs.json to
+# score your own recorded runs. See evals/cost_aware_routing/README.md.
+eval-routing:
+	@$(PYTHON) -m evals.cost_aware_routing $(if $(RUNS),$(RUNS),--example)
 
 # ── Lint ──────────────────────────────────────────────────────────────────────
 

@@ -221,6 +221,13 @@ Discipline for the orchestrating session (the parent task is the contract):
 - **Verify on evidence, not confidence** (rules 45-47). The human owns
   consequential decisions, approvals, and final ownership (rule 40).
 
+Whether the routing actually pays off is a measured question, not an assumed one.
+The harness for it is `evals/cost_aware_routing/` (`make eval-routing`, or
+`python -m evals.cost_aware_routing --example`): a fixed task catalogue and a
+**cost-per-accepted-task** score in which rework and rejected work count against
+a cheap model. It ships the instrument, not results — record real runs per its
+README and score them; do not quote the illustrative sample as a finding.
+
 ---
 
 ## Session state
