@@ -287,7 +287,7 @@ def build_governance_router(get_current_user: Callable[..., Any]) -> APIRouter:
             )
         except ValueError as exc:
             # Validation failed — a bad proposal, not a server fault.
-            raise HTTPException(status_code=400, detail=str(exc)) from None
+            raise HTTPException(status_code=400, detail="Internal server error") from None
         except Exception as exc:  # noqa: BLE001 - GitHub API failure, etc.
             log.exception("Policy proposal PR failed")
             raise HTTPException(status_code=502, detail="Failed to open policy proposal PR") from None
