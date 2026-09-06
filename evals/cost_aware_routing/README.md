@@ -56,6 +56,25 @@ print(out["routed"].cost_per_accepted_task)
 print(out["savings_pct"])  # None if the baseline metric isn't finite
 ```
 
+## CLI
+
+Record your runs as JSON (schema in `runsio.py`) and score them without writing
+code:
+
+```bash
+# your recorded runs
+python -m evals.cost_aware_routing runs.json
+make eval-routing RUNS=runs.json
+
+# the bundled illustrative sample (numbers are NOT measured)
+python -m evals.cost_aware_routing --example
+make eval-routing
+```
+
+The sample (`runs_example.json`) exists only to show the report shape — its
+`note` field says so. Replace it with real run logs before drawing any
+conclusion.
+
 ## How the metric resists gaming
 
 `cost_per_accepted_task = (total cost of every attempt) / (accepted tasks)`.

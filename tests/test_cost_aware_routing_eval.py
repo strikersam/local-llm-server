@@ -7,6 +7,7 @@ needs rework is not a saving" — and the integrity of the task catalogue.
 from __future__ import annotations
 
 import math
+from pathlib import Path
 
 import pytest
 
@@ -15,10 +16,15 @@ from evals.cost_aware_routing import (
     Attempt,
     TaskRun,
     compare,
+    load_runs,
     load_tasks,
+    render_report,
+    report_for_file,
     score_suite,
     token_cost,
 )
+
+_EXAMPLE = Path(__file__).parent.parent / "evals" / "cost_aware_routing" / "runs_example.json"
 
 
 def test_token_cost_matches_published_rates() -> None:
@@ -122,3 +128,40 @@ def test_catalogue_loads_and_validates() -> None:
     tasks = load_tasks()
     assert all(t.success_criteria for t in tasks)
     assert len({t.task_id for t in tasks}) == len(tasks)  # ids unique
+
+
+def test_load_runs_parses_baseline_and_routed() -> None:
+    runs = load_runs(_EXAMPLE)
+    assert runs["baseline"] and runs["routed"]
+    first = runs["baseline"][0]
+    assert isinstance(first, TaskRun)
+    assert first.attempts[0].tier in {"haiku", "sonnet", "opus"}
+
+
+def test_example_runs_score_and_routing_is_cheaper() -> None:
+    # The illustrative sample is constructed so routing wins; this guards the
+    # end-to-end path (load -> score -> compare), not a real-world claim.
+    runs = load_runs(_EXAMPLE)
+    out = compare(runs["baseline"], runs["routed"])
+    assert out["baseline"].accepted_count == out["routed"].accepted_count
+    assert out["cost_per_accepted_task_delta"] < 0
+    assert out["savings_pct"] > 0
+
+
+def test_render_report_is_readable_text() -> None:
+    report = report_for_file(_EXAMPLE)
+    assert "cost / accepted task" in report
+    assert "savings:" in report
+    assert "baseline" in report and "routed" in report
+
+
+def test_render_report_handles_infinite_baseline() -> None:
+    # Nothing accepted in the baseline -> cost/accepted is inf, savings n/a,
+    # and the renderer must not raise.
+    comparison = compare(
+        [TaskRun("t", [Attempt("opus", 10, 10)], accepted=False)],
+        [TaskRun("t", [Attempt("haiku", 10, 10)], accepted=True)],
+    )
+    report = render_report(comparison)
+    assert "inf" in report
+    assert "n/a" in report

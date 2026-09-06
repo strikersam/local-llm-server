@@ -1,0 +1,23 @@
+{
+  "note": "ILLUSTRATIVE example data — NOT measured. These token counts and acceptance verdicts are invented to demonstrate the report output. Replace with real run logs (see README.md § Method) before drawing any conclusion.",
+  "baseline": [
+    {"task_id": "docs-env-parity", "accepted": true,
+     "attempts": [{"tier": "opus", "input_tokens": 42000, "output_tokens": 5500, "wall_seconds": 58}]},
+    {"task_id": "explore-failover-chain", "accepted": true,
+     "attempts": [{"tier": "opus", "input_tokens": 61000, "output_tokens": 7200, "wall_seconds": 74}]},
+    {"task_id": "impl-model-registry-entry", "accepted": true,
+     "attempts": [{"tier": "opus", "input_tokens": 88000, "output_tokens": 14000, "wall_seconds": 190}]},
+    {"task_id": "hard-failover-race", "accepted": true,
+     "attempts": [{"tier": "opus", "input_tokens": 120000, "output_tokens": 22000, "wall_seconds": 320}]}
+  ],
+  "routed": [
+    {"task_id": "docs-env-parity", "accepted": true,
+     "attempts": [{"tier": "haiku", "input_tokens": 42000, "output_tokens": 5500, "wall_seconds": 40}]},
+    {"task_id": "explore-failover-chain", "accepted": true,
+     "attempts": [{"tier": "haiku", "input_tokens": 61000, "output_tokens": 7200, "wall_seconds": 50}]},
+    {"task_id": "impl-model-registry-entry", "accepted": true,
+     "attempts": [{"tier": "sonnet", "input_tokens": 88000, "output_tokens": 14000, "wall_seconds": 175}]},
+    {"task_id": "hard-failover-race", "accepted": true,
+     "attempts": [{"tier": "opus", "input_tokens": 120000, "output_tokens": 22000, "wall_seconds": 320}]}
+  ]
+}
