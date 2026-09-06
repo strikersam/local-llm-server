@@ -390,6 +390,15 @@ def main(argv: list[str] | None = None) -> int:
         print(f"    base_url: {provider.base_url or '(unset)'}")
         print(f"    key present: {state}")
 
+        if not getattr(provider, "enabled", True) and not args.provider:
+            # Local providers (ollama, lmstudio, vllm, localai) default to a
+            # localhost base_url even when disabled, so they pass the two
+            # checks below and get dialled anyway — always failing in CI,
+            # where nothing listens on that port. That is not drift; it is
+            # the operator's own switch. An explicit `--provider <id>` still
+            # probes it, for checking a candidate before flipping it on.
+            print("    skipped — disabled here (pass --provider to probe anyway)")
+            continue
         if provider.requires_key and not key:
             print("    skipped — no key configured here")
             continue

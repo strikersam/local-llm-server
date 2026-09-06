@@ -178,6 +178,68 @@ class TestAFailedProbeIsNotASuccess:
         assert probe.main(["--chat", "acme"]) == 0
 
 
+class TestDisabledProvidersAreNotFalselyReportedUnreachable:
+    """Local providers (ollama, lmstudio, vllm, localai) default to a
+    localhost ``base_url`` and ``requires_key: false`` even when their
+    ``*_ENABLED`` switch is off — so they passed both existing skip checks,
+    got dialled anyway, and always failed in CI (nothing listens on
+    localhost there). That produced permanent, unfixable "unreachable"
+    noise in the scheduled drift issue (#1434) for providers nobody asked
+    the probe to check.
+    """
+
+    def test_a_disabled_provider_is_skipped_in_a_full_sweep(
+        self, probe, monkeypatch, capsys
+    ) -> None:
+        monkeypatch.setattr(
+            probe, "_providers", lambda only: [_provider(enabled=False, requires_key=False)]
+        )
+
+        def _boom(p, path, key, payload=None):
+            raise OSError("connection refused")
+
+        monkeypatch.setattr(probe, "_request", _boom)
+        probe.main([])
+        out = capsys.readouterr().out
+
+        assert "skipped — disabled here" in out
+        assert "unreachable: acme" not in out
+
+    def test_an_explicit_provider_request_still_probes_a_disabled_one(
+        self, probe, monkeypatch, capsys
+    ) -> None:
+        """``gh workflow run ... -f provider=ollama`` must still work: an
+        operator checking a candidate before flipping the switch on needs a
+        real answer, not a silent skip."""
+        monkeypatch.setattr(
+            probe, "_providers", lambda only: [_provider(enabled=False, requires_key=False)]
+        )
+
+        def _boom(p, path, key, payload=None):
+            raise OSError("connection refused")
+
+        monkeypatch.setattr(probe, "_request", _boom)
+        code = probe.main(["--provider", "acme"])
+        out = capsys.readouterr().out
+
+        assert "skipped — disabled here" not in out
+        assert "unreachable: acme" in out
+        assert code == 1
+
+    def test_an_enabled_provider_is_unaffected(self, probe, monkeypatch, capsys) -> None:
+        monkeypatch.setenv("ACME_API_KEY", SECRET)
+        monkeypatch.setattr(probe, "_providers", lambda only: [_provider(enabled=True)])
+
+        def _request(p, path, key, payload=None):
+            return {"data": [{"id": "acme/model-1"}]}
+
+        monkeypatch.setattr(probe, "_request", _request)
+        probe.main([])
+        out = capsys.readouterr().out
+
+        assert "skipped — disabled here" not in out
+
+
 class TestAuthFollowsTheProviderDeclaration:
     def test_bearer_is_the_default(self, probe) -> None:
         assert probe._auth_headers(_provider(), "k") == {"Authorization": "Bearer k"}
