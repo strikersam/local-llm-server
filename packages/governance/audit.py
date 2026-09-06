@@ -82,6 +82,51 @@ _VALUE_PATTERNS: tuple[re.Pattern[str], ...] = (
 _MAX_VALUE_CHARS = 2000
 _MAX_RESULT_CHARS = 4000
 
+# Personally-identifiable values that are not secrets but must not linger in a
+# stored audit row. Kept deliberately narrow: a US SSN and a payment-card
+# number. Email and phone are *excluded* on purpose — the audit event
+# legitimately records an owner identity (frequently an email), so a blanket
+# email/phone redaction would gut the trail's debuggability for near-zero gain,
+# and both shapes are far too common in ordinary tool arguments to redact
+# safely. SSNs are matched only in their separated form (a bare run of nine
+# digits collides with too many innocent ids), and card numbers are
+# Luhn-validated so a 16-digit order ref or snowflake id is not mistaken for a
+# PAN.
+_SSN_RE = re.compile(r"\b\d{3}[-\s]\d{2}[-\s]\d{4}\b")
+_CARD_CANDIDATE_RE = re.compile(r"\b(?:\d[ -]?){13,19}\b")
+
+
+def _luhn_ok(digits: str) -> bool:
+    """True when ``digits`` (bare, no separators) satisfies the Luhn checksum."""
+    total = 0
+    for i, ch in enumerate(reversed(digits)):
+        d = ord(ch) - 48
+        if i % 2 == 1:
+            d *= 2
+            if d > 9:
+                d -= 9
+        total += d
+    return total % 10 == 0
+
+
+def _redact_pii(text: str) -> str:
+    """Redact SSNs and Luhn-valid payment-card numbers from a string.
+
+    Runs after the secret-value pass in :func:`_scrub_text`. A card candidate
+    is only redacted when its digits (separators stripped) pass Luhn, keeping
+    false positives on ordinary long numbers negligible.
+    """
+
+    def _card(match: re.Match[str]) -> str:
+        digits = re.sub(r"[ -]", "", match.group(0))
+        if 13 <= len(digits) <= 19 and _luhn_ok(digits):
+            return "***"
+        return match.group(0)
+
+    redacted = _CARD_CANDIDATE_RE.sub(_card, text)
+    redacted = _SSN_RE.sub("***", redacted)
+    return redacted
+
 
 def scrub(value: Any) -> Any:
     """Recursively strip secrets from an arbitrary argument structure.
@@ -140,6 +185,7 @@ def _scrub_text(text: str) -> str:
             lambda m: m.group(0).replace(m.group(1), "***") if m.groups() else "***",
             redacted,
         )
+    redacted = _redact_pii(redacted)
     if len(redacted) > _MAX_VALUE_CHARS:
         return redacted[:_MAX_VALUE_CHARS] + f"...[truncated {len(redacted)} chars]"
     return redacted
