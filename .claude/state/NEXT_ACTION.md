@@ -1,12 +1,24 @@
 # Next Action
 
-_Updated 2026-09-05._
+_Updated 2026-09-06._
 
-> **Since 2026-09-03:** issue #1422 (routine backlog W36, all four items) shipped
-> via #1424/#1425/#1426 and the issue is closed — scheduled catalogue-probe with
-> drift-issue filing, `_chat_json` failure diagnostics, an Anthropic cache-breakpoint
-> verify-test, and the stale Cerebras "Free" doc line. That work left **no new pending
-> action**; task #50 below remains the top priority for the next session.
+> **Since 2026-09-05:** the new scheduled catalogue-probe (#1426) filed issue #1434
+> the next morning, and its "Unreachable providers" section was itself a bug: `ollama`/
+> `lmstudio`/`vllm`/`localai` are disabled by default but still had a localhost
+> `base_url`, so the probe dialled them anyway on every CI run and always failed.
+> Fixed in PR [#1443](https://github.com/strikersam/autonomous-ai-agency/pull/1443)
+> (auto-merge armed) — see tracker row 53. **Not fixed, needs a live key:** #1434 also
+> names `anthropic:claude-sonnet-5` returning HTTP 400 to the probe's minimal chat
+> payload (`model`, one user message, `max_tokens: 8` — no `temperature`, so this is
+> not the known adaptive-thinking 400 class already guarded in
+> `packages/llm/providers/anthropic.py`/`packages/ai/router.py`). Could not be
+> reproduced here — no `ANTHROPIC_API_KEY` reaches this sandbox. Re-run
+> `gh workflow run catalogue-probe.yml -f provider=anthropic -f chat=anthropic
+> -f model=claude-sonnet-5` and read the raw response body (the probe only prints
+> the HTTP status, not the error JSON — that may itself be worth improving) before
+> guessing at a fix. `cerebras:gpt-oss-120b` HTTP 402 in the same issue is the
+> already-tracked billing hold, §6 below — no code fix exists for it. Task #50 below
+> remains the top priority for the next session that can run the real pytest suite.
 
 ## TOP: Provider/model central source of truth + admin-UI control (task #50)
 
