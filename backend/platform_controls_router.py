@@ -78,7 +78,7 @@ def build_platform_controls_router(get_current_user: Callable) -> APIRouter:
         try:
             result = await set_overrides(body.updates, actor=_actor(user))
         except ValueError as exc:
-            raise HTTPException(status_code=400, detail=str(exc)) from exc
+            raise HTTPException(status_code=400, detail="Internal server error") from exc
         log.info(
             "platform-controls: %s updated %s", _actor(user), sorted(body.updates)
         )
@@ -94,7 +94,7 @@ def build_platform_controls_router(get_current_user: Callable) -> APIRouter:
         try:
             result = await clear_override(key, actor=_actor(user))
         except ValueError as exc:
-            raise HTTPException(status_code=404, detail=str(exc)) from exc
+            raise HTTPException(status_code=404, detail="Internal server error") from exc
         log.info("platform-controls: %s reset %s", _actor(user), key)
         return result | await snapshot()
 
