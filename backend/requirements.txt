@@ -58,7 +58,7 @@ langfuse>=4.15.1,<5
 # Anthropic SDK — agent/loop.py imports it for the native Messages API path.
 # Without it the import raises, the loop silently falls through to the
 # OpenAI-compatible failover, and paid Claude calls degrade.
-anthropic>=1.2.0
+anthropic>=1.3.0
 
 # E2B Firecracker micro-VM sandbox — services/e2b_config.is_e2b_sdk_importable().
 # Without it the Providers screen reports "e2b OFFLINE / SDK not installed"
