@@ -33,6 +33,9 @@ services:
       - /run/base44/app.env
     environment:
       - PORT=8001
+      # Public URL for Telegram webhook registration + keep-alive pinging.
+      # Not a secret — a config URL the platform env doesn't provide in dev.
+      - RENDER_EXTERNAL_URL=https://8001-${BASE44_PUBLIC_HOST_SUFFIX}
     healthcheck:
       test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8001/api/health', timeout=5)\" || exit 1"]
       interval: 15s
