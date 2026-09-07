@@ -1789,7 +1789,7 @@ class AgentRunner:
         # ═══════════════════════════════════════════════════════════════════
         # GitHub Tools
         if tool == "github_read_repo_file":
-            return await self.github.read_repo_file(
+            return await self.github.read_repo_file_compat(
                 repo_name=str(args.get("repo_name", "")),
                 path=str(args.get("path", "")),
                 branch=str(args.get("branch", "main"))
@@ -1819,7 +1819,7 @@ class AgentRunner:
         if tool == "github_list_repos":
             return await self.github.list_repos()
         if tool == "github_list_branches":
-            return await self.github.list_branches(
+            return await self.github.list_branches_compat(
                 repo_name=str(args.get("repo_name", ""))
             )
 
