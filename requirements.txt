@@ -38,7 +38,7 @@ redis>=8.1.0  # Redis client for shared-state backend (optional; in-memory defau
 fakeredis[lua]>=2.37.1  # Fake Redis for tests
 curl_cffi>=0.16.2
 dnspython>=2.8.0
-graphifyy>=0.9.51  # AI knowledge-graph CLI used by .claude/hooks/graphify-refresh
+graphifyy>=0.9.53  # AI knowledge-graph CLI used by .claude/hooks/graphify-refresh
 playwright>=1.62.0
 reportlab>=5.0.1,<6  # CTO-level PDF export for SEO/GEO/AEO/AIO audit reports
 # E2B Firecracker micro-VM sandbox (roadmap ★5). Optional — imports are guarded
