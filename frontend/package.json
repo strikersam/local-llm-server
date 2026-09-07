@@ -61,7 +61,7 @@
     "uuid": ">=9.0.0",
     "bfj": ">=8.0.0",
     "css-select": ">=5.1.0",
-    "webpack-dev-server": ">=5.2.4",
+    "webpack-dev-server": "4.15.2",
     "http-proxy-agent": {
       "@tootallnate/once": ">=2.0.1"
     }

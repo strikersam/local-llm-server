@@ -280,3 +280,50 @@ mechanically what would otherwise have to be prose:
 | Configuration | `docs/configuration-reference.md` |
 | Runbooks, ADRs, changelog | `docs/` |
 | Rules audit — what was cut and why | `.claude/rules-archive/` |
+
+---
+
+## Base44 Dev Environment
+
+The Base44 dev setup lives in `docker-compose.base44.yml` (separate from the
+project's own `docker-compose.yml`). It runs two services from bind-mounted
+source with live reload:
+
+- **backend** — `python:3.13-slim`, runs `uvicorn backend.server:app --reload`
+  on port 8001. Installs `backend/requirements.txt` + `git` at startup (pip
+  cache volume speeds restarts). Health: `GET /api/health`.
+- **frontend** — `node:22`, runs `react-scripts start` on port 3000. Installs
+  with `npm install --legacy-peer-deps` (node_modules named volume persists).
+
+### Key wiring
+
+- **Separate origins**: the frontend calls the backend at
+  `REACT_APP_BACKEND_URL=https://8001-${BASE44_PUBLIC_HOST_SUFFIX}` (set in
+  compose `environment:`). The backend has `CORS_ORIGINS=*` by default. Auth
+  uses JWT Bearer tokens in localStorage — no cookies, so cross-origin works
+  without same-origin proxying.
+- **`DANGEROUSLY_DISABLE_HOST_CHECK=true`** is required for the CRA dev server
+  to accept the preview's external hostname (sandbox id rotates).
+- **Storage**: the platform's `/run/base44/app.env` pre-populates
+  `STORAGE_BACKEND=mongo` + `MONGO_URL`, overriding the `sqlite` default in
+  `.env.base44-defaults`. The app runs against the user's MongoDB Atlas.
+- **`ADMIN_PASSWORD`** also comes from `/run/base44/app.env` (overrides the
+  `changeme` placeholder). Admin email: `admin@llmrelay.local`.
+
+### Quirk: webpack-dev-server override
+
+`frontend/package.json` had `"webpack-dev-server": ">=5.2.4"` in `overrides`,
+which forces v5 — incompatible with `react-scripts@5.0.1` (expects v4). Changed
+to `"4.15.2"` to fix the dev server crash
+(`onAfterSetupMiddleware` unknown property).
+
+### Verify it works
+
+```bash
+docker compose -f docker-compose.base44.yml up -d
+curl -s http://localhost:8001/api/health   # → {"status":"ok",...}
+curl -s -o /dev/null -w "%{http_code}" http://localhost:3000/  # → 200
+```
+
+The preview shows the login page. Log in with the admin email + the
+`ADMIN_PASSWORD` from the platform secrets.

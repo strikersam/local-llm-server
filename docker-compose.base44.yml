@@ -1,0 +1,74 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# Base44 dev environment — Autonomous AI Agency
+#
+# Two services, both running from bind-mounted source with live reload:
+#   backend  — FastAPI (backend/server.py) on port 8001, SQLite storage
+#   frontend — Create React App dev server (react-scripts start) on port 3000
+#
+# The frontend talks to the backend's public URL (REACT_APP_BACKEND_URL) with
+# CORS — auth uses JWT Bearer tokens in localStorage, not cookies, so
+# cross-origin requests work without same-origin proxying.
+# ─────────────────────────────────────────────────────────────────────────────
+
+services:
+  backend:
+    image: python:3.13-slim
+    working_dir: /app
+    volumes:
+      - .:/app
+      - pip_cache:/root/.cache/pip
+    # Install system deps + Python deps at startup, then run uvicorn with --reload.
+    # pip_cache volume means re-installs after restart are fast (wheels cached).
+    command: >
+      sh -c "
+        apt-get update &&
+        apt-get install -y --no-install-recommends git &&
+        pip install -r backend/requirements.txt &&
+        exec uvicorn backend.server:app --host 0.0.0.0 --port 8001 --reload
+      "
+    ports:
+      - "8001:8001"
+    env_file:
+      - ./.env.base44-defaults
+      - /run/base44/app.env
+    environment:
+      - PORT=8001
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8001/api/health', timeout=5)\" || exit 1"]
+      interval: 15s
+      timeout: 10s
+      retries: 6
+      start_period: 300s
+
+  frontend:
+    image: node:22
+    working_dir: /app/frontend
+    volumes:
+      - .:/app
+      - frontend_node_modules:/app/frontend/node_modules
+    # npm install (not ci) so the override change in package.json re-resolves.
+    # Skip if node_modules already populated (named volume persists).
+    command: sh -c "if [ ! -d node_modules/react ]; then npm install --legacy-peer-deps; fi && BROWSER=none HOST=0.0.0.0 PORT=3000 npm start"
+    ports:
+      - "3000:3000"
+    environment:
+      # Backend's public URL — the browser calls the API directly (CORS *).
+      - REACT_APP_BACKEND_URL=https://8001-${BASE44_PUBLIC_HOST_SUFFIX}
+      # Accept the preview's external hostname (sandbox id rotates).
+      - DANGEROUSLY_DISABLE_HOST_CHECK=true
+      # File-watch polling for bind-mount reliability.
+      - CHOKIDAR_USEPOLLING=true
+      - WATCHPACK_POLLING=true
+    healthcheck:
+      test: ["CMD-SHELL", "node -e \"require('http').get('http://localhost:3000/',r=>process.exit(r.statusCode<500?0:1)).on('error',()=>process.exit(1))\""]
+      interval: 15s
+      timeout: 10s
+      retries: 6
+      start_period: 180s
+    depends_on:
+      backend:
+        condition: service_healthy
+
+volumes:
+  pip_cache:
+  frontend_node_modules:

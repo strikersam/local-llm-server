@@ -1,0 +1,22 @@
+{
+  "previewPort": 3000,
+  "healthPath": "/",
+  "startCommand": "docker compose -f docker-compose.base44.yml up -d",
+  "secrets": [
+    {
+      "name": "ADMIN_PASSWORD",
+      "description": "Admin account password for the backend. Server crashes without it. Admin email is admin@llmrelay.local.",
+      "requiredAtBoot": true
+    },
+    {
+      "name": "MONGO_URL",
+      "description": "MongoDB connection string. Required when STORAGE_BACKEND=mongo (the platform default).",
+      "requiredAtBoot": true
+    },
+    {
+      "name": "STORAGE_BACKEND",
+      "description": "Storage backend: 'mongo' (default) or 'sqlite'. Platform pre-populates 'mongo'.",
+      "requiredAtBoot": false
+    }
+  ]
+}
