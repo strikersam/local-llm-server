@@ -25,7 +25,7 @@ lxml>=6.1.2           # HTML parser for BeautifulSoup (seo_audit.py uses bs4 "lx
 #     (without it, gucci.com-class Akamai sites return a blocked/empty body).
 #   - dnspython: the MX/NS/TXT/CNAME analysis (_analyze_dns) that yields the
 #     ~11 "no-browser-needed" systems (Akamai, Microsoft 365, Salesforce, …).
-curl_cffi>=0.16.2
+curl_cffi>=0.16.3
 dnspython>=2.8.0
 
 # Headless-browser rendering for the website scanner (JS-rendered / bot-protected
