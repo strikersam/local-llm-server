@@ -292,10 +292,11 @@ class WebReach:
             for _ in range(max_redirects + 1):
                 resp = client.get(current)
                 if resp.is_redirect:
-                    nxt = str(resp.next_request.url) if resp.next_request else resp.headers.get("location", "")
+                    raw_nxt = str(resp.next_request.url) if resp.next_request else resp.headers.get("location", "")
+                    nxt = urllib.parse.urljoin(current, raw_nxt)
                     reason = unsafe_target_reason(nxt)
                     if reason:
-                        raise ValueError(f"refused redirect target: {reason}")
+                        raise ValueError(f"refused redirect target ({nxt}): {reason}")
                     current = nxt
                     continue
                 resp.raise_for_status()
