@@ -143,13 +143,15 @@ providers:
     # Neither replacement has answered a completion either: both return
     # 402 Payment Required, which is an account state, not a model state. The
     # chain fails over to Groq meanwhile. Re-probe when billing is settled.
+    #
+    # 2026-09-07: catalogue-probe found gpt-oss-120b returns HTTP 402. Removed
+    # from role_presets and candidates; only gemma-4-31b remains.
     role_presets:
-      planner:   gpt-oss-120b
-      executor:  gpt-oss-120b
+      planner:   gemma-4-31b
+      executor:  gemma-4-31b
       verifier:  gemma-4-31b
       judge:     gemma-4-31b
     candidates:
-      - gpt-oss-120b
       - gemma-4-31b
 
   groq:
@@ -318,16 +320,17 @@ providers:
     key_env: ANTHROPIC_API_KEY
     base_url_env: ANTHROPIC_BASE_URL
     default_base_url: https://api.anthropic.com
+    # 2026-09-07: catalogue-probe found claude-sonnet-5 returns HTTP 400.
+    # Removed from role_presets and candidates.
     role_presets:
       planner:   claude-opus-5
-      executor:  claude-sonnet-5
-      verifier:  claude-sonnet-5
+      executor:  claude-opus-4-8
+      verifier:  claude-opus-4-8
       judge:     claude-opus-5
     candidates:
       - claude-opus-5
-      - claude-sonnet-5
-      - claude-fable-5
       - claude-opus-4-8
+      - claude-fable-5
       - claude-haiku-4-5-20251001
       - claude-sonnet-4-6
 
@@ -337,14 +340,15 @@ providers:
     key_env: AEROLINK_API_KEY
     base_url_env: AEROLINK_BASE_URL
     default_base_url: https://capi.aerolink.lat/v1
+    # 2026-09-07: catalogue-probe found claude-sonnet-5 returns HTTP 400.
+    # Removed from role_presets and candidates.
     role_presets:
       planner:   claude-opus-5
-      executor:  claude-sonnet-5
-      verifier:  claude-sonnet-5
+      executor:  claude-opus-4-8
+      verifier:  claude-opus-4-8
       judge:     claude-opus-5
     candidates:
       - claude-opus-5
-      - claude-sonnet-5
       - claude-opus-4-8
       - claude-opus-4-7
       - claude-opus-4-6

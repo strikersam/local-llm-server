@@ -57,7 +57,21 @@ class TestAgentProfile:
         assert "Coder" in p.label
         assert p.model in p.label
 
-    def test_coder_not_reviewer_by_default(self):
+    def test_coder_not_reviewer_by_default(self, monkeypatch):
+        # Ensure different models by using a provider with distinct executor/judge presets.
+        # Mistral has executor=mistral-small-latest, judge=mistral-large-latest.
+        # Clear all higher-priority keys so _catalog_provider picks mistral.
+        for key in ("NVIDIA_API_KEY", "DEEPSEEK_API_KEY", "GROQ_API_KEY", 
+                     "DASHSCOPE_API_KEY", "QWEN_API_KEY", "CEREBRAS_API_KEY"):
+            monkeypatch.delenv(key, raising=False)
+        monkeypatch.setenv("MISTRAL_API_KEY", "test-mistral-key")
+        
+        # Re-import to pick up the monkeypatched env
+        import importlib
+        import agents.profiles
+        importlib.reload(agents.profiles)
+        from agents.profiles import make_coder_profile, make_reviewer_profile
+        
         coder = make_coder_profile()
         reviewer = make_reviewer_profile()
         # Default models must differ — this is the core invariant

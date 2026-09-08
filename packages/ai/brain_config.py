@@ -189,8 +189,10 @@ PROVIDER_PRESETS: dict[str, dict[str, str]] = {
     "cerebras": {
         # Probed 2026-08-29: the account serves gpt-oss-120b and gemma-4-31b.
         # The four ids previously here answered 404. See config/models.yaml.
-        "planner":   "gpt-oss-120b",
-        "executor":  "gpt-oss-120b",
+        # 2026-09-07: catalogue-probe found gpt-oss-120b returns HTTP 402.
+        # All roles now use gemma-4-31b.
+        "planner":   "gemma-4-31b",
+        "executor":  "gemma-4-31b",
         "verifier":  "gemma-4-31b",
         "judge":     "gemma-4-31b",
     },
@@ -244,15 +246,19 @@ PROVIDER_PRESETS: dict[str, dict[str, str]] = {
         "judge":     "glm-5.2",
     },
     "aerolink": {
+        # 2026-09-07: catalogue-probe found claude-sonnet-5 returns HTTP 400.
+        # Executor and verifier now use claude-opus-4-8.
         "planner":   "claude-opus-5",
-        "executor":  "claude-sonnet-5",
-        "verifier":  "claude-sonnet-5",
+        "executor":  "claude-opus-4-8",
+        "verifier":  "claude-opus-4-8",
         "judge":     "claude-opus-5",
     },
     "anthropic": {
+        # 2026-09-07: catalogue-probe found claude-sonnet-5 returns HTTP 400.
+        # Executor and verifier now use claude-opus-4-8.
         "planner":   "claude-opus-5",
-        "executor":  "claude-sonnet-5",
-        "verifier":  "claude-sonnet-5",
+        "executor":  "claude-opus-4-8",
+        "verifier":  "claude-opus-4-8",
         "judge":     "claude-opus-5",
     },
     "google": {
@@ -369,7 +375,8 @@ PROVIDER_CANDIDATES: dict[str, list[str]] = {
     "cerebras": [
         # Read off the account's own /v1/models on 2026-08-29, not from docs.
         # Everything else this file used to list answers 404.
-        "gpt-oss-120b",
+        # 2026-09-07: catalogue-probe found gpt-oss-120b returns HTTP 402.
+        # Removed from candidates; only gemma-4-31b remains.
         "gemma-4-31b",
     ],
     "groq": [
@@ -403,16 +410,18 @@ PROVIDER_CANDIDATES: dict[str, list[str]] = {
         "anthropic/claude-3.5-sonnet",
     ],
     "anthropic": [
+        # 2026-09-07: catalogue-probe found claude-sonnet-5 returns HTTP 400.
+        # Removed from candidates.
         "claude-opus-5",
-        "claude-sonnet-5",
         "claude-fable-5",
         "claude-opus-4-8",
         "claude-haiku-4-5-20251001",
         "claude-sonnet-4-6",
     ],
     "aerolink": [
+        # 2026-09-07: catalogue-probe found claude-sonnet-5 returns HTTP 400.
+        # Removed from candidates.
         "claude-opus-5",
-        "claude-sonnet-5",
         "claude-opus-4-8",
         "claude-opus-4-7",
         "claude-opus-4-6",

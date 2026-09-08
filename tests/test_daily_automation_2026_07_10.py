@@ -182,13 +182,17 @@ class TestBrainConfigUpdates:
         bc = self._bc()
         assert bc.PROVIDER_PRESETS["anthropic"]["planner"] == "claude-opus-5"
 
-    def test_anthropic_preset_uses_claude_sonnet5_for_executor(self):
+    def test_anthropic_preset_uses_claude_opus48_for_executor(self):
         bc = self._bc()
-        assert bc.PROVIDER_PRESETS["anthropic"]["executor"] == "claude-sonnet-5"
+        # 2026-09-07: catalogue-probe found claude-sonnet-5 returns HTTP 400.
+        # Executor now uses claude-opus-4-8.
+        assert bc.PROVIDER_PRESETS["anthropic"]["executor"] == "claude-opus-4-8"
 
     def test_aerolink_preset_updated_to_latest_claude(self):
         bc = self._bc()
-        assert bc.PROVIDER_PRESETS["aerolink"]["executor"] == "claude-sonnet-5"
+        # 2026-09-07: catalogue-probe found claude-sonnet-5 returns HTTP 400.
+        # Executor now uses claude-opus-4-8.
+        assert bc.PROVIDER_PRESETS["aerolink"]["executor"] == "claude-opus-4-8"
 
     def test_groq_planner_preset_is_a_live_rotation_candidate(self):
         """The durable property, not the id of the week.

@@ -3,6 +3,14 @@
      move the gate to root. -->
 
 ## [Unreleased]
+### Fixed
+- `config/models.yaml` — Removed failing models from Cerebras and Anthropic providers per catalogue probe results (2026-09-07):
+  - Cerebras: `gpt-oss-120b` returned HTTP 402 (Payment Required); all roles now use `gemma-4-31b` as fallback.
+  - Anthropic: `claude-sonnet-5` returned HTTP 400; executor and verifier roles now use `claude-opus-4-8` across both `anthropic` and `aerolink` providers.
+- `packages/ai/brain_config.py` — Updated `PROVIDER_PRESETS` and `PROVIDER_CANDIDATES` to match the above changes.
+- `tests/test_brain_config_store.py` — Fixed `test_get_never_raises_on_total_failure` to properly monkeypatch cloud provider API keys so the safe default is tested correctly.
+- `tests/test_agents.py` — Fixed `test_coder_not_reviewer_by_default` to force a provider (Mistral) with distinct executor/judge models so the invariant holds.
+- `tests/test_daily_automation_2026_07_10.py` — Updated assertions for Anthropic and Aerolink executor models to reflect `claude-opus-4-8`.
 ### Security
 
 - **The audit scrubber now redacts SSNs and payment-card numbers, not only secrets** (2026-09-06). `packages/governance/audit.py::scrub()` already stripped tokens, API keys and connection-URI credentials before an argument was stored in an audit row (`AuditEvent.__post_init__`), but it let personally-identifiable values ride through. `_scrub_text` now runs a narrow PII pass after the secret pass: a US SSN (separated form only) and a Luhn-valid payment-card number are replaced with `***`. Deliberately narrow — email and phone are **not** redacted, because the audit event legitimately records an owner identity (frequently an email) and both shapes are far too common in ordinary tool arguments to redact without gutting the trail's debuggability; card candidates are Luhn-checked so a 16-digit order ref or snowflake id is not mistaken for a PAN, and a bare nine-digit run is left alone. Additive and fails-closed like the rest of `scrub`. 11 tests. Files: `packages/governance/audit.py`, `tests/test_governance_audit_pii.py`.

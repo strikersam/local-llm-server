@@ -372,6 +372,10 @@ def test_sqlite_mirror_round_trips_through_set(monkeypatch, tmp_path):
 
 def test_get_never_raises_on_total_failure(monkeypatch):
     """If both Mongo AND sqlite fail, the store returns the safe default."""
+    # Clear cloud provider keys so the recommended chain falls to the safe default.
+    for env_var in ("CEREBRAS_API_KEY", "GROQ_API_KEY", "NVIDIA_API_KEY"):
+        monkeypatch.delenv(env_var, raising=False)
+
     db = MagicMock()
     db.app_settings = MagicMock()
     db.app_settings.find_one = AsyncMock(side_effect=RuntimeError("mongo down"))
